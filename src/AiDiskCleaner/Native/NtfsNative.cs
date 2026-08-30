@@ -9,7 +9,9 @@ internal static class NtfsNative
     internal const uint GENERIC_READ = 0x80000000;
     internal const uint FILE_SHARE_READ = 0x00000001;
     internal const uint FILE_SHARE_WRITE = 0x00000002;
+    internal const uint FILE_SHARE_DELETE = 0x00000004;
     internal const uint OPEN_EXISTING = 3;
+    internal const uint FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000; // 提示系统这是顺序扫描，启用激进预读
     internal const uint FSCTL_GET_NTFS_VOLUME_DATA = 0x00090064;
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]

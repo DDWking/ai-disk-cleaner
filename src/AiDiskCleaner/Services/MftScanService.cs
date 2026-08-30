@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -9,7 +10,8 @@ namespace AiDiskCleaner.Services;
 
 /// <summary>
 /// 路线 A：直接读取 NTFS 的 MFT（主文件表），实现秒级扫盘，与 WizTree 同款技术。
-/// 需要管理员权限；仅支持 NTFS。
+/// 优先直接读 $MFT 文件（走文件系统缓存 + 预读，最快）；失败则回退读卷偏移。
+/// 需要管理员权限；仅支持 NTFS。各阶段耗时写入 exe 目录下的 scan-timing.log。
 /// </summary>
 public sealed class MftScanService : IScanService
 {
@@ -18,52 +20,83 @@ public sealed class MftScanService : IScanService
 
     public FileEntry Scan(string rootPath, IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
     {
-        string devicePath = @"\\.\" + rootPath.TrimEnd('\\'); // 例如 \\.\C:
+        var total = Stopwatch.StartNew();
+        var log = new StringBuilder();
+        string devicePath = @"\\.\" + rootPath.TrimEnd('\\');            // \\.\C:
+        string mftFilePath = rootPath.TrimEnd('\\') + "\\$MFT";          // C:\$MFT
 
-        using SafeFileHandle handle = OpenVolume(devicePath);
-        var vol = GetVolumeInfo(handle);
+        // 1. 打开卷拿 MFT 元信息（记录大小、长度、卷偏移）
+        int recordSize;
+        long mftLength;
+        long mftOffset;
+        using (var volHandle = OpenVolume(devicePath))
+        {
+            var vol = GetVolumeInfo(volHandle);
+            recordSize = vol.BytesPerFileRecordSegment;
+            mftLength = vol.MftValidDataLength;
+            mftOffset = vol.MftStartLcn * vol.BytesPerCluster;
+        }
+        log.AppendLine($"记录大小 {recordSize}B, MFT 长度 {mftLength / 1048576}MB, 预计记录数 {mftLength / recordSize:N0}");
 
-        long mftOffset = vol.MftStartLcn * vol.BytesPerCluster; // MFT 在卷上的字节偏移
-        long mftLength = vol.MftValidDataLength;
-        int recordSize = vol.BytesPerFileRecordSegment;
-
-        // 记录号 → 条目；记录号 → 父目录记录号（MFT 顺序不保证父在前，先收集后建树）
         var entries = new Dictionary<ulong, FileEntry>();
         var parents = new Dictionary<ulong, ulong>();
-
-        if (!NtfsNative.SetFilePointerEx(handle, mftOffset, out _, 0))
-            throw new IOException($"定位 MFT 失败，错误码 {Marshal.GetLastWin32Error()}");
 
         byte[] buffer = new byte[BlockSize];
         ulong recordNumber = 0;
         long remaining = mftLength;
+        var readSw = new Stopwatch();
+        var parseSw = new Stopwatch();
 
-        while (remaining > 0)
+        // 2. 优先直接读 $MFT 文件（文件系统缓存 + 预读，最快）；失败回退读卷偏移
+        SafeFileHandle mftHandle;
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            int toRead = (int)Math.Min(buffer.Length, remaining);
-            if (!NtfsNative.ReadFile(handle, buffer, (uint)toRead, out uint bytesRead, IntPtr.Zero) || bytesRead == 0)
-                break;
-
-            int pos = 0;
-            while (pos + recordSize <= bytesRead)
-            {
-                var entry = ParseRecord(buffer, pos, recordNumber, out ulong parentRef);
-                if (entry != null)
-                {
-                    entries[recordNumber] = entry;
-                    parents[recordNumber] = parentRef & 0xFFFFFFFFFFFFUL; // 取文件引用的低 48 位记录号
-                }
-                pos += recordSize;
-                recordNumber++;
-            }
-            remaining -= bytesRead;
-
-            if ((recordNumber & 0x1FFF) == 0)
-                progress?.Report(new ScanProgress(entries.Count, "MFT 扫描中"));
+            mftHandle = OpenMftFile(mftFilePath);
+            log.AppendLine("读取方式: 直接读 $MFT 文件");
+        }
+        catch (Exception ex)
+        {
+            mftHandle = OpenVolume(devicePath);
+            if (!NtfsNative.SetFilePointerEx(mftHandle, mftOffset, out _, 0))
+                throw new IOException($"定位 MFT 失败，错误码 {Marshal.GetLastWin32Error()}");
+            log.AppendLine($"读取方式: 回退读卷偏移（{ex.Message}）");
         }
 
-        // 建树：根目录 = 记录 5
+        using (mftHandle)
+        {
+            while (remaining > 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                int toRead = (int)Math.Min(buffer.Length, remaining);
+                readSw.Start();
+                bool ok = NtfsNative.ReadFile(mftHandle, buffer, (uint)toRead, out uint bytesRead, IntPtr.Zero);
+                readSw.Stop();
+                if (!ok || bytesRead == 0) break;
+
+                parseSw.Start();
+                int pos = 0;
+                while (pos + recordSize <= bytesRead)
+                {
+                    var entry = ParseRecord(buffer, pos, recordNumber, out ulong parentRef);
+                    if (entry != null)
+                    {
+                        entries[recordNumber] = entry;
+                        parents[recordNumber] = parentRef & 0xFFFFFFFFFFFFUL; // 取文件引用的低 48 位记录号
+                    }
+                    pos += recordSize;
+                    recordNumber++;
+                }
+                parseSw.Stop();
+                remaining -= bytesRead;
+
+                if ((recordNumber & 0x1FFF) == 0)
+                    progress?.Report(new ScanProgress(entries.Count, "MFT 扫描中"));
+            }
+        }
+        log.AppendLine($"读盘 {readSw.ElapsedMilliseconds}ms, 解析 {parseSw.ElapsedMilliseconds}ms");
+
+        // 3. 建树：根目录 = 记录 5
+        var buildSw = Stopwatch.StartNew();
         FileEntry root = entries.TryGetValue(RootRecordNumber, out var rootRec)
             ? rootRec
             : new FileEntry { Kind = EntryKind.Directory };
@@ -80,9 +113,21 @@ public sealed class MftScanService : IScanService
             else
                 root.Children.Add(entry); // 父目录找不到（已删除/解析失败），挂到根
         }
+        buildSw.Stop();
+        log.AppendLine($"建树 {buildSw.ElapsedMilliseconds}ms");
 
-        // 单次 DFS：填 FullPath + 自底向上累加目录大小（合并原来的两次遍历）
+        // 4. 单次 DFS：填 FullPath + 自底向上累加目录大小
+        var accSw = Stopwatch.StartNew();
         Accumulate(root);
+        accSw.Stop();
+        log.AppendLine($"累加 {accSw.ElapsedMilliseconds}ms");
+
+        total.Stop();
+        log.AppendLine($"MFT 扫描总耗时 {total.ElapsedMilliseconds}ms ({total.Elapsed.TotalSeconds:0.00}s), 文件/目录数 {entries.Count:N0}");
+
+        try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "scan-timing.log"), log.ToString()); }
+        catch { /* 日志失败不影响主流程 */ }
+
         return root;
     }
 
@@ -165,11 +210,21 @@ public sealed class MftScanService : IScanService
         return total;
     }
 
+    private static SafeFileHandle OpenMftFile(string path)
+    {
+        var handle = NtfsNative.CreateFile(path, NtfsNative.GENERIC_READ,
+            NtfsNative.FILE_SHARE_READ | NtfsNative.FILE_SHARE_WRITE | NtfsNative.FILE_SHARE_DELETE,
+            IntPtr.Zero, NtfsNative.OPEN_EXISTING, NtfsNative.FILE_FLAG_SEQUENTIAL_SCAN, IntPtr.Zero);
+        if (handle.IsInvalid)
+            throw new IOException($"无法打开 {path}。错误码 {Marshal.GetLastWin32Error()}");
+        return handle;
+    }
+
     private static SafeFileHandle OpenVolume(string devicePath)
     {
         var handle = NtfsNative.CreateFile(devicePath, NtfsNative.GENERIC_READ,
             NtfsNative.FILE_SHARE_READ | NtfsNative.FILE_SHARE_WRITE,
-            IntPtr.Zero, NtfsNative.OPEN_EXISTING, 0, IntPtr.Zero);
+            IntPtr.Zero, NtfsNative.OPEN_EXISTING, NtfsNative.FILE_FLAG_SEQUENTIAL_SCAN, IntPtr.Zero);
         if (handle.IsInvalid)
             throw new UnauthorizedAccessException($"无法打开卷 {devicePath}（需管理员权限）。错误码 {Marshal.GetLastWin32Error()}");
         return handle;
