@@ -89,7 +89,7 @@ public sealed class MftScanService : IScanService
                 int pos = 0;
                 while (pos + recordSize <= bytesRead && recordNumber < (ulong)recordCount)
                 {
-                    var entry = ParseRecord(buffer, pos, recordNumber, out ulong parentRef);
+                    var entry = ParseRecord(buffer, pos, recordSize, recordNumber, out ulong parentRef);
                     if (entry != null)
                     {
                         entries[recordNumber] = entry;
@@ -140,16 +140,17 @@ public sealed class MftScanService : IScanService
         return root;
     }
 
-    private static FileEntry? ParseRecord(byte[] b, int offset, ulong recordNumber, out ulong parentRef)
+    private static FileEntry? ParseRecord(byte[] b, int offset, int recordSize, ulong recordNumber, out ulong parentRef)
     {
         parentRef = 0;
         try
         {
-            if (offset + 4 > b.Length) return null;
-            // 记录头魔数 "FILE"
+            if (offset + 4 > b.Length || offset + recordSize > b.Length) return null;
             if (b[offset] != (byte)'F' || b[offset + 1] != (byte)'I' ||
                 b[offset + 2] != (byte)'L' || b[offset + 3] != (byte)'E')
                 return null;
+
+            ApplyUsaFixup(b, offset, recordSize);
 
             ushort flags = ReadUInt16(b, offset + 0x16);
             if ((flags & 0x01) == 0) return null; // 未使用的记录
@@ -163,36 +164,55 @@ public sealed class MftScanService : IScanService
             DateTime modified = DateTime.MinValue;
 
             int pos = offset + attrOffset;
-            int end = offset + (int)Math.Min(usedSize, (uint)(b.Length - offset));
+            int end = offset + (int)Math.Min(usedSize, (uint)recordSize);
 
-            // 遍历属性链
             while (pos + 16 <= end)
             {
                 uint attrType = ReadUInt32(b, pos);
                 if (attrType == 0xFFFFFFFF) break;
                 uint attrLength = ReadUInt32(b, pos + 4);
-                // 防御损坏数据：长度过小或过大都停止，防止越界/死循环
                 if (attrLength < 16 || attrLength > 0x10000) break;
                 int next = pos + (int)attrLength;
                 if (next > end) break;
 
                 byte nonResident = b[pos + 8];
+                byte attrNameLen = b[pos + 9];
 
-                // $FILE_NAME (0x30) 驻留属性：文件名、父目录引用、大小、时间戳
+                // $FILE_NAME：只要名字、父目录、时间。大小不可靠，不在这里取。
                 if (attrType == 0x30 && nonResident == 0)
                 {
                     ushort valueOffset = ReadUInt16(b, pos + 0x14);
                     int valuePos = pos + valueOffset;
-                    if (valuePos + 0x42 <= b.Length)
+                    if (valuePos + 0x42 <= end)
                     {
-                        parentRef = ReadUInt64(b, valuePos);
-                        modified = FileTimeToDateTime(ReadInt64(b, valuePos + 16));
-                        size = ReadInt64(b, valuePos + 0x30);
                         byte fnLen = b[valuePos + 0x40];
+                        byte nameSpace = b[valuePos + 0x41]; // 2 = DOS 短名，应让位给 Win32
                         int nameBytes = fnLen * 2;
-                        if (valuePos + 0x42 + nameBytes <= b.Length)
-                            name = Encoding.Unicode.GetString(b, valuePos + 0x42, nameBytes);
+                        if (valuePos + 0x42 + nameBytes <= end)
+                        {
+                            if (name.Length == 0 || nameSpace != 2)
+                            {
+                                parentRef = ReadUInt64(b, valuePos);
+                                modified = FileTimeToDateTime(ReadInt64(b, valuePos + 16));
+                                name = Encoding.Unicode.GetString(b, valuePos + 0x42, nameBytes);
+                            }
+                        }
                     }
+                }
+
+                // 未命名 $DATA 才是真实文件大小
+                if (attrType == 0x80 && attrNameLen == 0 && !isDirectory)
+                {
+                    if (nonResident == 0)
+                    {
+                        size = ReadUInt32(b, pos + 0x10); // 驻留：值长度
+                    }
+                    else if (pos + 0x38 <= next)
+                    {
+                        size = ReadInt64(b, pos + 0x30); // 非驻留：RealSize
+                    }
+                    if (size < 0 || size > 32L * 1024 * 1024 * 1024 * 1024) // 单文件超过 32TB 视为损坏
+                        size = 0;
                 }
 
                 pos = next;
@@ -213,7 +233,24 @@ public sealed class MftScanService : IScanService
         catch
         {
             parentRef = 0;
-            return null; // 单条损坏记录，跳过，不崩整个扫描
+            return null;
+        }
+    }
+
+    /// <summary>把每个扇区末尾被 USN 覆盖的 2 字节还原，否则大小/名字会读到垃圾。</summary>
+    private static void ApplyUsaFixup(byte[] b, int offset, int recordSize)
+    {
+        ushort usaOffset = ReadUInt16(b, offset + 4);
+        ushort usaCount = ReadUInt16(b, offset + 6);
+        if (usaCount < 2 || usaOffset + usaCount * 2 > recordSize) return;
+        int sectors = usaCount - 1;
+        for (int i = 1; i <= sectors; i++)
+        {
+            int dest = offset + i * 512 - 2;
+            int src = offset + usaOffset + i * 2;
+            if (dest + 1 >= offset + recordSize || src + 1 >= offset + recordSize) break;
+            b[dest] = b[src];
+            b[dest + 1] = b[src + 1];
         }
     }
 
@@ -231,7 +268,7 @@ public sealed class MftScanService : IScanService
             order.Add(node);
             foreach (var c in node.Children)
             {
-                c.FullPath = node.FullPath + "\\" + c.Name;
+                c.FullPath = node.FullPath.TrimEnd('\\') + "\\" + c.Name;
                 if (c.IsDirectory && !visited.Contains(c))
                     stack.Push(c);
             }
