@@ -39,10 +39,14 @@ public class FileEntry
 
     public static string FormatSize(long bytes)
     {
-        string[] units = { "B", "KB", "MB", "GB", "TB" };
-        double v = bytes;
-        int i = 0;
-        while (v >= 1024 && i < units.Length - 1) { v /= 1024; i++; }
-        return v >= 100 ? Math.Round(v).ToString() + " " + units[i] : v.ToString("0.0") + " " + units[i];
+        if (bytes < 1024 * 1024)
+            return Math.Max(0, (int)Math.Round(bytes / 1024.0)) + " KB";
+        if (bytes < 1024L * 1024 * 1024)
+        {
+            double mb = bytes / (1024.0 * 1024);
+            return (mb >= 100 ? Math.Round(mb).ToString() : mb.ToString("0.0")) + " MB";
+        }
+        double g = bytes / (1024.0 * 1024 * 1024);
+        return (g >= 100 ? Math.Round(g).ToString() : g.ToString("0.0")) + " G";
     }
 }
