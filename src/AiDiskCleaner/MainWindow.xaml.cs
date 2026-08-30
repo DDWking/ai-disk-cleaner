@@ -8,7 +8,8 @@ namespace AiDiskCleaner;
 
 public partial class MainWindow : Window
 {
-    private readonly IScanService _scanner = new RecursiveScanService();
+    private readonly IScanService _scanner = new MftScanService();
+    private readonly IScanService _fallback = new RecursiveScanService();
     private FileEntry _root = null!;
     private FileEntry _current = null!;
     private CancellationTokenSource? _cts;
@@ -46,7 +47,16 @@ public partial class MainWindow : Window
         try
         {
             string drive = DriveBox.SelectedItem.ToString()!;
-            var root = await Task.Run(() => _scanner.Scan(drive, progress, _cts.Token));
+            FileEntry root;
+            try
+            {
+                root = await Task.Run(() => _scanner.Scan(drive, progress, _cts.Token));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                HeaderStats.Text = "MFT 不可用，回退到递归扫描…";
+                root = await Task.Run(() => _fallback.Scan(drive, progress, _cts.Token));
+            }
             FinishScan(root);
         }
         catch (OperationCanceledException)

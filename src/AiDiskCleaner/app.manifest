@@ -9,8 +9,8 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- 将来读 MFT 需要管理员权限时，把 asInvoker 改成 requireAdministrator -->
-        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+        <!-- 读 MFT 需要管理员权限 -->
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>
