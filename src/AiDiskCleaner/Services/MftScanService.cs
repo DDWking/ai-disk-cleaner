@@ -13,8 +13,8 @@ namespace AiDiskCleaner.Services;
 /// </summary>
 public sealed class MftScanService : IScanService
 {
-    private const int BlockSize = 1024 * 1024; // 每次顺序读 1MB
-    private const ulong RootRecordNumber = 5;  // NTFS 根目录（$Root）的记录号
+    private const int BlockSize = 16 * 1024 * 1024; // 每次顺序读 16MB
+    private const ulong RootRecordNumber = 5;       // NTFS 根目录（$Root）的记录号
 
     public FileEntry Scan(string rootPath, IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
     {
@@ -81,8 +81,8 @@ public sealed class MftScanService : IScanService
                 root.Children.Add(entry); // 父目录找不到（已删除/解析失败），挂到根
         }
 
-        FillPaths(root, rootPath);
-        AccumulateSize(root);
+        // 单次 DFS：填 FullPath + 自底向上累加目录大小（合并原来的两次遍历）
+        Accumulate(root);
         return root;
     }
 
@@ -152,20 +152,15 @@ public sealed class MftScanService : IScanService
         };
     }
 
-    private static void FillPaths(FileEntry node, string parentPath)
-    {
-        foreach (var c in node.Children)
-        {
-            c.FullPath = parentPath + "\\" + c.Name;
-            if (c.IsDirectory) FillPaths(c, c.FullPath);
-        }
-    }
-
-    private static long AccumulateSize(FileEntry node)
+    /// <summary>一次 DFS：给每个节点填 FullPath，并自底向上累加目录大小。</summary>
+    private static long Accumulate(FileEntry node)
     {
         long total = 0;
         foreach (var c in node.Children)
-            total += c.IsDirectory ? AccumulateSize(c) : c.Size;
+        {
+            c.FullPath = node.FullPath + "\\" + c.Name;
+            total += c.IsDirectory ? Accumulate(c) : c.Size;
+        }
         node.Size = total;
         return total;
     }

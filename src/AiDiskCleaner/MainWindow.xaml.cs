@@ -8,10 +8,13 @@ namespace AiDiskCleaner;
 
 public partial class MainWindow : Window
 {
+    private const int MaxDisplayRows = 50000; // 文件列表最多渲染的行数，超出只显示前 N 行
+
     private readonly IScanService _scanner = new MftScanService();
     private readonly IScanService _fallback = new RecursiveScanService();
     private FileEntry _root = null!;
     private FileEntry _current = null!;
+    private List<FileEntry> _allFiles = new(); // 缓存：根目录下所有文件（避免重复递归收集）
     private CancellationTokenSource? _cts;
     private bool _scanning;
     private DateTime _scanStart;
@@ -81,29 +84,32 @@ public partial class MainWindow : Window
     {
         _root = root;
         _current = root;
+        _allFiles = CollectFiles(root); // 只收集一次，缓存
         PopulateTree();
         ShowDirectory(root);
-        var all = CollectFiles(root);
         ElapsedText.Text = "扫描耗时 " + (DateTime.Now - _scanStart).TotalSeconds.ToString("0.00") + "s";
-        HeaderStats.Text = all.Count.ToString("N0") + " 个文件";
-        var cleanable = all.Where(f => f.Category is "临时" or "日志").ToList();
+        HeaderStats.Text = _allFiles.Count.ToString("N0") + " 个文件";
+        var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志").ToList();
         CleanHintText.Text = cleanable.Count > 0
             ? $"🧠 AI 建议：{cleanable.Count} 个临时/日志文件可清理，约 {FileEntry.FormatSize(cleanable.Sum(f => f.Size))}"
             : "🧠 AI 建议：磁盘很干净";
     }
 
+    /// <summary>迭代式收集目录下所有文件（用显式栈，避免深递归与 List 反复扩容的开销）。</summary>
     private static List<FileEntry> CollectFiles(FileEntry node)
     {
         var list = new List<FileEntry>();
-        void Walk(FileEntry n)
+        var stack = new Stack<FileEntry>();
+        stack.Push(node);
+        while (stack.Count > 0)
         {
+            var n = stack.Pop();
             foreach (var c in n.Children)
             {
-                if (c.IsDirectory) Walk(c);
+                if (c.IsDirectory) stack.Push(c);
                 else list.Add(c);
             }
         }
-        Walk(node);
         return list;
     }
 
@@ -143,15 +149,18 @@ public partial class MainWindow : Window
     private void ShowDirectory(FileEntry dir)
     {
         _current = dir;
-        var files = CollectFiles(dir);
+        var files = ReferenceEquals(dir, _root) ? _allFiles : CollectFiles(dir);
+        int total = files.Count;
         if (!string.IsNullOrWhiteSpace(SearchBox.Text))
         {
             var q = SearchBox.Text.Trim().ToLower();
             files = files.Where(f => f.Name.ToLower().Contains(q) || f.FullPath.ToLower().Contains(q)).ToList();
+            total = files.Count;
         }
-        FileGrid.ItemsSource = files;
-        FileCountText.Text = files.Count.ToString("N0") + " 个文件";
-        TotalSizeText.Text = FileEntry.FormatSize(files.Sum(f => f.Size));
+        var display = files.Count > MaxDisplayRows ? files.Take(MaxDisplayRows).ToList() : files;
+        FileGrid.ItemsSource = display;
+        FileCountText.Text = total.ToString("N0") + (total > MaxDisplayRows ? $" 个文件（显示前 {MaxDisplayRows:N0}）" : " 个文件");
+        TotalSizeText.Text = FileEntry.FormatSize(dir.Size); // dir.Size 已由扫描时自底向上累加好
         TreeMap.SetItems(dir.Children);
         TreemapCrumb.Text = dir.FullPath;
     }
