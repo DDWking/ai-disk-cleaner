@@ -1,6 +1,6 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Threading;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 
@@ -8,57 +8,78 @@ namespace AiDiskCleaner;
 
 public partial class MainWindow : Window
 {
+    private readonly IScanService _scanner = new RecursiveScanService();
     private FileEntry _root = null!;
     private FileEntry _current = null!;
-    private DispatcherTimer? _scanTimer;
-    private int _progress;
+    private CancellationTokenSource? _cts;
+    private bool _scanning;
     private DateTime _scanStart;
+
+    private static readonly object Placeholder = new();
 
     public MainWindow()
     {
         InitializeComponent();
-        DriveBox.ItemsSource = new[] { "C:", "D:", "E:" };
-        DriveBox.SelectedIndex = 0;
+        var drives = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.Name).ToList();
+        DriveBox.ItemsSource = drives;
+        if (drives.Count > 0) DriveBox.SelectedIndex = 0;
         Loaded += (_, _) => RunScan();
     }
 
-    private void RunScan()
+    private async void RunScan()
     {
+        if (_scanning || DriveBox.SelectedItem == null) return;
+        _scanning = true;
         ScanButton.IsEnabled = false;
         StopButton.IsEnabled = true;
-        _progress = 0;
         _scanStart = DateTime.Now;
-        HeaderStats.Text = "扫描中…";
-        _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
-        _scanTimer.Tick += (_, _) =>
+        _cts = new CancellationTokenSource();
+        HeaderStats.Text = "扫描中… 0 个文件";
+        FileCountText.Text = "0 个文件";
+
+        var progress = new Progress<ScanProgress>(p =>
         {
-            _progress += Random.Shared.Next(3, 12);
-            if (_progress >= 100)
-            {
-                _progress = 100;
-                _scanTimer.Stop();
-                FinishScan();
-            }
-            HeaderStats.Text = $"扫描中… {_progress}%";
-        };
-        _scanTimer.Start();
+            HeaderStats.Text = $"扫描中… {p.FileCount:N0} 个文件";
+            FileCountText.Text = p.FileCount.ToString("N0") + " 个文件";
+        });
+
+        try
+        {
+            string drive = DriveBox.SelectedItem.ToString()!;
+            var root = await Task.Run(() => _scanner.Scan(drive, progress, _cts.Token));
+            FinishScan(root);
+        }
+        catch (OperationCanceledException)
+        {
+            HeaderStats.Text = "扫描已取消";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("扫描失败：" + ex.Message, "AI 磁盘清理",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            HeaderStats.Text = "扫描失败";
+        }
+        finally
+        {
+            _scanning = false;
+            ScanButton.IsEnabled = true;
+            StopButton.IsEnabled = false;
+        }
     }
 
-    private void FinishScan()
+    private void FinishScan(FileEntry root)
     {
-        _root = MockScanService.Scan(DriveBox.Text);
-        _current = _root;
+        _root = root;
+        _current = root;
         PopulateTree();
-        ShowDirectory(_root);
-        var all = CollectFiles(_root);
+        ShowDirectory(root);
+        var all = CollectFiles(root);
         ElapsedText.Text = "扫描耗时 " + (DateTime.Now - _scanStart).TotalSeconds.ToString("0.00") + "s";
         HeaderStats.Text = all.Count.ToString("N0") + " 个文件";
         var cleanable = all.Where(f => f.Category is "临时" or "日志").ToList();
         CleanHintText.Text = cleanable.Count > 0
             ? $"🧠 AI 建议：{cleanable.Count} 个临时/日志文件可清理，约 {FileEntry.FormatSize(cleanable.Sum(f => f.Size))}"
             : "🧠 AI 建议：磁盘很干净";
-        ScanButton.IsEnabled = true;
-        StopButton.IsEnabled = false;
     }
 
     private static List<FileEntry> CollectFiles(FileEntry node)
@@ -81,17 +102,32 @@ public partial class MainWindow : Window
         DirTree.Items.Clear();
         var root = new TreeViewItem { Header = _root.Name, Tag = _root, IsExpanded = true };
         DirTree.Items.Add(root);
-        void Add(FileEntry node, ItemsControl parent)
-        {
-            foreach (var d in node.Children.Where(c => c.IsDirectory))
-            {
-                var item = new TreeViewItem { Header = d.Name, Tag = d };
-                parent.Items.Add(item);
-                Add(d, item);
-            }
-        }
-        Add(_root, root);
+        PopulateDirChildren(root);
         root.IsSelected = true;
+    }
+
+    private void PopulateDirChildren(TreeViewItem parent)
+    {
+        parent.Items.Clear();
+        var entry = (FileEntry)parent.Tag;
+        foreach (var d in entry.Children.Where(c => c.IsDirectory))
+        {
+            var item = new TreeViewItem { Header = d.Name, Tag = d };
+            if (d.Children.Any(c => c.IsDirectory))
+            {
+                // 放占位符，展开时才真正加载子目录（懒加载，避免几十万节点卡死）
+                item.Items.Add(new TreeViewItem { Header = "…", Tag = Placeholder });
+                item.Expanded += DirItem_Expanded;
+            }
+            parent.Items.Add(item);
+        }
+    }
+
+    private void DirItem_Expanded(object sender, RoutedEventArgs e)
+    {
+        var item = (TreeViewItem)sender;
+        if (item.Items.Count == 1 && item.Items[0] is TreeViewItem ph && ReferenceEquals(ph.Tag, Placeholder))
+            PopulateDirChildren(item);
     }
 
     private void ShowDirectory(FileEntry dir)
@@ -132,11 +168,7 @@ public partial class MainWindow : Window
 
     private void ScanButton_Click(object sender, RoutedEventArgs e) => RunScan();
 
-    private void StopButton_Click(object sender, RoutedEventArgs e)
-    {
-        _scanTimer?.Stop();
-        FinishScan();
-    }
+    private void StopButton_Click(object sender, RoutedEventArgs e) => _cts?.Cancel();
 
     private void DirTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
