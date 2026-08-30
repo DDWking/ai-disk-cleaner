@@ -1,0 +1,51 @@
+# ===== 通用 =====
+.DS_Store
+Thumbs.db
+*.log
+
+# ===== 环境变量 / 密钥（严禁提交）=====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+config/secrets.*
+
+# ===== IDE =====
+.idea/
+.vscode/
+.vs/
+*.suo
+*.user
+*.userosscache
+*.userprefs
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ===== C# / .NET =====
+bin/
+obj/
+*.user
+*.suo
+
+# ===== Node =====
+node_modules/
+dist/
+build/
+
+# ===== 生成物（可重新生成，不入库）=====
+*.pdf
+
+# ===== 本项目特有 =====
+# 扫描结果缓存：体积巨大且含用户隐私路径，严禁提交
+scans/
+cache/
+*.scandb
+*.scan.json
