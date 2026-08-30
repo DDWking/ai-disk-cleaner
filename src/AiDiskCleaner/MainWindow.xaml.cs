@@ -181,28 +181,6 @@ public partial class MainWindow : Window
         FileGrid.ItemsSource = display;
         FileCountText.Text = total.ToString("N0") + (total > MaxDisplayRows ? $" 个文件（显示前 {MaxDisplayRows:N0}）" : " 个文件");
         TotalSizeText.Text = FileEntry.FormatSize(dir.Size); // dir.Size 已由扫描时自底向上累加好
-        TreeMap.SetItems(dir.Children);
-        TreemapCrumb.Text = dir.FullPath;
-    }
-
-    private void SelectTreeNode(FileEntry dir)
-    {
-        foreach (var item in DirTree.Items.OfType<TreeViewItem>())
-            if (SelectRecursive(item, dir)) return;
-    }
-
-    private static bool SelectRecursive(TreeViewItem item, FileEntry target)
-    {
-        if (ReferenceEquals(item.Tag, target))
-        {
-            item.IsSelected = true;
-            item.IsExpanded = true;
-            item.BringIntoView();
-            return true;
-        }
-        foreach (var child in item.Items.OfType<TreeViewItem>())
-            if (SelectRecursive(child, target)) return true;
-        return false;
     }
 
     private void ScanButton_Click(object sender, RoutedEventArgs e) => RunScan();
@@ -213,12 +191,6 @@ public partial class MainWindow : Window
     {
         if (DirTree.SelectedItem is TreeViewItem { Tag: FileEntry dir })
             ShowDirectory(dir);
-    }
-
-    private void TreeMap_DirectoryClicked(FileEntry dir)
-    {
-        SelectTreeNode(dir);
-        ShowDirectory(dir);
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
