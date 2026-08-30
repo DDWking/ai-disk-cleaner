@@ -11,17 +11,24 @@ namespace AiDiskCleaner.Services;
 /// <summary>
 /// 路线 A：直接读取 NTFS 的 MFT（主文件表），实现秒级扫盘，与 WizTree 同款技术。
 /// 优先直接读 $MFT 文件（走文件系统缓存 + 预读，最快）；失败则回退读卷偏移。
-/// 需要管理员权限；仅支持 NTFS。各阶段耗时写入 exe 目录下的 scan-timing.log。
+/// 需要管理员权限；仅支持 NTFS。各阶段耗时实时写入 D:\ssssswiztree\scan-timing.log。
 /// </summary>
 public sealed class MftScanService : IScanService
 {
     private const int BlockSize = 16 * 1024 * 1024; // 每次顺序读 16MB
     private const ulong RootRecordNumber = 5;       // NTFS 根目录（$Root）的记录号
+    private const string LogPath = @"D:\ssssswiztree\scan-timing.log";
 
     public FileEntry Scan(string rootPath, IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
     {
         var total = Stopwatch.StartNew();
         var log = new StringBuilder();
+        void Flush(string msg)
+        {
+            log.AppendLine(msg);
+            try { File.WriteAllText(LogPath, log.ToString()); } catch { }
+        }
+
         string devicePath = @"\\.\" + rootPath.TrimEnd('\\');            // \\.\C:
         string mftFilePath = rootPath.TrimEnd('\\') + "\\$MFT";          // C:\$MFT
 
@@ -36,30 +43,35 @@ public sealed class MftScanService : IScanService
             mftLength = vol.MftValidDataLength;
             mftOffset = vol.MftStartLcn * vol.BytesPerCluster;
         }
-        log.AppendLine($"记录大小 {recordSize}B, MFT 长度 {mftLength / 1048576}MB, 预计记录数 {mftLength / recordSize:N0}");
+        int recordCount = (int)(mftLength / recordSize);
+        Flush($"记录大小 {recordSize}B, MFT 长度 {mftLength / 1048576}MB, 记录数 {recordCount:N0}");
 
-        var entries = new Dictionary<ulong, FileEntry>();
-        var parents = new Dictionary<ulong, ulong>();
+        // 记录号是连续的（0..recordCount），用数组代替 Dictionary：更快、更省内存
+        var entries = new FileEntry?[recordCount];
+        var parents = new ulong[recordCount];
+        Array.Fill(parents, RootRecordNumber);
 
         byte[] buffer = new byte[BlockSize];
         ulong recordNumber = 0;
+        int fileCount = 0;
         long remaining = mftLength;
         var readSw = new Stopwatch();
         var parseSw = new Stopwatch();
 
-        // 2. 优先直接读 $MFT 文件（文件系统缓存 + 预读，最快）；失败回退读卷偏移
+        // 2. 优先直接读 $MFT 文件；失败回退读卷偏移
+        EnableBackupPrivilege(); // 启用 SeBackupPrivilege，配合备份语义才能打开 $MFT
         SafeFileHandle mftHandle;
         try
         {
             mftHandle = OpenMftFile(mftFilePath);
-            log.AppendLine("读取方式: 直接读 $MFT 文件");
+            Flush("读取方式: 直接读 $MFT 文件");
         }
         catch (Exception ex)
         {
             mftHandle = OpenVolume(devicePath);
             if (!NtfsNative.SetFilePointerEx(mftHandle, mftOffset, out _, 0))
                 throw new IOException($"定位 MFT 失败，错误码 {Marshal.GetLastWin32Error()}");
-            log.AppendLine($"读取方式: 回退读卷偏移（{ex.Message}）");
+            Flush($"读取方式: 回退读卷偏移（{ex.Message}）");
         }
 
         using (mftHandle)
@@ -75,13 +87,14 @@ public sealed class MftScanService : IScanService
 
                 parseSw.Start();
                 int pos = 0;
-                while (pos + recordSize <= bytesRead)
+                while (pos + recordSize <= bytesRead && recordNumber < (ulong)recordCount)
                 {
                     var entry = ParseRecord(buffer, pos, recordNumber, out ulong parentRef);
                     if (entry != null)
                     {
                         entries[recordNumber] = entry;
                         parents[recordNumber] = parentRef & 0xFFFFFFFFFFFFUL; // 取文件引用的低 48 位记录号
+                        fileCount++;
                     }
                     pos += recordSize;
                     recordNumber++;
@@ -90,43 +103,39 @@ public sealed class MftScanService : IScanService
                 remaining -= bytesRead;
 
                 if ((recordNumber & 0x1FFF) == 0)
-                    progress?.Report(new ScanProgress(entries.Count, "MFT 扫描中"));
+                    progress?.Report(new ScanProgress(fileCount, "MFT 扫描中"));
             }
         }
-        log.AppendLine($"读盘 {readSw.ElapsedMilliseconds}ms, 解析 {parseSw.ElapsedMilliseconds}ms");
+        Flush($"读盘 {readSw.ElapsedMilliseconds}ms, 解析 {parseSw.ElapsedMilliseconds}ms, 有效记录 {fileCount:N0}");
 
         // 3. 建树：根目录 = 记录 5
         var buildSw = Stopwatch.StartNew();
-        FileEntry root = entries.TryGetValue(RootRecordNumber, out var rootRec)
-            ? rootRec
-            : new FileEntry { Kind = EntryKind.Directory };
+        FileEntry root = entries[RootRecordNumber] ?? new FileEntry { Kind = EntryKind.Directory };
         root.Name = rootPath;
         root.FullPath = rootPath;
         root.Kind = EntryKind.Directory;
 
-        foreach (var (rec, entry) in entries)
+        for (ulong rec = 0; rec < (ulong)recordCount; rec++)
         {
-            if (rec == RootRecordNumber) continue;
-            ulong parentRec = parents.TryGetValue(rec, out var p) ? p : RootRecordNumber;
-            if (parentRec != RootRecordNumber && entries.TryGetValue(parentRec, out var parent))
+            var entry = entries[rec];
+            if (entry == null || rec == RootRecordNumber) continue;
+            ulong parentRec = parents[rec];
+            if (parentRec != RootRecordNumber && parentRec < (ulong)recordCount && entries[parentRec] is { } parent)
                 parent.Children.Add(entry);
             else
                 root.Children.Add(entry); // 父目录找不到（已删除/解析失败），挂到根
         }
         buildSw.Stop();
-        log.AppendLine($"建树 {buildSw.ElapsedMilliseconds}ms");
+        Flush($"建树 {buildSw.ElapsedMilliseconds}ms");
 
         // 4. 单次 DFS：填 FullPath + 自底向上累加目录大小
         var accSw = Stopwatch.StartNew();
         Accumulate(root);
         accSw.Stop();
-        log.AppendLine($"累加 {accSw.ElapsedMilliseconds}ms");
+        Flush($"累加 {accSw.ElapsedMilliseconds}ms");
 
         total.Stop();
-        log.AppendLine($"MFT 扫描总耗时 {total.ElapsedMilliseconds}ms ({total.Elapsed.TotalSeconds:0.00}s), 文件/目录数 {entries.Count:N0}");
-
-        try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "scan-timing.log"), log.ToString()); }
-        catch { /* 日志失败不影响主流程 */ }
+        Flush($"MFT 扫描总耗时 {total.ElapsedMilliseconds}ms ({total.Elapsed.TotalSeconds:0.00}s), 文件/目录数 {fileCount:N0}");
 
         return root;
     }
@@ -134,67 +143,78 @@ public sealed class MftScanService : IScanService
     private static FileEntry? ParseRecord(byte[] b, int offset, ulong recordNumber, out ulong parentRef)
     {
         parentRef = 0;
-        if (offset + 4 > b.Length) return null;
-        // 记录头魔数 "FILE"
-        if (b[offset] != (byte)'F' || b[offset + 1] != (byte)'I' ||
-            b[offset + 2] != (byte)'L' || b[offset + 3] != (byte)'E')
-            return null;
-
-        ushort flags = ReadUInt16(b, offset + 0x16);
-        if ((flags & 0x01) == 0) return null; // 未使用的记录
-
-        ushort attrOffset = ReadUInt16(b, offset + 0x14);
-        uint usedSize = ReadUInt32(b, offset + 0x18);
-        bool isDirectory = (flags & 0x02) != 0;
-
-        string name = "";
-        long size = 0;
-        DateTime modified = DateTime.MinValue;
-
-        int pos = offset + attrOffset;
-        int end = offset + (int)Math.Min(usedSize, (uint)(b.Length - offset));
-
-        // 遍历属性链
-        while (pos + 16 <= end)
+        try
         {
-            uint attrType = ReadUInt32(b, pos);
-            if (attrType == 0xFFFFFFFF) break;
-            uint attrLength = ReadUInt32(b, pos + 4);
-            if (attrLength < 16) break;
+            if (offset + 4 > b.Length) return null;
+            // 记录头魔数 "FILE"
+            if (b[offset] != (byte)'F' || b[offset + 1] != (byte)'I' ||
+                b[offset + 2] != (byte)'L' || b[offset + 3] != (byte)'E')
+                return null;
 
-            byte nonResident = b[pos + 8];
+            ushort flags = ReadUInt16(b, offset + 0x16);
+            if ((flags & 0x01) == 0) return null; // 未使用的记录
 
-            // $FILE_NAME (0x30) 驻留属性：文件名、父目录引用、大小、时间戳
-            if (attrType == 0x30 && nonResident == 0)
+            ushort attrOffset = ReadUInt16(b, offset + 0x14);
+            uint usedSize = ReadUInt32(b, offset + 0x18);
+            bool isDirectory = (flags & 0x02) != 0;
+
+            string name = "";
+            long size = 0;
+            DateTime modified = DateTime.MinValue;
+
+            int pos = offset + attrOffset;
+            int end = offset + (int)Math.Min(usedSize, (uint)(b.Length - offset));
+
+            // 遍历属性链
+            while (pos + 16 <= end)
             {
-                ushort valueOffset = ReadUInt16(b, pos + 0x14);
-                int valuePos = pos + valueOffset;
-                if (valuePos + 0x42 <= b.Length)
+                uint attrType = ReadUInt32(b, pos);
+                if (attrType == 0xFFFFFFFF) break;
+                uint attrLength = ReadUInt32(b, pos + 4);
+                // 防御损坏数据：长度过小或过大都停止，防止越界/死循环
+                if (attrLength < 16 || attrLength > 0x10000) break;
+                int next = pos + (int)attrLength;
+                if (next > end) break;
+
+                byte nonResident = b[pos + 8];
+
+                // $FILE_NAME (0x30) 驻留属性：文件名、父目录引用、大小、时间戳
+                if (attrType == 0x30 && nonResident == 0)
                 {
-                    parentRef = ReadUInt64(b, valuePos);
-                    modified = FileTimeToDateTime(ReadInt64(b, valuePos + 16));
-                    size = ReadInt64(b, valuePos + 0x30);
-                    byte fnLen = b[valuePos + 0x40];
-                    int nameBytes = fnLen * 2;
-                    if (valuePos + 0x42 + nameBytes <= b.Length)
-                        name = Encoding.Unicode.GetString(b, valuePos + 0x42, nameBytes);
+                    ushort valueOffset = ReadUInt16(b, pos + 0x14);
+                    int valuePos = pos + valueOffset;
+                    if (valuePos + 0x42 <= b.Length)
+                    {
+                        parentRef = ReadUInt64(b, valuePos);
+                        modified = FileTimeToDateTime(ReadInt64(b, valuePos + 16));
+                        size = ReadInt64(b, valuePos + 0x30);
+                        byte fnLen = b[valuePos + 0x40];
+                        int nameBytes = fnLen * 2;
+                        if (valuePos + 0x42 + nameBytes <= b.Length)
+                            name = Encoding.Unicode.GetString(b, valuePos + 0x42, nameBytes);
+                    }
                 }
+
+                pos = next;
             }
 
-            pos += (int)attrLength;
+            if (name.Length == 0)
+                name = isDirectory ? $"<目录 {recordNumber}>" : $"<文件 {recordNumber}>";
+
+            return new FileEntry
+            {
+                Name = name,
+                Size = size,
+                Modified = modified,
+                Category = isDirectory ? "" : FileClassifier.Classify(name),
+                Kind = isDirectory ? EntryKind.Directory : EntryKind.File,
+            };
         }
-
-        if (name.Length == 0)
-            name = isDirectory ? $"<目录 {recordNumber}>" : $"<文件 {recordNumber}>";
-
-        return new FileEntry
+        catch
         {
-            Name = name,
-            Size = size,
-            Modified = modified,
-            Category = isDirectory ? "" : FileClassifier.Classify(name),
-            Kind = isDirectory ? EntryKind.Directory : EntryKind.File,
-        };
+            parentRef = 0;
+            return null; // 单条损坏记录，跳过，不崩整个扫描
+        }
     }
 
     /// <summary>一次 DFS：给每个节点填 FullPath，并自底向上累加目录大小。</summary>
@@ -210,11 +230,42 @@ public sealed class MftScanService : IScanService
         return total;
     }
 
+    private static void EnableBackupPrivilege()
+    {
+        try
+        {
+            using var proc = Process.GetCurrentProcess();
+            if (!NtfsNative.OpenProcessToken(proc.Handle,
+                    NtfsNative.TOKEN_ADJUST_PRIVILEGES | NtfsNative.TOKEN_QUERY, out IntPtr tokenPtr))
+                return;
+            using (new SafeFileHandle(tokenPtr, true))
+            {
+                if (!NtfsNative.LookupPrivilegeValue(null, "SeBackupPrivilege", out var luid))
+                    return;
+                var tp = new NtfsNative.TokenPrivileges
+                {
+                    PrivilegeCount = 1,
+                    Privileges = new NtfsNative.LuidAndAttributes
+                    {
+                        Luid = luid,
+                        Attributes = NtfsNative.SE_PRIVILEGE_ENABLED,
+                    },
+                };
+                NtfsNative.AdjustTokenPrivileges(tokenPtr, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+            }
+        }
+        catch
+        {
+            // 权限启用失败不影响主流程，仍会回退读卷
+        }
+    }
+
     private static SafeFileHandle OpenMftFile(string path)
     {
         var handle = NtfsNative.CreateFile(path, NtfsNative.GENERIC_READ,
             NtfsNative.FILE_SHARE_READ | NtfsNative.FILE_SHARE_WRITE | NtfsNative.FILE_SHARE_DELETE,
-            IntPtr.Zero, NtfsNative.OPEN_EXISTING, NtfsNative.FILE_FLAG_SEQUENTIAL_SCAN, IntPtr.Zero);
+            IntPtr.Zero, NtfsNative.OPEN_EXISTING,
+            NtfsNative.FILE_FLAG_SEQUENTIAL_SCAN | NtfsNative.FILE_FLAG_BACKUP_SEMANTICS, IntPtr.Zero);
         if (handle.IsInvalid)
             throw new IOException($"无法打开 {path}。错误码 {Marshal.GetLastWin32Error()}");
         return handle;

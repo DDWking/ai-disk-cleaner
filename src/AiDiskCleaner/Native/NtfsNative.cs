@@ -11,8 +11,14 @@ internal static class NtfsNative
     internal const uint FILE_SHARE_WRITE = 0x00000002;
     internal const uint FILE_SHARE_DELETE = 0x00000004;
     internal const uint OPEN_EXISTING = 3;
-    internal const uint FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000; // 提示系统这是顺序扫描，启用激进预读
+    internal const uint FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000; // 提示顺序扫描，启用激进预读
+    internal const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000; // 备份语义，可绕过 ACL 打开 $MFT
     internal const uint FSCTL_GET_NTFS_VOLUME_DATA = 0x00090064;
+
+    // 令牌权限（用于启用 SeBackupPrivilege 读取 $MFT）
+    internal const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
+    internal const uint TOKEN_QUERY = 0x0008;
+    internal const uint SE_PRIVILEGE_ENABLED = 0x00000002;
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     internal static extern SafeFileHandle CreateFile(
@@ -36,6 +42,39 @@ internal static class NtfsNative
     internal static extern bool ReadFile(
         SafeFileHandle hFile, byte[] lpBuffer, uint nNumberOfBytesToRead,
         out uint lpNumberOfBytesRead, IntPtr lpOverlapped);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    internal static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern bool LookupPrivilegeValue(string? lpSystemName, string lpName, out Luid luid);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    internal static extern bool AdjustTokenPrivileges(
+        IntPtr tokenHandle, bool disableAllPrivileges,
+        ref TokenPrivileges newState, uint bufferLength,
+        IntPtr previousState, IntPtr returnLength);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Luid
+    {
+        public uint LowPart;
+        public int HighPart;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct LuidAndAttributes
+    {
+        public Luid Luid;
+        public uint Attributes;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TokenPrivileges
+    {
+        public uint PrivilegeCount;
+        public LuidAndAttributes Privileges;
+    }
 
     /// <summary>FSCTL_GET_NTFS_VOLUME_DATA 返回的 NTFS_VOLUME_DATA_BUFFER。</summary>
     [StructLayout(LayoutKind.Sequential)]
