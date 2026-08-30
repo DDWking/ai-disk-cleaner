@@ -30,70 +30,100 @@ public sealed class MftScanService : IScanService
         }
 
         string devicePath = @"\\.\" + rootPath.TrimEnd('\\');            // \\.\C:
-        string mftFilePath = rootPath.TrimEnd('\\') + "\\$MFT";          // C:\$MFT
 
-        // 1. 打开卷拿 MFT 元信息（记录大小、长度、卷偏移）
-        int recordSize;
-        long mftLength;
-        long mftOffset;
-        using (var volHandle = OpenVolume(devicePath))
-        {
-            var vol = GetVolumeInfo(volHandle);
-            recordSize = vol.BytesPerFileRecordSegment;
-            mftLength = vol.MftValidDataLength;
-            mftOffset = vol.MftStartLcn * vol.BytesPerCluster;
-        }
+        EnableBackupPrivilege();
+        using var volHandle = OpenVolume(devicePath);
+        var vol = GetVolumeInfo(volHandle);
+        int recordSize = vol.BytesPerFileRecordSegment;
+        int bytesPerCluster = vol.BytesPerCluster;
+        long mftLength = vol.MftValidDataLength;
+        long mftOffset = vol.MftStartLcn * (long)bytesPerCluster;
         int recordCount = (int)(mftLength / recordSize);
-        Flush($"记录大小 {recordSize}B, MFT 长度 {mftLength / 1048576}MB, 记录数 {recordCount:N0}");
+        Flush($"记录大小 {recordSize}B, 簇 {bytesPerCluster}B, MFT 长度 {mftLength / 1048576}MB, 记录数 {recordCount:N0}");
 
-        // 记录号是连续的（0..recordCount），用数组代替 Dictionary：更快、更省内存
+        // 先读记录 0（$MFT 自身），解析未命名 $DATA 的 data run。$MFT 几乎总是碎片化的，
+        // 从起始簇连续读只会扫到第一段，文件数/总大小会对不上。
+        // 先读开头 16 条记录：记录 0 是 $MFT 自身，扩展记录（ATTRIBUTE_LIST）常紧跟其后
+        int headerBytes = recordSize * 16;
+        var header = new byte[headerBytes];
+        if (!NtfsNative.SetFilePointerEx(volHandle, mftOffset, out _, 0))
+            throw new IOException($"定位 MFT 失败，错误码 {Marshal.GetLastWin32Error()}");
+        if (!NtfsNative.ReadFile(volHandle, header, (uint)headerBytes, out uint firstRead, IntPtr.Zero) || firstRead < recordSize)
+            throw new IOException("读取 $MFT 记录 0 失败");
+        int headerRecords = (int)firstRead / recordSize;
+        for (int i = 0; i < headerRecords; i++)
+            ApplyUsaFixup(header, i * recordSize, recordSize);
+
+        var runs = ExtractUnnamedDataRuns(header, 0, recordSize);
+        var extraRecs = ExtractAttributeListRecordNumbers(header, 0, recordSize, volHandle, bytesPerCluster);
+        foreach (var rec in extraRecs)
+        {
+            if (rec == 0) continue;
+            if (rec < (ulong)headerRecords)
+                runs.AddRange(ExtractUnnamedDataRuns(header, (int)rec * recordSize, recordSize));
+            else
+            {
+                var extra = ReadNtfsFileRecord(volHandle, rec, recordSize);
+                if (extra != null)
+                    runs.AddRange(ExtractUnnamedDataRuns(extra, 0, recordSize));
+            }
+        }
+        runs = MergeRuns(runs);
+        if (runs.Count == 0)
+        {
+            long clusters = (mftLength + bytesPerCluster - 1) / bytesPerCluster;
+            runs.Add((vol.MftStartLcn, clusters));
+            Flush("读取方式: 单段回退（记录 0 无 data run）");
+        }
+        else
+        {
+            long runBytes = 0;
+            foreach (var r in runs) runBytes += r.Clusters * bytesPerCluster;
+            Flush($"读取方式: $MFT data run {runs.Count} 段, 覆盖 {runBytes / 1048576}MB");
+        }
+
         var entries = new FileEntry?[recordCount];
         var parents = new ulong[recordCount];
+        var bases = new ulong[recordCount];
         Array.Fill(parents, RootRecordNumber);
 
         byte[] buffer = new byte[BlockSize];
         ulong recordNumber = 0;
         int fileCount = 0;
-        long remaining = mftLength;
         var readSw = new Stopwatch();
         var parseSw = new Stopwatch();
 
-        // 2. 优先直接读 $MFT 文件；失败回退读卷偏移
-        EnableBackupPrivilege(); // 启用 SeBackupPrivilege，配合备份语义才能打开 $MFT
-        SafeFileHandle mftHandle;
-        try
+        foreach (var (lcn, clusters) in runs)
         {
-            mftHandle = OpenMftFile(mftFilePath);
-            Flush("读取方式: 直接读 $MFT 文件");
-        }
-        catch (Exception ex)
-        {
-            mftHandle = OpenVolume(devicePath);
-            if (!NtfsNative.SetFilePointerEx(mftHandle, mftOffset, out _, 0))
-                throw new IOException($"定位 MFT 失败，错误码 {Marshal.GetLastWin32Error()}");
-            Flush($"读取方式: 回退读卷偏移（{ex.Message}）");
-        }
+            if (recordNumber >= (ulong)recordCount) break;
+            long remaining = clusters * (long)bytesPerCluster;
+            long offset = lcn * (long)bytesPerCluster;
+            if (!NtfsNative.SetFilePointerEx(volHandle, offset, out _, 0))
+                throw new IOException($"定位 MFT 碎片失败，错误码 {Marshal.GetLastWin32Error()}");
 
-        using (mftHandle)
-        {
-            while (remaining > 0)
+            while (remaining > 0 && recordNumber < (ulong)recordCount)
             {
                 ct.ThrowIfCancellationRequested();
                 int toRead = (int)Math.Min(buffer.Length, remaining);
+                toRead -= toRead % recordSize;
+                if (toRead < recordSize) break;
+
                 readSw.Start();
-                bool ok = NtfsNative.ReadFile(mftHandle, buffer, (uint)toRead, out uint bytesRead, IntPtr.Zero);
+                bool ok = NtfsNative.ReadFile(volHandle, buffer, (uint)toRead, out uint bytesRead, IntPtr.Zero);
                 readSw.Stop();
                 if (!ok || bytesRead == 0) break;
+                bytesRead -= bytesRead % (uint)recordSize;
 
                 parseSw.Start();
                 int pos = 0;
                 while (pos + recordSize <= bytesRead && recordNumber < (ulong)recordCount)
                 {
-                    var entry = ParseRecord(buffer, pos, recordSize, recordNumber, out ulong parentRef);
+                    var entry = ParseRecord(buffer, pos, recordSize, recordNumber, out ulong parentRef, out ulong baseRef);
                     if (entry != null)
                     {
                         entries[recordNumber] = entry;
-                        parents[recordNumber] = parentRef & 0xFFFFFFFFFFFFUL; // 取文件引用的低 48 位记录号
+                        parents[recordNumber] = parentRef & 0xFFFFFFFFFFFFUL;
+                        bases[recordNumber] = baseRef & 0xFFFFFFFFFFFFUL;
                         fileCount++;
                     }
                     pos += recordSize;
@@ -108,6 +138,18 @@ public sealed class MftScanService : IScanService
         }
         Flush($"读盘 {readSw.ElapsedMilliseconds}ms, 解析 {parseSw.ElapsedMilliseconds}ms, 有效记录 {fileCount:N0}");
 
+        // 扩展记录（Base != 0）上的 $DATA 归到主记录，自身不进目录树
+        for (ulong rec = 0; rec < (ulong)recordCount; rec++)
+        {
+            var entry = entries[rec];
+            if (entry == null) continue;
+            ulong baseRec = bases[rec];
+            if (baseRec == 0 || baseRec == rec) continue;
+            if (baseRec < (ulong)recordCount && entries[baseRec] is { } owner && entry.Size > owner.Size)
+                owner.Size = entry.Size;
+            entries[rec] = null;
+        }
+
         // 3. 建树：根目录 = 记录 5
         var buildSw = Stopwatch.StartNew();
         FileEntry root = entries[RootRecordNumber] ?? new FileEntry { Kind = EntryKind.Directory };
@@ -119,11 +161,14 @@ public sealed class MftScanService : IScanService
         {
             var entry = entries[rec];
             if (entry == null || rec == RootRecordNumber) continue;
+            if (rec < 16) continue; // $MFT / $LogFile / $Bitmap 等系统元数据，不进用户目录树
             ulong parentRec = parents[rec];
-            if (parentRec != RootRecordNumber && parentRec != rec && parentRec < (ulong)recordCount && entries[parentRec] is { } parent)
+            if (parentRec == rec) continue;
+            if (parentRec == RootRecordNumber)
+                root.Children.Add(entry);
+            else if (parentRec < (ulong)recordCount && entries[parentRec] is { } parent)
                 parent.Children.Add(entry);
-            else
-                root.Children.Add(entry); // 父目录找不到/自环（已删除或损坏），挂到根
+            // 父记录已删除：丢掉，避免把孤儿文件堆到 C:\ 根上
         }
         buildSw.Stop();
         Flush($"建树 {buildSw.ElapsedMilliseconds}ms");
@@ -140,9 +185,10 @@ public sealed class MftScanService : IScanService
         return root;
     }
 
-    private static FileEntry? ParseRecord(byte[] b, int offset, int recordSize, ulong recordNumber, out ulong parentRef)
+    private static FileEntry? ParseRecord(byte[] b, int offset, int recordSize, ulong recordNumber, out ulong parentRef, out ulong baseRef)
     {
         parentRef = 0;
+        baseRef = 0;
         try
         {
             if (offset + 4 > b.Length || offset + recordSize > b.Length) return null;
@@ -154,6 +200,7 @@ public sealed class MftScanService : IScanService
 
             ushort flags = ReadUInt16(b, offset + 0x16);
             if ((flags & 0x01) == 0) return null; // 未使用的记录
+            baseRef = ReadUInt64(b, offset + 0x20) & 0xFFFFFFFFFFFFUL;
 
             ushort attrOffset = ReadUInt16(b, offset + 0x14);
             uint usedSize = ReadUInt32(b, offset + 0x18);
@@ -233,8 +280,217 @@ public sealed class MftScanService : IScanService
         catch
         {
             parentRef = 0;
+            baseRef = 0;
             return null;
         }
+    }
+
+    /// <summary>$ATTRIBUTE_LIST 里指向的其它记录号（$MFT 碎片 run 常拆到这些记录）。</summary>
+    private static List<ulong> ExtractAttributeListRecordNumbers(byte[] b, int offset, int recordSize, SafeFileHandle vol, int bytesPerCluster)
+    {
+        var recs = new List<ulong>();
+        ushort attrOffset = ReadUInt16(b, offset + 0x14);
+        uint usedSize = ReadUInt32(b, offset + 0x18);
+        int pos = offset + attrOffset;
+        int end = offset + (int)Math.Min(usedSize, (uint)recordSize);
+        while (pos + 16 <= end)
+        {
+            uint attrType = ReadUInt32(b, pos);
+            if (attrType == 0xFFFFFFFF) break;
+            uint attrLength = ReadUInt32(b, pos + 4);
+            if (attrLength < 16 || attrLength > 0x10000) break;
+            int next = pos + (int)attrLength;
+            if (next > end) break;
+            byte nonResident = b[pos + 8];
+            if (attrType == 0x20)
+            {
+                byte[]? list = null;
+                if (nonResident == 0)
+                {
+                    ushort valueOffset = ReadUInt16(b, pos + 0x14);
+                    uint valueLen = ReadUInt32(b, pos + 0x10);
+                    int vp = pos + valueOffset;
+                    int len = (int)Math.Min(valueLen, (uint)Math.Max(0, next - vp));
+                    if (len > 0)
+                    {
+                        list = new byte[len];
+                        Buffer.BlockCopy(b, vp, list, 0, len);
+                    }
+                }
+                else if (pos + 0x22 <= next)
+                {
+                    ushort mappingOff = ReadUInt16(b, pos + 0x20);
+                    long dataSize = ReadInt64(b, pos + 0x30);
+                    var listRuns = ParseRuns(b, pos + mappingOff, next);
+                    list = ReadRuns(vol, listRuns, bytesPerCluster, dataSize);
+                }
+                if (list != null)
+                    ParseAttributeListEntries(list, recs);
+            }
+            pos = next;
+        }
+        return recs;
+    }
+
+    private static void ParseAttributeListEntries(byte[] list, List<ulong> recs)
+    {
+        int p = 0;
+        while (p + 26 <= list.Length)
+        {
+            ushort entryLen = ReadUInt16(list, p + 4);
+            if (entryLen < 26 || p + entryLen > list.Length) break;
+            uint type = ReadUInt32(list, p);
+            if (type == 0x80)
+            {
+                ulong rec = ReadUInt64(list, p + 16) & 0xFFFFFFFFFFFFUL;
+                if (rec != 0) recs.Add(rec);
+            }
+            p += entryLen;
+        }
+    }
+
+    private static List<(long Lcn, long Clusters)> ParseRuns(byte[] b, int runPos, int end)
+    {
+        var runs = new List<(long, long)>();
+        long lcn = 0;
+        while (runPos < end)
+        {
+            byte header = b[runPos++];
+            if (header == 0) break;
+            int lenSize = header & 0x0F;
+            int offSize = header >> 4;
+            if (lenSize == 0 || runPos + lenSize + offSize > end) break;
+            long clusters = ReadLeUnsigned(b, runPos, lenSize);
+            runPos += lenSize;
+            if (offSize == 0)
+            {
+                runPos += offSize;
+                continue;
+            }
+            long delta = ReadLeSigned(b, runPos, offSize);
+            lcn += delta;
+            runPos += offSize;
+            if (clusters > 0 && lcn >= 0)
+                runs.Add((lcn, clusters));
+        }
+        return runs;
+    }
+
+    private static byte[]? ReadRuns(SafeFileHandle vol, List<(long Lcn, long Clusters)> runs, int bytesPerCluster, long dataSize)
+    {
+        if (runs.Count == 0 || dataSize <= 0 || dataSize > 16 * 1024 * 1024) return null;
+        var buf = new byte[dataSize];
+        int dest = 0;
+        foreach (var (lcn, clusters) in runs)
+        {
+            if (dest >= buf.Length) break;
+            int toRead = (int)Math.Min(clusters * (long)bytesPerCluster, buf.Length - dest);
+            var chunk = new byte[toRead];
+            if (!NtfsNative.SetFilePointerEx(vol, lcn * (long)bytesPerCluster, out _, 0)) return null;
+            if (!NtfsNative.ReadFile(vol, chunk, (uint)toRead, out uint n, IntPtr.Zero) || n == 0) return null;
+            Buffer.BlockCopy(chunk, 0, buf, dest, (int)n);
+            dest += (int)n;
+        }
+        return dest > 0 ? buf : null;
+    }
+
+    private static byte[]? ReadNtfsFileRecord(SafeFileHandle vol, ulong recordNumber, int recordSize)
+    {
+        var input = new NtfsNative.NtfsFileRecordInput { FileReferenceNumber = (long)recordNumber };
+        int inSize = Marshal.SizeOf<NtfsNative.NtfsFileRecordInput>();
+        IntPtr inPtr = Marshal.AllocHGlobal(inSize);
+        int outSize = recordSize + 64;
+        IntPtr outPtr = Marshal.AllocHGlobal(outSize);
+        try
+        {
+            Marshal.StructureToPtr(input, inPtr, false);
+            bool ok = NtfsNative.DeviceIoControl(vol, NtfsNative.FSCTL_GET_NTFS_FILE_RECORD,
+                inPtr, (uint)inSize, outPtr, (uint)outSize, out _, IntPtr.Zero);
+            if (!ok) return null;
+            int recLen = Marshal.ReadInt32(outPtr, 8);
+            if (recLen <= 0) recLen = recordSize;
+            var data = new byte[recordSize];
+            int copy = Math.Min(recordSize, recLen);
+            Marshal.Copy(IntPtr.Add(outPtr, 12), data, 0, copy);
+            if (data[0] != (byte)'F') return null;
+            ApplyUsaFixup(data, 0, recordSize);
+            return data;
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(inPtr);
+            Marshal.FreeHGlobal(outPtr);
+        }
+    }
+
+    private static List<(long Lcn, long Clusters)> MergeRuns(List<(long Lcn, long Clusters)> runs)
+    {
+        var merged = new List<(long, long)>();
+        foreach (var r in runs.OrderBy(x => x.Lcn))
+        {
+            if (r.Clusters <= 0) continue;
+            if (merged.Count > 0)
+            {
+                var last = merged[^1];
+                if (last.Item1 + last.Item2 == r.Lcn)
+                {
+                    merged[^1] = (last.Item1, last.Item2 + r.Clusters);
+                    continue;
+                }
+            }
+            merged.Add(r);
+        }
+        return merged;
+    }
+
+    /// <summary>从 FILE 记录里取出未命名 $DATA 的 data run（LCN + 簇数）。稀疏 run 跳过。</summary>
+    private static List<(long Lcn, long Clusters)> ExtractUnnamedDataRuns(byte[] b, int offset, int recordSize)
+    {
+        var runs = new List<(long, long)>();
+        ushort attrOffset = ReadUInt16(b, offset + 0x14);
+        uint usedSize = ReadUInt32(b, offset + 0x18);
+        int pos = offset + attrOffset;
+        int end = offset + (int)Math.Min(usedSize, (uint)recordSize);
+        while (pos + 16 <= end)
+        {
+            uint attrType = ReadUInt32(b, pos);
+            if (attrType == 0xFFFFFFFF) break;
+            uint attrLength = ReadUInt32(b, pos + 4);
+            if (attrLength < 16 || attrLength > 0x10000) break;
+            int next = pos + (int)attrLength;
+            if (next > end) break;
+
+            byte nonResident = b[pos + 8];
+            byte nameLen = b[pos + 9];
+            if (attrType == 0x80 && nonResident != 0 && nameLen == 0 && pos + 0x22 <= next)
+            {
+                ushort mappingOff = ReadUInt16(b, pos + 0x20);
+                runs.AddRange(ParseRuns(b, pos + mappingOff, next));
+                break;
+            }
+            pos = next;
+        }
+        return runs;
+    }
+
+    private static long ReadLeUnsigned(byte[] b, int off, int n)
+    {
+        ulong v = 0;
+        for (int i = 0; i < n; i++) v |= (ulong)b[off + i] << (8 * i);
+        return (long)v;
+    }
+
+    private static long ReadLeSigned(byte[] b, int off, int n)
+    {
+        ulong v = 0;
+        for (int i = 0; i < n; i++) v |= (ulong)b[off + i] << (8 * i);
+        if (n > 0 && (b[off + n - 1] & 0x80) != 0)
+            v |= ~0UL << (8 * n);
+        return unchecked((long)v);
     }
 
     /// <summary>把每个扇区末尾被 USN 覆盖的 2 字节还原，否则大小/名字会读到垃圾。</summary>
@@ -268,6 +524,7 @@ public sealed class MftScanService : IScanService
             order.Add(node);
             foreach (var c in node.Children)
             {
+                c.Parent = node;
                 c.FullPath = node.FullPath.TrimEnd('\\') + "\\" + c.Name;
                 if (c.IsDirectory && !visited.Contains(c))
                     stack.Push(c);
@@ -277,9 +534,20 @@ public sealed class MftScanService : IScanService
         {
             var node = order[i];
             long total = 0;
+            int files = 0, folders = 0;
             foreach (var c in node.Children)
+            {
                 total += c.Size;
+                if (c.IsDirectory)
+                {
+                    folders += 1 + c.FolderCount;
+                    files += c.FileCount;
+                }
+                else files += 1;
+            }
             node.Size = total;
+            node.FileCount = files;
+            node.FolderCount = folders;
         }
     }
 
@@ -353,7 +621,11 @@ public sealed class MftScanService : IScanService
     }
 
     private static DateTime FileTimeToDateTime(long fileTime)
-        => fileTime <= 0 ? DateTime.MinValue : DateTime.FromFileTimeUtc(fileTime).ToLocalTime();
+    {
+        if (fileTime <= 0) return DateTime.MinValue;
+        try { return DateTime.FromFileTimeUtc(fileTime).ToLocalTime(); }
+        catch { return DateTime.MinValue; }
+    }
 
     private static ushort ReadUInt16(byte[] b, int off) => (ushort)(b[off] | (b[off + 1] << 8));
     private static uint ReadUInt32(byte[] b, int off) => (uint)(b[off] | (b[off + 1] << 8) | (b[off + 2] << 16) | (b[off + 3] << 24));

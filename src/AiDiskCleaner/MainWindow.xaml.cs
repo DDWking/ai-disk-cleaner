@@ -28,6 +28,8 @@ public partial class MainWindow : Window
         DriveBox.ItemsSource = drives;
         if (drives.Count > 0) DriveBox.SelectedIndex = 0;
         SearchHint.Visibility = Visibility.Visible;
+        UpdateVolumeInfo();
+        DriveBox.SelectionChanged += (_, _) => UpdateVolumeInfo();
         Loaded += (_, _) => RunScan();
     }
 
@@ -88,17 +90,18 @@ public partial class MainWindow : Window
         _current = root;
         _allFiles = CollectFiles(root); // 只收集一次，缓存
         UiLog($"CollectFiles 完成: {_allFiles.Count:N0}");
+        UpdateVolumeInfo();
         PopulateTree();
         UiLog("PopulateTree 完成");
         ShowDirectory(root);
         UiLog("ShowDirectory 完成");
         ElapsedText.Text = "扫描耗时 " + (DateTime.Now - _scanStart).TotalSeconds.ToString("0.00") + "s";
-        HeaderStats.Text = _allFiles.Count.ToString("N0") + " 个文件";
+        HeaderStats.Text = root.FileCount.ToString("N0") + " 个文件";
         var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志").ToList();
         UiLog($"cleanable 计算完成: {cleanable.Count:N0}");
         CleanHintText.Text = cleanable.Count > 0
-            ? $"🧠 AI 建议：{cleanable.Count} 个临时/日志文件可清理，约 {FileEntry.FormatSize(cleanable.Sum(f => f.Size))}"
-            : "🧠 AI 建议：磁盘很干净";
+            ? $"AI 建议：{cleanable.Count} 个临时/日志文件可清理，约 {FileEntry.FormatSize(cleanable.Sum(f => f.Size))}"
+            : "AI 建议：磁盘很干净";
         UiLog("FinishScan 全部完成");
     }
 
@@ -137,10 +140,48 @@ public partial class MainWindow : Window
     private void PopulateTree()
     {
         DirTree.Items.Clear();
-        var root = new TreeViewItem { Header = _root.Name, Tag = _root, IsExpanded = true };
+        var root = new TreeViewItem { Header = MakeFolderHeader(_root, isRoot: true), Tag = _root, IsExpanded = true };
         DirTree.Items.Add(root);
         PopulateDirChildren(root);
         root.IsSelected = true;
+    }
+
+    private static FrameworkElement MakeFolderHeader(FileEntry d, bool isRoot = false)
+    {
+        var grid = new Grid { MinWidth = 300 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+        var name = new TextBlock
+        {
+            Text = d.Name,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        var pct = new TextBlock
+        {
+            Text = isRoot ? "100 %" : d.PercentText,
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x64, 0x74, 0x8B)),
+            FontSize = 11,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var size = new TextBlock
+        {
+            Text = FileEntry.FormatSize(d.Size),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0F, 0x17, 0x2A)),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(name, 0);
+        Grid.SetColumn(pct, 1);
+        Grid.SetColumn(size, 2);
+        grid.Children.Add(name);
+        grid.Children.Add(pct);
+        grid.Children.Add(size);
+        return grid;
     }
 
     private void PopulateDirChildren(TreeViewItem parent)
@@ -149,17 +190,7 @@ public partial class MainWindow : Window
         var entry = (FileEntry)parent.Tag;
         foreach (var d in entry.Children.Where(c => c.IsDirectory).OrderByDescending(c => c.Size))
         {
-            var header = new StackPanel { Orientation = Orientation.Horizontal };
-            header.Children.Add(new TextBlock { Text = d.Name, VerticalAlignment = VerticalAlignment.Center });
-            header.Children.Add(new TextBlock
-            {
-                Text = FileEntry.FormatSize(d.Size),
-                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x94, 0xA3, 0xB8)),
-                FontSize = 11,
-                Margin = new Thickness(10, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-            });
-            var item = new TreeViewItem { Header = header, Tag = d };
+            var item = new TreeViewItem { Header = MakeFolderHeader(d), Tag = d };
             if (d.Children.Any(c => c.IsDirectory))
             {
                 // 放占位符，展开时才真正加载子目录（懒加载，避免几十万节点卡死）
@@ -180,23 +211,71 @@ public partial class MainWindow : Window
     private void ShowDirectory(FileEntry dir)
     {
         _current = dir;
-        var files = ReferenceEquals(dir, _root) ? _allFiles : CollectFiles(dir);
-        int total = files.Count;
+        PathCrumb.Text = dir.FullPath;
+        IEnumerable<FileEntry> items = dir.Children;
         if (!string.IsNullOrWhiteSpace(SearchBox.Text))
         {
             var q = SearchBox.Text.Trim().ToLower();
-            files = files.Where(f => f.Name.ToLower().Contains(q) || f.FullPath.ToLower().Contains(q)).ToList();
-            total = files.Count;
+            items = items.Where(f => f.Name.ToLower().Contains(q));
         }
-        // 默认按大小降序，截取时也取最大的那些
-        files = files.OrderByDescending(f => f.Size).ToList();
-        var display = files.Count > MaxDisplayRows ? files.Take(MaxDisplayRows).ToList() : files;
+        var list = items.OrderByDescending(f => f.Size).ToList();
+        int total = list.Count;
+        var display = list.Count > MaxDisplayRows ? list.Take(MaxDisplayRows).ToList() : list;
         long maxSize = display.Count > 0 ? display[0].Size : 1;
         foreach (var f in display)
-            f.SizeBarWidth = maxSize > 0 ? Math.Max(2, 112.0 * f.Size / maxSize) : 0;
+            f.SizeBarWidth = maxSize > 0 ? Math.Max(2, 124.0 * f.Size / maxSize) : 0;
         FileGrid.ItemsSource = display;
-        FileCountText.Text = total.ToString("N0") + (total > MaxDisplayRows ? $" 个文件（显示前 {MaxDisplayRows:N0}）" : " 个文件");
+        FileCountText.Text = dir.FileCount.ToString("N0") + " 个文件 · " + dir.FolderCount.ToString("N0") + " 个文件夹"
+            + (total > MaxDisplayRows ? $"（显示前 {MaxDisplayRows:N0}）" : "");
         TotalSizeText.Text = FileEntry.FormatSize(dir.Size);
+    }
+
+    private void FileGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (FileGrid.SelectedItem is FileEntry { IsDirectory: true } dir)
+        {
+            ShowDirectory(dir);
+            SelectTreeNode(dir);
+        }
+    }
+
+    private void SelectTreeNode(FileEntry dir)
+    {
+        foreach (var item in DirTree.Items.OfType<TreeViewItem>())
+            if (SelectRecursive(item, dir)) return;
+    }
+
+    private bool SelectRecursive(TreeViewItem item, FileEntry target)
+    {
+        if (ReferenceEquals(item.Tag, target))
+        {
+            item.IsSelected = true;
+            item.BringIntoView();
+            return true;
+        }
+        if (item.Items.Count == 1 && item.Items[0] is TreeViewItem ph && ReferenceEquals(ph.Tag, Placeholder))
+            PopulateDirChildren(item);
+        foreach (var child in item.Items.OfType<TreeViewItem>())
+        {
+            if (!SelectRecursive(child, target)) continue;
+            item.IsExpanded = true;
+            return true;
+        }
+        return false;
+    }
+
+    private void UpdateVolumeInfo()
+    {
+        try
+        {
+            if (DriveBox.SelectedItem is not string name) return;
+            var d = new DriveInfo(name);
+            if (!d.IsReady) return;
+            long used = d.TotalSize - d.TotalFreeSpace;
+            double pct = d.TotalSize > 0 ? 100.0 * used / d.TotalSize : 0;
+            VolumeText.Text = $"总共 {FileEntry.FormatSize(d.TotalSize)}  ·  已用 {FileEntry.FormatSize(used)} ({pct:0.0}%)  ·  可用 {FileEntry.FormatSize(d.TotalFreeSpace)}";
+        }
+        catch { }
     }
 
     private void ScanButton_Click(object sender, RoutedEventArgs e) => RunScan();

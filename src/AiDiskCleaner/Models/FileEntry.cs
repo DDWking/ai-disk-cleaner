@@ -11,16 +11,31 @@ public class FileEntry
     public DateTime Modified { get; set; }
     public string Category { get; set; } = "其他";
     public EntryKind Kind { get; set; }
+    public FileEntry? Parent { get; set; }
     public List<FileEntry> Children { get; set; } = new();
+    public int FileCount { get; set; }
+    public int FolderCount { get; set; }
 
     public bool IsDirectory => Kind == EntryKind.Directory;
 
     public string SizeText => FormatSize(Size);
 
-    /// <summary>当前列表里相对最大文件的占用条宽度（像素），仅用于界面展示。</summary>
+    /// <summary>当前列表里相对最大项的占用条宽度（像素）。</summary>
     public double SizeBarWidth { get; set; }
 
-    public string ModifiedText => Modified.ToString("yyyy-MM-dd HH:mm");
+    public string PercentText
+    {
+        get
+        {
+            long parentSize = Parent?.Size ?? Size;
+            if (parentSize <= 0) return "";
+            return (100.0 * Size / parentSize).ToString("0.0") + " %";
+        }
+    }
+
+    public string ItemText => IsDirectory ? FileCount.ToString("N0") : "";
+
+    public string ModifiedText => Modified == DateTime.MinValue ? "" : Modified.ToString("yyyy-MM-dd HH:mm");
     public string KindText => IsDirectory ? "文件夹" : Category;
 
     public int AgeDays => (int)(DateTime.Now - Modified).TotalDays;

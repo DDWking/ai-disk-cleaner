@@ -14,6 +14,7 @@ internal static class NtfsNative
     internal const uint FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000; // 提示顺序扫描，启用激进预读
     internal const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000; // 备份语义，可绕过 ACL 打开 $MFT
     internal const uint FSCTL_GET_NTFS_VOLUME_DATA = 0x00090064;
+    internal const uint FSCTL_GET_NTFS_FILE_RECORD = 0x00090068;
 
     // 令牌权限（用于启用 SeBackupPrivilege 读取 $MFT）
     internal const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
@@ -74,6 +75,12 @@ internal static class NtfsNative
     {
         public uint PrivilegeCount;
         public LuidAndAttributes Privileges;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NtfsFileRecordInput
+    {
+        public long FileReferenceNumber;
     }
 
     /// <summary>FSCTL_GET_NTFS_VOLUME_DATA 返回的 NTFS_VOLUME_DATA_BUFFER。</summary>
