@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 磁盘清理 · Disk Cleaner</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand">🧹 AI 磁盘清理</div>
+    <select id="driveSelect" class="drive-select" title="选择要扫描的磁盘"></select>
+    <button id="scanBtn" class="btn primary">🔍 扫描</button>
+    <button id="stopBtn" class="btn" disabled>⏹ 停止</button>
+    <input id="searchBox" class="search" type="text" placeholder="搜索文件或路径…" />
+    <div class="stats" id="headerStats">就绪</div>
+  </header>
+
+  <div class="progress" id="progressWrap" hidden>
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <main class="layout">
+    <aside class="tree-panel">
+      <div class="panel-title">目录</div>
+      <ul id="dirTree" class="tree"></ul>
+    </aside>
+
+    <section class="content">
+      <div class="table-wrap">
+        <table id="fileTable">
+          <thead>
+            <tr>
+              <th data-key="name">名称</th>
+              <th data-key="path">路径</th>
+              <th data-key="size" class="num">大小</th>
+              <th data-key="modified" class="num">修改时间</th>
+              <th data-key="category">类型</th>
+              <th data-key="ageDays" class="num">闲置</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="treemap-wrap">
+        <div class="panel-title">磁盘空间分布 <span class="crumb" id="crumb"></span></div>
+        <canvas id="treemap"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <span id="fileCount">0 个文件</span>
+    <span id="totalSize">0 B</span>
+    <span id="elapsed">—</span>
+    <span id="cleanHint">扫描后显示可清理建议</span>
+  </footer>
+
+  <div id="tooltip" class="tooltip" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
