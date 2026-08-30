@@ -95,10 +95,11 @@ public partial class MainWindow : Window
             : "🧠 AI 建议：磁盘很干净";
     }
 
-    /// <summary>迭代式收集目录下所有文件（用显式栈，避免深递归与 List 反复扩容的开销）。</summary>
+    /// <summary>迭代式收集目录下所有文件（显式栈 + visited 防环，避免损坏数据导致无限循环）。</summary>
     private static List<FileEntry> CollectFiles(FileEntry node)
     {
         var list = new List<FileEntry>();
+        var visited = new HashSet<FileEntry>();
         var stack = new Stack<FileEntry>();
         stack.Push(node);
         while (stack.Count > 0)
@@ -106,7 +107,10 @@ public partial class MainWindow : Window
             var n = stack.Pop();
             foreach (var c in n.Children)
             {
-                if (c.IsDirectory) stack.Push(c);
+                if (c.IsDirectory)
+                {
+                    if (visited.Add(c)) stack.Push(c); // 防环：每个目录只入栈一次
+                }
                 else list.Add(c);
             }
         }

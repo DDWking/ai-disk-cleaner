@@ -120,17 +120,17 @@ public sealed class MftScanService : IScanService
             var entry = entries[rec];
             if (entry == null || rec == RootRecordNumber) continue;
             ulong parentRec = parents[rec];
-            if (parentRec != RootRecordNumber && parentRec < (ulong)recordCount && entries[parentRec] is { } parent)
+            if (parentRec != RootRecordNumber && parentRec != rec && parentRec < (ulong)recordCount && entries[parentRec] is { } parent)
                 parent.Children.Add(entry);
             else
-                root.Children.Add(entry); // 父目录找不到（已删除/解析失败），挂到根
+                root.Children.Add(entry); // 父目录找不到/自环（已删除或损坏），挂到根
         }
         buildSw.Stop();
         Flush($"建树 {buildSw.ElapsedMilliseconds}ms");
 
         // 4. 单次 DFS：填 FullPath + 自底向上累加目录大小
         var accSw = Stopwatch.StartNew();
-        Accumulate(root);
+        Accumulate(root, new HashSet<FileEntry>());
         accSw.Stop();
         Flush($"累加 {accSw.ElapsedMilliseconds}ms");
 
@@ -217,14 +217,15 @@ public sealed class MftScanService : IScanService
         }
     }
 
-    /// <summary>一次 DFS：给每个节点填 FullPath，并自底向上累加目录大小。</summary>
-    private static long Accumulate(FileEntry node)
+    /// <summary>一次 DFS：给每个节点填 FullPath，并自底向上累加目录大小。visited 防环（损坏数据）。</summary>
+    private static long Accumulate(FileEntry node, HashSet<FileEntry> visited)
     {
+        if (!visited.Add(node)) return 0; // 环，跳过，防止栈溢出
         long total = 0;
         foreach (var c in node.Children)
         {
             c.FullPath = node.FullPath + "\\" + c.Name;
-            total += c.IsDirectory ? Accumulate(c) : c.Size;
+            total += c.IsDirectory ? Accumulate(c, visited) : c.Size;
         }
         node.Size = total;
         return total;
