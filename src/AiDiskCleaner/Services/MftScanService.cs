@@ -130,7 +130,7 @@ public sealed class MftScanService : IScanService
 
         // 4. 单次 DFS：填 FullPath + 自底向上累加目录大小
         var accSw = Stopwatch.StartNew();
-        Accumulate(root, new HashSet<FileEntry>());
+        Accumulate(root);
         accSw.Stop();
         Flush($"累加 {accSw.ElapsedMilliseconds}ms");
 
@@ -217,18 +217,33 @@ public sealed class MftScanService : IScanService
         }
     }
 
-    /// <summary>一次 DFS：给每个节点填 FullPath，并自底向上累加目录大小。visited 防环（损坏数据）。</summary>
-    private static long Accumulate(FileEntry node, HashSet<FileEntry> visited)
+    /// <summary>迭代式填 FullPath + 自底向上累加目录大小（显式栈，彻底避免深目录/损坏链导致的栈溢出）。</summary>
+    private static void Accumulate(FileEntry root)
     {
-        if (!visited.Add(node)) return 0; // 环，跳过，防止栈溢出
-        long total = 0;
-        foreach (var c in node.Children)
+        var visited = new HashSet<FileEntry>();
+        var order = new List<FileEntry>();
+        var stack = new Stack<FileEntry>();
+        stack.Push(root);
+        while (stack.Count > 0)
         {
-            c.FullPath = node.FullPath + "\\" + c.Name;
-            total += c.IsDirectory ? Accumulate(c, visited) : c.Size;
+            var node = stack.Pop();
+            if (!visited.Add(node)) continue; // 环，跳过
+            order.Add(node);
+            foreach (var c in node.Children)
+            {
+                c.FullPath = node.FullPath + "\\" + c.Name;
+                if (c.IsDirectory && !visited.Contains(c))
+                    stack.Push(c);
+            }
         }
-        node.Size = total;
-        return total;
+        for (int i = order.Count - 1; i >= 0; i--)
+        {
+            var node = order[i];
+            long total = 0;
+            foreach (var c in node.Children)
+                total += c.Size;
+            node.Size = total;
+        }
     }
 
     private static void EnableBackupPrivilege()

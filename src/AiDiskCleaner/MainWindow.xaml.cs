@@ -82,17 +82,33 @@ public partial class MainWindow : Window
 
     private void FinishScan(FileEntry root)
     {
+        UiLog("FinishScan 开始");
         _root = root;
         _current = root;
         _allFiles = CollectFiles(root); // 只收集一次，缓存
+        UiLog($"CollectFiles 完成: {_allFiles.Count:N0}");
         PopulateTree();
+        UiLog("PopulateTree 完成");
         ShowDirectory(root);
+        UiLog("ShowDirectory 完成");
         ElapsedText.Text = "扫描耗时 " + (DateTime.Now - _scanStart).TotalSeconds.ToString("0.00") + "s";
         HeaderStats.Text = _allFiles.Count.ToString("N0") + " 个文件";
         var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志").ToList();
+        UiLog($"cleanable 计算完成: {cleanable.Count:N0}");
         CleanHintText.Text = cleanable.Count > 0
             ? $"🧠 AI 建议：{cleanable.Count} 个临时/日志文件可清理，约 {FileEntry.FormatSize(cleanable.Sum(f => f.Size))}"
             : "🧠 AI 建议：磁盘很干净";
+        UiLog("FinishScan 全部完成");
+    }
+
+    private static void UiLog(string msg)
+    {
+        try
+        {
+            File.AppendAllText(@"D:\ssssswiztree\ui-timing.log",
+                DateTime.Now.ToString("HH:mm:ss.fff") + " " + msg + Environment.NewLine);
+        }
+        catch { }
     }
 
     /// <summary>迭代式收集目录下所有文件（显式栈 + visited 防环，避免损坏数据导致无限循环）。</summary>

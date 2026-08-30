@@ -15,9 +15,15 @@ public class TreeMapControl : FrameworkElement
     /// <summary>点击某个目录色块时触发（用于钻入子目录）。</summary>
     public event Action<FileEntry>? DirectoryClicked;
 
+    /// <summary>只渲染最大的 N 块。根下若挂了十几万孤儿文件，全量 squarify 会递归栈溢出。</summary>
+    private const int MaxTiles = 256;
+
     public void SetItems(IEnumerable<FileEntry> items)
     {
-        _items = items.Where(i => i.Size > 0).ToList();
+        _items = items.Where(i => i.Size > 0)
+                      .OrderByDescending(i => i.Size)
+                      .Take(MaxTiles)
+                      .ToList();
         InvalidateVisual();
     }
 
@@ -112,12 +118,23 @@ public class TreeMapControl : FrameworkElement
             return Math.Max((length * length * mx) / (s * s), (s * s) / (length * length * mn));
         }
 
-        void Place(List<FileEntry> nodes, double rx, double ry, double rw, double rh)
+        void Place(List<FileEntry> nodes, double rx, double ry, double rw, double rh, int depth)
         {
             if (nodes.Count == 0) return;
-            if (nodes.Count == 1)
+            if (depth > 64 || nodes.Count == 1)
             {
-                result.Add(new LayoutRect { X = rx, Y = ry, Width = rw, Height = rh, Entry = nodes[0] });
+                if (nodes.Count == 1)
+                {
+                    result.Add(new LayoutRect { X = rx, Y = ry, Width = rw, Height = rh, Entry = nodes[0] });
+                    return;
+                }
+                double xx = rx;
+                double each = Math.Max(0, rw / nodes.Count);
+                foreach (var n in nodes)
+                {
+                    result.Add(new LayoutRect { X = xx, Y = ry, Width = each, Height = rh, Entry = n });
+                    xx += each;
+                }
                 return;
             }
             double length = Math.Min(rw, rh);
@@ -147,7 +164,7 @@ public class TreeMapControl : FrameworkElement
                     result.Add(new LayoutRect { X = rx, Y = yy, Width = rowW, Height = hh, Entry = n });
                     yy += hh;
                 }
-                Place(rest, rx + rowW, ry, rw - rowW, rh);
+                Place(rest, rx + rowW, ry, rw - rowW, rh, depth + 1);
             }
             else
             {
@@ -159,11 +176,11 @@ public class TreeMapControl : FrameworkElement
                     result.Add(new LayoutRect { X = xx, Y = ry, Width = ww, Height = rowH, Entry = n });
                     xx += ww;
                 }
-                Place(rest, rx, ry + rowH, rw, rh - rowH);
+                Place(rest, rx, ry + rowH, rw, rh - rowH, depth + 1);
             }
         }
 
-        Place(sorted, x, y, w, h);
+        Place(sorted, x, y, w, h, 0);
         return result;
     }
 }
