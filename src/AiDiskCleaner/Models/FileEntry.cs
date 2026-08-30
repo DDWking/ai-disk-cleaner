@@ -16,6 +16,10 @@ public class FileEntry
     public bool IsDirectory => Kind == EntryKind.Directory;
 
     public string SizeText => FormatSize(Size);
+
+    /// <summary>当前列表里相对最大文件的占用条宽度（像素），仅用于界面展示。</summary>
+    public double SizeBarWidth { get; set; }
+
     public string ModifiedText => Modified.ToString("yyyy-MM-dd HH:mm");
     public string KindText => IsDirectory ? "文件夹" : Category;
 

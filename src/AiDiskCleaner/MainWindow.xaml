@@ -1,56 +1,159 @@
 <Window x:Class="AiDiskCleaner.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="AI 磁盘清理" Height="760" Width="1240"
-        WindowStartupLocation="CenterScreen">
+        Title="AI 磁盘清理" Height="780" Width="1280"
+        WindowStartupLocation="CenterScreen"
+        Background="#F1F5F9"
+        FontFamily="Segoe UI">
+  <Window.Resources>
+    <Style TargetType="DataGridColumnHeader">
+      <Setter Property="Background" Value="#F8FAFC"/>
+      <Setter Property="Foreground" Value="#475569"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Padding" Value="10,8"/>
+      <Setter Property="BorderBrush" Value="#E2E8F0"/>
+      <Setter Property="BorderThickness" Value="0,0,0,1"/>
+    </Style>
+    <Style TargetType="DataGridCell">
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="8,0"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Style.Triggers>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="#DBEAFE"/>
+          <Setter Property="Foreground" Value="#0F172A"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+    <Style TargetType="Button" x:Key="PrimaryButton">
+      <Setter Property="Background" Value="#2563EB"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="Button" x:Key="GhostButton">
+      <Setter Property="Background" Value="#334155"/>
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
   <DockPanel>
-    <!-- 顶部工具栏 -->
-    <Border DockPanel.Dock="Top" Background="#1E293B" Padding="10,8">
+    <Border DockPanel.Dock="Top" Background="#0F172A" Padding="14,10">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Text="AI 磁盘清理" Foreground="White" FontSize="16" FontWeight="SemiBold"
+                   VerticalAlignment="Center" Margin="0,0,18,0"/>
+        <ComboBox x:Name="DriveBox" Grid.Column="1" Width="88" Height="32" VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <Button x:Name="ScanButton" Grid.Column="2" Content="扫描" Style="{StaticResource PrimaryButton}"
+                Margin="0,0,8,0" Click="ScanButton_Click"/>
+        <Button x:Name="StopButton" Grid.Column="3" Content="停止" Style="{StaticResource GhostButton}"
+                Margin="0,0,16,0" IsEnabled="False" Click="StopButton_Click"/>
+        <Grid Grid.Column="4" MaxWidth="360" HorizontalAlignment="Left">
+          <TextBox x:Name="SearchBox" Height="32" Padding="10,6" VerticalContentAlignment="Center"
+                   BorderBrush="#334155" Background="#1E293B" Foreground="#F8FAFC"
+                   CaretBrush="White" TextChanged="SearchBox_TextChanged"/>
+          <TextBlock x:Name="SearchHint" Text="搜索文件名或路径" Foreground="#64748B" Margin="12,0,0,0"
+                     VerticalAlignment="Center" IsHitTestVisible="False"/>
+        </Grid>
+        <TextBlock x:Name="HeaderStats" Grid.Column="5" Foreground="#94A3B8" VerticalAlignment="Center"
+                   Margin="16,0,0,0" Text="就绪"/>
+      </Grid>
+    </Border>
+
+    <Border DockPanel.Dock="Bottom" Background="White" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="12,8">
       <StackPanel Orientation="Horizontal">
-        <TextBlock Text="🧹 AI 磁盘清理" Foreground="#E2E8F0" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0"/>
-        <ComboBox x:Name="DriveBox" Width="80" VerticalAlignment="Center" Margin="0,0,8,0"/>
-        <Button x:Name="ScanButton" Content="🔍 扫描" Padding="12,5" Margin="0,0,8,0" Background="#2563EB" Foreground="White" BorderThickness="0" Click="ScanButton_Click"/>
-        <Button x:Name="StopButton" Content="⏹ 停止" Padding="12,5" Margin="0,0,16,0" IsEnabled="False" Click="StopButton_Click"/>
-        <TextBox x:Name="SearchBox" Width="280" VerticalAlignment="Center" TextChanged="SearchBox_TextChanged"/>
-        <TextBlock x:Name="HeaderStats" Foreground="#94A3B8" VerticalAlignment="Center" Margin="16,0,0,0" Text="就绪"/>
+        <TextBlock x:Name="FileCountText" Text="0 个文件" Foreground="#334155" FontWeight="SemiBold"/>
+        <TextBlock Text="  ·  " Foreground="#CBD5E1"/>
+        <TextBlock x:Name="TotalSizeText" Text="0 B" Foreground="#2563EB" FontWeight="SemiBold"/>
+        <TextBlock Text="  ·  " Foreground="#CBD5E1"/>
+        <TextBlock x:Name="ElapsedText" Text="—" Foreground="#64748B"/>
+        <TextBlock Text="  ·  " Foreground="#CBD5E1"/>
+        <TextBlock x:Name="CleanHintText" Text="扫描后显示清理建议" Foreground="#64748B"/>
       </StackPanel>
     </Border>
 
-    <!-- 底部状态栏 -->
-    <StatusBar DockPanel.Dock="Bottom">
-      <StatusBarItem><TextBlock x:Name="FileCountText" Text="0 个文件"/></StatusBarItem>
-      <Separator/>
-      <StatusBarItem><TextBlock x:Name="TotalSizeText" Text="0 B"/></StatusBarItem>
-      <Separator/>
-      <StatusBarItem><TextBlock x:Name="ElapsedText" Text="—"/></StatusBarItem>
-      <Separator/>
-      <StatusBarItem><TextBlock x:Name="CleanHintText" Text="扫描后显示 AI 清理建议"/></StatusBarItem>
-    </StatusBar>
-
-    <!-- 主区 -->
-    <Grid>
+    <Grid Margin="10">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="260"/>
+        <ColumnDefinition Width="280"/>
+        <ColumnDefinition Width="10"/>
         <ColumnDefinition Width="*"/>
       </Grid.ColumnDefinitions>
 
-      <!-- 左侧目录树 -->
-      <TreeView x:Name="DirTree" Grid.Column="0" Margin="6" Background="#F8FAFC" BorderThickness="0"
-                SelectedItemChanged="DirTree_SelectedItemChanged"/>
+      <Border Grid.Column="0" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Text="目录（按占用）" Foreground="#64748B" FontSize="11"
+                     FontWeight="SemiBold" Margin="12,10,12,4"/>
+          <TreeView x:Name="DirTree" BorderThickness="0" Background="Transparent" Padding="4,0,4,8"
+                    SelectedItemChanged="DirTree_SelectedItemChanged"/>
+        </DockPanel>
+      </Border>
 
-      <!-- 右侧文件列表 -->
-      <DataGrid x:Name="FileGrid" Grid.Column="1" Margin="0,6,6,6" AutoGenerateColumns="False" IsReadOnly="True"
-                CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                BorderThickness="0" RowHeight="24">
-        <DataGrid.Columns>
-          <DataGridTextColumn Header="名称" Binding="{Binding Name}" SortMemberPath="Name" Width="2*"/>
-          <DataGridTextColumn Header="路径" Binding="{Binding FullPath}" SortMemberPath="FullPath" Width="3*"/>
-          <DataGridTextColumn Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="90"/>
-          <DataGridTextColumn Header="修改时间" Binding="{Binding ModifiedText}" SortMemberPath="Modified" Width="130"/>
-          <DataGridTextColumn Header="类型" Binding="{Binding KindText}" SortMemberPath="Category" Width="70"/>
-          <DataGridTextColumn Header="闲置" Binding="{Binding AgeText}" SortMemberPath="AgeDays" Width="70"/>
-        </DataGrid.Columns>
-      </DataGrid>
+      <Border Grid.Column="2" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1">
+        <DataGrid x:Name="FileGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                  CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
+                  BorderThickness="0" RowHeight="28" AlternatingRowBackground="#F8FAFC"
+                  RowBackground="White" Background="Transparent"
+                  HorizontalGridLinesBrush="#F1F5F9" EnableRowVirtualization="True"
+                  SelectionMode="Single" SelectionUnit="FullRow">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="名称" Binding="{Binding Name}" SortMemberPath="Name" Width="2*"/>
+            <DataGridTextColumn Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="92">
+              <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock">
+                  <Setter Property="HorizontalAlignment" Value="Right"/>
+                  <Setter Property="FontWeight" Value="SemiBold"/>
+                  <Setter Property="Foreground" Value="#0F172A"/>
+                  <Setter Property="Margin" Value="0,0,8,0"/>
+                </Style>
+              </DataGridTextColumn.ElementStyle>
+            </DataGridTextColumn>
+            <DataGridTemplateColumn Header="占用" Width="128" SortMemberPath="Size">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <Border Height="8" Margin="4,0" CornerRadius="4" Background="#E2E8F0" VerticalAlignment="Center">
+                    <Border Height="8" CornerRadius="4" Background="#3B82F6" HorizontalAlignment="Left"
+                            Width="{Binding SizeBarWidth}"/>
+                  </Border>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="类型" Binding="{Binding KindText}" SortMemberPath="Category" Width="72"/>
+            <DataGridTextColumn Header="闲置" Binding="{Binding AgeText}" SortMemberPath="AgeDays" Width="80"/>
+            <DataGridTextColumn Header="修改时间" Binding="{Binding ModifiedText}" SortMemberPath="Modified" Width="136"/>
+            <DataGridTextColumn Header="路径" Binding="{Binding FullPath}" SortMemberPath="FullPath" Width="3*"/>
+          </DataGrid.Columns>
+        </DataGrid>
+      </Border>
     </Grid>
   </DockPanel>
 </Window>

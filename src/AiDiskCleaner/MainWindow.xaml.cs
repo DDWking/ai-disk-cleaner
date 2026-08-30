@@ -27,6 +27,7 @@ public partial class MainWindow : Window
         var drives = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.Name).ToList();
         DriveBox.ItemsSource = drives;
         if (drives.Count > 0) DriveBox.SelectedIndex = 0;
+        SearchHint.Visibility = Visibility.Visible;
         Loaded += (_, _) => RunScan();
     }
 
@@ -146,9 +147,19 @@ public partial class MainWindow : Window
     {
         parent.Items.Clear();
         var entry = (FileEntry)parent.Tag;
-        foreach (var d in entry.Children.Where(c => c.IsDirectory))
+        foreach (var d in entry.Children.Where(c => c.IsDirectory).OrderByDescending(c => c.Size))
         {
-            var item = new TreeViewItem { Header = d.Name, Tag = d };
+            var header = new StackPanel { Orientation = Orientation.Horizontal };
+            header.Children.Add(new TextBlock { Text = d.Name, VerticalAlignment = VerticalAlignment.Center });
+            header.Children.Add(new TextBlock
+            {
+                Text = FileEntry.FormatSize(d.Size),
+                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x94, 0xA3, 0xB8)),
+                FontSize = 11,
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            var item = new TreeViewItem { Header = header, Tag = d };
             if (d.Children.Any(c => c.IsDirectory))
             {
                 // 放占位符，展开时才真正加载子目录（懒加载，避免几十万节点卡死）
@@ -177,10 +188,15 @@ public partial class MainWindow : Window
             files = files.Where(f => f.Name.ToLower().Contains(q) || f.FullPath.ToLower().Contains(q)).ToList();
             total = files.Count;
         }
+        // 默认按大小降序，截取时也取最大的那些
+        files = files.OrderByDescending(f => f.Size).ToList();
         var display = files.Count > MaxDisplayRows ? files.Take(MaxDisplayRows).ToList() : files;
+        long maxSize = display.Count > 0 ? display[0].Size : 1;
+        foreach (var f in display)
+            f.SizeBarWidth = maxSize > 0 ? Math.Max(2, 112.0 * f.Size / maxSize) : 0;
         FileGrid.ItemsSource = display;
         FileCountText.Text = total.ToString("N0") + (total > MaxDisplayRows ? $" 个文件（显示前 {MaxDisplayRows:N0}）" : " 个文件");
-        TotalSizeText.Text = FileEntry.FormatSize(dir.Size); // dir.Size 已由扫描时自底向上累加好
+        TotalSizeText.Text = FileEntry.FormatSize(dir.Size);
     }
 
     private void ScanButton_Click(object sender, RoutedEventArgs e) => RunScan();
@@ -195,6 +211,7 @@ public partial class MainWindow : Window
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
+        SearchHint.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         if (_current != null) ShowDirectory(_current);
     }
 }
