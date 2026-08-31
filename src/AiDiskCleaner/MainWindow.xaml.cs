@@ -1,13 +1,30 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 
 namespace AiDiskCleaner;
+
+public sealed class ShareWidthConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        double share = value is double d ? Math.Clamp(d, 0, 1) : 0;
+        bool remainder = parameter?.ToString() == "rest";
+        double star = remainder ? 1 - share : share;
+        if (star <= 0) return new GridLength(0);
+        return new GridLength(star, GridUnitType.Star);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
 
 public partial class MainWindow : Window
 {
@@ -250,37 +267,30 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        double barW = isRoot ? 72 : d.PercentBarWidth;
-        var pctCell = new DockPanel { Margin = new Thickness(8, 0, 8, 0), LastChildFill = true, VerticalAlignment = VerticalAlignment.Center };
+        double share = isRoot ? 1 : d.PercentShare;
+        var pctCell = new Grid { Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, Height = 22 };
+        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
+        var track = new Grid { Height = 6, VerticalAlignment = VerticalAlignment.Center };
+        double rest = Math.Max(0, 1 - share);
+        track.ColumnDefinitions.Add(new ColumnDefinition { Width = share <= 0 ? new GridLength(0) : new GridLength(share, GridUnitType.Star) });
+        track.ColumnDefinitions.Add(new ColumnDefinition { Width = rest <= 0 ? new GridLength(0) : new GridLength(rest, GridUnitType.Star) });
+        var fill = new Border { Background = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Accent") };
+        var bg = new Border { Background = ThemeService.Brush("Border") };
+        Grid.SetColumn(bg, 1);
+        track.Children.Add(fill);
+        track.Children.Add(bg);
         var pctText = new TextBlock
         {
             Text = (isRoot ? 100 : d.PercentValue).ToString("0.0") + " %",
             Foreground = ThemeService.Brush(d.IsDimmed ? "Placeholder" : "TextMuted"),
             FontSize = 11,
-            Width = 52,
-            TextAlignment = TextAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 0, 0),
-        };
-        DockPanel.SetDock(pctText, Dock.Right);
-        var fill = new Border
-        {
-            Height = 6,
-            Width = barW,
-            Background = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Accent"),
-            HorizontalAlignment = HorizontalAlignment.Left,
+            HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        var track = new Border
-        {
-            Height = 6,
-            Background = ThemeService.Brush("Border"),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 1, 0, 0),
-            Child = fill,
-        };
-        pctCell.Children.Add(pctText);
+        Grid.SetColumn(pctText, 1);
         pctCell.Children.Add(track);
+        pctCell.Children.Add(pctText);
         var size = new TextBlock
         {
             Text = FileEntry.FormatSize(d.Size),

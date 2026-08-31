@@ -38,8 +38,8 @@ public class FileEntry
 
     public string PercentText => PercentValue <= 0 && Size == 0 ? "0.0 %" : PercentValue.ToString("0.0") + " %";
 
-    /// <summary>占比条宽度（像素，满格 72）。</summary>
-    public double PercentBarWidth => Math.Max(Size > 0 ? 2 : 0, PercentValue / 100.0 * 72);
+    /// <summary>0–1，给占比条当比例。</summary>
+    public double PercentShare => Math.Clamp(PercentValue / 100.0, 0, 1);
 
     public string ItemText => IsDirectory ? FileCount.ToString("N0") : "";
 
