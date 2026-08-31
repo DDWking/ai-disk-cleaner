@@ -246,7 +246,7 @@ public partial class MainWindow : Window
         var name = new TextBlock
         {
             Text = d.Name,
-            Foreground = ThemeService.Brush("Text"),
+            Foreground = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Text"),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
@@ -264,7 +264,7 @@ public partial class MainWindow : Window
         {
             Height = 6,
             Width = barW,
-            Background = ThemeService.Brush("Accent"),
+            Background = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Accent"),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -272,7 +272,7 @@ public partial class MainWindow : Window
         var pctText = new TextBlock
         {
             Text = (isRoot ? 100 : d.PercentValue).ToString("0.0") + " %",
-            Foreground = ThemeService.Brush("TextMuted"),
+            Foreground = ThemeService.Brush(d.IsDimmed ? "Placeholder" : "TextMuted"),
             FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
@@ -284,7 +284,7 @@ public partial class MainWindow : Window
         var size = new TextBlock
         {
             Text = FileEntry.FormatSize(d.Size),
-            Foreground = ThemeService.Brush("AccentDim"),
+            Foreground = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "AccentDim"),
             FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
@@ -303,16 +303,38 @@ public partial class MainWindow : Window
     {
         parent.Items.Clear();
         var entry = (FileEntry)parent.Tag;
-        foreach (var d in entry.Children.Where(c => c.IsDirectory).OrderByDescending(c => c.Size))
+        const int maxFiles = 300;
+        var dirs = entry.Children.Where(c => c.IsDirectory).OrderByDescending(c => c.Size);
+        var files = entry.Children.Where(c => !c.IsDirectory).OrderByDescending(c => c.Size).ToList();
+        foreach (var d in dirs)
         {
             var item = new TreeViewItem { Header = MakeFolderHeader(d), Tag = d };
-            if (d.Children.Any(c => c.IsDirectory))
+            if (d.Children.Count > 0)
             {
-                // 放占位符，展开时才真正加载子目录（懒加载，避免几十万节点卡死）
                 item.Items.Add(new TreeViewItem { Header = "…", Tag = Placeholder });
                 item.Expanded += DirItem_Expanded;
             }
             parent.Items.Add(item);
+        }
+        int shown = 0;
+        foreach (var f in files)
+        {
+            if (shown++ >= maxFiles) break;
+            parent.Items.Add(new TreeViewItem { Header = MakeFolderHeader(f), Tag = f });
+        }
+        if (files.Count > maxFiles)
+        {
+            var more = new FileEntry
+            {
+                Name = Loc.IsEn
+                    ? $"+ {files.Count - maxFiles:N0} more files"
+                    : $"还有 {files.Count - maxFiles:N0} 个文件",
+                Size = files.Skip(maxFiles).Sum(x => x.Size),
+                Kind = EntryKind.File,
+                IsHidden = true,
+            };
+            more.Parent = entry;
+            parent.Items.Add(new TreeViewItem { Header = MakeFolderHeader(more), Tag = more });
         }
     }
 
@@ -440,8 +462,8 @@ public partial class MainWindow : Window
 
     private void DirTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        if (DirTree.SelectedItem is TreeViewItem { Tag: FileEntry dir })
-            ShowDirectory(dir);
+        if (DirTree.SelectedItem is TreeViewItem { Tag: FileEntry entry })
+            ShowDirectory(entry.IsDirectory ? entry : entry.Parent ?? entry);
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)

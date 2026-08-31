@@ -258,6 +258,8 @@ public sealed class MftScanService : IScanService
                     Modified = link.Modified == DateTime.MinValue ? owner.Modified : link.Modified,
                     Category = owner.Category,
                     Kind = owner.Kind,
+                    IsHidden = owner.IsHidden,
+                    IsSystem = owner.IsSystem,
                 };
                 extraLinks++;
             }
@@ -291,7 +293,10 @@ public sealed class MftScanService : IScanService
             if (string.IsNullOrEmpty(sys.Name) || sys.Name.StartsWith('<'))
                 sys.Name = WellKnownName(rec);
             if (sys.Name.StartsWith('$'))
-                sys.Category = "系统";
+            {
+                sys.Category = Loc.IsEn ? "System" : "系统";
+                sys.IsSystem = true;
+            }
             if (placed[rec]) continue;
             root.Children.Add(sys);
             placed[rec] = true;
@@ -356,6 +361,7 @@ public sealed class MftScanService : IScanService
             string name = "";
             long size = 0;
             DateTime modified = DateTime.MinValue;
+            uint fileAttrs = 0;
             FileNameLink? dosFallback = null;
 
             int pos = offset + attrOffset;
@@ -372,6 +378,15 @@ public sealed class MftScanService : IScanService
 
                 byte nonResident = b[pos + 8];
                 byte attrNameLen = b[pos + 9];
+
+                // $STANDARD_INFORMATION：隐藏 / 系统属性
+                if (attrType == 0x10 && nonResident == 0)
+                {
+                    ushort valueOffset = ReadUInt16(b, pos + 0x14);
+                    int valuePos = pos + valueOffset;
+                    if (valuePos + 0x24 <= end)
+                        fileAttrs = ReadUInt32(b, valuePos + 0x20);
+                }
 
                 // $FILE_NAME：一条就是目录里的一个名字（硬链接会有多条）。大小不可靠。
                 if (attrType == 0x30 && nonResident == 0)
@@ -449,6 +464,8 @@ public sealed class MftScanService : IScanService
             if (name.Length == 0)
                 name = isDirectory ? $"<目录 {recordNumber}>" : $"<文件 {recordNumber}>";
 
+            bool hidden = (fileAttrs & 0x2) != 0;
+            bool system = (fileAttrs & 0x4) != 0 || name.StartsWith('$');
             return new FileEntry
             {
                 Name = name,
@@ -456,6 +473,8 @@ public sealed class MftScanService : IScanService
                 Modified = modified,
                 Category = isDirectory ? "" : FileClassifier.Classify(name),
                 Kind = isDirectory ? EntryKind.Directory : EntryKind.File,
+                IsHidden = hidden,
+                IsSystem = system,
             };
         }
         catch

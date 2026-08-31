@@ -15,8 +15,11 @@ public class FileEntry
     public List<FileEntry> Children { get; set; } = new();
     public int FileCount { get; set; }
     public int FolderCount { get; set; }
+    public bool IsHidden { get; set; }
+    public bool IsSystem { get; set; }
 
     public bool IsDirectory => Kind == EntryKind.Directory;
+    public bool IsDimmed => IsHidden || IsSystem || Name.StartsWith('$');
 
     public string SizeText => FormatSize(Size);
 
