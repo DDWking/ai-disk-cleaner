@@ -39,17 +39,18 @@ src/AiDiskCleaner/     WPF 主程序
 
 进度和开发日志在 [PROGRESS.md](PROGRESS.md)，开工前先看谁在做什么。协作方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-简单说（朋友被加成协作者之后，直接推 `main`）：
+简单说（朋友被加成协作者之后，在 `ddw-develop` 上开发，不要动 `main`）：
 
 ```powershell
 git clone https://github.com/DDWking/ai-disk-cleaner.git
 cd ai-disk-cleaner
-git pull origin main
+git checkout ddw-develop
+git pull origin ddw-develop
 # 改代码
 git add .
 git commit -m "feat: 一句话说清楚改了什么"
-git pull origin main
-git push origin main
+git pull origin ddw-develop
+git push origin ddw-develop
 ```
 
 ## 协议
