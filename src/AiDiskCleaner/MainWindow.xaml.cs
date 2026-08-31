@@ -296,11 +296,11 @@ public partial class MainWindow : Window
     {
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(132) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
         var name = new TextBlock
         {
             Text = d.Name,
@@ -338,13 +338,14 @@ public partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 4, 0),
+            TextAlignment = TextAlignment.Right,
         };
 
     private static Grid MakePctBar(double share, double pct, bool dim)
     {
-        var pctCell = new Grid { Margin = new Thickness(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Height = 22 };
+        var pctCell = new Grid { Margin = new Thickness(6, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center, Height = 22 };
         pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
         var track = new Grid { Height = 6, VerticalAlignment = VerticalAlignment.Center };
         double rest = Math.Max(0, 1 - share);
         track.ColumnDefinitions.Add(new ColumnDefinition { Width = share <= 0 ? new GridLength(0) : new GridLength(share, GridUnitType.Star) });

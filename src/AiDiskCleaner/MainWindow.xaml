@@ -101,7 +101,7 @@
     <Style TargetType="TreeViewItem">
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="Background" Value="Transparent"/>
-      <Setter Property="Padding" Value="4,6"/>
+      <Setter Property="Padding" Value="0,6"/>
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -603,26 +603,28 @@
                      Foreground="{DynamicResource TextMuted}" FontSize="11" TextTrimming="CharacterEllipsis"/>
           <TextBlock x:Name="FilterHint" DockPanel.Dock="Top" Margin="20,0,24,6" FontSize="11"
                      Foreground="{DynamicResource Accent}" Visibility="Collapsed"/>
-          <Grid x:Name="TreeHeader" DockPanel.Dock="Top" Margin="20,0,24,8">
+          <Grid x:Name="TreeHeader" DockPanel.Dock="Top" Margin="16,0,0,8">
             <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="16"/>
               <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="132"/>
-              <ColumnDefinition Width="76"/>
-              <ColumnDefinition Width="76"/>
-              <ColumnDefinition Width="52"/>
-              <ColumnDefinition Width="52"/>
+              <ColumnDefinition Width="140"/>
+              <ColumnDefinition Width="80"/>
+              <ColumnDefinition Width="80"/>
+              <ColumnDefinition Width="80"/>
+              <ColumnDefinition Width="72"/>
+              <ColumnDefinition Width="{x:Static SystemParameters.VerticalScrollBarWidth}"/>
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="NameHeader" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11" Cursor="Hand" MouseLeftButtonDown="SortName_Click"/>
-            <TextBlock x:Name="PctHeader" Grid.Column="1" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,56,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
-            <TextBlock x:Name="SizeHeader" Grid.Column="2" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
-            <TextBlock x:Name="AllocHeader" Grid.Column="3" Text="分配" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortAlloc_Click"/>
-            <TextBlock x:Name="FilesHeader" Grid.Column="4" Text="文件" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortFiles_Click"/>
-            <TextBlock x:Name="FoldersHeader" Grid.Column="5" Text="文件夹" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortFolders_Click"/>
+            <TextBlock x:Name="NameHeader" Grid.Column="1" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11" Cursor="Hand" MouseLeftButtonDown="SortName_Click"/>
+            <TextBlock x:Name="PctHeader" Grid.Column="2" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
+            <TextBlock x:Name="SizeHeader" Grid.Column="3" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
+            <TextBlock x:Name="AllocHeader" Grid.Column="4" Text="分配" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortAlloc_Click"/>
+            <TextBlock x:Name="FilesHeader" Grid.Column="5" Text="文件" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortFiles_Click"/>
+            <TextBlock x:Name="FoldersHeader" Grid.Column="6" Text="文件夹" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortFolders_Click"/>
           </Grid>
-          <TreeView x:Name="DirTree" Padding="16,0,24,16"
+          <TreeView x:Name="DirTree" Padding="16,0,0,16"
                     Background="Transparent"
                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                    ScrollViewer.VerticalScrollBarVisibility="Auto"
+                    ScrollViewer.VerticalScrollBarVisibility="Visible"
                     SelectedItemChanged="DirTree_SelectedItemChanged"
                     PreviewMouseRightButtonDown="DirTree_PreviewRightDown">
             <TreeView.ContextMenu>
