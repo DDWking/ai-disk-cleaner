@@ -41,12 +41,12 @@ public partial class MainWindow : Window
         StopButton.IsEnabled = true;
         _scanStart = DateTime.Now;
         _cts = new CancellationTokenSource();
-        HeaderStats.Text = "扫描中…";
-        FileCountText.Text = "0 个文件";
+        HeaderStats.Text = "scanning";
+        FileCountText.Text = "0 files";
         ScanProgressPanel.Visibility = Visibility.Visible;
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
-        ScanProgressText.Text = "准备扫描…";
+        ScanProgressText.Text = "init...";
 
         var progress = new Progress<ScanProgress>(p =>
         {
@@ -54,16 +54,16 @@ public partial class MainWindow : Window
             {
                 ScanProgressBar.IsIndeterminate = false;
                 ScanProgressBar.Value = p.Percent;
-                ScanProgressText.Text = $"{p.Percent}%  {p.CurrentDirectory}  {p.FileCount:N0} 个文件";
-                HeaderStats.Text = $"扫描中… {p.Percent}%";
+                ScanProgressText.Text = $"{p.Percent}%  {p.CurrentDirectory}  {p.FileCount:N0} files";
+                HeaderStats.Text = $"scan {p.Percent}%";
             }
             else
             {
                 ScanProgressBar.IsIndeterminate = true;
-                ScanProgressText.Text = $"{p.CurrentDirectory}  {p.FileCount:N0} 个文件";
-                HeaderStats.Text = $"扫描中… {p.FileCount:N0} 个文件";
+                ScanProgressText.Text = $"{p.CurrentDirectory}  {p.FileCount:N0} files";
+                HeaderStats.Text = $"scan {p.FileCount:N0}";
             }
-            FileCountText.Text = p.FileCount.ToString("N0") + " 个文件";
+            FileCountText.Text = p.FileCount.ToString("N0") + " files";
         });
 
         try
@@ -76,20 +76,20 @@ public partial class MainWindow : Window
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                HeaderStats.Text = "MFT 不可用，回退到递归扫描…";
+                HeaderStats.Text = "mft fail, fallback";
                 root = await Task.Run(() => _fallback.Scan(drive, progress, _cts.Token));
             }
             FinishScan(root);
         }
         catch (OperationCanceledException)
         {
-            HeaderStats.Text = "扫描已取消";
+            HeaderStats.Text = "aborted";
         }
         catch (Exception ex)
         {
             MessageBox.Show("扫描失败：" + ex.Message, "AI 磁盘清理",
                 MessageBoxButton.OK, MessageBoxImage.Error);
-            HeaderStats.Text = "扫描失败";
+            HeaderStats.Text = "scan failed";
         }
         finally
         {
@@ -113,13 +113,13 @@ public partial class MainWindow : Window
         UiLog("PopulateTree 完成");
         ShowDirectory(root);
         UiLog("ShowDirectory 完成");
-        ElapsedText.Text = "扫描耗时 " + (DateTime.Now - _scanStart).TotalSeconds.ToString("0.00") + "s";
-        HeaderStats.Text = root.FileCount.ToString("N0") + " 个文件";
+        ElapsedText.Text = "elapsed " + (DateTime.Now - _scanStart).TotalSeconds.ToString("0.00") + "s";
+        HeaderStats.Text = root.FileCount.ToString("N0") + " files";
         var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志").ToList();
         UiLog($"cleanable 计算完成: {cleanable.Count:N0}");
         CleanHintText.Text = cleanable.Count > 0
-            ? $"AI 建议：{cleanable.Count} 个临时/日志文件可清理，约 {FileEntry.FormatSize(cleanable.Sum(f => f.Size))}"
-            : "AI 建议：磁盘很干净";
+            ? $"hint: {cleanable.Count} temp/log  ~ {FileEntry.FormatSize(cleanable.Sum(f => f.Size))}"
+            : "hint: clean";
         UiLog("FinishScan 全部完成");
     }
 
@@ -173,13 +173,14 @@ public partial class MainWindow : Window
         var name = new TextBlock
         {
             Text = d.Name,
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xC8, 0xF5, 0xD0)),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
         var pct = new TextBlock
         {
             Text = isRoot ? "100 %" : d.PercentText,
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x64, 0x74, 0x8B)),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x6B, 0x8F, 0x74)),
             FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
@@ -187,9 +188,8 @@ public partial class MainWindow : Window
         var size = new TextBlock
         {
             Text = FileEntry.FormatSize(d.Size),
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0F, 0x17, 0x2A)),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x39, 0xFF, 0x88)),
             FontSize = 11,
-            FontWeight = FontWeights.SemiBold,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -243,8 +243,8 @@ public partial class MainWindow : Window
         foreach (var f in display)
             f.SizeBarWidth = maxSize > 0 ? Math.Max(2, 124.0 * f.Size / maxSize) : 0;
         FileGrid.ItemsSource = display;
-        FileCountText.Text = dir.FileCount.ToString("N0") + " 个文件 · " + dir.FolderCount.ToString("N0") + " 个文件夹"
-            + (total > MaxDisplayRows ? $"（显示前 {MaxDisplayRows:N0}）" : "");
+        FileCountText.Text = dir.FileCount.ToString("N0") + " files  " + dir.FolderCount.ToString("N0") + " dirs"
+            + (total > MaxDisplayRows ? $"  (top {MaxDisplayRows:N0})" : "");
         TotalSizeText.Text = FileEntry.FormatSize(dir.Size);
     }
 
@@ -291,7 +291,7 @@ public partial class MainWindow : Window
             if (!d.IsReady) return;
             long used = d.TotalSize - d.TotalFreeSpace;
             double pct = d.TotalSize > 0 ? 100.0 * used / d.TotalSize : 0;
-            VolumeText.Text = $"总共 {FileEntry.FormatSize(d.TotalSize)}  ·  已用 {FileEntry.FormatSize(used)} ({pct:0.0}%)  ·  可用 {FileEntry.FormatSize(d.TotalFreeSpace)}";
+            VolumeText.Text = $"total {FileEntry.FormatSize(d.TotalSize)}  used {FileEntry.FormatSize(used)} ({pct:0.0}%)  free {FileEntry.FormatSize(d.TotalFreeSpace)}";
         }
         catch { }
     }

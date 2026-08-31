@@ -3,10 +3,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <!-- 全局配色 -->
-        <SolidColorBrush x:Key="AccentBrush" Color="#2563EB"/>
-        <SolidColorBrush x:Key="PanelBg" Color="#1E293B"/>
-        <SolidColorBrush x:Key="TextPrimary" Color="#E2E8F0"/>
-        <SolidColorBrush x:Key="TextDim" Color="#94A3B8"/>
+        <SolidColorBrush x:Key="TermBg" Color="#0B0F0C"/>
+        <SolidColorBrush x:Key="TermPanel" Color="#111814"/>
+        <SolidColorBrush x:Key="TermBorder" Color="#1F3D2A"/>
+        <SolidColorBrush x:Key="TermGreen" Color="#39FF88"/>
+        <SolidColorBrush x:Key="TermDim" Color="#6B8F74"/>
+        <SolidColorBrush x:Key="TermText" Color="#C8F5D0"/>
+        <SolidColorBrush x:Key="TermAmber" Color="#E8C547"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#39FF88"/>
+        <SolidColorBrush x:Key="PanelBg" Color="#111814"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#C8F5D0"/>
+        <SolidColorBrush x:Key="TextDim" Color="#6B8F74"/>
     </Application.Resources>
 </Application>

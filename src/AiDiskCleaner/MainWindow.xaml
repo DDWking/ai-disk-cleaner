@@ -3,39 +3,80 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AI 磁盘清理 · MFT" Height="800" Width="1320"
         WindowStartupLocation="CenterScreen"
-        Background="#F1F5F9"
-        FontFamily="Segoe UI">
+        Background="#0B0F0C"
+        Foreground="#C8F5D0"
+        FontFamily="Cascadia Mono, Consolas, Courier New">
   <Window.Resources>
+    <Style TargetType="TextBlock">
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+    </Style>
     <Style TargetType="DataGridColumnHeader">
-      <Setter Property="Background" Value="#F8FAFC"/>
-      <Setter Property="Foreground" Value="#475569"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="Padding" Value="10,8"/>
-      <Setter Property="BorderBrush" Value="#E2E8F0"/>
+      <Setter Property="Background" Value="#111814"/>
+      <Setter Property="Foreground" Value="#6B8F74"/>
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Padding" Value="10,7"/>
+      <Setter Property="BorderBrush" Value="#1F3D2A"/>
       <Setter Property="BorderThickness" Value="0,0,0,1"/>
+      <Setter Property="SeparatorBrush" Value="#1F3D2A"/>
     </Style>
     <Style TargetType="DataGridCell">
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="Padding" Value="8,0"/>
+      <Setter Property="Foreground" Value="#C8F5D0"/>
+      <Setter Property="Background" Value="Transparent"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
       <Style.Triggers>
         <Trigger Property="IsSelected" Value="True">
-          <Setter Property="Background" Value="#DBEAFE"/>
-          <Setter Property="Foreground" Value="#0F172A"/>
+          <Setter Property="Background" Value="#163322"/>
+          <Setter Property="Foreground" Value="#39FF88"/>
         </Trigger>
       </Style.Triggers>
     </Style>
-    <Style TargetType="Button" x:Key="PrimaryButton">
-      <Setter Property="Background" Value="#2563EB"/>
-      <Setter Property="Foreground" Value="White"/>
+    <Style TargetType="DataGridRow">
+      <Setter Property="Background" Value="#0B0F0C"/>
+      <Setter Property="Foreground" Value="#C8F5D0"/>
+      <Style.Triggers>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="#163322"/>
+        </Trigger>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Background" Value="#122018"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+    <Style TargetType="TreeView">
+      <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="Foreground" Value="#C8F5D0"/>
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+    </Style>
+    <Style TargetType="TreeViewItem">
+      <Setter Property="Foreground" Value="#C8F5D0"/>
+      <Setter Property="Padding" Value="2,3"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
+    <Style TargetType="ComboBox">
+      <Setter Property="Background" Value="#111814"/>
+      <Setter Property="Foreground" Value="#39FF88"/>
+      <Setter Property="BorderBrush" Value="#1F3D2A"/>
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+    </Style>
+    <Style TargetType="Button" x:Key="PrimaryButton">
+      <Setter Property="Background" Value="#111814"/>
+      <Setter Property="Foreground" Value="#39FF88"/>
+      <Setter Property="BorderBrush" Value="#39FF88"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="14,6"/>
       <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
           </ControlTemplate>
@@ -43,25 +84,34 @@
       </Setter>
     </Style>
     <Style TargetType="Button" x:Key="GhostButton">
-      <Setter Property="Background" Value="#334155"/>
-      <Setter Property="Foreground" Value="#E2E8F0"/>
-      <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="Background" Value="#111814"/>
+      <Setter Property="Foreground" Value="#6B8F74"/>
+      <Setter Property="BorderBrush" Value="#1F3D2A"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="14,6"/>
       <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
+    <Style TargetType="ScrollBar">
+      <Setter Property="Width" Value="8"/>
+      <Setter Property="Background" Value="#0B0F0C"/>
+    </Style>
   </Window.Resources>
 
   <DockPanel>
-    <Border DockPanel.Dock="Top" Background="#0F172A" Padding="14,10">
+    <Border DockPanel.Dock="Top" Background="#0B0F0C" BorderBrush="#1F3D2A" BorderThickness="0,0,0,1" Padding="12,8">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
@@ -71,125 +121,134 @@
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" Text="AI 磁盘清理" Foreground="White" FontSize="16" FontWeight="SemiBold"
-                   VerticalAlignment="Center" Margin="0,0,18,0"/>
-        <ComboBox x:Name="DriveBox" Grid.Column="1" Width="88" Height="32" VerticalAlignment="Center" Margin="0,0,8,0"/>
-        <Button x:Name="ScanButton" Grid.Column="2" Content="扫描" Style="{StaticResource PrimaryButton}"
+        <TextBlock Grid.Column="0" Text="&gt; disk-clean" Foreground="#39FF88" FontSize="14"
+                   VerticalAlignment="Center" Margin="0,0,16,0"/>
+        <ComboBox x:Name="DriveBox" Grid.Column="1" Width="88" Height="28" VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <Button x:Name="ScanButton" Grid.Column="2" Content="[ scan ]" Style="{StaticResource PrimaryButton}"
                 Margin="0,0,8,0" Click="ScanButton_Click"/>
-        <Button x:Name="StopButton" Grid.Column="3" Content="停止" Style="{StaticResource GhostButton}"
+        <Button x:Name="StopButton" Grid.Column="3" Content="[ stop ]" Style="{StaticResource GhostButton}"
                 Margin="0,0,16,0" IsEnabled="False" Click="StopButton_Click"/>
-        <Grid Grid.Column="4" MaxWidth="320" HorizontalAlignment="Left">
-          <TextBox x:Name="SearchBox" Height="32" Padding="10,6" VerticalContentAlignment="Center"
-                   BorderBrush="#334155" Background="#1E293B" Foreground="#F8FAFC"
-                   CaretBrush="White" TextChanged="SearchBox_TextChanged"/>
-          <TextBlock x:Name="SearchHint" Text="在当前目录搜索" Foreground="#64748B" Margin="12,0,0,0"
+        <Grid Grid.Column="4" MaxWidth="340" HorizontalAlignment="Left">
+          <TextBox x:Name="SearchBox" Height="28" Padding="8,4" VerticalContentAlignment="Center"
+                   BorderBrush="#1F3D2A" Background="#111814" Foreground="#39FF88"
+                   CaretBrush="#39FF88" BorderThickness="1"
+                   FontFamily="Cascadia Mono, Consolas, Courier New"
+                   TextChanged="SearchBox_TextChanged"/>
+          <TextBlock x:Name="SearchHint" Text="search /path" Foreground="#3D5C45" Margin="10,0,0,0"
                      VerticalAlignment="Center" IsHitTestVisible="False"/>
         </Grid>
         <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
-          <TextBlock x:Name="VolumeText" Foreground="#E2E8F0" Margin="0,0,18,0" Text=""/>
-          <TextBlock x:Name="HeaderStats" Foreground="#94A3B8" Text="就绪"/>
+          <TextBlock x:Name="VolumeText" Foreground="#6B8F74" Margin="0,0,16,0" Text=""/>
+          <TextBlock x:Name="HeaderStats" Foreground="#39FF88" Text="ready"/>
         </StackPanel>
       </Grid>
     </Border>
 
-    <Border x:Name="ScanProgressPanel" DockPanel.Dock="Top" Background="#1E293B" Padding="14,8" Visibility="Collapsed">
+    <Border x:Name="ScanProgressPanel" DockPanel.Dock="Top" Background="#111814" BorderBrush="#1F3D2A"
+            BorderThickness="0,0,0,1" Padding="12,8" Visibility="Collapsed">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <ProgressBar x:Name="ScanProgressBar" Height="10" Minimum="0" Maximum="100" Value="0"
-                     Foreground="#3B82F6" Background="#334155" BorderThickness="0"/>
-        <TextBlock x:Name="ScanProgressText" Grid.Column="1" Foreground="#E2E8F0" Margin="12,0,0,0"
-                   VerticalAlignment="Center" Text="准备扫描…"/>
+        <ProgressBar x:Name="ScanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"
+                     Foreground="#39FF88" Background="#1F3D2A" BorderThickness="0"/>
+        <TextBlock x:Name="ScanProgressText" Grid.Column="1" Foreground="#6B8F74" Margin="12,0,0,0"
+                   VerticalAlignment="Center" Text="scanning..."/>
       </Grid>
     </Border>
 
-    <Border DockPanel.Dock="Bottom" Background="White" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="12,8">
+    <Border DockPanel.Dock="Bottom" Background="#0B0F0C" BorderBrush="#1F3D2A" BorderThickness="0,1,0,0" Padding="12,7">
       <StackPanel Orientation="Horizontal">
-        <TextBlock x:Name="FileCountText" Text="0 个文件" Foreground="#334155" FontWeight="SemiBold"/>
-        <TextBlock Text="  ·  " Foreground="#CBD5E1"/>
-        <TextBlock x:Name="TotalSizeText" Text="0 KB" Foreground="#2563EB" FontWeight="SemiBold"/>
-        <TextBlock Text="  ·  " Foreground="#CBD5E1"/>
-        <TextBlock x:Name="ElapsedText" Text="—" Foreground="#64748B"/>
-        <TextBlock Text="  ·  " Foreground="#CBD5E1"/>
-        <TextBlock x:Name="CleanHintText" Text="扫描后显示清理建议" Foreground="#64748B"/>
+        <TextBlock x:Name="FileCountText" Text="0 files" Foreground="#C8F5D0"/>
+        <TextBlock Text="  |  " Foreground="#1F3D2A"/>
+        <TextBlock x:Name="TotalSizeText" Text="0 KB" Foreground="#39FF88"/>
+        <TextBlock Text="  |  " Foreground="#1F3D2A"/>
+        <TextBlock x:Name="ElapsedText" Text="—" Foreground="#6B8F74"/>
+        <TextBlock Text="  |  " Foreground="#1F3D2A"/>
+        <TextBlock x:Name="CleanHintText" Text="scan to analyze" Foreground="#6B8F74"/>
       </StackPanel>
     </Border>
 
-    <Grid Margin="10">
+    <Grid>
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="380"/>
-        <ColumnDefinition Width="10"/>
+        <ColumnDefinition Width="400"/>
+        <ColumnDefinition Width="1"/>
         <ColumnDefinition Width="*"/>
       </Grid.ColumnDefinitions>
 
-      <Border Grid.Column="0" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1">
+      <Border Grid.Column="0" Background="#0B0F0C" BorderBrush="#1F3D2A" BorderThickness="0,0,1,0">
         <DockPanel>
-          <Grid DockPanel.Dock="Top" Margin="12,10,12,4">
+          <Grid DockPanel.Dock="Top" Margin="10,8,10,4">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
               <ColumnDefinition Width="70"/>
               <ColumnDefinition Width="80"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Text="文件夹" Foreground="#64748B" FontSize="11" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="1" Text="占比" Foreground="#64748B" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right"/>
-            <TextBlock Grid.Column="2" Text="大小" Foreground="#64748B" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+            <TextBlock Text="PATH" Foreground="#3D5C45" FontSize="11"/>
+            <TextBlock Grid.Column="1" Text="PCT" Foreground="#3D5C45" FontSize="11" HorizontalAlignment="Right"/>
+            <TextBlock Grid.Column="2" Text="SIZE" Foreground="#3D5C45" FontSize="11" HorizontalAlignment="Right"/>
           </Grid>
-          <TreeView x:Name="DirTree" BorderThickness="0" Background="Transparent" Padding="4,0,4,8"
+          <TreeView x:Name="DirTree" Padding="4,0,4,8"
                     SelectedItemChanged="DirTree_SelectedItemChanged"/>
         </DockPanel>
       </Border>
 
-      <Border Grid.Column="2" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1">
+      <Border Grid.Column="1" Background="#1F3D2A"/>
+
+      <Border Grid.Column="2" Background="#0B0F0C">
         <DockPanel>
-          <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="12,8,12,4" Foreground="#2563EB" FontSize="12"/>
+          <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="12,8,12,4" Foreground="#39FF88" FontSize="12"/>
           <DataGrid x:Name="FileGrid" AutoGenerateColumns="False" IsReadOnly="True"
                     CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
-                    BorderThickness="0" RowHeight="28" AlternatingRowBackground="#F8FAFC"
-                    RowBackground="White" Background="Transparent"
-                    HorizontalGridLinesBrush="#F1F5F9" EnableRowVirtualization="True"
+                    BorderThickness="0" RowHeight="26"
+                    AlternatingRowBackground="#0E1510"
+                    RowBackground="#0B0F0C" Background="#0B0F0C"
+                    HorizontalGridLinesBrush="#1F3D2A" EnableRowVirtualization="True"
                     SelectionMode="Single" SelectionUnit="FullRow"
                     MouseDoubleClick="FileGrid_MouseDoubleClick">
             <DataGrid.Columns>
-              <DataGridTextColumn Header="名称" Binding="{Binding Name}" SortMemberPath="Name" Width="2*"/>
-              <DataGridTextColumn Header="占比" Binding="{Binding PercentText}" SortMemberPath="Size" Width="70">
+              <DataGridTextColumn Header="NAME" Binding="{Binding Name}" SortMemberPath="Name" Width="2*"/>
+              <DataGridTextColumn Header="PCT" Binding="{Binding PercentText}" SortMemberPath="Size" Width="70">
                 <DataGridTextColumn.ElementStyle>
                   <Style TargetType="TextBlock">
                     <Setter Property="HorizontalAlignment" Value="Right"/>
-                    <Setter Property="Foreground" Value="#64748B"/>
+                    <Setter Property="Foreground" Value="#6B8F74"/>
+                    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
                   </Style>
                 </DataGridTextColumn.ElementStyle>
               </DataGridTextColumn>
-              <DataGridTextColumn Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="92">
+              <DataGridTextColumn Header="SIZE" Binding="{Binding SizeText}" SortMemberPath="Size" Width="92">
                 <DataGridTextColumn.ElementStyle>
                   <Style TargetType="TextBlock">
                     <Setter Property="HorizontalAlignment" Value="Right"/>
-                    <Setter Property="FontWeight" Value="SemiBold"/>
-                    <Setter Property="Foreground" Value="#0F172A"/>
+                    <Setter Property="Foreground" Value="#39FF88"/>
                     <Setter Property="Margin" Value="0,0,8,0"/>
+                    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
                   </Style>
                 </DataGridTextColumn.ElementStyle>
               </DataGridTextColumn>
               <DataGridTemplateColumn Header="" Width="140" SortMemberPath="Size">
                 <DataGridTemplateColumn.CellTemplate>
                   <DataTemplate>
-                    <Border Height="8" Margin="4,0" CornerRadius="4" Background="#E2E8F0" VerticalAlignment="Center">
-                      <Border Height="8" CornerRadius="4" Background="#3B82F6" HorizontalAlignment="Left"
+                    <Border Height="6" Margin="4,0" Background="#1F3D2A" VerticalAlignment="Center">
+                      <Border Height="6" Background="#39FF88" HorizontalAlignment="Left"
                               Width="{Binding SizeBarWidth}"/>
                     </Border>
                   </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
               </DataGridTemplateColumn>
-              <DataGridTextColumn Header="类型" Binding="{Binding KindText}" SortMemberPath="Category" Width="80"/>
-              <DataGridTextColumn Header="文件" Binding="{Binding ItemText}" SortMemberPath="FileCount" Width="80">
+              <DataGridTextColumn Header="TYPE" Binding="{Binding KindText}" SortMemberPath="Category" Width="80"/>
+              <DataGridTextColumn Header="FILES" Binding="{Binding ItemText}" SortMemberPath="FileCount" Width="80">
                 <DataGridTextColumn.ElementStyle>
                   <Style TargetType="TextBlock">
                     <Setter Property="HorizontalAlignment" Value="Right"/>
+                    <Setter Property="Foreground" Value="#6B8F74"/>
+                    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
                   </Style>
                 </DataGridTextColumn.ElementStyle>
               </DataGridTextColumn>
-              <DataGridTextColumn Header="修改时间" Binding="{Binding ModifiedText}" SortMemberPath="Modified" Width="136"/>
+              <DataGridTextColumn Header="MTIME" Binding="{Binding ModifiedText}" SortMemberPath="Modified" Width="136"/>
             </DataGrid.Columns>
           </DataGrid>
         </DockPanel>
