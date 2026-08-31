@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
@@ -40,9 +42,68 @@ public partial class MainWindow : Window
             MaxButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
             BorderThickness = WindowState == WindowState.Maximized ? new Thickness(8) : new Thickness(1);
         };
-        BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1F, 0x3D, 0x2A));
+        BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
+        ApplyUi();
         Loaded += (_, _) => RunScan();
+    }
+
+    public void ApplyUi()
+    {
+        Title = Loc.AppName;
+        TitleText.Text = Loc.AppName;
+        ScanButton.Content = Loc.Scan;
+        StopButton.Content = Loc.Stop;
+        SettingsButton.Content = Loc.Settings;
+        AboutButton.Content = Loc.About;
+        if (HeaderStats.Text is "就绪" or "Ready") HeaderStats.Text = Loc.Ready;
+        PathCrumb.Text = _current == null || string.IsNullOrEmpty(_current.FullPath) ? Loc.Path : _current.FullPath;
+        PctHeader.Text = Loc.Pct;
+        SizeHeader.Text = Loc.Size;
+        ExtTitle.Text = Loc.ExtType;
+        ColExt.Header = Loc.Ext;
+        ColType.Header = Loc.Type;
+        ColPct.Header = Loc.Pct;
+        ColSize.Header = Loc.Size;
+        DialogClose.Content = Loc.Close;
+        ThemeLabel.Text = Loc.Theme;
+        LangLabel.Text = Loc.Language;
+        ThemeTerminalBtn.Content = Loc.ThemeTerminal;
+        ThemeMonoBtn.Content = Loc.ThemeMono;
+        ThemeCyberBtn.Content = Loc.ThemeCyber;
+        LangZhBtn.Content = Loc.LangZh;
+        LangEnBtn.Content = Loc.LangEn;
+        AboutText.Text = Loc.AboutBody;
+        RepoLink.Text = Loc.Repo;
+        if (_current == null)
+        {
+            FileCountText.Text = Loc.Files(0);
+            CleanHintText.Text = Loc.AnalyzeAfterScan;
+            ScanProgressText.Text = Loc.ScanningEllipsis;
+        }
+        BorderBrush = ThemeService.Brush("Border");
+        HighlightThemeButtons();
+        if (_current != null)
+        {
+            PopulateTree();
+            ShowDirectory(_current);
+        }
+        UpdateVolumeInfo();
+    }
+
+    private void HighlightThemeButtons()
+    {
+        void Mark(Button b, bool on)
+        {
+            b.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
+            b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
+        }
+        var t = App.Settings.Theme;
+        Mark(ThemeTerminalBtn, t == AppTheme.Terminal);
+        Mark(ThemeMonoBtn, t == AppTheme.Mono);
+        Mark(ThemeCyberBtn, t == AppTheme.Cyberpunk);
+        Mark(LangZhBtn, Loc.Lang == AppLang.Zh);
+        Mark(LangEnBtn, Loc.Lang == AppLang.En);
     }
 
     private async void RunScan()
@@ -53,12 +114,12 @@ public partial class MainWindow : Window
         StopButton.IsEnabled = true;
         _scanStart = DateTime.Now;
         _cts = new CancellationTokenSource();
-        HeaderStats.Text = "扫描中";
-        FileCountText.Text = "0 个文件";
+        HeaderStats.Text = Loc.Scanning;
+        FileCountText.Text = Loc.Files(0);
         ScanProgressPanel.Visibility = Visibility.Visible;
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
-        ScanProgressText.Text = "准备中…";
+        ScanProgressText.Text = Loc.Preparing;
 
         var progress = new Progress<ScanProgress>(p =>
         {
@@ -66,16 +127,16 @@ public partial class MainWindow : Window
             {
                 ScanProgressBar.IsIndeterminate = false;
                 ScanProgressBar.Value = p.Percent;
-                ScanProgressText.Text = $"{p.Percent}%  {p.CurrentDirectory}  {p.FileCount:N0} 个文件";
-                HeaderStats.Text = $"扫描 {p.Percent}%";
+                ScanProgressText.Text = Loc.ProgressLine(p.Percent, p.CurrentDirectory, p.FileCount);
+                HeaderStats.Text = Loc.ScanPct(p.Percent);
             }
             else
             {
                 ScanProgressBar.IsIndeterminate = true;
-                ScanProgressText.Text = $"{p.CurrentDirectory}  {p.FileCount:N0} 个文件";
-                HeaderStats.Text = $"扫描 {p.FileCount:N0}";
+                ScanProgressText.Text = Loc.ProgressIndeterminate(p.CurrentDirectory, p.FileCount);
+                HeaderStats.Text = Loc.ScanCount(p.FileCount);
             }
-            FileCountText.Text = p.FileCount.ToString("N0") + " 个文件";
+            FileCountText.Text = Loc.Files(p.FileCount);
         });
 
         try
@@ -88,20 +149,20 @@ public partial class MainWindow : Window
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                HeaderStats.Text = "MFT 失败，改用递归扫描";
+                HeaderStats.Text = Loc.MftFail;
                 root = await Task.Run(() => _fallback.Scan(drive, progress, _cts.Token));
             }
             FinishScan(root);
         }
         catch (OperationCanceledException)
         {
-            HeaderStats.Text = "已停止";
+            HeaderStats.Text = Loc.Aborted;
         }
         catch (Exception ex)
         {
-            MessageBox.Show("扫描失败：" + ex.Message, "大扫货",
+            MessageBox.Show(Loc.ScanFailedMsg(ex.Message), Loc.AppName,
                 MessageBoxButton.OK, MessageBoxImage.Error);
-            HeaderStats.Text = "扫描失败";
+            HeaderStats.Text = Loc.ScanFailed;
         }
         finally
         {
@@ -125,13 +186,13 @@ public partial class MainWindow : Window
         UiLog("PopulateTree 完成");
         ShowDirectory(root);
         UiLog("ShowDirectory 完成");
-        ElapsedText.Text = "耗时 " + (DateTime.Now - _scanStart).TotalSeconds.ToString("0.00") + " 秒";
-        HeaderStats.Text = root.FileCount.ToString("N0") + " 个文件";
-        var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志").ToList();
+        ElapsedText.Text = Loc.Elapsed((DateTime.Now - _scanStart).TotalSeconds);
+        HeaderStats.Text = Loc.Files(root.FileCount);
+        var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志" or "Temporary" or "Log").ToList();
         UiLog($"cleanable 计算完成: {cleanable.Count:N0}");
         CleanHintText.Text = cleanable.Count > 0
-            ? $"建议：{cleanable.Count} 个临时/日志文件，约 {FileEntry.FormatSize(cleanable.Sum(f => f.Size))}"
-            : "建议：磁盘较干净";
+            ? Loc.HintTemp(cleanable.Count, FileEntry.FormatSize(cleanable.Sum(f => f.Size)))
+            : Loc.HintClean;
         UiLog("FinishScan 全部完成");
     }
 
@@ -185,14 +246,14 @@ public partial class MainWindow : Window
         var name = new TextBlock
         {
             Text = d.Name,
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x7D, 0xFF, 0x9A)),
+            Foreground = ThemeService.Brush("Text"),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
         var pct = new TextBlock
         {
             Text = isRoot ? "100 %" : d.PercentText,
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2E, 0x6B, 0x45)),
+            Foreground = ThemeService.Brush("TextMuted"),
             FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
@@ -200,7 +261,7 @@ public partial class MainWindow : Window
         var size = new TextBlock
         {
             Text = FileEntry.FormatSize(d.Size),
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3A, 0xC4, 0x6A)),
+            Foreground = ThemeService.Brush("AccentDim"),
             FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
@@ -242,8 +303,8 @@ public partial class MainWindow : Window
     private void ShowDirectory(FileEntry dir)
     {
         _current = dir;
-        PathCrumb.Text = string.IsNullOrEmpty(dir.FullPath) ? "路径" : dir.FullPath;
-        FileCountText.Text = dir.FileCount.ToString("N0") + " 个文件  " + dir.FolderCount.ToString("N0") + " 个文件夹";
+        PathCrumb.Text = string.IsNullOrEmpty(dir.FullPath) ? Loc.Path : dir.FullPath;
+        FileCountText.Text = Loc.FileDirCount(dir.FileCount, dir.FolderCount);
         TotalSizeText.Text = FileEntry.FormatSize(dir.Size);
         ShowExtStats(dir);
     }
@@ -277,11 +338,11 @@ public partial class MainWindow : Window
             .Select(kv =>
             {
                 string ext = kv.Key;
-                string shown = ext.Length == 0 ? "(无扩展名)" : ext;
+                string shown = ext.Length == 0 ? Loc.NoExt : ext;
                 return new ExtStat
                 {
                     Extension = shown,
-                    TypeName = FileClassifier.Describe(ext),
+                    TypeName = Loc.TypeName(ext),
                     Size = kv.Value.Size,
                     Count = kv.Value.Count,
                     PercentText = (100.0 * kv.Value.Size / total).ToString("0.0") + " %",
@@ -333,7 +394,11 @@ public partial class MainWindow : Window
             if (!d.IsReady) return;
             long used = d.TotalSize - d.TotalFreeSpace;
             double pct = d.TotalSize > 0 ? 100.0 * used / d.TotalSize : 0;
-            VolumeText.Text = $"总共 {FileEntry.FormatSize(d.TotalSize)}  已用 {FileEntry.FormatSize(used)} ({pct:0.0}%)  可用 {FileEntry.FormatSize(d.TotalFreeSpace)}";
+            VolumeText.Text = Loc.Volume(
+                FileEntry.FormatSize(d.TotalSize),
+                FileEntry.FormatSize(used),
+                pct,
+                FileEntry.FormatSize(d.TotalFreeSpace));
         }
         catch { }
     }
@@ -358,5 +423,53 @@ public partial class MainWindow : Window
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (_current != null) ShowDirectory(_current);
+    }
+
+    private void SettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        DialogTitle.Text = Loc.SettingsTitle;
+        SettingsBody.Visibility = Visibility.Visible;
+        AboutBody.Visibility = Visibility.Collapsed;
+        Overlay.Visibility = Visibility.Visible;
+        HighlightThemeButtons();
+    }
+
+    private void AboutButton_Click(object sender, RoutedEventArgs e)
+    {
+        DialogTitle.Text = Loc.AboutTitle;
+        SettingsBody.Visibility = Visibility.Collapsed;
+        AboutBody.Visibility = Visibility.Visible;
+        Overlay.Visibility = Visibility.Visible;
+    }
+
+    private void CloseOverlay_Click(object sender, RoutedEventArgs e) => Overlay.Visibility = Visibility.Collapsed;
+    private void Overlay_Click(object sender, MouseButtonEventArgs e) => Overlay.Visibility = Visibility.Collapsed;
+    private void Dialog_Click(object sender, MouseButtonEventArgs e) => e.Handled = true;
+
+    private void Theme_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag }) return;
+        var theme = tag switch
+        {
+            "Mono" => AppTheme.Mono,
+            "Cyberpunk" => AppTheme.Cyberpunk,
+            _ => AppTheme.Terminal,
+        };
+        App.SaveUi(theme, Loc.Lang);
+    }
+
+    private void Lang_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag }) return;
+        App.SaveUi(App.Settings.Theme, tag == "En" ? AppLang.En : AppLang.Zh);
+    }
+
+    private void RepoLink_Click(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(Loc.Repo) { UseShellExecute = true });
+        }
+        catch { }
     }
 }

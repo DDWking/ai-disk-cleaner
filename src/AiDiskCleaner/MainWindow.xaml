@@ -5,50 +5,50 @@
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
-        Background="#0B0F0C"
-        Foreground="#C8F5D0"
-        FontFamily="Cascadia Mono, Consolas, Courier New">
+        Background="{DynamicResource Bg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="{DynamicResource AppFont}">
   <WindowChrome.WindowChrome>
     <WindowChrome CaptionHeight="56" ResizeBorderThickness="6" GlassFrameThickness="0"
                   CornerRadius="0" UseAeroCaptionButtons="False"/>
   </WindowChrome.WindowChrome>
   <Window.Resources>
     <Style TargetType="TextBlock">
-      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
     </Style>
     <Style TargetType="DataGridColumnHeader">
-      <Setter Property="Background" Value="#111814"/>
-      <Setter Property="Foreground" Value="#6B8F74"/>
-      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="FontSize" Value="11"/>
       <Setter Property="Padding" Value="14,10"/>
-      <Setter Property="BorderBrush" Value="#1F3D2A"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
       <Setter Property="BorderThickness" Value="0,0,0,1"/>
-      <Setter Property="SeparatorBrush" Value="#1F3D2A"/>
+      <Setter Property="SeparatorBrush" Value="{DynamicResource Border}"/>
     </Style>
     <Style TargetType="DataGridCell">
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="Padding" Value="8,0"/>
-      <Setter Property="Foreground" Value="#C8F5D0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
       <Style.Triggers>
         <Trigger Property="IsSelected" Value="True">
-          <Setter Property="Background" Value="#163322"/>
-          <Setter Property="Foreground" Value="#39FF88"/>
+          <Setter Property="Background" Value="{DynamicResource SelectBg}"/>
+          <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
         </Trigger>
       </Style.Triggers>
     </Style>
     <Style TargetType="DataGridRow">
-      <Setter Property="Background" Value="#0B0F0C"/>
-      <Setter Property="Foreground" Value="#C8F5D0"/>
+      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Style.Triggers>
         <Trigger Property="IsSelected" Value="True">
-          <Setter Property="Background" Value="#163322"/>
-          <Setter Property="Foreground" Value="#39FF88"/>
+          <Setter Property="Background" Value="{DynamicResource SelectBg}"/>
+          <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
         </Trigger>
         <Trigger Property="IsMouseOver" Value="True">
-          <Setter Property="Background" Value="#122018"/>
+          <Setter Property="Background" Value="{DynamicResource HoverBg}"/>
         </Trigger>
       </Style.Triggers>
     </Style>
@@ -65,13 +65,13 @@
         <Setter.Value>
           <ControlTemplate TargetType="ToggleButton">
             <Border Background="Transparent">
-              <Path x:Name="arrow" Data="M 1,1 L 1,9 L 8,5 Z" Fill="#6B8F74"
+              <Path x:Name="arrow" Data="M 1,1 L 1,9 L 8,5 Z" Fill="{DynamicResource TextDim}"
                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsChecked" Value="True">
                 <Setter TargetName="arrow" Property="Data" Value="M 0,2 L 8,2 L 4,8 Z"/>
-                <Setter TargetName="arrow" Property="Fill" Value="#39FF88"/>
+                <Setter TargetName="arrow" Property="Fill" Value="{DynamicResource Accent}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -81,8 +81,8 @@
     <Style TargetType="TreeView">
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Foreground" Value="#7DFF9A"/>
-      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     </Style>
     <Style TargetType="TreeViewItem">
@@ -125,16 +125,16 @@
                 <Setter TargetName="Expander" Property="Visibility" Value="Hidden"/>
               </Trigger>
               <Trigger Property="IsSelected" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#0E3A1C"/>
-                <Setter Property="Foreground" Value="#7DFF9A"/>
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
               </Trigger>
               <MultiTrigger>
                 <MultiTrigger.Conditions>
                   <Condition Property="IsSelected" Value="True"/>
                   <Condition Property="IsSelectionActive" Value="False"/>
                 </MultiTrigger.Conditions>
-                <Setter TargetName="Bd" Property="Background" Value="#0E3A1C"/>
-                <Setter Property="Foreground" Value="#7DFF9A"/>
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
               </MultiTrigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -142,9 +142,9 @@
       </Setter>
     </Style>
     <Style TargetType="ComboBoxItem">
-      <Setter Property="Background" Value="#111814"/>
-      <Setter Property="Foreground" Value="#39FF88"/>
-      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="Padding" Value="8,4"/>
       <Setter Property="Template">
         <Setter.Value>
@@ -154,7 +154,7 @@
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsHighlighted" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="#163322"/>
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -162,11 +162,11 @@
       </Setter>
     </Style>
     <Style TargetType="ComboBox">
-      <Setter Property="Background" Value="#111814"/>
-      <Setter Property="Foreground" Value="#39FF88"/>
-      <Setter Property="BorderBrush" Value="#39FF88"/>
+      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="FontSize" Value="13"/>
       <Setter Property="Height" Value="28"/>
       <Setter Property="Padding" Value="8,0,24,0"/>
@@ -192,7 +192,7 @@
                                     ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                     ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
                                     RecognizesAccessKey="False"/>
-                  <TextBlock Grid.Column="1" Text="▾" Foreground="#39FF88"
+                  <TextBlock Grid.Column="1" Text="▾" Foreground="{DynamicResource Accent}"
                              VerticalAlignment="Center" HorizontalAlignment="Center"
                              FontSize="11" Margin="0,0,4,1"/>
                 </Grid>
@@ -200,7 +200,7 @@
               <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True"
                      Focusable="False" IsOpen="{TemplateBinding IsDropDownOpen}"
                      PopupAnimation="None">
-                <Border Background="#111814" BorderBrush="#39FF88" BorderThickness="1"
+                <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Accent}" BorderThickness="1"
                         MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
                   <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}">
                     <ItemsPresenter/>
@@ -221,14 +221,14 @@
       </Setter>
     </Style>
     <Style TargetType="TextBox" x:Key="TermTextBox">
-      <Setter Property="Background" Value="#111814"/>
-      <Setter Property="Foreground" Value="#39FF88"/>
-      <Setter Property="BorderBrush" Value="#1F3D2A"/>
+      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CaretBrush" Value="#39FF88"/>
-      <Setter Property="SelectionBrush" Value="#163322"/>
-      <Setter Property="SelectionTextBrush" Value="#39FF88"/>
-      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="CaretBrush" Value="{DynamicResource Accent}"/>
+      <Setter Property="SelectionBrush" Value="{DynamicResource SelectBg}"/>
+      <Setter Property="SelectionTextBrush" Value="{DynamicResource Accent}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="FontSize" Value="13"/>
       <Setter Property="Height" Value="28"/>
       <Setter Property="Padding" Value="0"/>
@@ -252,8 +252,8 @@
                               VerticalScrollBarVisibility="Hidden"
                               CanContentScroll="False"
                               Focusable="False"/>
-                <TextBlock x:Name="Placeholder" Text="搜索路径 / 文件名"
-                           Foreground="#3D5C45"
+                <TextBlock x:Name="Placeholder" Text="{DynamicResource SearchHintText}"
+                           Foreground="{DynamicResource Placeholder}"
                            VerticalAlignment="Center"
                            HorizontalAlignment="Left"
                            IsHitTestVisible="False"
@@ -265,7 +265,7 @@
                 <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
               </Trigger>
               <Trigger Property="IsFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#39FF88"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                 <Setter TargetName="Placeholder" Property="Visibility" Value="Collapsed"/>
               </Trigger>
             </ControlTemplate.Triggers>
@@ -274,13 +274,13 @@
       </Setter>
     </Style>
     <Style TargetType="Button" x:Key="PrimaryButton">
-      <Setter Property="Background" Value="#111814"/>
-      <Setter Property="Foreground" Value="#39FF88"/>
-      <Setter Property="BorderBrush" Value="#39FF88"/>
+      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Padding" Value="14,6"/>
       <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
@@ -296,7 +296,7 @@
     </Style>
     <Style TargetType="Button" x:Key="CaptionButton">
       <Setter Property="Background" Value="Transparent"/>
-      <Setter Property="Foreground" Value="#6B8F74"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="Width" Value="40"/>
       <Setter Property="Height" Value="28"/>
@@ -311,8 +311,8 @@
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="#163322"/>
-                <Setter Property="Foreground" Value="#39FF88"/>
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -328,8 +328,8 @@
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="#5A1A1A"/>
-                <Setter Property="Foreground" Value="#FF6B6B"/>
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource CloseHoverBg}"/>
+                <Setter Property="Foreground" Value="{DynamicResource CloseHoverFg}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -337,13 +337,13 @@
       </Setter>
     </Style>
     <Style TargetType="Button" x:Key="GhostButton">
-      <Setter Property="Background" Value="#111814"/>
-      <Setter Property="Foreground" Value="#6B8F74"/>
-      <Setter Property="BorderBrush" Value="#1F3D2A"/>
+      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Padding" Value="14,6"/>
       <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
@@ -362,13 +362,13 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Thumb">
-            <Border x:Name="bd" Background="#1F3D2A" CornerRadius="0" Margin="1"/>
+            <Border x:Name="bd" Background="{DynamicResource Border}" CornerRadius="0" Margin="1"/>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="#39FF88"/>
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource Accent}"/>
               </Trigger>
               <Trigger Property="IsDragging" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="#39FF88"/>
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource Accent}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -376,7 +376,7 @@
       </Setter>
     </Style>
     <ControlTemplate x:Key="TermVerticalScrollBar" TargetType="ScrollBar">
-      <Grid Background="#0B0F0C">
+      <Grid Background="{DynamicResource Bg}">
         <Track x:Name="PART_Track" IsDirectionReversed="True">
           <Track.DecreaseRepeatButton>
             <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" IsTabStop="False"/>
@@ -391,7 +391,7 @@
       </Grid>
     </ControlTemplate>
     <ControlTemplate x:Key="TermHorizontalScrollBar" TargetType="ScrollBar">
-      <Grid Background="#0B0F0C">
+      <Grid Background="{DynamicResource Bg}">
         <Track x:Name="PART_Track">
           <Track.DecreaseRepeatButton>
             <RepeatButton Command="ScrollBar.PageLeftCommand" Opacity="0" IsTabStop="False"/>
@@ -406,8 +406,8 @@
       </Grid>
     </ControlTemplate>
     <Style TargetType="ScrollBar">
-      <Setter Property="Background" Value="#0B0F0C"/>
-      <Setter Property="Foreground" Value="#1F3D2A"/>
+      <Setter Property="Background" Value="{DynamicResource Bg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Border}"/>
       <Setter Property="Width" Value="8"/>
       <Style.Triggers>
         <Trigger Property="Orientation" Value="Vertical">
@@ -426,7 +426,7 @@
       <Setter Property="Background" Value="Transparent"/>
     </Style>
     <Style TargetType="GridSplitter">
-      <Setter Property="Background" Value="#1F3D2A"/>
+      <Setter Property="Background" Value="{DynamicResource Border}"/>
       <Setter Property="Width" Value="12"/>
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
       <Setter Property="VerticalAlignment" Value="Stretch"/>
@@ -439,10 +439,10 @@
             <Border x:Name="bd" Background="{TemplateBinding Background}"/>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="#39FF88"/>
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource Accent}"/>
               </Trigger>
               <Trigger Property="IsDragging" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="#39FF88"/>
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource Accent}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -451,8 +451,9 @@
     </Style>
   </Window.Resources>
 
+  <Grid>
   <DockPanel>
-    <Border DockPanel.Dock="Top" Background="#0B0F0C" BorderBrush="#1F3D2A" BorderThickness="0,0,0,1" Padding="16,12,8,12">
+    <Border DockPanel.Dock="Top" Background="{DynamicResource Bg}" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="16,12,8,12">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
@@ -463,7 +464,7 @@
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" Text="大扫货" Foreground="#39FF88" FontSize="14"
+        <TextBlock x:Name="TitleText" Grid.Column="0" Text="大扫货" Foreground="{DynamicResource Accent}" FontSize="14"
                    VerticalAlignment="Center" Margin="8,0,16,0"/>
         <ComboBox x:Name="DriveBox" Grid.Column="1" Width="72" VerticalAlignment="Center" Margin="0,0,8,0"
                   WindowChrome.IsHitTestVisibleInChrome="True"/>
@@ -479,10 +480,14 @@
                  WindowChrome.IsHitTestVisibleInChrome="True"
                  TextChanged="SearchBox_TextChanged"/>
         <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
-          <TextBlock x:Name="VolumeText" Foreground="#6B8F74" Margin="0,0,16,0" Text=""/>
-          <TextBlock x:Name="HeaderStats" Foreground="#39FF88" Text="就绪"/>
+          <TextBlock x:Name="VolumeText" Foreground="{DynamicResource TextDim}" Margin="0,0,16,0" Text=""/>
+          <TextBlock x:Name="HeaderStats" Foreground="{DynamicResource Accent}" Text="就绪"/>
         </StackPanel>
         <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button x:Name="SettingsButton" Content="设置" Style="{StaticResource GhostButton}" Margin="0,0,6,0"
+                  Padding="10,6" Click="SettingsButton_Click" WindowChrome.IsHitTestVisibleInChrome="True"/>
+          <Button x:Name="AboutButton" Content="关于" Style="{StaticResource GhostButton}" Margin="0,0,10,0"
+                  Padding="10,6" Click="AboutButton_Click" WindowChrome.IsHitTestVisibleInChrome="True"/>
           <Button Content="—" Style="{StaticResource CaptionButton}" Click="MinButton_Click"/>
           <Button x:Name="MaxButton" Content="□" Style="{StaticResource CaptionButton}" Click="MaxButton_Click"/>
           <Button Content="×" Style="{StaticResource CaptionCloseButton}" Click="CloseButton_Click"/>
@@ -490,7 +495,7 @@
       </Grid>
     </Border>
 
-    <Border x:Name="ScanProgressPanel" DockPanel.Dock="Top" Background="#111814" BorderBrush="#1F3D2A"
+    <Border x:Name="ScanProgressPanel" DockPanel.Dock="Top" Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}"
             BorderThickness="0,0,0,1" Padding="20,10" Visibility="Collapsed">
       <Grid>
         <Grid.ColumnDefinitions>
@@ -498,21 +503,21 @@
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <ProgressBar x:Name="ScanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"
-                     Foreground="#39FF88" Background="#1F3D2A" BorderThickness="0"/>
-        <TextBlock x:Name="ScanProgressText" Grid.Column="1" Foreground="#6B8F74" Margin="12,0,0,0"
+                     Foreground="{DynamicResource Accent}" Background="{DynamicResource Border}" BorderThickness="0"/>
+        <TextBlock x:Name="ScanProgressText" Grid.Column="1" Foreground="{DynamicResource TextDim}" Margin="12,0,0,0"
                    VerticalAlignment="Center" Text="正在扫描…"/>
       </Grid>
     </Border>
 
-    <Border DockPanel.Dock="Bottom" Background="#0B0F0C" BorderBrush="#1F3D2A" BorderThickness="0,1,0,0" Padding="20,12">
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Bg}" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="20,12">
       <StackPanel Orientation="Horizontal">
-        <TextBlock x:Name="FileCountText" Text="0 个文件" Foreground="#C8F5D0"/>
-        <TextBlock Text="  |  " Foreground="#1F3D2A"/>
-        <TextBlock x:Name="TotalSizeText" Text="0 KB" Foreground="#39FF88"/>
-        <TextBlock Text="  |  " Foreground="#1F3D2A"/>
-        <TextBlock x:Name="ElapsedText" Text="—" Foreground="#6B8F74"/>
-        <TextBlock Text="  |  " Foreground="#1F3D2A"/>
-        <TextBlock x:Name="CleanHintText" Text="扫描后分析" Foreground="#6B8F74"/>
+        <TextBlock x:Name="FileCountText" Text="0 个文件" Foreground="{DynamicResource Text}"/>
+        <TextBlock Text="  |  " Foreground="{DynamicResource Border}"/>
+        <TextBlock x:Name="TotalSizeText" Text="0 KB" Foreground="{DynamicResource Accent}"/>
+        <TextBlock Text="  |  " Foreground="{DynamicResource Border}"/>
+        <TextBlock x:Name="ElapsedText" Text="—" Foreground="{DynamicResource TextDim}"/>
+        <TextBlock Text="  |  " Foreground="{DynamicResource Border}"/>
+        <TextBlock x:Name="CleanHintText" Text="扫描后分析" Foreground="{DynamicResource TextDim}"/>
       </StackPanel>
     </Border>
 
@@ -523,7 +528,7 @@
         <ColumnDefinition Width="400" MinWidth="260"/>
       </Grid.ColumnDefinitions>
 
-      <Border Grid.Column="0" Background="#07140C">
+      <Border x:Name="LeftPanel" Grid.Column="0" Background="{DynamicResource PanelLeft}">
         <DockPanel>
           <Grid DockPanel.Dock="Top" Margin="20,16,24,10">
             <Grid.ColumnDefinitions>
@@ -531,12 +536,12 @@
               <ColumnDefinition Width="72"/>
               <ColumnDefinition Width="88"/>
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="PathCrumb" Text="路径" Foreground="#2E6B45" FontSize="11"/>
-            <TextBlock Grid.Column="1" Text="占比" Foreground="#2E6B45" FontSize="11" HorizontalAlignment="Right"/>
-            <TextBlock Grid.Column="2" Text="大小" Foreground="#2E6B45" FontSize="11" HorizontalAlignment="Right" Margin="0,0,8,0"/>
+            <TextBlock x:Name="PathCrumb" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11"/>
+            <TextBlock x:Name="PctHeader" Grid.Column="1" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right"/>
+            <TextBlock x:Name="SizeHeader" Grid.Column="2" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,8,0"/>
           </Grid>
           <TreeView x:Name="DirTree" Padding="16,0,24,16"
-                    Background="#07140C"
+                    Background="Transparent"
                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                     ScrollViewer.VerticalScrollBarVisibility="Auto"
                     SelectedItemChanged="DirTree_SelectedItemChanged"/>
@@ -545,61 +550,35 @@
 
       <GridSplitter Grid.Column="1"/>
 
-      <Border Grid.Column="2" Background="#141C16">
+      <Border x:Name="RightPanel" Grid.Column="2" Background="{DynamicResource PanelRight}">
         <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Margin="20,16,20,8" Text="扩展名 / 类型" Foreground="#7A9A82" FontSize="11"/>
+          <TextBlock x:Name="ExtTitle" DockPanel.Dock="Top" Margin="20,16,20,8" Text="扩展名 / 类型" Foreground="{DynamicResource TextDim}" FontSize="11"/>
           <DataGrid x:Name="ExtGrid" AutoGenerateColumns="False" IsReadOnly="True"
                     CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
                     BorderThickness="0" RowHeight="32" Margin="12,0,16,12"
-                    AlternatingRowBackground="#1A241C"
-                    RowBackground="#141C16" Background="#141C16"
-                    HorizontalGridLinesBrush="#2A3A2E" EnableRowVirtualization="True"
+                    AlternatingRowBackground="{DynamicResource RowAlt}"
+                    RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
+                    HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                     SelectionMode="Single" SelectionUnit="FullRow">
             <DataGrid.Resources>
               <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}"/>
             </DataGrid.Resources>
-            <DataGrid.ColumnHeaderStyle>
-              <Style TargetType="DataGridColumnHeader">
-                <Setter Property="Background" Value="#141C16"/>
-                <Setter Property="Foreground" Value="#7A9A82"/>
-                <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
-                <Setter Property="FontSize" Value="11"/>
-                <Setter Property="Padding" Value="12,10"/>
-                <Setter Property="BorderBrush" Value="#2A3A2E"/>
-                <Setter Property="BorderThickness" Value="0,0,0,1"/>
-              </Style>
-            </DataGrid.ColumnHeaderStyle>
-            <DataGrid.RowStyle>
-              <Style TargetType="DataGridRow">
-                <Setter Property="Background" Value="#141C16"/>
-                <Setter Property="Foreground" Value="#B7D4BE"/>
-                <Style.Triggers>
-                  <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#243328"/>
-                    <Setter Property="Foreground" Value="#8FE8B0"/>
-                  </Trigger>
-                  <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#1C271F"/>
-                  </Trigger>
-                </Style.Triggers>
-              </Style>
-            </DataGrid.RowStyle>
             <DataGrid.Columns>
-              <DataGridTextColumn Header="扩展名" Binding="{Binding Extension}" SortMemberPath="Extension" Width="90"/>
-              <DataGridTextColumn Header="类型" Binding="{Binding TypeName}" SortMemberPath="TypeName" Width="*"/>
-              <DataGridTextColumn Header="占比" Binding="{Binding PercentText}" SortMemberPath="Size" Width="64">
+              <DataGridTextColumn x:Name="ColExt" Header="扩展名" Binding="{Binding Extension}" SortMemberPath="Extension" Width="90"/>
+              <DataGridTextColumn x:Name="ColType" Header="类型" Binding="{Binding TypeName}" SortMemberPath="TypeName" Width="*"/>
+              <DataGridTextColumn x:Name="ColPct" Header="占比" Binding="{Binding PercentText}" SortMemberPath="Size" Width="64">
                 <DataGridTextColumn.ElementStyle>
                   <Style TargetType="TextBlock">
                     <Setter Property="HorizontalAlignment" Value="Right"/>
-                    <Setter Property="Foreground" Value="#7A9A82"/>
+                    <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
                   </Style>
                 </DataGridTextColumn.ElementStyle>
               </DataGridTextColumn>
-              <DataGridTextColumn Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="84">
+              <DataGridTextColumn x:Name="ColSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="84">
                 <DataGridTextColumn.ElementStyle>
                   <Style TargetType="TextBlock">
                     <Setter Property="HorizontalAlignment" Value="Right"/>
-                    <Setter Property="Foreground" Value="#8FE8B0"/>
+                    <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
                     <Setter Property="Margin" Value="0,0,8,0"/>
                   </Style>
                 </DataGridTextColumn.ElementStyle>
@@ -610,4 +589,34 @@
       </Border>
     </Grid>
   </DockPanel>
+
+  <Border x:Name="Overlay" Background="{DynamicResource Overlay}" Visibility="Collapsed" MouseLeftButtonDown="Overlay_Click">
+    <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Accent}" BorderThickness="1"
+            Width="420" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28,24"
+            MouseLeftButtonDown="Dialog_Click">
+      <StackPanel>
+        <TextBlock x:Name="DialogTitle" FontSize="16" Foreground="{DynamicResource Accent}" Margin="0,0,0,16"/>
+        <StackPanel x:Name="SettingsBody">
+          <TextBlock x:Name="ThemeLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+            <Button x:Name="ThemeTerminalBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Theme_Click" Tag="Terminal"/>
+            <Button x:Name="ThemeMonoBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Theme_Click" Tag="Mono"/>
+            <Button x:Name="ThemeCyberBtn" Style="{StaticResource GhostButton}" Click="Theme_Click" Tag="Cyberpunk"/>
+          </StackPanel>
+          <TextBlock x:Name="LangLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="LangZhBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Lang_Click" Tag="Zh"/>
+            <Button x:Name="LangEnBtn" Style="{StaticResource GhostButton}" Click="Lang_Click" Tag="En"/>
+          </StackPanel>
+        </StackPanel>
+        <StackPanel x:Name="AboutBody" Visibility="Collapsed">
+          <TextBlock x:Name="AboutText" Foreground="{DynamicResource Text}" TextWrapping="Wrap" Margin="0,0,0,16"/>
+          <TextBlock x:Name="RepoLink" Foreground="{DynamicResource Accent}" Cursor="Hand" TextDecorations="Underline"
+                     MouseLeftButtonDown="RepoLink_Click"/>
+        </StackPanel>
+        <Button x:Name="DialogClose" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Right" Margin="0,20,0,0" Click="CloseOverlay_Click"/>
+      </StackPanel>
+    </Border>
+  </Border>
+  </Grid>
 </Window>
