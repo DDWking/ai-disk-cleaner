@@ -53,12 +53,12 @@ public partial class MainWindow : Window
         StopButton.IsEnabled = true;
         _scanStart = DateTime.Now;
         _cts = new CancellationTokenSource();
-        HeaderStats.Text = "scanning";
-        FileCountText.Text = "0 files";
+        HeaderStats.Text = "扫描中";
+        FileCountText.Text = "0 个文件";
         ScanProgressPanel.Visibility = Visibility.Visible;
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
-        ScanProgressText.Text = "init...";
+        ScanProgressText.Text = "准备中…";
 
         var progress = new Progress<ScanProgress>(p =>
         {
@@ -66,16 +66,16 @@ public partial class MainWindow : Window
             {
                 ScanProgressBar.IsIndeterminate = false;
                 ScanProgressBar.Value = p.Percent;
-                ScanProgressText.Text = $"{p.Percent}%  {p.CurrentDirectory}  {p.FileCount:N0} files";
-                HeaderStats.Text = $"scan {p.Percent}%";
+                ScanProgressText.Text = $"{p.Percent}%  {p.CurrentDirectory}  {p.FileCount:N0} 个文件";
+                HeaderStats.Text = $"扫描 {p.Percent}%";
             }
             else
             {
                 ScanProgressBar.IsIndeterminate = true;
-                ScanProgressText.Text = $"{p.CurrentDirectory}  {p.FileCount:N0} files";
-                HeaderStats.Text = $"scan {p.FileCount:N0}";
+                ScanProgressText.Text = $"{p.CurrentDirectory}  {p.FileCount:N0} 个文件";
+                HeaderStats.Text = $"扫描 {p.FileCount:N0}";
             }
-            FileCountText.Text = p.FileCount.ToString("N0") + " files";
+            FileCountText.Text = p.FileCount.ToString("N0") + " 个文件";
         });
 
         try
@@ -88,20 +88,20 @@ public partial class MainWindow : Window
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                HeaderStats.Text = "mft fail, fallback";
+                HeaderStats.Text = "MFT 失败，改用递归扫描";
                 root = await Task.Run(() => _fallback.Scan(drive, progress, _cts.Token));
             }
             FinishScan(root);
         }
         catch (OperationCanceledException)
         {
-            HeaderStats.Text = "aborted";
+            HeaderStats.Text = "已停止";
         }
         catch (Exception ex)
         {
             MessageBox.Show("扫描失败：" + ex.Message, "大扫货",
                 MessageBoxButton.OK, MessageBoxImage.Error);
-            HeaderStats.Text = "scan failed";
+            HeaderStats.Text = "扫描失败";
         }
         finally
         {
@@ -125,13 +125,13 @@ public partial class MainWindow : Window
         UiLog("PopulateTree 完成");
         ShowDirectory(root);
         UiLog("ShowDirectory 完成");
-        ElapsedText.Text = "elapsed " + (DateTime.Now - _scanStart).TotalSeconds.ToString("0.00") + "s";
-        HeaderStats.Text = root.FileCount.ToString("N0") + " files";
+        ElapsedText.Text = "耗时 " + (DateTime.Now - _scanStart).TotalSeconds.ToString("0.00") + " 秒";
+        HeaderStats.Text = root.FileCount.ToString("N0") + " 个文件";
         var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志").ToList();
         UiLog($"cleanable 计算完成: {cleanable.Count:N0}");
         CleanHintText.Text = cleanable.Count > 0
-            ? $"hint: {cleanable.Count} temp/log  ~ {FileEntry.FormatSize(cleanable.Sum(f => f.Size))}"
-            : "hint: clean";
+            ? $"建议：{cleanable.Count} 个临时/日志文件，约 {FileEntry.FormatSize(cleanable.Sum(f => f.Size))}"
+            : "建议：磁盘较干净";
         UiLog("FinishScan 全部完成");
     }
 
@@ -241,8 +241,8 @@ public partial class MainWindow : Window
     private void ShowDirectory(FileEntry dir)
     {
         _current = dir;
-        PathCrumb.Text = string.IsNullOrEmpty(dir.FullPath) ? "PATH" : dir.FullPath;
-        FileCountText.Text = dir.FileCount.ToString("N0") + " files  " + dir.FolderCount.ToString("N0") + " dirs";
+        PathCrumb.Text = string.IsNullOrEmpty(dir.FullPath) ? "路径" : dir.FullPath;
+        FileCountText.Text = dir.FileCount.ToString("N0") + " 个文件  " + dir.FolderCount.ToString("N0") + " 个文件夹";
         TotalSizeText.Text = FileEntry.FormatSize(dir.Size);
         ShowExtStats(dir);
     }
@@ -332,7 +332,7 @@ public partial class MainWindow : Window
             if (!d.IsReady) return;
             long used = d.TotalSize - d.TotalFreeSpace;
             double pct = d.TotalSize > 0 ? 100.0 * used / d.TotalSize : 0;
-            VolumeText.Text = $"total {FileEntry.FormatSize(d.TotalSize)}  used {FileEntry.FormatSize(used)} ({pct:0.0}%)  free {FileEntry.FormatSize(d.TotalFreeSpace)}";
+            VolumeText.Text = $"总共 {FileEntry.FormatSize(d.TotalSize)}  已用 {FileEntry.FormatSize(used)} ({pct:0.0}%)  可用 {FileEntry.FormatSize(d.TotalFreeSpace)}";
         }
         catch { }
     }
