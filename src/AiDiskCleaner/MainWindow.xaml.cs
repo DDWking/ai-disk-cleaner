@@ -89,6 +89,7 @@ public partial class MainWindow : Window
         CtxOpen.Header = Loc.OpenInExplorer;
         CtxCopyPath.Header = Loc.CopyPath;
         CtxCopyName.Header = Loc.CopyName;
+        CtxDelete.Header = Loc.DeleteToRecycle;
         CtxProps.Header = Loc.Properties;
         ExtTitle.Text = Loc.ExtType;
         ColExt.Header = Loc.Ext;
@@ -609,6 +610,15 @@ public partial class MainWindow : Window
             ShowDirectory(entry.IsDirectory ? entry : entry.Parent ?? entry);
     }
 
+    private void DirTree_PreviewRightDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject src) return;
+        while (src != null && src is not TreeViewItem)
+            src = VisualTreeHelper.GetParent(src);
+        if (src is TreeViewItem item)
+            item.IsSelected = true;
+    }
+
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         _search = SearchBox.Text?.Trim() ?? "";
@@ -636,6 +646,82 @@ public partial class MainWindow : Window
 
     private FileEntry? ContextEntry()
         => (DirTree.SelectedItem as TreeViewItem)?.Tag as FileEntry;
+
+    private void TreeMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        var entry = ContextEntry();
+        bool ok = entry != null && !RecycleService.IsProtected(entry);
+        CtxDelete.IsEnabled = ok;
+        CtxDelete.Header = ok ? Loc.DeleteToRecycle : Loc.DeleteBlocked;
+    }
+
+    private void CtxDelete_Click(object sender, RoutedEventArgs e)
+    {
+        var item = DirTree.SelectedItem as TreeViewItem;
+        if (item?.Tag is not FileEntry entry) return;
+        if (RecycleService.IsProtected(entry))
+        {
+            MessageBox.Show(Loc.DeleteBlocked, Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        string path = entry.FullPath;
+        if (string.IsNullOrWhiteSpace(path) || (!File.Exists(path) && !Directory.Exists(path)))
+        {
+            MessageBox.Show(Loc.DeleteFailed(path), Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        var confirm = MessageBox.Show(
+            Loc.DeleteConfirm(entry.Name, FileEntry.FormatSize(entry.Allocated > 0 ? entry.Allocated : entry.Size)),
+            Loc.DeleteToRecycle, MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+        try
+        {
+            RecycleService.SendToRecycle(path);
+            var parent = entry.Parent;
+            parent?.Children.Remove(entry);
+            if (item.Parent is TreeViewItem treeParent)
+                treeParent.Items.Remove(item);
+            else
+                DirTree.Items.Remove(item);
+            if (parent != null)
+            {
+                RecalcUp(parent);
+                ShowDirectory(parent);
+            }
+            HeaderStats.Text = Loc.DeleteOk;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(Loc.DeleteFailed(ex.Message), Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static void RecalcUp(FileEntry node)
+    {
+        for (var n = node; n != null; n = n.Parent)
+        {
+            long size = 0, alloc = 0;
+            int files = 0, folders = 0;
+            foreach (var c in n.Children)
+            {
+                size += c.Size;
+                alloc += c.Allocated;
+                if (c.IsDirectory)
+                {
+                    folders += 1 + c.FolderCount;
+                    files += c.FileCount;
+                }
+                else files += 1;
+            }
+            if (n.IsDirectory)
+            {
+                n.Size = size;
+                n.Allocated = alloc;
+            }
+            n.FileCount = files;
+            n.FolderCount = folders;
+        }
+    }
 
     private void CtxOpen_Click(object sender, RoutedEventArgs e)
     {

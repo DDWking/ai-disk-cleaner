@@ -443,12 +443,54 @@
       <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="HasDropShadow" Value="False"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ContextMenu">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    Padding="0,4">
+              <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="Separator">
+      <Setter Property="Margin" Value="10,6"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Separator">
+            <Border Height="1" Background="{DynamicResource Border}"/>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style TargetType="MenuItem">
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Background" Value="Transparent"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
-      <Setter Property="Padding" Value="10,6"/>
+      <Setter Property="Padding" Value="14,8"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="MenuItem">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{DynamicResource TextMuted}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style TargetType="GridSplitter">
       <Setter Property="Background" Value="{DynamicResource Border}"/>
@@ -579,12 +621,15 @@
                     Background="Transparent"
                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                    SelectedItemChanged="DirTree_SelectedItemChanged">
+                    SelectedItemChanged="DirTree_SelectedItemChanged"
+                    PreviewMouseRightButtonDown="DirTree_PreviewRightDown">
             <TreeView.ContextMenu>
-              <ContextMenu>
+              <ContextMenu Opened="TreeMenu_Opened">
                 <MenuItem x:Name="CtxOpen" Header="在资源管理器中打开" Click="CtxOpen_Click"/>
                 <MenuItem x:Name="CtxCopyPath" Header="复制路径" Click="CtxCopyPath_Click"/>
                 <MenuItem x:Name="CtxCopyName" Header="复制名称" Click="CtxCopyName_Click"/>
+                <Separator/>
+                <MenuItem x:Name="CtxDelete" Header="删除到回收站" Click="CtxDelete_Click"/>
                 <Separator/>
                 <MenuItem x:Name="CtxProps" Header="属性" Click="CtxProps_Click"/>
               </ContextMenu>

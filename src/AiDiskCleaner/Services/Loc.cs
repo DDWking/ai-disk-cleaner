@@ -73,6 +73,12 @@ public static class Loc
     public static string CopyPath => IsEn ? "Copy path" : "复制路径";
     public static string CopyName => IsEn ? "Copy name" : "复制名称";
     public static string Properties => IsEn ? "Properties" : "属性";
+    public static string DeleteToRecycle => IsEn ? "Delete to Recycle Bin" : "删除到回收站";
+    public static string DeleteBlocked => IsEn ? "Protected system item, won't delete." : "系统保护项，不能删。";
+    public static string DeleteConfirm(string name, string size) =>
+        IsEn ? $"Move “{name}” ({size}) to Recycle Bin?" : $"把「{name}」（{size}）删到回收站？";
+    public static string DeleteFailed(string msg) => IsEn ? "Delete failed: " + msg : "删除失败：" + msg;
+    public static string DeleteOk => IsEn ? "Moved to Recycle Bin" : "已移到回收站";
     public static string SortBySize => IsEn ? "Sort by size" : "按大小排序";
     public static string SortByName => IsEn ? "Sort by name" : "按名称排序";
     public static string SortByModified => IsEn ? "Sort by date" : "按修改时间排序";
