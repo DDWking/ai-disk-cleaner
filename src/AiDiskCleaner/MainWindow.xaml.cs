@@ -42,10 +42,17 @@ public partial class MainWindow : Window
     private string _search = "";
     private string? _extFilter;
     private SortKey _sort = SortKey.Size;
-    private DispatcherTimer? _typeTimer;
-    private readonly Queue<string> _typeQueue = new();
-    private readonly List<(TextBlock Left, TextBlock Right, string Full)> _typing = new();
-    private string _lastTyped = "";
+    private DispatcherTimer? _revealTimer;
+    private bool _revealing;
+    private TextBlock? _typingName;
+    private string _typingFull = "";
+    private int _typingAt;
+    private Queue<FileEntry>? _revealLeft;
+    private TreeViewItem? _revealRoot;
+    private Queue<ExtStat>? _revealRight;
+    private readonly List<ExtStat> _shownExt = new();
+    private ExtStat? _typingExt;
+    private string _typingExtFull = "";
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -155,7 +162,9 @@ public partial class MainWindow : Window
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
         ScanProgressText.Text = Loc.Preparing;
-        StartTypewriter();
+        StopReveal();
+        DirTree.Items.Clear();
+        ExtGrid.ItemsSource = null;
 
         var progress = new Progress<ScanProgress>(p =>
         {
@@ -173,7 +182,6 @@ public partial class MainWindow : Window
                 HeaderStats.Text = Loc.ScanCount(p.FileCount);
             }
             FileCountText.Text = Loc.Files(p.FileCount);
-            EnqueueType(p.CurrentDirectory);
         });
 
         try
@@ -193,6 +201,7 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
+            StopReveal();
             HeaderStats.Text = Loc.Aborted;
         }
         catch (Exception ex)
@@ -208,91 +217,8 @@ public partial class MainWindow : Window
             StopButton.IsEnabled = false;
             ScanProgressPanel.Visibility = Visibility.Collapsed;
             ScanProgressBar.IsIndeterminate = false;
-            StopTypewriter();
         }
     }
-
-    private void StartTypewriter()
-    {
-        TypeLeft.Children.Clear();
-        TypeRight.Children.Clear();
-        _typeQueue.Clear();
-        _typing.Clear();
-        _lastTyped = "";
-        TypeLeftScroll.Visibility = Visibility.Visible;
-        TypeRightScroll.Visibility = Visibility.Visible;
-        _typeTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(28) };
-        _typeTimer.Tick -= TypeTick;
-        _typeTimer.Tick += TypeTick;
-        _typeTimer.Start();
-    }
-
-    private void StopTypewriter()
-    {
-        _typeTimer?.Stop();
-        TypeLeftScroll.Visibility = Visibility.Collapsed;
-        TypeRightScroll.Visibility = Visibility.Collapsed;
-        TypeLeft.Children.Clear();
-        TypeRight.Children.Clear();
-        _typeQueue.Clear();
-        _typing.Clear();
-    }
-
-    private void EnqueueType(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path) || path == _lastTyped) return;
-        _lastTyped = path;
-        _typeQueue.Enqueue(path);
-        while (_typeQueue.Count > 40) _typeQueue.Dequeue();
-    }
-
-    private void TypeTick(object? sender, EventArgs e)
-    {
-        if (_typing.Count == 0 && _typeQueue.Count > 0)
-            BeginNextLine();
-
-        for (int i = _typing.Count - 1; i >= 0; i--)
-        {
-            var (left, right, full) = _typing[i];
-            int n = Math.Min(full.Length, Math.Max(left.Text.Length, right.Text.Length) + 2);
-            string shown = full[..n];
-            left.Text = shown;
-            right.Text = shown;
-            if (n >= full.Length)
-                _typing.RemoveAt(i);
-        }
-
-        if (_typing.Count < 3 && _typeQueue.Count > 0)
-            BeginNextLine();
-    }
-
-    private void BeginNextLine()
-    {
-        if (_typeQueue.Count == 0) return;
-        string full = _typeQueue.Dequeue();
-        if (full.Length > 64) full = "…" + full[^60..];
-        var left = MakeTypeLine();
-        var right = MakeTypeLine();
-        TypeLeft.Children.Add(left);
-        TypeRight.Children.Add(right);
-        _typing.Add((left, right, full));
-        while (TypeLeft.Children.Count > 28)
-        {
-            TypeLeft.Children.RemoveAt(0);
-            if (TypeRight.Children.Count > 0) TypeRight.Children.RemoveAt(0);
-        }
-        TypeLeftScroll.ScrollToEnd();
-        TypeRightScroll.ScrollToEnd();
-    }
-
-    private static TextBlock MakeTypeLine() => new()
-    {
-        Foreground = ThemeService.Brush("Accent"),
-        FontSize = 12,
-        FontFamily = new FontFamily(ThemeService.Current.Font),
-        Margin = new Thickness(0, 3, 0, 3),
-        TextTrimming = TextTrimming.CharacterEllipsis,
-    };
 
     private void FinishScan(FileEntry root)
     {
@@ -302,10 +228,9 @@ public partial class MainWindow : Window
         _allFiles = CollectFiles(root); // 只收集一次，缓存
         UiLog($"CollectFiles 完成: {_allFiles.Count:N0}");
         UpdateVolumeInfo();
-        PopulateTree();
-        UiLog("PopulateTree 完成");
         ShowDirectory(root);
-        UiLog("ShowDirectory 完成");
+        StartReveal(root);
+        UiLog("Reveal 开始");
         ElapsedText.Text = Loc.Elapsed((DateTime.Now - _scanStart).TotalSeconds);
         HeaderStats.Text = Loc.Files(root.FileCount);
         var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志" or "Temporary" or "Log").ToList();
@@ -388,6 +313,7 @@ public partial class MainWindow : Window
         var name = new TextBlock
         {
             Text = d.Name,
+            Tag = d.Name,
             Foreground = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Text"),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -606,6 +532,12 @@ public partial class MainWindow : Window
     /// <summary>当前目录（含子目录）按扩展名汇总占用，和 WizTree 右侧一致。</summary>
     private void ShowExtStats(FileEntry dir)
     {
+        if (_revealing) return;
+        ExtGrid.ItemsSource = BuildExtStats(dir);
+    }
+
+    private List<ExtStat> BuildExtStats(FileEntry dir)
+    {
         var map = new Dictionary<string, (long Size, int Count)>(StringComparer.OrdinalIgnoreCase);
         CollectExt(dir, map);
         long total = 0;
@@ -633,9 +565,106 @@ public partial class MainWindow : Window
 
         for (int i = 0; i < list.Count; i++)
             list[i].Color = new SolidColorBrush(ExtPalette[i % ExtPalette.Length]);
-
-        ExtGrid.ItemsSource = list;
+        return list;
     }
+
+    private void StartReveal(FileEntry root)
+    {
+        StopReveal();
+        _revealing = true;
+        DirTree.Items.Clear();
+        _shownExt.Clear();
+        ExtGrid.ItemsSource = null;
+        var rootItem = new TreeViewItem { Header = MakeFolderHeader(root, isRoot: true), Tag = root, IsExpanded = true };
+        DirTree.Items.Add(rootItem);
+        _revealRoot = rootItem;
+        _revealLeft = new Queue<FileEntry>(VisibleChildren(root).Take(48));
+        _revealRight = new Queue<ExtStat>(BuildExtStats(root).Take(24));
+        BlankName(rootItem);
+        _typingName = FindNameBlock(rootItem);
+        _typingFull = root.Name;
+        _typingAt = 0;
+        _revealTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(38) };
+        _revealTimer.Tick -= RevealTick;
+        _revealTimer.Tick += RevealTick;
+        _revealTimer.Start();
+    }
+
+    private void StopReveal()
+    {
+        _revealTimer?.Stop();
+        _revealing = false;
+        _revealLeft = null;
+        _revealRight = null;
+        _typingName = null;
+        _typingFull = "";
+        _typingAt = 0;
+        _typingExt = null;
+        _typingExtFull = "";
+    }
+
+    private void RevealTick(object? sender, EventArgs e)
+    {
+        if (_typingName != null && _typingAt < _typingFull.Length)
+        {
+            _typingAt++;
+            _typingName.Text = _typingFull[.._typingAt];
+            return;
+        }
+        if (_typingExt != null && _typingAt < _typingExtFull.Length)
+        {
+            _typingAt++;
+            _typingExt.Extension = _typingExtFull[.._typingAt];
+            ExtGrid.ItemsSource = null;
+            ExtGrid.ItemsSource = _shownExt.ToList();
+            return;
+        }
+
+        if (_revealLeft is { Count: > 0 } left && _revealRoot != null)
+        {
+            var entry = left.Dequeue();
+            var item = new TreeViewItem { Header = MakeFolderHeader(entry), Tag = entry };
+            if (entry.IsDirectory && entry.Children.Count > 0)
+            {
+                item.Items.Add(new TreeViewItem { Header = "…", Tag = Placeholder });
+                item.Expanded += DirItem_Expanded;
+            }
+            BlankName(item);
+            _revealRoot.Items.Add(item);
+            _typingName = FindNameBlock(item);
+            _typingFull = entry.Name;
+            _typingAt = 0;
+            return;
+        }
+
+        if (_revealRight is { Count: > 0 } right)
+        {
+            var stat = right.Dequeue();
+            _typingExtFull = stat.Extension;
+            stat.Extension = "";
+            _shownExt.Add(stat);
+            _typingExt = stat;
+            _typingAt = 0;
+            ExtGrid.ItemsSource = null;
+            ExtGrid.ItemsSource = _shownExt.ToList();
+            return;
+        }
+
+        if (_current != null)
+            ExtGrid.ItemsSource = BuildExtStats(_current);
+        var doneRoot = _revealRoot;
+        StopReveal();
+        if (doneRoot != null) doneRoot.IsSelected = true;
+    }
+
+    private static void BlankName(TreeViewItem item)
+    {
+        var tb = FindNameBlock(item);
+        if (tb != null) tb.Text = "";
+    }
+
+    private static TextBlock? FindNameBlock(TreeViewItem item)
+        => item.Header is Grid g && g.Children.Count > 0 ? g.Children[0] as TextBlock : null;
 
     private static void CollectExt(FileEntry node, Dictionary<string, (long Size, int Count)> map)
     {
