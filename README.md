@@ -33,12 +33,11 @@ src/AiDiskCleaner/     WPF 主程序
   Models/              FileEntry
   Native/              NTFS P/Invoke
   Services/            MFT / 递归 / 模拟扫描
-docs/                  设计与协作笔记
 ```
 
 ## 一起开发
 
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。两人协作约定也写在 [docs/git-workflow-and-handover.md](docs/git-workflow-and-handover.md)。
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 简单说：
 
