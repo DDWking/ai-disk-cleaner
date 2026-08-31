@@ -180,8 +180,8 @@ public partial class MainWindow : Window
     {
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(88) });
         var name = new TextBlock
         {
             Text = d.Name,
@@ -204,6 +204,7 @@ public partial class MainWindow : Window
             FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
         };
         Grid.SetColumn(name, 0);
         Grid.SetColumn(pct, 1);
