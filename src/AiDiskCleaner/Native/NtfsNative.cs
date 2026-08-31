@@ -13,8 +13,11 @@ internal static class NtfsNative
     internal const uint OPEN_EXISTING = 3;
     internal const uint FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000; // 提示顺序扫描，启用激进预读
     internal const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000; // 备份语义，可绕过 ACL 打开 $MFT
+    internal const uint FILE_READ_ATTRIBUTES = 0x00000080;
     internal const uint FSCTL_GET_NTFS_VOLUME_DATA = 0x00090064;
     internal const uint FSCTL_GET_NTFS_FILE_RECORD = 0x00090068;
+    internal const uint FSCTL_GET_RETRIEVAL_POINTERS = 0x00090073;
+    internal const uint FileIdType = 0;
 
     // 令牌权限（用于启用 SeBackupPrivilege 读取 $MFT）
     internal const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
@@ -43,6 +46,22 @@ internal static class NtfsNative
     internal static extern bool ReadFile(
         SafeFileHandle hFile, byte[] lpBuffer, uint nNumberOfBytesToRead,
         out uint lpNumberOfBytesRead, IntPtr lpOverlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern SafeFileHandle OpenFileById(
+        SafeFileHandle hVolumeHint,
+        ref FileIdDescriptor lpFileId,
+        uint dwDesiredAccess,
+        uint dwShareMode,
+        IntPtr lpSecurityAttributes,
+        uint dwFlagsAndAttributes);
+
+    [DllImport("kernel32.dll", SetLastError = true, EntryPoint = "DeviceIoControl")]
+    internal static extern bool DeviceIoControlBytes(
+        SafeFileHandle hDevice, uint dwIoControlCode,
+        ref long lpInBuffer, uint nInBufferSize,
+        byte[] lpOutBuffer, uint nOutBufferSize,
+        out uint lpBytesReturned, IntPtr lpOverlapped);
 
     [DllImport("advapi32.dll", SetLastError = true)]
     internal static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
@@ -81,6 +100,15 @@ internal static class NtfsNative
     internal struct NtfsFileRecordInput
     {
         public long FileReferenceNumber;
+    }
+
+    /// <summary>FILE_ID_DESCRIPTOR，Type=FileIdType 时 FileId 是 MFT 记录号。</summary>
+    [StructLayout(LayoutKind.Explicit, Size = 24)]
+    internal struct FileIdDescriptor
+    {
+        [FieldOffset(0)] public uint dwSize;
+        [FieldOffset(4)] public uint Type;
+        [FieldOffset(8)] public long FileId;
     }
 
     /// <summary>FSCTL_GET_NTFS_VOLUME_DATA 返回的 NTFS_VOLUME_DATA_BUFFER。</summary>

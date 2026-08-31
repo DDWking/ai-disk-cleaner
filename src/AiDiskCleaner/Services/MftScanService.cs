@@ -70,6 +70,22 @@ public sealed class MftScanService : IScanService
         }
         // 必须按 VCN（逻辑顺序）读，不能按磁盘 LCN 排序，否则记录号会全错。
         runs = MergeRuns(runs);
+
+        // 内核的 retrieval pointers 才是完整碎片图。记录 0 里的 run 经常只有第一段。
+        var (kernelRuns, kernelErr) = GetMftRetrievalPointers(volHandle, bytesPerCluster);
+        if (kernelRuns.Count > 0)
+        {
+            long kBytes = 0;
+            foreach (var r in kernelRuns) kBytes += r.Clusters * bytesPerCluster;
+            Flush($"内核 retrieval pointers: {kernelRuns.Count} 段, 覆盖 {kBytes / 1048576}MB");
+            if (kBytes >= mftLength || kernelRuns.Count > runs.Count)
+                runs = kernelRuns;
+        }
+        else
+        {
+            Flush($"内核 retrieval pointers 失败，错误码 {kernelErr}");
+        }
+
         if (runs.Count == 0)
         {
             long clusters = (mftLength + bytesPerCluster - 1) / bytesPerCluster;
@@ -80,12 +96,17 @@ public sealed class MftScanService : IScanService
         {
             long runBytes = 0;
             foreach (var r in runs) runBytes += r.Clusters * bytesPerCluster;
-            Flush($"读取方式: $MFT data run {runs.Count} 段, 覆盖 {runBytes / 1048576}MB（逻辑 {mftLength / 1048576}MB）");
+            if (runBytes > mftLength)
+            {
+                mftLength = runBytes;
+                recordCount = (int)(mftLength / recordSize);
+            }
+            Flush($"读取方式: $MFT {runs.Count} 段, 覆盖 {runBytes / 1048576}MB（逻辑 {mftLength / 1048576}MB），记录数 {recordCount:N0}");
         }
 
-        var entries = new FileEntry?[recordCount];
-        var parents = new ulong[recordCount];
-        var bases = new ulong[recordCount];
+        var entries = new FileEntry?[Math.Max(recordCount, 1)];
+        var parents = new ulong[entries.Length];
+        var bases = new ulong[entries.Length];
         Array.Fill(parents, RootRecordNumber);
 
         byte[] buffer = new byte[BlockSize];
@@ -94,50 +115,88 @@ public sealed class MftScanService : IScanService
         var readSw = new Stopwatch();
         var parseSw = new Stopwatch();
 
-        progress?.Report(new ScanProgress(0, "正在读取 MFT", 1));
-        foreach (var (_, lcn, clusters) in runs)
+        void EnsureRecord(ulong rec)
         {
-            if (recordNumber >= (ulong)recordCount) break;
-            long remaining = clusters * (long)bytesPerCluster;
-            long offset = lcn * (long)bytesPerCluster;
-            if (!NtfsNative.SetFilePointerEx(volHandle, offset, out _, 0))
-                throw new IOException($"定位 MFT 碎片失败，错误码 {Marshal.GetLastWin32Error()}");
+            if ((int)rec < entries.Length) return;
+            int n = Math.Max(entries.Length * 2, (int)rec + 4096);
+            Array.Resize(ref entries, n);
+            int old = parents.Length;
+            Array.Resize(ref parents, n);
+            Array.Resize(ref bases, n);
+            Array.Fill(parents, RootRecordNumber, old, n - old);
+        }
 
-            while (remaining > 0 && recordNumber < (ulong)recordCount)
+        void ParseBlock(int bytesRead, int expected)
+        {
+            parseSw.Start();
+            int pos = 0;
+            while (pos + recordSize <= bytesRead)
+            {
+                EnsureRecord(recordNumber);
+                var entry = ParseRecord(buffer, pos, recordSize, recordNumber, out ulong parentRef, out ulong baseRef);
+                if (entry != null)
+                {
+                    entries[recordNumber] = entry;
+                    parents[recordNumber] = parentRef & 0xFFFFFFFFFFFFUL;
+                    bases[recordNumber] = baseRef & 0xFFFFFFFFFFFFUL;
+                    fileCount++;
+                }
+                pos += recordSize;
+                recordNumber++;
+            }
+            parseSw.Stop();
+            int pct = expected > 0 ? (int)Math.Min(90, recordNumber * 90UL / (ulong)expected) : 1;
+            progress?.Report(new ScanProgress(fileCount, "正在读取 MFT", Math.Max(1, pct)));
+        }
+
+        progress?.Report(new ScanProgress(0, "正在读取 MFT", 1));
+
+        // 优先：OpenFileById($MFT) 顺序读，内核自己拼碎片，最完整。
+        using var mftById = TryOpenMftById(volHandle);
+        if (mftById != null)
+        {
+            Flush("读取方式: OpenFileById($MFT) 顺序读");
+            while (true)
             {
                 ct.ThrowIfCancellationRequested();
-                int toRead = (int)Math.Min(buffer.Length, remaining);
-                toRead -= toRead % recordSize;
-                if (toRead < recordSize) break;
-
                 readSw.Start();
-                bool ok = NtfsNative.ReadFile(volHandle, buffer, (uint)toRead, out uint bytesRead, IntPtr.Zero);
+                bool ok = NtfsNative.ReadFile(mftById, buffer, (uint)buffer.Length, out uint bytesRead, IntPtr.Zero);
                 readSw.Stop();
                 if (!ok || bytesRead == 0) break;
                 bytesRead -= bytesRead % (uint)recordSize;
-
-                parseSw.Start();
-                int pos = 0;
-                while (pos + recordSize <= bytesRead && recordNumber < (ulong)recordCount)
-                {
-                    var entry = ParseRecord(buffer, pos, recordSize, recordNumber, out ulong parentRef, out ulong baseRef);
-                    if (entry != null)
-                    {
-                        entries[recordNumber] = entry;
-                        parents[recordNumber] = parentRef & 0xFFFFFFFFFFFFUL;
-                        bases[recordNumber] = baseRef & 0xFFFFFFFFFFFFUL;
-                        fileCount++;
-                    }
-                    pos += recordSize;
-                    recordNumber++;
-                }
-                parseSw.Stop();
-                remaining -= bytesRead;
-
-                int pct = recordCount > 0 ? (int)Math.Min(90, recordNumber * 90UL / (ulong)recordCount) : 0;
-                progress?.Report(new ScanProgress(fileCount, "正在读取 MFT", Math.Max(1, pct)));
+                if (bytesRead == 0) break;
+                ParseBlock((int)bytesRead, recordCount);
             }
         }
+        else
+        {
+            foreach (var (_, lcn, clusters) in runs)
+            {
+                long remaining = clusters * (long)bytesPerCluster;
+                long offset = lcn * (long)bytesPerCluster;
+                if (!NtfsNative.SetFilePointerEx(volHandle, offset, out _, 0))
+                    throw new IOException($"定位 MFT 碎片失败，错误码 {Marshal.GetLastWin32Error()}");
+
+                while (remaining > 0)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int toRead = (int)Math.Min(buffer.Length, remaining);
+                    toRead -= toRead % recordSize;
+                    if (toRead < recordSize) break;
+
+                    readSw.Start();
+                    bool ok = NtfsNative.ReadFile(volHandle, buffer, (uint)toRead, out uint bytesRead, IntPtr.Zero);
+                    readSw.Stop();
+                    if (!ok || bytesRead == 0) break;
+                    bytesRead -= bytesRead % (uint)recordSize;
+                    if (bytesRead == 0) break;
+
+                    ParseBlock((int)bytesRead, recordCount);
+                    remaining -= bytesRead;
+                }
+            }
+        }
+        recordCount = (int)recordNumber;
         Flush($"读盘 {readSw.ElapsedMilliseconds}ms, 解析 {parseSw.ElapsedMilliseconds}ms, 有效记录 {fileCount:N0}, 已读记录 {recordNumber:N0}/{recordCount:N0}");
         progress?.Report(new ScanProgress(fileCount, "正在建目录树", 92));
 
@@ -604,6 +663,73 @@ public sealed class MftScanService : IScanService
         {
             // 权限启用失败不影响主流程，仍会回退读卷
         }
+    }
+
+    /// <summary>
+    /// 用 OpenFileById(记录 0) + FSCTL_GET_RETRIEVAL_POINTERS 拿 $MFT 全部碎片。
+    /// 这是内核维护的映射，比自己解析记录 0 的 data run 完整。
+    /// </summary>
+    private static SafeFileHandle? TryOpenMftById(SafeFileHandle vol)
+    {
+        var id = new NtfsNative.FileIdDescriptor { dwSize = 24, Type = NtfsNative.FileIdType, FileId = 0 };
+        var h = NtfsNative.OpenFileById(vol, ref id,
+            NtfsNative.GENERIC_READ,
+            NtfsNative.FILE_SHARE_READ | NtfsNative.FILE_SHARE_WRITE | NtfsNative.FILE_SHARE_DELETE,
+            IntPtr.Zero,
+            NtfsNative.FILE_FLAG_BACKUP_SEMANTICS | NtfsNative.FILE_FLAG_SEQUENTIAL_SCAN);
+        return h.IsInvalid ? null : h;
+    }
+
+    private static (List<(long Vcn, long Lcn, long Clusters)> Runs, int Error) GetMftRetrievalPointers(SafeFileHandle vol, int bytesPerCluster)
+    {
+        var runs = new List<(long, long, long)>();
+        var id = new NtfsNative.FileIdDescriptor { dwSize = 24, Type = NtfsNative.FileIdType, FileId = 0 };
+        var mft = NtfsNative.OpenFileById(vol, ref id,
+            NtfsNative.GENERIC_READ,
+            NtfsNative.FILE_SHARE_READ | NtfsNative.FILE_SHARE_WRITE | NtfsNative.FILE_SHARE_DELETE,
+            IntPtr.Zero,
+            NtfsNative.FILE_FLAG_BACKUP_SEMANTICS | NtfsNative.FILE_FLAG_SEQUENTIAL_SCAN);
+        if (mft.IsInvalid)
+        {
+            id = new NtfsNative.FileIdDescriptor { dwSize = 24, Type = NtfsNative.FileIdType, FileId = 0 };
+            mft = NtfsNative.OpenFileById(vol, ref id,
+                NtfsNative.FILE_READ_ATTRIBUTES,
+                NtfsNative.FILE_SHARE_READ | NtfsNative.FILE_SHARE_WRITE | NtfsNative.FILE_SHARE_DELETE,
+                IntPtr.Zero,
+                NtfsNative.FILE_FLAG_BACKUP_SEMANTICS);
+        }
+        if (mft.IsInvalid) return (runs, Marshal.GetLastWin32Error());
+        using (mft)
+        {
+            long startingVcn = 0;
+            var buf = new byte[64 * 1024];
+            while (true)
+            {
+                bool ok = NtfsNative.DeviceIoControlBytes(mft, NtfsNative.FSCTL_GET_RETRIEVAL_POINTERS,
+                    ref startingVcn, 8, buf, (uint)buf.Length, out uint returned, IntPtr.Zero);
+                int err = Marshal.GetLastWin32Error();
+                // 234 = ERROR_MORE_DATA；38 = ERROR_HANDLE_EOF
+                if (!ok && err != 234 && err != 38) break;
+                if (returned < 16) break;
+
+                int extentCount = BitConverter.ToInt32(buf, 0);
+                long prevVcn = BitConverter.ToInt64(buf, 8); // StartingVcn
+                int pos = 16;
+                for (int i = 0; i < extentCount && pos + 16 <= buf.Length; i++)
+                {
+                    long nextVcn = BitConverter.ToInt64(buf, pos);
+                    long lcn = BitConverter.ToInt64(buf, pos + 8);
+                    pos += 16;
+                    long clusters = nextVcn - prevVcn;
+                    if (clusters > 0 && lcn >= 0)
+                        runs.Add((prevVcn, lcn, clusters));
+                    prevVcn = nextVcn;
+                }
+                if (ok || err == 38 || extentCount == 0) break;
+                startingVcn = prevVcn;
+            }
+        }
+        return (MergeRuns(runs), 0);
     }
 
     private static SafeFileHandle OpenMftFile(string path)

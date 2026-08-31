@@ -52,6 +52,11 @@
 ```
 
 ### 2026-03-31  DDWking
+- 用 `OpenFileById($MFT)` + retrieval pointers 读完整碎片（记录 0 的 data run 经常只有第一段，所以 Users 只有 7.8G）
+- 窗口标题改成「AI 磁盘清理 · MFT」，方便确认跑的是新 exe
+- 还差：和 WizTree 对总大小/文件数
+
+### 2026-03-31  DDWking
 - 修文件大小：`$MFT` 碎片按逻辑 VCN 读（之前按磁盘 LCN 排序会把记录号打乱）
 - 非驻留 `$DATA` 同时看 DataSize / InitializedSize
 - 扫盘加顶部进度条（百分比 + 阶段 + 文件数），避免看起来像卡死
