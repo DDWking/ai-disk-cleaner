@@ -6,7 +6,6 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
@@ -43,10 +42,10 @@ public partial class MainWindow : Window
     private string _search = "";
     private string? _extFilter;
     private SortKey _sort = SortKey.Size;
-    private DispatcherTimer? _rainTimer;
-    private readonly Random _rainRng = new();
-    private readonly Queue<string> _rainQueue = new();
-    private string _lastRainPath = "";
+    private DispatcherTimer? _typeTimer;
+    private readonly Queue<string> _typeQueue = new();
+    private readonly List<(TextBlock Left, TextBlock Right, string Full)> _typing = new();
+    private string _lastTyped = "";
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -156,7 +155,7 @@ public partial class MainWindow : Window
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
         ScanProgressText.Text = Loc.Preparing;
-        StartHackRain();
+        StartTypewriter();
 
         var progress = new Progress<ScanProgress>(p =>
         {
@@ -174,7 +173,7 @@ public partial class MainWindow : Window
                 HeaderStats.Text = Loc.ScanCount(p.FileCount);
             }
             FileCountText.Text = Loc.Files(p.FileCount);
-            EnqueueRain(p.CurrentDirectory);
+            EnqueueType(p.CurrentDirectory);
         });
 
         try
@@ -209,84 +208,91 @@ public partial class MainWindow : Window
             StopButton.IsEnabled = false;
             ScanProgressPanel.Visibility = Visibility.Collapsed;
             ScanProgressBar.IsIndeterminate = false;
-            StopHackRain();
+            StopTypewriter();
         }
     }
 
-    private void StartHackRain()
+    private void StartTypewriter()
     {
-        HackRain.Children.Clear();
-        _rainQueue.Clear();
-        HackRain.Visibility = Visibility.Visible;
-        _rainTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(70) };
-        _rainTimer.Tick -= RainTick;
-        _rainTimer.Tick += RainTick;
-        _rainTimer.Start();
+        TypeLeft.Children.Clear();
+        TypeRight.Children.Clear();
+        _typeQueue.Clear();
+        _typing.Clear();
+        _lastTyped = "";
+        TypeLeftScroll.Visibility = Visibility.Visible;
+        TypeRightScroll.Visibility = Visibility.Visible;
+        _typeTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(28) };
+        _typeTimer.Tick -= TypeTick;
+        _typeTimer.Tick += TypeTick;
+        _typeTimer.Start();
     }
 
-    private void StopHackRain()
+    private void StopTypewriter()
     {
-        _rainTimer?.Stop();
-        HackRain.Children.Clear();
-        HackRain.Visibility = Visibility.Collapsed;
-        _rainQueue.Clear();
+        _typeTimer?.Stop();
+        TypeLeftScroll.Visibility = Visibility.Collapsed;
+        TypeRightScroll.Visibility = Visibility.Collapsed;
+        TypeLeft.Children.Clear();
+        TypeRight.Children.Clear();
+        _typeQueue.Clear();
+        _typing.Clear();
     }
 
-    private void EnqueueRain(string path)
+    private void EnqueueType(string path)
     {
-        if (string.IsNullOrWhiteSpace(path) || path == _lastRainPath) return;
-        _lastRainPath = path;
-        _rainQueue.Enqueue(path);
-        while (_rainQueue.Count > 24) _rainQueue.Dequeue();
+        if (string.IsNullOrWhiteSpace(path) || path == _lastTyped) return;
+        _lastTyped = path;
+        _typeQueue.Enqueue(path);
+        while (_typeQueue.Count > 40) _typeQueue.Dequeue();
     }
 
-    private void RainTick(object? sender, EventArgs e)
+    private void TypeTick(object? sender, EventArgs e)
     {
-        if (HackRain.ActualHeight <= 0 || HackRain.ActualWidth <= 0) return;
-        string text;
-        if (_rainQueue.Count > 0)
-            text = _rainQueue.Dequeue();
-        else
-            text = _lastRainPath.Length > 0 ? _lastRainPath : "scanning…";
-        if (text.Length > 72) text = "…" + text[^68..];
+        if (_typing.Count == 0 && _typeQueue.Count > 0)
+            BeginNextLine();
 
-        var tb = new TextBlock
+        for (int i = _typing.Count - 1; i >= 0; i--)
         {
-            Text = text,
-            FontFamily = new FontFamily(ThemeService.Current.Font),
-            FontSize = 11 + _rainRng.NextDouble() * 3,
-            Foreground = ThemeService.Brush(_rainRng.Next(4) == 0 ? "Accent" : "TextMuted"),
-            Opacity = 0.15 + _rainRng.NextDouble() * 0.55,
-            IsHitTestVisible = false,
-        };
-        double x = 8 + _rainRng.NextDouble() * Math.Max(8, HackRain.ActualWidth - 80);
-        Canvas.SetLeft(tb, x);
-        Canvas.SetTop(tb, HackRain.ActualHeight + 4);
-        HackRain.Children.Add(tb);
+            var (left, right, full) = _typing[i];
+            int n = Math.Min(full.Length, Math.Max(left.Text.Length, right.Text.Length) + 2);
+            string shown = full[..n];
+            left.Text = shown;
+            right.Text = shown;
+            if (n >= full.Length)
+                _typing.RemoveAt(i);
+        }
 
-        double rise = HackRain.ActualHeight + 28;
-        var anim = new DoubleAnimation
-        {
-            From = HackRain.ActualHeight + 4,
-            To = -24,
-            Duration = TimeSpan.FromSeconds(1.6 + _rainRng.NextDouble() * 1.8),
-            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
-        };
-        anim.Completed += (_, _) => HackRain.Children.Remove(tb);
-        tb.BeginAnimation(Canvas.TopProperty, anim);
-
-        var fade = new DoubleAnimation
-        {
-            From = tb.Opacity,
-            To = 0,
-            BeginTime = TimeSpan.FromSeconds(0.9),
-            Duration = TimeSpan.FromSeconds(1.4),
-        };
-        tb.BeginAnimation(OpacityProperty, fade);
-
-        if (HackRain.Children.Count > 48)
-            HackRain.Children.RemoveAt(0);
+        if (_typing.Count < 3 && _typeQueue.Count > 0)
+            BeginNextLine();
     }
+
+    private void BeginNextLine()
+    {
+        if (_typeQueue.Count == 0) return;
+        string full = _typeQueue.Dequeue();
+        if (full.Length > 64) full = "…" + full[^60..];
+        var left = MakeTypeLine();
+        var right = MakeTypeLine();
+        TypeLeft.Children.Add(left);
+        TypeRight.Children.Add(right);
+        _typing.Add((left, right, full));
+        while (TypeLeft.Children.Count > 28)
+        {
+            TypeLeft.Children.RemoveAt(0);
+            if (TypeRight.Children.Count > 0) TypeRight.Children.RemoveAt(0);
+        }
+        TypeLeftScroll.ScrollToEnd();
+        TypeRightScroll.ScrollToEnd();
+    }
+
+    private static TextBlock MakeTypeLine() => new()
+    {
+        Foreground = ThemeService.Brush("Accent"),
+        FontSize = 12,
+        FontFamily = new FontFamily(ThemeService.Current.Font),
+        Margin = new Thickness(0, 3, 0, 3),
+        TextTrimming = TextTrimming.CharacterEllipsis,
+    };
 
     private void FinishScan(FileEntry root)
     {
