@@ -89,6 +89,7 @@
       <Setter Property="Foreground" Value="#C8F5D0"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Padding" Value="2,3"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
       <Setter Property="Template">
@@ -113,7 +114,8 @@
                 <ContentPresenter x:Name="PART_Header" ContentSource="Header"
                                   HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
               </Border>
-              <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="1" Visibility="Collapsed"/>
+              <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                              Margin="16,0,0,0" Visibility="Collapsed"/>
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="IsExpanded" Value="True">
@@ -423,6 +425,30 @@
     <Style TargetType="ScrollViewer">
       <Setter Property="Background" Value="Transparent"/>
     </Style>
+    <Style TargetType="GridSplitter">
+      <Setter Property="Background" Value="#1F3D2A"/>
+      <Setter Property="Width" Value="6"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="VerticalAlignment" Value="Stretch"/>
+      <Setter Property="ResizeBehavior" Value="PreviousAndNext"/>
+      <Setter Property="ShowsPreview" Value="False"/>
+      <Setter Property="Cursor" Value="SizeWE"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="GridSplitter">
+            <Border x:Name="bd" Background="{TemplateBinding Background}"/>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#39FF88"/>
+              </Trigger>
+              <Trigger Property="IsDragging" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#39FF88"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </Window.Resources>
 
   <DockPanel>
@@ -492,11 +518,11 @@
 
     <Grid>
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="360"/>
-        <ColumnDefinition Width="1"/>
-        <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="1"/>
-        <ColumnDefinition Width="320"/>
+        <ColumnDefinition Width="420" MinWidth="240"/>
+        <ColumnDefinition Width="6"/>
+        <ColumnDefinition Width="*" MinWidth="280"/>
+        <ColumnDefinition Width="6"/>
+        <ColumnDefinition Width="300" MinWidth="180"/>
       </Grid.ColumnDefinitions>
 
       <Border Grid.Column="0" Background="#0B0F0C" BorderBrush="#1F3D2A" BorderThickness="0,0,1,0">
@@ -512,11 +538,13 @@
             <TextBlock Grid.Column="2" Text="SIZE" Foreground="#3D5C45" FontSize="11" HorizontalAlignment="Right"/>
           </Grid>
           <TreeView x:Name="DirTree" Padding="4,0,4,8"
+                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                    ScrollViewer.VerticalScrollBarVisibility="Auto"
                     SelectedItemChanged="DirTree_SelectedItemChanged"/>
         </DockPanel>
       </Border>
 
-      <Border Grid.Column="1" Background="#1F3D2A"/>
+      <GridSplitter Grid.Column="1"/>
 
       <Border Grid.Column="2" Background="#0B0F0C">
         <DockPanel>
@@ -581,7 +609,7 @@
         </DockPanel>
       </Border>
 
-      <Border Grid.Column="3" Background="#1F3D2A"/>
+      <GridSplitter Grid.Column="3"/>
 
       <Border Grid.Column="4" Background="#0B0F0C" BorderBrush="#1F3D2A" BorderThickness="1,0,0,0">
         <DockPanel>
