@@ -45,22 +45,99 @@
       <Style.Triggers>
         <Trigger Property="IsSelected" Value="True">
           <Setter Property="Background" Value="#163322"/>
+          <Setter Property="Foreground" Value="#39FF88"/>
         </Trigger>
         <Trigger Property="IsMouseOver" Value="True">
           <Setter Property="Background" Value="#122018"/>
         </Trigger>
       </Style.Triggers>
     </Style>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#163322"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#39FF88"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#163322"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#39FF88"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#163322"/>
+    <Style x:Key="ExpandCollapseToggleStyle" TargetType="ToggleButton">
+      <Setter Property="Focusable" Value="False"/>
+      <Setter Property="Width" Value="16"/>
+      <Setter Property="Height" Value="16"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ToggleButton">
+            <Border Background="Transparent">
+              <Path x:Name="arrow" Data="M 1,1 L 1,9 L 8,5 Z" Fill="#6B8F74"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="arrow" Property="Data" Value="M 0,2 L 8,2 L 4,8 Z"/>
+                <Setter TargetName="arrow" Property="Fill" Value="#39FF88"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style TargetType="TreeView">
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="Foreground" Value="#C8F5D0"/>
       <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     </Style>
     <Style TargetType="TreeViewItem">
       <Setter Property="Foreground" Value="#C8F5D0"/>
+      <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Padding" Value="2,3"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TreeViewItem">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+              <ToggleButton x:Name="Expander" Style="{StaticResource ExpandCollapseToggleStyle}"
+                            IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}"
+                            ClickMode="Press"/>
+              <Border x:Name="Bd" Grid.Column="1"
+                      Background="{TemplateBinding Background}"
+                      Padding="{TemplateBinding Padding}"
+                      SnapsToDevicePixels="True">
+                <ContentPresenter x:Name="PART_Header" ContentSource="Header"
+                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+              </Border>
+              <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="1" Visibility="Collapsed"/>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsExpanded" Value="True">
+                <Setter TargetName="ItemsHost" Property="Visibility" Value="Visible"/>
+              </Trigger>
+              <Trigger Property="HasItems" Value="False">
+                <Setter TargetName="Expander" Property="Visibility" Value="Hidden"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#163322"/>
+                <Setter Property="Foreground" Value="#39FF88"/>
+              </Trigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsSelected" Value="True"/>
+                  <Condition Property="IsSelectionActive" Value="False"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="Bd" Property="Background" Value="#163322"/>
+                <Setter Property="Foreground" Value="#39FF88"/>
+              </MultiTrigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style TargetType="ComboBoxItem">
       <Setter Property="Background" Value="#111814"/>
@@ -147,12 +224,15 @@
       <Setter Property="BorderBrush" Value="#1F3D2A"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="CaretBrush" Value="#39FF88"/>
+      <Setter Property="SelectionBrush" Value="#163322"/>
+      <Setter Property="SelectionTextBrush" Value="#39FF88"/>
       <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
       <Setter Property="FontSize" Value="13"/>
       <Setter Property="Height" Value="28"/>
-      <Setter Property="Padding" Value="8,0"/>
+      <Setter Property="Padding" Value="0"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="TextBox">
@@ -160,17 +240,20 @@
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
                     SnapsToDevicePixels="True">
-              <Grid>
+              <Grid Margin="8,0">
                 <ScrollViewer x:Name="PART_ContentHost"
-                              Margin="{TemplateBinding Padding}"
-                              VerticalAlignment="Center"
+                              Margin="0"
+                              Padding="0"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch"
                               HorizontalScrollBarVisibility="Hidden"
                               VerticalScrollBarVisibility="Hidden"
+                              CanContentScroll="False"
                               Focusable="False"/>
                 <TextBlock x:Name="Placeholder" Text="search /path"
                            Foreground="#3D5C45"
                            VerticalAlignment="Center"
-                           Margin="{TemplateBinding Padding}"
+                           HorizontalAlignment="Left"
                            IsHitTestVisible="False"
                            Visibility="Collapsed"/>
               </Grid>
@@ -181,6 +264,7 @@
               </Trigger>
               <Trigger Property="IsFocused" Value="True">
                 <Setter TargetName="bd" Property="BorderBrush" Value="#39FF88"/>
+                <Setter TargetName="Placeholder" Property="Visibility" Value="Collapsed"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>

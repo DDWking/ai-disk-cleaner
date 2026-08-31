@@ -29,6 +29,11 @@ public partial class MainWindow : Window
         if (drives.Count > 0) DriveBox.SelectedIndex = 0;
         UpdateVolumeInfo();
         DriveBox.SelectionChanged += (_, _) => UpdateVolumeInfo();
+        SearchBox.GotFocus += (_, _) =>
+        {
+            if (string.IsNullOrEmpty(SearchBox.Text))
+                SearchBox.CaretIndex = 0;
+        };
         StateChanged += (_, _) =>
         {
             MaxButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
