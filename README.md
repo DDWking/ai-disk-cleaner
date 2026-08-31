@@ -13,6 +13,10 @@ Windows 下的磁盘占用分析工具。直接读 NTFS 的 `$MFT`，秒级扫�
 - 文件名搜索（当前目录）
 - 临时 / 日志文件的清理建议（还很初级）
 
+## 下载
+
+[Release v1.0.0](https://github.com/DDWking/ai-disk-cleaner/releases/tag/v1.0.0) 里有 Windows x64 压缩包。解压后右键 `AiDiskCleaner.exe` → 以管理员身份运行。需要已安装 [.NET 8 桌面运行时](https://dotnet.microsoft.com/download/dotnet/8.0)。
+
 ## 运行
 
 环境：Windows 10/11 + [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)

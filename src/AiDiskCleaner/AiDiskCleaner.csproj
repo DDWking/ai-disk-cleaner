@@ -8,6 +8,10 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>AiDiskCleaner</RootNamespace>
     <AssemblyName>AiDiskCleaner</AssemblyName>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <Product>大扫货</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
