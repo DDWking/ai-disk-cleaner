@@ -241,7 +241,7 @@ public partial class MainWindow : Window
     {
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(148) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(168) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(88) });
         var name = new TextBlock
         {
@@ -251,15 +251,18 @@ public partial class MainWindow : Window
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
         double barW = isRoot ? 72 : d.PercentBarWidth;
-        var pctCell = new Grid { Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
-        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
-        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
-        var track = new Border
+        var pctCell = new DockPanel { Margin = new Thickness(8, 0, 8, 0), LastChildFill = true, VerticalAlignment = VerticalAlignment.Center };
+        var pctText = new TextBlock
         {
-            Height = 6,
-            Background = ThemeService.Brush("Border"),
+            Text = (isRoot ? 100 : d.PercentValue).ToString("0.0") + " %",
+            Foreground = ThemeService.Brush(d.IsDimmed ? "Placeholder" : "TextMuted"),
+            FontSize = 11,
+            Width = 52,
+            TextAlignment = TextAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
         };
+        DockPanel.SetDock(pctText, Dock.Right);
         var fill = new Border
         {
             Height = 6,
@@ -268,19 +271,16 @@ public partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        track.Child = fill;
-        var pctText = new TextBlock
+        var track = new Border
         {
-            Text = (isRoot ? 100 : d.PercentValue).ToString("0.0") + " %",
-            Foreground = ThemeService.Brush(d.IsDimmed ? "Placeholder" : "TextMuted"),
-            FontSize = 11,
-            HorizontalAlignment = HorizontalAlignment.Right,
+            Height = 6,
+            Background = ThemeService.Brush("Border"),
             VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 1, 0, 0),
+            Child = fill,
         };
-        Grid.SetColumn(track, 0);
-        Grid.SetColumn(pctText, 1);
-        pctCell.Children.Add(track);
         pctCell.Children.Add(pctText);
+        pctCell.Children.Add(track);
         var size = new TextBlock
         {
             Text = FileEntry.FormatSize(d.Size),

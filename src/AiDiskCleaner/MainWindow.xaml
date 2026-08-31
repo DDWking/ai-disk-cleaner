@@ -31,6 +31,7 @@
       <Setter Property="Padding" Value="8,0"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
       <Style.Triggers>
         <Trigger Property="IsSelected" Value="True">
@@ -533,11 +534,11 @@
           <Grid DockPanel.Dock="Top" Margin="20,16,24,10">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="148"/>
+              <ColumnDefinition Width="168"/>
               <ColumnDefinition Width="88"/>
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="PathCrumb" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11"/>
-            <TextBlock x:Name="PctHeader" Grid.Column="1" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,56,0"/>
+            <TextBlock x:Name="PctHeader" Grid.Column="1" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,60,0"/>
             <TextBlock x:Name="SizeHeader" Grid.Column="2" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,8,0"/>
           </Grid>
           <TreeView x:Name="DirTree" Padding="16,0,24,16"
@@ -564,27 +565,44 @@
               <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}"/>
             </DataGrid.Resources>
             <DataGrid.Columns>
-              <DataGridTextColumn x:Name="ColExt" Header="扩展名" Binding="{Binding Extension}" SortMemberPath="Extension" Width="90"/>
-              <DataGridTextColumn x:Name="ColType" Header="类型" Binding="{Binding TypeName}" SortMemberPath="TypeName" Width="*"/>
-              <DataGridTemplateColumn x:Name="ColPct" Header="占比" SortMemberPath="Size" Width="140">
+              <DataGridTextColumn x:Name="ColExt" Header="扩展名" Binding="{Binding Extension}" SortMemberPath="Extension" Width="88"/>
+              <DataGridTextColumn x:Name="ColType" Header="类型" Binding="{Binding TypeName}" SortMemberPath="TypeName" Width="96"/>
+              <DataGridTemplateColumn x:Name="ColPct" Header="占比" SortMemberPath="Size" Width="*">
+                <DataGridTemplateColumn.CellStyle>
+                  <Style TargetType="DataGridCell">
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="BorderThickness" Value="0"/>
+                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    <Setter Property="Template">
+                      <Setter.Value>
+                        <ControlTemplate TargetType="DataGridCell">
+                          <Border Background="{TemplateBinding Background}" Padding="10,0,10,0">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                          </Border>
+                        </ControlTemplate>
+                      </Setter.Value>
+                    </Setter>
+                  </Style>
+                </DataGridTemplateColumn.CellStyle>
                 <DataGridTemplateColumn.CellTemplate>
                   <DataTemplate>
-                    <Grid Margin="4,0,4,0">
+                    <Grid VerticalAlignment="Center">
                       <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="72"/>
+                        <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="56"/>
                       </Grid.ColumnDefinitions>
                       <Border Height="6" Background="{DynamicResource Border}" VerticalAlignment="Center">
                         <Border Height="6" Background="{DynamicResource Accent}" HorizontalAlignment="Left"
-                                Width="{Binding PercentBarWidth}"/>
+                                Width="{Binding PercentBarWidth}" VerticalAlignment="Center"/>
                       </Border>
-                      <TextBlock Grid.Column="1" Text="{Binding PercentText}" Foreground="{DynamicResource TextDim}"
-                                 HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11"/>
+                      <TextBlock Grid.Column="1" Text="{Binding PercentText}"
+                                 Foreground="{DynamicResource TextDim}" VerticalAlignment="Center"
+                                 HorizontalAlignment="Right" FontSize="11"/>
                     </Grid>
                   </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
               </DataGridTemplateColumn>
-              <DataGridTextColumn x:Name="ColSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="84">
+              <DataGridTextColumn x:Name="ColSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="72">
                 <DataGridTextColumn.ElementStyle>
                   <Style TargetType="TextBlock">
                     <Setter Property="HorizontalAlignment" Value="Right"/>
