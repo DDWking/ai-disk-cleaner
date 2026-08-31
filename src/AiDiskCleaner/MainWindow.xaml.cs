@@ -185,14 +185,14 @@ public partial class MainWindow : Window
         var name = new TextBlock
         {
             Text = d.Name,
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xC8, 0xF5, 0xD0)),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x7D, 0xFF, 0x9A)),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
         var pct = new TextBlock
         {
             Text = isRoot ? "100 %" : d.PercentText,
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x6B, 0x8F, 0x74)),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2E, 0x6B, 0x45)),
             FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
@@ -200,7 +200,7 @@ public partial class MainWindow : Window
         var size = new TextBlock
         {
             Text = FileEntry.FormatSize(d.Size),
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x39, 0xFF, 0x88)),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3A, 0xC4, 0x6A)),
             FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
@@ -241,40 +241,26 @@ public partial class MainWindow : Window
     private void ShowDirectory(FileEntry dir)
     {
         _current = dir;
-        PathCrumb.Text = dir.FullPath;
-        IEnumerable<FileEntry> items = dir.Children;
-        if (!string.IsNullOrWhiteSpace(SearchBox.Text))
-        {
-            var q = SearchBox.Text.Trim().ToLower();
-            items = items.Where(f => f.Name.ToLower().Contains(q));
-        }
-        var list = items.OrderByDescending(f => f.Size).ToList();
-        int total = list.Count;
-        var display = list.Count > MaxDisplayRows ? list.Take(MaxDisplayRows).ToList() : list;
-        long maxSize = display.Count > 0 ? display[0].Size : 1;
-        foreach (var f in display)
-            f.SizeBarWidth = maxSize > 0 ? Math.Max(2, 124.0 * f.Size / maxSize) : 0;
-        FileGrid.ItemsSource = display;
-        FileCountText.Text = dir.FileCount.ToString("N0") + " files  " + dir.FolderCount.ToString("N0") + " dirs"
-            + (total > MaxDisplayRows ? $"  (top {MaxDisplayRows:N0})" : "");
+        PathCrumb.Text = string.IsNullOrEmpty(dir.FullPath) ? "PATH" : dir.FullPath;
+        FileCountText.Text = dir.FileCount.ToString("N0") + " files  " + dir.FolderCount.ToString("N0") + " dirs";
         TotalSizeText.Text = FileEntry.FormatSize(dir.Size);
         ShowExtStats(dir);
     }
 
     private static readonly Color[] ExtPalette =
     {
-        Color.FromRgb(0x39, 0xFF, 0x88),
-        Color.FromRgb(0x5B, 0xC0, 0xEB),
-        Color.FromRgb(0xF4, 0xD3, 0x5E),
-        Color.FromRgb(0xEE, 0x6C, 0x4D),
-        Color.FromRgb(0x9B, 0x5D, 0xE5),
-        Color.FromRgb(0x00, 0xBB, 0xF9),
-        Color.FromRgb(0xF7, 0x2C, 0x25),
-        Color.FromRgb(0x2E, 0xC4, 0xB6),
-        Color.FromRgb(0xFF, 0x9F, 0x1C),
-        Color.FromRgb(0x7B, 0xD3, 0x89),
-        Color.FromRgb(0xE0, 0x5A, 0xA5),
-        Color.FromRgb(0x8D, 0x99, 0xAE),
+        Color.FromRgb(0x8F, 0xE8, 0xB0),
+        Color.FromRgb(0x5F, 0xC9, 0x88),
+        Color.FromRgb(0x3A, 0xA8, 0x68),
+        Color.FromRgb(0xB7, 0xD4, 0xBE),
+        Color.FromRgb(0x7A, 0x9A, 0x82),
+        Color.FromRgb(0x2E, 0x6B, 0x45),
+        Color.FromRgb(0xA8, 0xE0, 0xB8),
+        Color.FromRgb(0x4C, 0x8F, 0x66),
+        Color.FromRgb(0xC5, 0xE8, 0xCE),
+        Color.FromRgb(0x3C, 0x7A, 0x54),
+        Color.FromRgb(0x6B, 0xB8, 0x86),
+        Color.FromRgb(0x9A, 0xC4, 0xA6),
     };
 
     /// <summary>当前目录（含子目录）按扩展名汇总占用，和 WizTree 右侧一致。</summary>
@@ -335,40 +321,6 @@ public partial class MainWindow : Window
                     map[ext] = (cur.Size + c.Size, cur.Count + 1);
             }
         }
-    }
-
-    private void FileGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (FileGrid.SelectedItem is FileEntry { IsDirectory: true } dir)
-        {
-            ShowDirectory(dir);
-            SelectTreeNode(dir);
-        }
-    }
-
-    private void SelectTreeNode(FileEntry dir)
-    {
-        foreach (var item in DirTree.Items.OfType<TreeViewItem>())
-            if (SelectRecursive(item, dir)) return;
-    }
-
-    private bool SelectRecursive(TreeViewItem item, FileEntry target)
-    {
-        if (ReferenceEquals(item.Tag, target))
-        {
-            item.IsSelected = true;
-            item.BringIntoView();
-            return true;
-        }
-        if (item.Items.Count == 1 && item.Items[0] is TreeViewItem ph && ReferenceEquals(ph.Tag, Placeholder))
-            PopulateDirChildren(item);
-        foreach (var child in item.Items.OfType<TreeViewItem>())
-        {
-            if (!SelectRecursive(child, target)) continue;
-            item.IsExpanded = true;
-            return true;
-        }
-        return false;
     }
 
     private void UpdateVolumeInfo()

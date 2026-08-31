@@ -1,7 +1,7 @@
 <Window x:Class="AiDiskCleaner.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="大扫货" Height="800" Width="1480"
+        Title="大扫货" Height="800" Width="1280"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -81,7 +81,7 @@
     <Style TargetType="TreeView">
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Foreground" Value="#C8F5D0"/>
+      <Setter Property="Foreground" Value="#7DFF9A"/>
       <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     </Style>
@@ -125,16 +125,16 @@
                 <Setter TargetName="Expander" Property="Visibility" Value="Hidden"/>
               </Trigger>
               <Trigger Property="IsSelected" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#163322"/>
-                <Setter Property="Foreground" Value="#39FF88"/>
+                <Setter TargetName="Bd" Property="Background" Value="#0E3A1C"/>
+                <Setter Property="Foreground" Value="#7DFF9A"/>
               </Trigger>
               <MultiTrigger>
                 <MultiTrigger.Conditions>
                   <Condition Property="IsSelected" Value="True"/>
                   <Condition Property="IsSelectionActive" Value="False"/>
                 </MultiTrigger.Conditions>
-                <Setter TargetName="Bd" Property="Background" Value="#163322"/>
-                <Setter Property="Foreground" Value="#39FF88"/>
+                <Setter TargetName="Bd" Property="Background" Value="#0E3A1C"/>
+                <Setter Property="Foreground" Value="#7DFF9A"/>
               </MultiTrigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -518,14 +518,12 @@
 
     <Grid>
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="420" MinWidth="240"/>
+        <ColumnDefinition Width="*" MinWidth="320"/>
         <ColumnDefinition Width="6"/>
-        <ColumnDefinition Width="*" MinWidth="280"/>
-        <ColumnDefinition Width="6"/>
-        <ColumnDefinition Width="300" MinWidth="180"/>
+        <ColumnDefinition Width="380" MinWidth="220"/>
       </Grid.ColumnDefinitions>
 
-      <Border Grid.Column="0" Background="#0B0F0C" BorderBrush="#1F3D2A" BorderThickness="0,0,1,0">
+      <Border Grid.Column="0" Background="#07140C">
         <DockPanel>
           <Grid DockPanel.Dock="Top" Margin="10,8,10,4">
             <Grid.ColumnDefinitions>
@@ -533,11 +531,12 @@
               <ColumnDefinition Width="70"/>
               <ColumnDefinition Width="80"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Text="PATH" Foreground="#3D5C45" FontSize="11"/>
-            <TextBlock Grid.Column="1" Text="PCT" Foreground="#3D5C45" FontSize="11" HorizontalAlignment="Right"/>
-            <TextBlock Grid.Column="2" Text="SIZE" Foreground="#3D5C45" FontSize="11" HorizontalAlignment="Right"/>
+            <TextBlock x:Name="PathCrumb" Text="PATH" Foreground="#2E6B45" FontSize="11"/>
+            <TextBlock Grid.Column="1" Text="PCT" Foreground="#2E6B45" FontSize="11" HorizontalAlignment="Right"/>
+            <TextBlock Grid.Column="2" Text="SIZE" Foreground="#2E6B45" FontSize="11" HorizontalAlignment="Right"/>
           </Grid>
           <TreeView x:Name="DirTree" Padding="4,0,4,8"
+                    Background="#07140C"
                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                     ScrollViewer.VerticalScrollBarVisibility="Auto"
                     SelectedItemChanged="DirTree_SelectedItemChanged"/>
@@ -546,84 +545,45 @@
 
       <GridSplitter Grid.Column="1"/>
 
-      <Border Grid.Column="2" Background="#0B0F0C">
+      <Border Grid.Column="2" Background="#141C16">
         <DockPanel>
-          <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="12,8,12,4" Foreground="#39FF88" FontSize="12"/>
-          <DataGrid x:Name="FileGrid" AutoGenerateColumns="False" IsReadOnly="True"
-                    CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
-                    BorderThickness="0" RowHeight="26"
-                    AlternatingRowBackground="#0E1510"
-                    RowBackground="#0B0F0C" Background="#0B0F0C"
-                    HorizontalGridLinesBrush="#1F3D2A" EnableRowVirtualization="True"
-                    SelectionMode="Single" SelectionUnit="FullRow"
-                    ScrollViewer.VerticalScrollBarVisibility="Visible"
-                    ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                    MouseDoubleClick="FileGrid_MouseDoubleClick">
-            <DataGrid.Resources>
-              <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}"/>
-            </DataGrid.Resources>
-            <DataGrid.Columns>
-              <DataGridTextColumn Header="NAME" Binding="{Binding Name}" SortMemberPath="Name" Width="2*"/>
-              <DataGridTextColumn Header="PCT" Binding="{Binding PercentText}" SortMemberPath="Size" Width="70">
-                <DataGridTextColumn.ElementStyle>
-                  <Style TargetType="TextBlock">
-                    <Setter Property="HorizontalAlignment" Value="Right"/>
-                    <Setter Property="Foreground" Value="#6B8F74"/>
-                    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
-                  </Style>
-                </DataGridTextColumn.ElementStyle>
-              </DataGridTextColumn>
-              <DataGridTextColumn Header="SIZE" Binding="{Binding SizeText}" SortMemberPath="Size" Width="92">
-                <DataGridTextColumn.ElementStyle>
-                  <Style TargetType="TextBlock">
-                    <Setter Property="HorizontalAlignment" Value="Right"/>
-                    <Setter Property="Foreground" Value="#39FF88"/>
-                    <Setter Property="Margin" Value="0,0,8,0"/>
-                    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
-                  </Style>
-                </DataGridTextColumn.ElementStyle>
-              </DataGridTextColumn>
-              <DataGridTemplateColumn Header="" Width="140" SortMemberPath="Size">
-                <DataGridTemplateColumn.CellTemplate>
-                  <DataTemplate>
-                    <Border Height="6" Margin="4,0" Background="#1F3D2A" VerticalAlignment="Center">
-                      <Border Height="6" Background="#39FF88" HorizontalAlignment="Left"
-                              Width="{Binding SizeBarWidth}"/>
-                    </Border>
-                  </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-              </DataGridTemplateColumn>
-              <DataGridTextColumn Header="TYPE" Binding="{Binding KindText}" SortMemberPath="Category" Width="80"/>
-              <DataGridTextColumn Header="FILES" Binding="{Binding ItemText}" SortMemberPath="FileCount" Width="80">
-                <DataGridTextColumn.ElementStyle>
-                  <Style TargetType="TextBlock">
-                    <Setter Property="HorizontalAlignment" Value="Right"/>
-                    <Setter Property="Foreground" Value="#6B8F74"/>
-                    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
-                  </Style>
-                </DataGridTextColumn.ElementStyle>
-              </DataGridTextColumn>
-              <DataGridTextColumn Header="MTIME" Binding="{Binding ModifiedText}" SortMemberPath="Modified" Width="136"/>
-            </DataGrid.Columns>
-          </DataGrid>
-        </DockPanel>
-      </Border>
-
-      <GridSplitter Grid.Column="3"/>
-
-      <Border Grid.Column="4" Background="#0B0F0C" BorderBrush="#1F3D2A" BorderThickness="1,0,0,0">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Margin="10,8,10,4" Text="EXT / TYPE" Foreground="#3D5C45" FontSize="11"/>
+          <TextBlock DockPanel.Dock="Top" Margin="10,8,10,4" Text="EXT / TYPE" Foreground="#7A9A82" FontSize="11"/>
           <DataGrid x:Name="ExtGrid" AutoGenerateColumns="False" IsReadOnly="True"
                     CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
                     BorderThickness="0" RowHeight="24"
-                    AlternatingRowBackground="#0E1510"
-                    RowBackground="#0B0F0C" Background="#0B0F0C"
-                    HorizontalGridLinesBrush="#1F3D2A" EnableRowVirtualization="True"
+                    AlternatingRowBackground="#1A241C"
+                    RowBackground="#141C16" Background="#141C16"
+                    HorizontalGridLinesBrush="#2A3A2E" EnableRowVirtualization="True"
                     SelectionMode="Single" SelectionUnit="FullRow">
             <DataGrid.Resources>
               <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}"/>
             </DataGrid.Resources>
+            <DataGrid.ColumnHeaderStyle>
+              <Style TargetType="DataGridColumnHeader">
+                <Setter Property="Background" Value="#141C16"/>
+                <Setter Property="Foreground" Value="#7A9A82"/>
+                <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="Padding" Value="10,7"/>
+                <Setter Property="BorderBrush" Value="#2A3A2E"/>
+                <Setter Property="BorderThickness" Value="0,0,0,1"/>
+              </Style>
+            </DataGrid.ColumnHeaderStyle>
+            <DataGrid.RowStyle>
+              <Style TargetType="DataGridRow">
+                <Setter Property="Background" Value="#141C16"/>
+                <Setter Property="Foreground" Value="#B7D4BE"/>
+                <Style.Triggers>
+                  <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#243328"/>
+                    <Setter Property="Foreground" Value="#8FE8B0"/>
+                  </Trigger>
+                  <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#1C271F"/>
+                  </Trigger>
+                </Style.Triggers>
+              </Style>
+            </DataGrid.RowStyle>
             <DataGrid.Columns>
               <DataGridTemplateColumn Header="" Width="14">
                 <DataGridTemplateColumn.CellTemplate>
@@ -639,7 +599,7 @@
                 <DataGridTextColumn.ElementStyle>
                   <Style TargetType="TextBlock">
                     <Setter Property="HorizontalAlignment" Value="Right"/>
-                    <Setter Property="Foreground" Value="#6B8F74"/>
+                    <Setter Property="Foreground" Value="#7A9A82"/>
                   </Style>
                 </DataGridTextColumn.ElementStyle>
               </DataGridTextColumn>
@@ -647,7 +607,7 @@
                 <DataGridTextColumn.ElementStyle>
                   <Style TargetType="TextBlock">
                     <Setter Property="HorizontalAlignment" Value="Right"/>
-                    <Setter Property="Foreground" Value="#39FF88"/>
+                    <Setter Property="Foreground" Value="#8FE8B0"/>
                   </Style>
                 </DataGridTextColumn.ElementStyle>
               </DataGridTextColumn>
