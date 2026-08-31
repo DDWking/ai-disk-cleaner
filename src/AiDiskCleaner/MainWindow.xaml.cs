@@ -27,7 +27,6 @@ public partial class MainWindow : Window
         var drives = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.Name).ToList();
         DriveBox.ItemsSource = drives;
         if (drives.Count > 0) DriveBox.SelectedIndex = 0;
-        SearchHint.Visibility = Visibility.Visible;
         UpdateVolumeInfo();
         DriveBox.SelectionChanged += (_, _) => UpdateVolumeInfo();
         StateChanged += (_, _) =>
@@ -322,7 +321,6 @@ public partial class MainWindow : Window
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        SearchHint.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         if (_current != null) ShowDirectory(_current);
     }
 }

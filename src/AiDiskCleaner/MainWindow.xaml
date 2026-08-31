@@ -141,6 +141,52 @@
         </Setter.Value>
       </Setter>
     </Style>
+    <Style TargetType="TextBox" x:Key="TermTextBox">
+      <Setter Property="Background" Value="#111814"/>
+      <Setter Property="Foreground" Value="#39FF88"/>
+      <Setter Property="BorderBrush" Value="#1F3D2A"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CaretBrush" Value="#39FF88"/>
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Height" Value="28"/>
+      <Setter Property="Padding" Value="8,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TextBox">
+            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    SnapsToDevicePixels="True">
+              <Grid>
+                <ScrollViewer x:Name="PART_ContentHost"
+                              Margin="{TemplateBinding Padding}"
+                              VerticalAlignment="Center"
+                              HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollBarVisibility="Hidden"
+                              Focusable="False"/>
+                <TextBlock x:Name="Placeholder" Text="search /path"
+                           Foreground="#3D5C45"
+                           VerticalAlignment="Center"
+                           Margin="{TemplateBinding Padding}"
+                           IsHitTestVisible="False"
+                           Visibility="Collapsed"/>
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="Text" Value="">
+                <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
+              </Trigger>
+              <Trigger Property="IsFocused" Value="True">
+                <Setter TargetName="bd" Property="BorderBrush" Value="#39FF88"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style TargetType="Button" x:Key="PrimaryButton">
       <Setter Property="Background" Value="#111814"/>
       <Setter Property="Foreground" Value="#39FF88"/>
@@ -317,16 +363,11 @@
         <Button x:Name="StopButton" Grid.Column="3" Content="[ stop ]" Style="{StaticResource GhostButton}"
                 Margin="0,0,16,0" IsEnabled="False" Click="StopButton_Click"
                 WindowChrome.IsHitTestVisibleInChrome="True"/>
-        <Grid Grid.Column="4" MaxWidth="340" HorizontalAlignment="Left">
-          <TextBox x:Name="SearchBox" Height="28" Padding="8,4" VerticalContentAlignment="Center"
-                   BorderBrush="#1F3D2A" Background="#111814" Foreground="#39FF88"
-                   CaretBrush="#39FF88" BorderThickness="1"
-                   FontFamily="Cascadia Mono, Consolas, Courier New"
-                   WindowChrome.IsHitTestVisibleInChrome="True"
-                   TextChanged="SearchBox_TextChanged"/>
-          <TextBlock x:Name="SearchHint" Text="search /path" Foreground="#3D5C45" Margin="10,0,0,0"
-                     VerticalAlignment="Center" IsHitTestVisible="False"/>
-        </Grid>
+        <TextBox x:Name="SearchBox" Grid.Column="4" Width="220" MaxWidth="340"
+                 HorizontalAlignment="Left" VerticalAlignment="Center"
+                 Style="{StaticResource TermTextBox}"
+                 WindowChrome.IsHitTestVisibleInChrome="True"
+                 TextChanged="SearchBox_TextChanged"/>
         <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
           <TextBlock x:Name="VolumeText" Foreground="#6B8F74" Margin="0,0,16,0" Text=""/>
           <TextBlock x:Name="HeaderStats" Foreground="#39FF88" Text="ready"/>
