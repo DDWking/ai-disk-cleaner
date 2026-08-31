@@ -35,6 +35,15 @@
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="DataGridCell">
+            <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter VerticalAlignment="Center"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
       <Style.Triggers>
         <Trigger Property="IsSelected" Value="True">
           <Setter Property="Background" Value="{DynamicResource SelectBg}"/>
@@ -562,7 +571,8 @@
                     AlternatingRowBackground="{DynamicResource RowAlt}"
                     RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
                     HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
-                    SelectionMode="Single" SelectionUnit="FullRow">
+                    SelectionMode="Single" SelectionUnit="FullRow"
+                    VerticalContentAlignment="Center">
             <DataGrid.Resources>
               <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}"/>
             </DataGrid.Resources>
@@ -588,7 +598,7 @@
                 </DataGridTemplateColumn.CellStyle>
                 <DataGridTemplateColumn.CellTemplate>
                   <DataTemplate>
-                    <Grid VerticalAlignment="Center" Height="22">
+                    <Grid>
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="56"/>
