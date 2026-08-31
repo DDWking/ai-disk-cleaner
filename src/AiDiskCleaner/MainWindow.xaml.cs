@@ -30,6 +30,13 @@ public partial class MainWindow : Window
         SearchHint.Visibility = Visibility.Visible;
         UpdateVolumeInfo();
         DriveBox.SelectionChanged += (_, _) => UpdateVolumeInfo();
+        StateChanged += (_, _) =>
+        {
+            MaxButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+            BorderThickness = WindowState == WindowState.Maximized ? new Thickness(8) : new Thickness(1);
+        };
+        BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1F, 0x3D, 0x2A));
+        BorderThickness = new Thickness(1);
         Loaded += (_, _) => RunScan();
     }
 
@@ -87,7 +94,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show("扫描失败：" + ex.Message, "AI 磁盘清理",
+            MessageBox.Show("扫描失败：" + ex.Message, "大扫货",
                 MessageBoxButton.OK, MessageBoxImage.Error);
             HeaderStats.Text = "scan failed";
         }
@@ -295,6 +302,13 @@ public partial class MainWindow : Window
         }
         catch { }
     }
+
+    private void MinButton_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void MaxButton_Click(object sender, RoutedEventArgs e)
+        => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 
     private void ScanButton_Click(object sender, RoutedEventArgs e) => RunScan();
 
