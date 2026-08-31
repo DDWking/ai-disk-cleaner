@@ -37,7 +37,7 @@ src/AiDiskCleaner/     WPF 主程序
 
 ## 一起开发
 
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+进度和开发日志在 [PROGRESS.md](PROGRESS.md)，开工前先看谁在做什么。协作方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 简单说：
 
