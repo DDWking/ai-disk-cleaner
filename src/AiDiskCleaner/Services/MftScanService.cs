@@ -235,7 +235,7 @@ public sealed class MftScanService : IScanService
                 ulong baseRec = bases[rec];
                 if (baseRec != 0 && baseRec != rec) rec = baseRec;
             }
-            if (rec < 16 || rec == RootRecordNumber) continue;
+            if (rec == RootRecordNumber) continue;
             if (rec >= (ulong)recordCount || entries[rec] is not { } owner) continue;
 
             ulong parentRec = link.Parent;
@@ -273,13 +273,27 @@ public sealed class MftScanService : IScanService
         {
             if (placed[rec]) continue;
             var entry = entries[rec];
-            if (entry == null || rec == RootRecordNumber || rec < 16) continue;
+            if (entry == null || rec == RootRecordNumber) continue;
             ulong parentRec = parents[rec];
             if (parentRec == rec) continue;
             if (parentRec == RootRecordNumber)
                 root.Children.Add(entry);
             else if (parentRec < (ulong)recordCount && entries[parentRec] is { Kind: EntryKind.Directory } parent)
                 parent.Children.Add(entry);
+            placed[rec] = true;
+        }
+
+        // $MFT / $LogFile / $Bitmap 等元数据（记录 0–15，根目录是 5）挂到盘符根下，和 WizTree 一致
+        for (ulong rec = 0; rec < 16 && rec < (ulong)recordCount; rec++)
+        {
+            if (rec == RootRecordNumber) continue;
+            if (entries[rec] is not { } sys) continue;
+            if (string.IsNullOrEmpty(sys.Name) || sys.Name.StartsWith('<'))
+                sys.Name = WellKnownName(rec);
+            if (sys.Name.StartsWith('$'))
+                sys.Category = "系统";
+            if (placed[rec]) continue;
+            root.Children.Add(sys);
             placed[rec] = true;
         }
         buildSw.Stop();
@@ -298,6 +312,17 @@ public sealed class MftScanService : IScanService
 
         return root;
     }
+
+    // NTFS 固定记录：0–11。12 以后是普通文件。
+    private static readonly string[] WellKnownNames =
+    {
+        "$MFT", "$MFTMirr", "$LogFile", "$Volume", "$AttrDef",
+        ".", "$Bitmap", "$Boot", "$BadClus", "$Secure",
+        "$UpCase", "$Extend"
+    };
+
+    private static string WellKnownName(ulong rec)
+        => rec < (ulong)WellKnownNames.Length ? WellKnownNames[rec] : $"$File{rec}";
 
     private struct FileNameLink
     {

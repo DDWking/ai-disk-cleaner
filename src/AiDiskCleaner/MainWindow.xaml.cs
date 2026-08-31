@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 
@@ -257,6 +258,83 @@ public partial class MainWindow : Window
         FileCountText.Text = dir.FileCount.ToString("N0") + " files  " + dir.FolderCount.ToString("N0") + " dirs"
             + (total > MaxDisplayRows ? $"  (top {MaxDisplayRows:N0})" : "");
         TotalSizeText.Text = FileEntry.FormatSize(dir.Size);
+        ShowExtStats(dir);
+    }
+
+    private static readonly Color[] ExtPalette =
+    {
+        Color.FromRgb(0x39, 0xFF, 0x88),
+        Color.FromRgb(0x5B, 0xC0, 0xEB),
+        Color.FromRgb(0xF4, 0xD3, 0x5E),
+        Color.FromRgb(0xEE, 0x6C, 0x4D),
+        Color.FromRgb(0x9B, 0x5D, 0xE5),
+        Color.FromRgb(0x00, 0xBB, 0xF9),
+        Color.FromRgb(0xF7, 0x2C, 0x25),
+        Color.FromRgb(0x2E, 0xC4, 0xB6),
+        Color.FromRgb(0xFF, 0x9F, 0x1C),
+        Color.FromRgb(0x7B, 0xD3, 0x89),
+        Color.FromRgb(0xE0, 0x5A, 0xA5),
+        Color.FromRgb(0x8D, 0x99, 0xAE),
+    };
+
+    /// <summary>当前目录（含子目录）按扩展名汇总占用，和 WizTree 右侧一致。</summary>
+    private void ShowExtStats(FileEntry dir)
+    {
+        var map = new Dictionary<string, (long Size, int Count)>(StringComparer.OrdinalIgnoreCase);
+        CollectExt(dir, map);
+        long total = 0;
+        foreach (var v in map.Values) total += v.Size;
+        if (total <= 0) total = 1;
+
+        var list = map
+            .Select(kv =>
+            {
+                string ext = kv.Key;
+                string shown = ext.Length == 0 ? "(无扩展名)" : ext;
+                return new ExtStat
+                {
+                    Extension = shown,
+                    TypeName = FileClassifier.Describe(ext),
+                    Size = kv.Value.Size,
+                    Count = kv.Value.Count,
+                    PercentText = (100.0 * kv.Value.Size / total).ToString("0.0") + " %",
+                };
+            })
+            .OrderByDescending(x => x.Size)
+            .Take(40)
+            .ToList();
+
+        for (int i = 0; i < list.Count; i++)
+            list[i].Color = new SolidColorBrush(ExtPalette[i % ExtPalette.Length]);
+
+        ExtGrid.ItemsSource = list;
+    }
+
+    private static void CollectExt(FileEntry node, Dictionary<string, (long Size, int Count)> map)
+    {
+        var stack = new Stack<FileEntry>();
+        var visited = new HashSet<FileEntry>();
+        stack.Push(node);
+        while (stack.Count > 0)
+        {
+            var n = stack.Pop();
+            if (!visited.Add(n)) continue;
+            foreach (var c in n.Children)
+            {
+                if (c.IsDirectory)
+                {
+                    stack.Push(c);
+                    continue;
+                }
+                string ext = Path.GetExtension(c.Name);
+                if (c.Name.StartsWith('$') && ext.Length == 0)
+                    ext = c.Name; // $MFT / $LogFile 单独成类
+                if (!map.TryGetValue(ext, out var cur))
+                    map[ext] = (c.Size, 1);
+                else
+                    map[ext] = (cur.Size + c.Size, cur.Count + 1);
+            }
+        }
     }
 
     private void FileGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
