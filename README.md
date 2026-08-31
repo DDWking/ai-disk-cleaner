@@ -1,0 +1,51 @@
+# AI 磁盘清理
+
+Windows 下的磁盘占用分析工具。直接读 NTFS 的 `$MFT`，秒级扫盘；界面参考 [WizTree](https://diskanalyzer.com/)，左边文件夹树、右边当前目录。
+
+> 需要管理员权限（读卷 / MFT）。目前只支持 NTFS。
+
+## 功能
+
+- MFT 秒扫：按 `$MFT` data run 读完整主文件表，不靠递归 `Directory.GetFiles`
+- 左边目录树：按占用排序，显示占比和大小
+- 右边当前目录：文件夹 + 文件，默认按大小降序
+- 顶部显示卷容量：总共 / 已用 / 可用
+- 文件名搜索（当前目录）
+- 临时 / 日志文件的清理建议（还很初级）
+
+## 运行
+
+环境：Windows 10/11 + [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+
+```powershell
+cd src\AiDiskCleaner
+dotnet build
+# 以管理员身份运行
+.\bin\Debug\net8.0-windows\AiDiskCleaner.exe
+```
+
+首次启动会弹出 UAC。拒绝的话扫不了 MFT，会回退到很慢的递归扫描。
+
+## 仓库结构
+
+```
+src/AiDiskCleaner/     WPF 主程序
+  Models/              FileEntry
+  Native/              NTFS P/Invoke
+  Services/            MFT / 递归 / 模拟扫描
+docs/                  设计与协作笔记
+```
+
+## 一起开发
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。两人协作约定也写在 [docs/git-workflow-and-handover.md](docs/git-workflow-and-handover.md)。
+
+简单说：
+
+1. Fork 本仓库
+2. 从最新 `main` 开 `feature/xxx` 或 `fix/xxx`
+3. 提 Pull Request，不要直接推 `main`
+
+## 协议
+
+[MIT](LICENSE)
