@@ -24,8 +24,6 @@ public sealed class ThemePalette
 
 public static class ThemeService
 {
-    public static ThemePalette Current { get; private set; } = Terminal!;
-
     public static readonly ThemePalette Terminal = new()
     {
         Bg = C(0x0B, 0x0F, 0x0C),
@@ -82,6 +80,8 @@ public static class ThemeService
         Overlay = Color.FromArgb(0xD0, 0x05, 0x00, 0x14),
         Font = "Cascadia Mono, Consolas, Courier New",
     };
+
+    public static ThemePalette Current { get; private set; } = Mono;
 
     public static ThemePalette Of(AppTheme theme) => theme switch
     {

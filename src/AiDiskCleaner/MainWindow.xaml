@@ -65,11 +65,11 @@
         </Trigger>
       </Style.Triggers>
     </Style>
-    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#163322"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#39FF88"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#163322"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#39FF88"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#163322"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#282828"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#282828"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#282828"/>
     <Style x:Key="ExpandCollapseToggleStyle" TargetType="ToggleButton">
       <Setter Property="Focusable" Value="False"/>
       <Setter Property="Width" Value="16"/>
@@ -99,7 +99,7 @@
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     </Style>
     <Style TargetType="TreeViewItem">
-      <Setter Property="Foreground" Value="#C8F5D0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Padding" Value="4,6"/>
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
@@ -533,12 +533,8 @@
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="4,0,16,0">
-          <Image Source="Assets/logo-256.png" Width="22" Height="22" Margin="0,0,8,0"
-                 RenderOptions.BitmapScalingMode="HighQuality"/>
-          <TextBlock x:Name="TitleText" Text="大扫货" Foreground="{DynamicResource Accent}" FontSize="14"
-                     VerticalAlignment="Center"/>
-        </StackPanel>
+        <TextBlock x:Name="TitleText" Grid.Column="0" Text="大扫货" Foreground="{DynamicResource Accent}" FontSize="14"
+                   VerticalAlignment="Center" Margin="8,0,16,0"/>
         <ComboBox x:Name="DriveBox" Grid.Column="1" Width="72" VerticalAlignment="Center" Margin="0,0,8,0"
                   WindowChrome.IsHitTestVisibleInChrome="True"/>
         <Button x:Name="ScanButton" Grid.Column="2" Content="扫描" Style="{StaticResource PrimaryButton}"
