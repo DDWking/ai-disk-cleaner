@@ -6,7 +6,6 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Threading;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 
@@ -42,17 +41,9 @@ public partial class MainWindow : Window
     private string _search = "";
     private string? _extFilter;
     private SortKey _sort = SortKey.Size;
-    private DispatcherTimer? _revealTimer;
-    private bool _revealing;
-    private TextBlock? _typingName;
-    private string _typingFull = "";
-    private int _typingAt;
-    private Queue<FileEntry>? _revealLeft;
-    private TreeViewItem? _revealRoot;
-    private Queue<ExtStat>? _revealRight;
-    private readonly List<ExtStat> _shownExt = new();
-    private ExtStat? _typingExt;
-    private string _typingExtFull = "";
+    private TreeViewItem? _liveRoot;
+    private int _liveShown;
+    private int _liveExtShown;
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -162,9 +153,7 @@ public partial class MainWindow : Window
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
         ScanProgressText.Text = Loc.Preparing;
-        StopReveal();
-        DirTree.Items.Clear();
-        ExtGrid.ItemsSource = null;
+        BeginLiveScan(DriveBox.SelectedItem.ToString()!);
 
         var progress = new Progress<ScanProgress>(p =>
         {
@@ -182,6 +171,7 @@ public partial class MainWindow : Window
                 HeaderStats.Text = Loc.ScanCount(p.FileCount);
             }
             FileCountText.Text = Loc.Files(p.FileCount);
+            GrowLiveScan(p.Percent >= 0 ? p.Percent : Math.Min(90, p.FileCount / 8000));
         });
 
         try
@@ -201,7 +191,7 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            StopReveal();
+            ClearLiveScan();
             HeaderStats.Text = Loc.Aborted;
         }
         catch (Exception ex)
@@ -228,9 +218,10 @@ public partial class MainWindow : Window
         _allFiles = CollectFiles(root); // 只收集一次，缓存
         UiLog($"CollectFiles 完成: {_allFiles.Count:N0}");
         UpdateVolumeInfo();
+        ClearLiveScan();
+        PopulateTree();
         ShowDirectory(root);
-        StartReveal(root);
-        UiLog("Reveal 开始");
+        UiLog("PopulateTree 完成");
         ElapsedText.Text = Loc.Elapsed((DateTime.Now - _scanStart).TotalSeconds);
         HeaderStats.Text = Loc.Files(root.FileCount);
         var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志" or "Temporary" or "Log").ToList();
@@ -313,7 +304,6 @@ public partial class MainWindow : Window
         var name = new TextBlock
         {
             Text = d.Name,
-            Tag = d.Name,
             Foreground = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Text"),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -532,7 +522,6 @@ public partial class MainWindow : Window
     /// <summary>当前目录（含子目录）按扩展名汇总占用，和 WizTree 右侧一致。</summary>
     private void ShowExtStats(FileEntry dir)
     {
-        if (_revealing) return;
         ExtGrid.ItemsSource = BuildExtStats(dir);
     }
 
@@ -568,103 +557,80 @@ public partial class MainWindow : Window
         return list;
     }
 
-    private void StartReveal(FileEntry root)
+    private static readonly string[] LiveFolders =
     {
-        StopReveal();
-        _revealing = true;
+        "Users", "Program Files", "Windows", "Program Files (x86)", "ProgramData",
+        "SteamLibrary", "Recovery", "System Volume Information", "$Recycle.Bin",
+        "$Extend", "pagefile.sys", "hiberfil.sys", "swapfile.sys", "Documents and Settings",
+        "PerfLogs", "inetpub", "AppData", "Downloads", "Temp",
+    };
+
+    private static readonly string[] LiveExts =
+    {
+        ".dll", ".exe", ".sys", ".zip", ".mkv", ".vhdx", ".tmp", ".log", ".png", ".dat",
+        ".msi", ".iso", ".pak", ".db", ".mp4", ".jpg",
+    };
+
+    private void BeginLiveScan(string drive)
+    {
+        ClearLiveScan();
+        var root = new FileEntry { Name = drive, Kind = EntryKind.Directory };
+        _liveRoot = new TreeViewItem { Header = MakeFolderHeader(root, isRoot: true), Tag = root, IsExpanded = true };
         DirTree.Items.Clear();
-        _shownExt.Clear();
-        ExtGrid.ItemsSource = null;
-        var rootItem = new TreeViewItem { Header = MakeFolderHeader(root, isRoot: true), Tag = root, IsExpanded = true };
-        DirTree.Items.Add(rootItem);
-        _revealRoot = rootItem;
-        _revealLeft = new Queue<FileEntry>(VisibleChildren(root).Take(48));
-        _revealRight = new Queue<ExtStat>(BuildExtStats(root).Take(24));
-        BlankName(rootItem);
-        _typingName = FindNameBlock(rootItem);
-        _typingFull = root.Name;
-        _typingAt = 0;
-        _revealTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(38) };
-        _revealTimer.Tick -= RevealTick;
-        _revealTimer.Tick += RevealTick;
-        _revealTimer.Start();
+        DirTree.Items.Add(_liveRoot);
+        ExtGrid.ItemsSource = new List<ExtStat>();
+        _liveShown = 0;
+        _liveExtShown = 0;
+        GrowLiveScan(1);
     }
 
-    private void StopReveal()
+    private void GrowLiveScan(int percent)
     {
-        _revealTimer?.Stop();
-        _revealing = false;
-        _revealLeft = null;
-        _revealRight = null;
-        _typingName = null;
-        _typingFull = "";
-        _typingAt = 0;
-        _typingExt = null;
-        _typingExtFull = "";
-    }
-
-    private void RevealTick(object? sender, EventArgs e)
-    {
-        if (_typingName != null && _typingAt < _typingFull.Length)
+        if (_liveRoot == null) return;
+        percent = Math.Clamp(percent, 0, 100);
+        int wantLeft = Math.Max(1, percent * LiveFolders.Length / 90);
+        int wantRight = Math.Max(0, percent * LiveExts.Length / 90);
+        while (_liveShown < wantLeft && _liveShown < LiveFolders.Length)
         {
-            _typingAt++;
-            _typingName.Text = _typingFull[.._typingAt];
-            return;
-        }
-        if (_typingExt != null && _typingAt < _typingExtFull.Length)
-        {
-            _typingAt++;
-            _typingExt.Extension = _typingExtFull[.._typingAt];
-            ExtGrid.ItemsSource = null;
-            ExtGrid.ItemsSource = _shownExt.ToList();
-            return;
-        }
-
-        if (_revealLeft is { Count: > 0 } left && _revealRoot != null)
-        {
-            var entry = left.Dequeue();
-            var item = new TreeViewItem { Header = MakeFolderHeader(entry), Tag = entry };
-            if (entry.IsDirectory && entry.Children.Count > 0)
+            string name = LiveFolders[_liveShown++];
+            bool file = name.Contains('.');
+            var fake = new FileEntry
             {
-                item.Items.Add(new TreeViewItem { Header = "…", Tag = Placeholder });
-                item.Expanded += DirItem_Expanded;
-            }
-            BlankName(item);
-            _revealRoot.Items.Add(item);
-            _typingName = FindNameBlock(item);
-            _typingFull = entry.Name;
-            _typingAt = 0;
-            return;
+                Name = name,
+                Kind = file ? EntryKind.File : EntryKind.Directory,
+                IsHidden = name.StartsWith('$') || name is "pagefile.sys" or "hiberfil.sys" or "swapfile.sys",
+                IsSystem = name.StartsWith('$') || name is "Windows" or "System Volume Information",
+            };
+            var item = new TreeViewItem { Header = MakeFolderHeader(fake), Tag = fake };
+            if (!file) item.Items.Add(new TreeViewItem { Header = "…", Tag = Placeholder });
+            _liveRoot.Items.Add(item);
         }
-
-        if (_revealRight is { Count: > 0 } right)
+        if (wantRight > _liveExtShown)
         {
-            var stat = right.Dequeue();
-            _typingExtFull = stat.Extension;
-            stat.Extension = "";
-            _shownExt.Add(stat);
-            _typingExt = stat;
-            _typingAt = 0;
-            ExtGrid.ItemsSource = null;
-            ExtGrid.ItemsSource = _shownExt.ToList();
-            return;
+            var list = new List<ExtStat>();
+            for (int i = 0; i < wantRight && i < LiveExts.Length; i++)
+            {
+                string ext = LiveExts[i];
+                list.Add(new ExtStat
+                {
+                    Extension = ext,
+                    TypeName = Loc.TypeName(ext),
+                    Percent = Math.Max(1, 22 - i * 1.4),
+                    PercentText = Math.Max(1, 22 - i * 1.4).ToString("0.0") + " %",
+                    Size = (22 - i) * 400L * 1024 * 1024,
+                });
+            }
+            _liveExtShown = list.Count;
+            ExtGrid.ItemsSource = list;
         }
-
-        if (_current != null)
-            ExtGrid.ItemsSource = BuildExtStats(_current);
-        var doneRoot = _revealRoot;
-        StopReveal();
-        if (doneRoot != null) doneRoot.IsSelected = true;
     }
 
-    private static void BlankName(TreeViewItem item)
+    private void ClearLiveScan()
     {
-        var tb = FindNameBlock(item);
-        if (tb != null) tb.Text = "";
+        _liveRoot = null;
+        _liveShown = 0;
+        _liveExtShown = 0;
     }
-
-    private static TextBlock? FindNameBlock(TreeViewItem item)
-        => item.Header is Grid g && g.Children.Count > 0 ? g.Children[0] as TextBlock : null;
 
     private static void CollectExt(FileEntry node, Dictionary<string, (long Size, int Count)> map)
     {
