@@ -108,6 +108,7 @@ public sealed class MftScanService : IScanService
         var parents = new ulong[entries.Length];
         var bases = new ulong[entries.Length];
         Array.Fill(parents, RootRecordNumber);
+        var nameLinks = new List<FileNameLink>(Math.Max(recordCount, 1));
 
         byte[] buffer = new byte[BlockSize];
         ulong recordNumber = 0;
@@ -133,7 +134,7 @@ public sealed class MftScanService : IScanService
             while (pos + recordSize <= bytesRead)
             {
                 EnsureRecord(recordNumber);
-                var entry = ParseRecord(buffer, pos, recordSize, recordNumber, out ulong parentRef, out ulong baseRef);
+                var entry = ParseRecord(buffer, pos, recordSize, recordNumber, out ulong parentRef, out ulong baseRef, nameLinks);
                 if (entry != null)
                 {
                     entries[recordNumber] = entry;
@@ -200,40 +201,89 @@ public sealed class MftScanService : IScanService
         Flush($"读盘 {readSw.ElapsedMilliseconds}ms, 解析 {parseSw.ElapsedMilliseconds}ms, 有效记录 {fileCount:N0}, 已读记录 {recordNumber:N0}/{recordCount:N0}");
         progress?.Report(new ScanProgress(fileCount, "正在建目录树", 92));
 
-        // 扩展记录（Base != 0）上的 $DATA 归到主记录，自身不进目录树
+        // 扩展记录（Base != 0）上的 $DATA / $FILE_NAME 归到主记录，自身不进目录树
         for (ulong rec = 0; rec < (ulong)recordCount; rec++)
         {
             var entry = entries[rec];
             if (entry == null) continue;
             ulong baseRec = bases[rec];
             if (baseRec == 0 || baseRec == rec) continue;
-            if (baseRec < (ulong)recordCount && entries[baseRec] is { } owner && entry.Size > owner.Size)
-                owner.Size = entry.Size;
+            if (baseRec < (ulong)recordCount && entries[baseRec] is { } owner)
+            {
+                if (entry.Size > owner.Size) owner.Size = entry.Size;
+                if (string.IsNullOrEmpty(owner.Name) || owner.Name.StartsWith('<'))
+                    owner.Name = entry.Name;
+                if (owner.Modified == DateTime.MinValue) owner.Modified = entry.Modified;
+            }
             entries[rec] = null;
         }
 
-        // 3. 建树：根目录 = 记录 5
+        // 3. 建树：根目录 = 记录 5。每个 $FILE_NAME 都是一条目录项（硬链接会在多个文件夹出现）。
         var buildSw = Stopwatch.StartNew();
         FileEntry root = entries[RootRecordNumber] ?? new FileEntry { Kind = EntryKind.Directory };
         root.Name = rootPath;
         root.FullPath = rootPath;
         root.Kind = EntryKind.Directory;
 
+        var placed = new bool[Math.Max(recordCount, 1)];
+        int extraLinks = 0;
+        foreach (var link in nameLinks)
+        {
+            ulong rec = link.Record;
+            if (rec < (ulong)recordCount)
+            {
+                ulong baseRec = bases[rec];
+                if (baseRec != 0 && baseRec != rec) rec = baseRec;
+            }
+            if (rec < 16 || rec == RootRecordNumber) continue;
+            if (rec >= (ulong)recordCount || entries[rec] is not { } owner) continue;
+
+            ulong parentRec = link.Parent;
+            if (parentRec == rec) continue;
+
+            FileEntry node;
+            if (!placed[rec])
+            {
+                owner.Name = link.Name;
+                if (link.Modified != DateTime.MinValue) owner.Modified = link.Modified;
+                node = owner;
+                placed[rec] = true;
+            }
+            else
+            {
+                node = new FileEntry
+                {
+                    Name = link.Name,
+                    Size = owner.Size,
+                    Modified = link.Modified == DateTime.MinValue ? owner.Modified : link.Modified,
+                    Category = owner.Category,
+                    Kind = owner.Kind,
+                };
+                extraLinks++;
+            }
+
+            if (parentRec == RootRecordNumber)
+                root.Children.Add(node);
+            else if (parentRec < (ulong)recordCount && entries[parentRec] is { Kind: EntryKind.Directory } parent)
+                parent.Children.Add(node);
+        }
+
+        // 没有任何 $FILE_NAME 的记录，仍按 FILE 头上的父引用挂一次
         for (ulong rec = 0; rec < (ulong)recordCount; rec++)
         {
+            if (placed[rec]) continue;
             var entry = entries[rec];
-            if (entry == null || rec == RootRecordNumber) continue;
-            if (rec < 16) continue; // $MFT / $LogFile / $Bitmap 等系统元数据，不进用户目录树
+            if (entry == null || rec == RootRecordNumber || rec < 16) continue;
             ulong parentRec = parents[rec];
             if (parentRec == rec) continue;
             if (parentRec == RootRecordNumber)
                 root.Children.Add(entry);
-            else if (parentRec < (ulong)recordCount && entries[parentRec] is { } parent)
+            else if (parentRec < (ulong)recordCount && entries[parentRec] is { Kind: EntryKind.Directory } parent)
                 parent.Children.Add(entry);
-            // 父记录已删除：丢掉，避免把孤儿文件堆到 C:\ 根上
+            placed[rec] = true;
         }
         buildSw.Stop();
-        Flush($"建树 {buildSw.ElapsedMilliseconds}ms");
+        Flush($"建树 {buildSw.ElapsedMilliseconds}ms, 文件名 {nameLinks.Count:N0}, 硬链接副本 {extraLinks:N0}");
         progress?.Report(new ScanProgress(fileCount, "正在累计大小", 96));
 
         // 4. 单次 DFS：填 FullPath + 自底向上累加目录大小
@@ -249,7 +299,15 @@ public sealed class MftScanService : IScanService
         return root;
     }
 
-    private static FileEntry? ParseRecord(byte[] b, int offset, int recordSize, ulong recordNumber, out ulong parentRef, out ulong baseRef)
+    private struct FileNameLink
+    {
+        public ulong Record;
+        public ulong Parent;
+        public string Name;
+        public DateTime Modified;
+    }
+
+    private static FileEntry? ParseRecord(byte[] b, int offset, int recordSize, ulong recordNumber, out ulong parentRef, out ulong baseRef, List<FileNameLink> names)
     {
         parentRef = 0;
         baseRef = 0;
@@ -273,6 +331,7 @@ public sealed class MftScanService : IScanService
             string name = "";
             long size = 0;
             DateTime modified = DateTime.MinValue;
+            FileNameLink? dosFallback = null;
 
             int pos = offset + attrOffset;
             int end = offset + (int)Math.Min(usedSize, (uint)recordSize);
@@ -289,7 +348,7 @@ public sealed class MftScanService : IScanService
                 byte nonResident = b[pos + 8];
                 byte attrNameLen = b[pos + 9];
 
-                // $FILE_NAME：只要名字、父目录、时间。大小不可靠，不在这里取。
+                // $FILE_NAME：一条就是目录里的一个名字（硬链接会有多条）。大小不可靠。
                 if (attrType == 0x30 && nonResident == 0)
                 {
                     ushort valueOffset = ReadUInt16(b, pos + 0x14);
@@ -301,11 +360,26 @@ public sealed class MftScanService : IScanService
                         int nameBytes = fnLen * 2;
                         if (valuePos + 0x42 + nameBytes <= end)
                         {
-                            if (name.Length == 0 || nameSpace != 2)
+                            ulong pRef = ReadUInt64(b, valuePos) & 0xFFFFFFFFFFFFUL;
+                            var mtime = FileTimeToDateTime(ReadInt64(b, valuePos + 16));
+                            var fn = Encoding.Unicode.GetString(b, valuePos + 0x42, nameBytes);
+                            var link = new FileNameLink { Record = recordNumber, Parent = pRef, Name = fn, Modified = mtime };
+                            if (nameSpace == 2)
                             {
-                                parentRef = ReadUInt64(b, valuePos);
-                                modified = FileTimeToDateTime(ReadInt64(b, valuePos + 16));
-                                name = Encoding.Unicode.GetString(b, valuePos + 0x42, nameBytes);
+                                dosFallback ??= link;
+                            }
+                            else
+                            {
+                                names.Add(link);
+                                parentRef = pRef;
+                                modified = mtime;
+                                name = fn;
+                            }
+                            if (name.Length == 0)
+                            {
+                                parentRef = pRef;
+                                modified = mtime;
+                                name = fn;
                             }
                         }
                     }
@@ -334,6 +408,17 @@ public sealed class MftScanService : IScanService
                 }
 
                 pos = next;
+            }
+
+            if (names.Count == 0 && dosFallback is { } dos)
+            {
+                names.Add(dos);
+                parentRef = dos.Parent;
+                if (name.Length == 0)
+                {
+                    name = dos.Name;
+                    modified = dos.Modified;
+                }
             }
 
             if (name.Length == 0)
