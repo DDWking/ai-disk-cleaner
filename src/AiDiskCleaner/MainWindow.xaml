@@ -6,6 +6,7 @@
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
+        Icon="Assets/app.ico"
         Background="{DynamicResource Bg}"
         Foreground="{DynamicResource Text}"
         FontFamily="{DynamicResource AppFont}">
@@ -532,8 +533,12 @@
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <TextBlock x:Name="TitleText" Grid.Column="0" Text="大扫货" Foreground="{DynamicResource Accent}" FontSize="14"
-                   VerticalAlignment="Center" Margin="8,0,16,0"/>
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="4,0,16,0">
+          <Image Source="Assets/logo-256.png" Width="22" Height="22" Margin="0,0,8,0"
+                 RenderOptions.BitmapScalingMode="HighQuality"/>
+          <TextBlock x:Name="TitleText" Text="大扫货" Foreground="{DynamicResource Accent}" FontSize="14"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
         <ComboBox x:Name="DriveBox" Grid.Column="1" Width="72" VerticalAlignment="Center" Margin="0,0,8,0"
                   WindowChrome.IsHitTestVisibleInChrome="True"/>
         <Button x:Name="ScanButton" Grid.Column="2" Content="扫描" Style="{StaticResource PrimaryButton}"
@@ -735,6 +740,8 @@
           </StackPanel>
         </StackPanel>
         <StackPanel x:Name="AboutBody" Visibility="Collapsed">
+          <Image Source="Assets/logo-256.png" Width="88" Height="88" HorizontalAlignment="Left" Margin="0,0,0,16"
+                 RenderOptions.BitmapScalingMode="HighQuality"/>
           <TextBlock x:Name="AboutText" Foreground="{DynamicResource Text}" TextWrapping="Wrap" Margin="0,0,0,16"/>
           <TextBlock x:Name="RepoLink" Foreground="{DynamicResource Accent}" Cursor="Hand" TextDecorations="Underline"
                      MouseLeftButtonDown="RepoLink_Click"/>

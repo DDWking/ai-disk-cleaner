@@ -13,6 +13,11 @@
     <InformationalVersion>1.0.0</InformationalVersion>
     <Product>大扫货</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\logo-256.png" />
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
 
 </Project>
