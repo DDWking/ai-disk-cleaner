@@ -67,7 +67,6 @@ public partial class MainWindow : Window
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
         ApplyUi();
-        Loaded += (_, _) => RunScan();
     }
 
     public void ApplyUi()
