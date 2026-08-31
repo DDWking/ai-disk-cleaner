@@ -41,12 +41,28 @@ public partial class MainWindow : Window
         StopButton.IsEnabled = true;
         _scanStart = DateTime.Now;
         _cts = new CancellationTokenSource();
-        HeaderStats.Text = "扫描中… 0 个文件";
+        HeaderStats.Text = "扫描中…";
         FileCountText.Text = "0 个文件";
+        ScanProgressPanel.Visibility = Visibility.Visible;
+        ScanProgressBar.IsIndeterminate = true;
+        ScanProgressBar.Value = 0;
+        ScanProgressText.Text = "准备扫描…";
 
         var progress = new Progress<ScanProgress>(p =>
         {
-            HeaderStats.Text = $"扫描中… {p.FileCount:N0} 个文件";
+            if (p.Percent >= 0)
+            {
+                ScanProgressBar.IsIndeterminate = false;
+                ScanProgressBar.Value = p.Percent;
+                ScanProgressText.Text = $"{p.Percent}%  {p.CurrentDirectory}  {p.FileCount:N0} 个文件";
+                HeaderStats.Text = $"扫描中… {p.Percent}%";
+            }
+            else
+            {
+                ScanProgressBar.IsIndeterminate = true;
+                ScanProgressText.Text = $"{p.CurrentDirectory}  {p.FileCount:N0} 个文件";
+                HeaderStats.Text = $"扫描中… {p.FileCount:N0} 个文件";
+            }
             FileCountText.Text = p.FileCount.ToString("N0") + " 个文件";
         });
 
@@ -80,6 +96,8 @@ public partial class MainWindow : Window
             _scanning = false;
             ScanButton.IsEnabled = true;
             StopButton.IsEnabled = false;
+            ScanProgressPanel.Visibility = Visibility.Collapsed;
+            ScanProgressBar.IsIndeterminate = false;
         }
     }
 

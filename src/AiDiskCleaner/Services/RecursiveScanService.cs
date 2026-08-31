@@ -65,7 +65,7 @@ public sealed class RecursiveScanService : IScanService
                 }
 
                 if (count % 1000 == 0)
-                    progress?.Report(new ScanProgress(count, parent.FullPath));
+                    progress?.Report(new ScanProgress(count, parent.FullPath, -1));
             }
         }
     }

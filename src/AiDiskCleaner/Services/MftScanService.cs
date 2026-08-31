@@ -68,18 +68,19 @@ public sealed class MftScanService : IScanService
                     runs.AddRange(ExtractUnnamedDataRuns(extra, 0, recordSize));
             }
         }
+        // 必须按 VCN（逻辑顺序）读，不能按磁盘 LCN 排序，否则记录号会全错。
         runs = MergeRuns(runs);
         if (runs.Count == 0)
         {
             long clusters = (mftLength + bytesPerCluster - 1) / bytesPerCluster;
-            runs.Add((vol.MftStartLcn, clusters));
+            runs.Add((0, vol.MftStartLcn, clusters));
             Flush("读取方式: 单段回退（记录 0 无 data run）");
         }
         else
         {
             long runBytes = 0;
             foreach (var r in runs) runBytes += r.Clusters * bytesPerCluster;
-            Flush($"读取方式: $MFT data run {runs.Count} 段, 覆盖 {runBytes / 1048576}MB");
+            Flush($"读取方式: $MFT data run {runs.Count} 段, 覆盖 {runBytes / 1048576}MB（逻辑 {mftLength / 1048576}MB）");
         }
 
         var entries = new FileEntry?[recordCount];
@@ -93,7 +94,8 @@ public sealed class MftScanService : IScanService
         var readSw = new Stopwatch();
         var parseSw = new Stopwatch();
 
-        foreach (var (lcn, clusters) in runs)
+        progress?.Report(new ScanProgress(0, "正在读取 MFT", 1));
+        foreach (var (_, lcn, clusters) in runs)
         {
             if (recordNumber >= (ulong)recordCount) break;
             long remaining = clusters * (long)bytesPerCluster;
@@ -132,11 +134,12 @@ public sealed class MftScanService : IScanService
                 parseSw.Stop();
                 remaining -= bytesRead;
 
-                if ((recordNumber & 0x1FFF) == 0)
-                    progress?.Report(new ScanProgress(fileCount, "MFT 扫描中"));
+                int pct = recordCount > 0 ? (int)Math.Min(90, recordNumber * 90UL / (ulong)recordCount) : 0;
+                progress?.Report(new ScanProgress(fileCount, "正在读取 MFT", Math.Max(1, pct)));
             }
         }
-        Flush($"读盘 {readSw.ElapsedMilliseconds}ms, 解析 {parseSw.ElapsedMilliseconds}ms, 有效记录 {fileCount:N0}");
+        Flush($"读盘 {readSw.ElapsedMilliseconds}ms, 解析 {parseSw.ElapsedMilliseconds}ms, 有效记录 {fileCount:N0}, 已读记录 {recordNumber:N0}/{recordCount:N0}");
+        progress?.Report(new ScanProgress(fileCount, "正在建目录树", 92));
 
         // 扩展记录（Base != 0）上的 $DATA 归到主记录，自身不进目录树
         for (ulong rec = 0; rec < (ulong)recordCount; rec++)
@@ -172,12 +175,14 @@ public sealed class MftScanService : IScanService
         }
         buildSw.Stop();
         Flush($"建树 {buildSw.ElapsedMilliseconds}ms");
+        progress?.Report(new ScanProgress(fileCount, "正在累计大小", 96));
 
         // 4. 单次 DFS：填 FullPath + 自底向上累加目录大小
         var accSw = Stopwatch.StartNew();
         Accumulate(root);
         accSw.Stop();
-        Flush($"累加 {accSw.ElapsedMilliseconds}ms");
+        Flush($"累加 {accSw.ElapsedMilliseconds}ms, 根目录大小 {root.Size}");
+        progress?.Report(new ScanProgress(fileCount, "扫描完成", 100));
 
         total.Stop();
         Flush($"MFT 扫描总耗时 {total.ElapsedMilliseconds}ms ({total.Elapsed.TotalSeconds:0.00}s), 文件/目录数 {fileCount:N0}");
@@ -254,11 +259,18 @@ public sealed class MftScanService : IScanService
                     {
                         size = ReadUInt32(b, pos + 0x10); // 驻留：值长度
                     }
-                    else if (pos + 0x38 <= next)
+                    else if (pos + 0x40 <= next)
                     {
-                        size = ReadInt64(b, pos + 0x30); // 非驻留：RealSize
+                        // 非驻留：$DATA 布局 DataSize@0x30、InitializedSize@0x38、AllocatedSize@0x28
+                        long dataSize = ReadInt64(b, pos + 0x30);
+                        long inited = ReadInt64(b, pos + 0x38);
+                        long alloc = ReadInt64(b, pos + 0x28);
+                        size = dataSize;
+                        if (size < 0) size = 0;
+                        if (inited > 0 && (size == 0 || inited < size)) size = inited;
+                        if (size == 0 && alloc > 0) size = alloc;
                     }
-                    if (size < 0 || size > 32L * 1024 * 1024 * 1024 * 1024) // 单文件超过 32TB 视为损坏
+                    if (size < 0 || size > 32L * 1024 * 1024 * 1024 * 1024)
                         size = 0;
                 }
 
@@ -349,10 +361,11 @@ public sealed class MftScanService : IScanService
         }
     }
 
-    private static List<(long Lcn, long Clusters)> ParseRuns(byte[] b, int runPos, int end)
+    private static List<(long Vcn, long Lcn, long Clusters)> ParseRuns(byte[] b, int runPos, int end)
     {
-        var runs = new List<(long, long)>();
+        var runs = new List<(long, long, long)>();
         long lcn = 0;
+        long vcn = 0;
         while (runPos < end)
         {
             byte header = b[runPos++];
@@ -364,24 +377,25 @@ public sealed class MftScanService : IScanService
             runPos += lenSize;
             if (offSize == 0)
             {
-                runPos += offSize;
+                vcn += clusters; // 稀疏，跳过
                 continue;
             }
             long delta = ReadLeSigned(b, runPos, offSize);
             lcn += delta;
             runPos += offSize;
             if (clusters > 0 && lcn >= 0)
-                runs.Add((lcn, clusters));
+                runs.Add((vcn, lcn, clusters));
+            vcn += clusters;
         }
         return runs;
     }
 
-    private static byte[]? ReadRuns(SafeFileHandle vol, List<(long Lcn, long Clusters)> runs, int bytesPerCluster, long dataSize)
+    private static byte[]? ReadRuns(SafeFileHandle vol, List<(long Vcn, long Lcn, long Clusters)> runs, int bytesPerCluster, long dataSize)
     {
         if (runs.Count == 0 || dataSize <= 0 || dataSize > 16 * 1024 * 1024) return null;
         var buf = new byte[dataSize];
         int dest = 0;
-        foreach (var (lcn, clusters) in runs)
+        foreach (var (_, lcn, clusters) in runs)
         {
             if (dest >= buf.Length) break;
             int toRead = (int)Math.Min(clusters * (long)bytesPerCluster, buf.Length - dest);
@@ -427,18 +441,19 @@ public sealed class MftScanService : IScanService
         }
     }
 
-    private static List<(long Lcn, long Clusters)> MergeRuns(List<(long Lcn, long Clusters)> runs)
+    private static List<(long Vcn, long Lcn, long Clusters)> MergeRuns(List<(long Vcn, long Lcn, long Clusters)> runs)
     {
-        var merged = new List<(long, long)>();
-        foreach (var r in runs.OrderBy(x => x.Lcn))
+        var merged = new List<(long, long, long)>();
+        foreach (var r in runs.OrderBy(x => x.Vcn))
         {
             if (r.Clusters <= 0) continue;
             if (merged.Count > 0)
             {
                 var last = merged[^1];
-                if (last.Item1 + last.Item2 == r.Lcn)
+                if (r.Vcn < last.Item1 + last.Item3) continue; // 重叠，保留先到的
+                if (last.Item1 + last.Item3 == r.Vcn && last.Item2 + last.Item3 == r.Lcn)
                 {
-                    merged[^1] = (last.Item1, last.Item2 + r.Clusters);
+                    merged[^1] = (last.Item1, last.Item2, last.Item3 + r.Clusters);
                     continue;
                 }
             }
@@ -447,10 +462,10 @@ public sealed class MftScanService : IScanService
         return merged;
     }
 
-    /// <summary>从 FILE 记录里取出未命名 $DATA 的 data run（LCN + 簇数）。稀疏 run 跳过。</summary>
-    private static List<(long Lcn, long Clusters)> ExtractUnnamedDataRuns(byte[] b, int offset, int recordSize)
+    /// <summary>从 FILE 记录里取出未命名 $DATA 的 data run（VCN + LCN + 簇数）。稀疏 run 跳过。</summary>
+    private static List<(long Vcn, long Lcn, long Clusters)> ExtractUnnamedDataRuns(byte[] b, int offset, int recordSize)
     {
-        var runs = new List<(long, long)>();
+        var runs = new List<(long, long, long)>();
         ushort attrOffset = ReadUInt16(b, offset + 0x14);
         uint usedSize = ReadUInt32(b, offset + 0x18);
         int pos = offset + attrOffset;
@@ -469,7 +484,17 @@ public sealed class MftScanService : IScanService
             if (attrType == 0x80 && nonResident != 0 && nameLen == 0 && pos + 0x22 <= next)
             {
                 ushort mappingOff = ReadUInt16(b, pos + 0x20);
-                runs.AddRange(ParseRuns(b, pos + mappingOff, next));
+                long startVcn = pos + 0x18 <= next ? ReadInt64(b, pos + 0x10) : 0;
+                var parsed = ParseRuns(b, pos + mappingOff, next);
+                if (startVcn > 0)
+                {
+                    for (int i = 0; i < parsed.Count; i++)
+                    {
+                        var p = parsed[i];
+                        parsed[i] = (p.Vcn + startVcn, p.Lcn, p.Clusters);
+                    }
+                }
+                runs.AddRange(parsed);
                 break;
             }
             pos = next;

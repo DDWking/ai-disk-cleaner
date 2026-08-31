@@ -6,7 +6,7 @@
 
 | 模块 | 状态 | 说明 |
 |---|---|---|
-| MFT 秒扫 | 进行中 | 已按 `$MFT` data run 读碎片；和 WizTree 的文件数/总大小还要对齐 |
+| MFT 秒扫 | 进行中 | data run 改按 VCN 顺序读；大小从 $DATA 的 DataSize/InitializedSize 取。还需和 WizTree 对一下 |
 | 目录树 + 当前目录列表 | 可用 | 左树带占比/大小，右表当前目录，按大小降序 |
 | 单位显示 | 可用 | 只显示 KB / MB / G |
 | 崩溃修复 | 可用 | 递归改迭代、孤儿文件不再堆到根 |
@@ -50,6 +50,12 @@
 - 做了什么
 - 还差什么 / 下次谁接
 ```
+
+### 2026-03-31  DDWking
+- 修文件大小：`$MFT` 碎片按逻辑 VCN 读（之前按磁盘 LCN 排序会把记录号打乱）
+- 非驻留 `$DATA` 同时看 DataSize / InitializedSize
+- 扫盘加顶部进度条（百分比 + 阶段 + 文件数），避免看起来像卡死
+- 还差：和 WizTree 对总大小/文件数
 
 ### 2026-03-31  DDWking
 - 仓库开源：https://github.com/DDWking/ai-disk-cleaner （MIT）

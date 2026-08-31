@@ -92,6 +92,19 @@
       </Grid>
     </Border>
 
+    <Border x:Name="ScanProgressPanel" DockPanel.Dock="Top" Background="#1E293B" Padding="14,8" Visibility="Collapsed">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <ProgressBar x:Name="ScanProgressBar" Height="10" Minimum="0" Maximum="100" Value="0"
+                     Foreground="#3B82F6" Background="#334155" BorderThickness="0"/>
+        <TextBlock x:Name="ScanProgressText" Grid.Column="1" Foreground="#E2E8F0" Margin="12,0,0,0"
+                   VerticalAlignment="Center" Text="准备扫描…"/>
+      </Grid>
+    </Border>
+
     <Border DockPanel.Dock="Bottom" Background="White" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="12,8">
       <StackPanel Orientation="Horizontal">
         <TextBlock x:Name="FileCountText" Text="0 个文件" Foreground="#334155" FontWeight="SemiBold"/>
