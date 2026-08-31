@@ -39,11 +39,12 @@ src/AiDiskCleaner/     WPF 主程序
 
 进度和开发日志在 [PROGRESS.md](PROGRESS.md)，开工前先看谁在做什么。协作方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-简单说：
+简单说（朋友被加成协作者之后）：
 
-1. Fork 本仓库
-2. 从最新 `main` 开 `feature/xxx` 或 `fix/xxx`
-3. 提 Pull Request，不要直接推 `main`
+1. `git clone https://github.com/DDWking/ai-disk-cleaner.git`
+2. `git checkout main && git pull`
+3. 开分支 `feature/xxx` 或 `fix/xxx`，改完 `git push -u origin 分支名`
+4. 在 GitHub 上对 `main` 提 Pull Request，不要直接推 `main`
 
 ## 协议
 

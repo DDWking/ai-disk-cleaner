@@ -24,6 +24,8 @@
 
 **占坑规则：** 准备做某块，先改这张表再写代码。做完把「正在做」改成 `—`，日志里记一笔。
 
+朋友怎么开分支、提 PR：见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
 ## 下一步（按优先级）
 
 1. **核对扫描结果**：C 盘总大小、Users / Program Files / Windows 是否接近 WizTree（约 308 G / 130 万文件）
