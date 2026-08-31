@@ -17,14 +17,14 @@
 
 ## 谁在做什么
 
-| 人 | 正在做 | 分支 | 备注 |
-|---|---|---|---|
-| DDWking | MFT 大小/文件数对齐 WizTree | `main` | 扫完看 `scan-timing.log` 里 data run 段数 |
-| （小伙伴填名字） | — | — | 开工前在这里占坑 |
+| 人 | 正在做 | 备注 |
+|---|---|---|
+| DDWking | MFT 大小/文件数对齐 WizTree | 扫完看 `scan-timing.log` 里 data run 段数 |
+| （小伙伴填名字） | — | 开工前在这里占坑 |
 
 **占坑规则：** 准备做某块，先改这张表再写代码。做完把「正在做」改成 `—`，日志里记一笔。
 
-朋友怎么开分支、提 PR：见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+两人直接推 `main`，推之前先 `git pull`。步骤见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 下一步（按优先级）
 
