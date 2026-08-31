@@ -458,12 +458,13 @@
         </Setter.Value>
       </Setter>
     </Style>
-    <Style TargetType="Separator">
-      <Setter Property="Margin" Value="10,6"/>
+    <Style x:Key="MenuLine" TargetType="MenuItem">
+      <Setter Property="IsEnabled" Value="False"/>
+      <Setter Property="Padding" Value="10,6"/>
       <Setter Property="Template">
         <Setter.Value>
-          <ControlTemplate TargetType="Separator">
-            <Border Height="1" Background="{DynamicResource Border}"/>
+          <ControlTemplate TargetType="MenuItem">
+            <Border Height="1" Margin="10,6" Background="{DynamicResource Border}"/>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -597,7 +598,7 @@
 
       <Border x:Name="LeftPanel" Grid.Column="0" Background="{DynamicResource PanelLeft}">
         <DockPanel>
-          <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="20,16,24,4" Text="路径"
+          <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="20,16,24,4" Text=""
                      Foreground="{DynamicResource TextMuted}" FontSize="11" TextTrimming="CharacterEllipsis"/>
           <TextBlock x:Name="FilterHint" DockPanel.Dock="Top" Margin="20,0,24,6" FontSize="11"
                      Foreground="{DynamicResource Accent}" Visibility="Collapsed"/>
@@ -628,9 +629,9 @@
                 <MenuItem x:Name="CtxOpen" Header="在资源管理器中打开" Click="CtxOpen_Click"/>
                 <MenuItem x:Name="CtxCopyPath" Header="复制路径" Click="CtxCopyPath_Click"/>
                 <MenuItem x:Name="CtxCopyName" Header="复制名称" Click="CtxCopyName_Click"/>
-                <Separator/>
+                <MenuItem Style="{StaticResource MenuLine}"/>
                 <MenuItem x:Name="CtxDelete" Header="删除到回收站" Click="CtxDelete_Click"/>
-                <Separator/>
+                <MenuItem Style="{StaticResource MenuLine}"/>
                 <MenuItem x:Name="CtxProps" Header="属性" Click="CtxProps_Click"/>
               </ContextMenu>
             </TreeView.ContextMenu>

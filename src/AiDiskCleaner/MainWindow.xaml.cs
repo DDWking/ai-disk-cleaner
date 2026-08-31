@@ -78,7 +78,7 @@ public partial class MainWindow : Window
         SettingsButton.Content = Loc.Settings;
         AboutButton.Content = Loc.About;
         if (HeaderStats.Text is "就绪" or "Ready") HeaderStats.Text = Loc.Ready;
-        PathCrumb.Text = _current == null || string.IsNullOrEmpty(_current.FullPath) ? Loc.Path : _current.FullPath;
+        PathCrumb.Text = _current == null || string.IsNullOrEmpty(_current.FullPath) ? "" : _current.FullPath;
         NameHeader.Text = Loc.Path;
         PctHeader.Text = Loc.Pct;
         SizeHeader.Text = Loc.Size;
@@ -491,7 +491,7 @@ public partial class MainWindow : Window
     private void ShowDirectory(FileEntry dir)
     {
         _current = dir;
-        PathCrumb.Text = string.IsNullOrEmpty(dir.FullPath) ? Loc.Path : dir.FullPath;
+        PathCrumb.Text = dir.FullPath ?? "";
         FileCountText.Text = Loc.FileDirCount(dir.FileCount, dir.FolderCount);
         TotalSizeText.Text = FileEntry.FormatSize(dir.Size) + "  /  " + FileEntry.FormatSize(dir.Allocated);
         ShowExtStats(dir);
