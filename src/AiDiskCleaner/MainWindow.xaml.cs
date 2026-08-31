@@ -6,6 +6,8 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 
@@ -41,6 +43,10 @@ public partial class MainWindow : Window
     private string _search = "";
     private string? _extFilter;
     private SortKey _sort = SortKey.Size;
+    private DispatcherTimer? _rainTimer;
+    private readonly Random _rainRng = new();
+    private readonly Queue<string> _rainQueue = new();
+    private string _lastRainPath = "";
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -150,6 +156,7 @@ public partial class MainWindow : Window
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
         ScanProgressText.Text = Loc.Preparing;
+        StartHackRain();
 
         var progress = new Progress<ScanProgress>(p =>
         {
@@ -167,6 +174,7 @@ public partial class MainWindow : Window
                 HeaderStats.Text = Loc.ScanCount(p.FileCount);
             }
             FileCountText.Text = Loc.Files(p.FileCount);
+            EnqueueRain(p.CurrentDirectory);
         });
 
         try
@@ -201,7 +209,83 @@ public partial class MainWindow : Window
             StopButton.IsEnabled = false;
             ScanProgressPanel.Visibility = Visibility.Collapsed;
             ScanProgressBar.IsIndeterminate = false;
+            StopHackRain();
         }
+    }
+
+    private void StartHackRain()
+    {
+        HackRain.Children.Clear();
+        _rainQueue.Clear();
+        HackRain.Visibility = Visibility.Visible;
+        _rainTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(70) };
+        _rainTimer.Tick -= RainTick;
+        _rainTimer.Tick += RainTick;
+        _rainTimer.Start();
+    }
+
+    private void StopHackRain()
+    {
+        _rainTimer?.Stop();
+        HackRain.Children.Clear();
+        HackRain.Visibility = Visibility.Collapsed;
+        _rainQueue.Clear();
+    }
+
+    private void EnqueueRain(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path == _lastRainPath) return;
+        _lastRainPath = path;
+        _rainQueue.Enqueue(path);
+        while (_rainQueue.Count > 24) _rainQueue.Dequeue();
+    }
+
+    private void RainTick(object? sender, EventArgs e)
+    {
+        if (HackRain.ActualHeight <= 0 || HackRain.ActualWidth <= 0) return;
+        string text;
+        if (_rainQueue.Count > 0)
+            text = _rainQueue.Dequeue();
+        else
+            text = _lastRainPath.Length > 0 ? _lastRainPath : "scanning…";
+        if (text.Length > 72) text = "…" + text[^68..];
+
+        var tb = new TextBlock
+        {
+            Text = text,
+            FontFamily = new FontFamily(ThemeService.Current.Font),
+            FontSize = 11 + _rainRng.NextDouble() * 3,
+            Foreground = ThemeService.Brush(_rainRng.Next(4) == 0 ? "Accent" : "TextMuted"),
+            Opacity = 0.15 + _rainRng.NextDouble() * 0.55,
+            IsHitTestVisible = false,
+        };
+        double x = 8 + _rainRng.NextDouble() * Math.Max(8, HackRain.ActualWidth - 80);
+        Canvas.SetLeft(tb, x);
+        Canvas.SetTop(tb, HackRain.ActualHeight + 4);
+        HackRain.Children.Add(tb);
+
+        double rise = HackRain.ActualHeight + 28;
+        var anim = new DoubleAnimation
+        {
+            From = HackRain.ActualHeight + 4,
+            To = -24,
+            Duration = TimeSpan.FromSeconds(1.6 + _rainRng.NextDouble() * 1.8),
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
+        };
+        anim.Completed += (_, _) => HackRain.Children.Remove(tb);
+        tb.BeginAnimation(Canvas.TopProperty, anim);
+
+        var fade = new DoubleAnimation
+        {
+            From = tb.Opacity,
+            To = 0,
+            BeginTime = TimeSpan.FromSeconds(0.9),
+            Duration = TimeSpan.FromSeconds(1.4),
+        };
+        tb.BeginAnimation(OpacityProperty, fade);
+
+        if (HackRain.Children.Count > 48)
+            HackRain.Children.RemoveAt(0);
     }
 
     private void FinishScan(FileEntry root)

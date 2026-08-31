@@ -54,13 +54,19 @@
     <Style TargetType="DataGridRow">
       <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="RenderTransformOrigin" Value="0,0.5"/>
       <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Background" Value="{DynamicResource HoverBg}"/>
+          <Setter Property="RenderTransform">
+            <Setter.Value>
+              <ScaleTransform ScaleX="1.01" ScaleY="1.06"/>
+            </Setter.Value>
+          </Setter>
+        </Trigger>
         <Trigger Property="IsSelected" Value="True">
           <Setter Property="Background" Value="{DynamicResource SelectBg}"/>
           <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
-        </Trigger>
-        <Trigger Property="IsMouseOver" Value="True">
-          <Setter Property="Background" Value="{DynamicResource HoverBg}"/>
         </Trigger>
       </Style.Triggers>
     </Style>
@@ -104,6 +110,7 @@
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="RenderTransformOrigin" Value="0,0.5"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="TreeViewItem">
@@ -122,7 +129,11 @@
               <Border x:Name="Bd" Grid.Column="1"
                       Background="{TemplateBinding Background}"
                       Padding="{TemplateBinding Padding}"
-                      SnapsToDevicePixels="True">
+                      SnapsToDevicePixels="True"
+                      RenderTransformOrigin="0,0.5">
+                <Border.RenderTransform>
+                  <ScaleTransform x:Name="hoverScale" ScaleX="1" ScaleY="1"/>
+                </Border.RenderTransform>
                 <ContentPresenter x:Name="PART_Header" ContentSource="Header"
                                   HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
               </Border>
@@ -148,6 +159,26 @@
                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SelectBg}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
               </MultiTrigger>
+              <EventTrigger RoutedEvent="Border.MouseEnter" SourceName="Bd">
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="hoverScale" Storyboard.TargetProperty="ScaleX"
+                                     To="1.025" Duration="0:0:0.12"/>
+                    <DoubleAnimation Storyboard.TargetName="hoverScale" Storyboard.TargetProperty="ScaleY"
+                                     To="1.08" Duration="0:0:0.12"/>
+                  </Storyboard>
+                </BeginStoryboard>
+              </EventTrigger>
+              <EventTrigger RoutedEvent="Border.MouseLeave" SourceName="Bd">
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="hoverScale" Storyboard.TargetProperty="ScaleX"
+                                     To="1" Duration="0:0:0.16"/>
+                    <DoubleAnimation Storyboard.TargetName="hoverScale" Storyboard.TargetProperty="ScaleY"
+                                     To="1" Duration="0:0:0.16"/>
+                  </Storyboard>
+                </BeginStoryboard>
+              </EventTrigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
@@ -597,6 +628,8 @@
       </Grid.ColumnDefinitions>
 
       <Border x:Name="LeftPanel" Grid.Column="0" Background="{DynamicResource PanelLeft}">
+        <Grid>
+        <Canvas x:Name="HackRain" IsHitTestVisible="False" ClipToBounds="True" Opacity="0.55" Visibility="Collapsed"/>
         <DockPanel>
           <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="20,16,24,4" Text=""
                      Foreground="{DynamicResource TextMuted}" FontSize="11" TextTrimming="CharacterEllipsis"/>
@@ -637,6 +670,7 @@
             </TreeView.ContextMenu>
           </TreeView>
         </DockPanel>
+        </Grid>
       </Border>
 
       <GridSplitter Grid.Column="1"/>
