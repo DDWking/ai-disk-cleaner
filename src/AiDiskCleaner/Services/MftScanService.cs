@@ -211,6 +211,7 @@ public sealed class MftScanService : IScanService
             if (baseRec < (ulong)recordCount && entries[baseRec] is { } owner)
             {
                 if (entry.Size > owner.Size) owner.Size = entry.Size;
+                if (entry.Allocated > owner.Allocated) owner.Allocated = entry.Allocated;
                 if (string.IsNullOrEmpty(owner.Name) || owner.Name.StartsWith('<'))
                     owner.Name = entry.Name;
                 if (owner.Modified == DateTime.MinValue) owner.Modified = entry.Modified;
@@ -255,6 +256,7 @@ public sealed class MftScanService : IScanService
                 {
                     Name = link.Name,
                     Size = owner.Size,
+                    Allocated = owner.Allocated,
                     Modified = link.Modified == DateTime.MinValue ? owner.Modified : link.Modified,
                     Category = owner.Category,
                     Kind = owner.Kind,
@@ -307,6 +309,7 @@ public sealed class MftScanService : IScanService
 
         // 4. 单次 DFS：填 FullPath + 自底向上累加目录大小
         var accSw = Stopwatch.StartNew();
+        GroupLooseFiles(root);
         Accumulate(root);
         accSw.Stop();
         Flush($"累加 {accSw.ElapsedMilliseconds}ms, 根目录大小 {root.Size}");
@@ -360,6 +363,7 @@ public sealed class MftScanService : IScanService
 
             string name = "";
             long size = 0;
+            long allocated = 0;
             DateTime modified = DateTime.MinValue;
             uint fileAttrs = 0;
             FileNameLink? dosFallback = null;
@@ -431,6 +435,7 @@ public sealed class MftScanService : IScanService
                     if (nonResident == 0)
                     {
                         size = ReadUInt32(b, pos + 0x10); // 驻留：值长度
+                        allocated = size;
                     }
                     else if (pos + 0x40 <= next)
                     {
@@ -441,10 +446,13 @@ public sealed class MftScanService : IScanService
                         size = dataSize;
                         if (size < 0) size = 0;
                         if (inited > 0 && (size == 0 || inited < size)) size = inited;
+                        allocated = alloc > 0 ? alloc : size;
                         if (size == 0 && alloc > 0) size = alloc;
                     }
                     if (size < 0 || size > 32L * 1024 * 1024 * 1024 * 1024)
                         size = 0;
+                    if (allocated < 0 || allocated > 32L * 1024 * 1024 * 1024 * 1024)
+                        allocated = size;
                 }
 
                 pos = next;
@@ -466,10 +474,12 @@ public sealed class MftScanService : IScanService
 
             bool hidden = (fileAttrs & 0x2) != 0;
             bool system = (fileAttrs & 0x4) != 0 || name.StartsWith('$');
+            if (allocated <= 0) allocated = size;
             return new FileEntry
             {
                 Name = name,
                 Size = size,
+                Allocated = allocated,
                 Modified = modified,
                 Category = isDirectory ? "" : FileClassifier.Classify(name),
                 Kind = isDirectory ? EntryKind.Directory : EntryKind.File,
@@ -723,6 +733,23 @@ public sealed class MftScanService : IScanService
         }
     }
 
+    /// <summary>根下散文件收成一组，和 WizTree「N 文件在 C:\」一样，不跟文件夹混排。</summary>
+    private static void GroupLooseFiles(FileEntry root)
+    {
+        var files = root.Children.Where(c => !c.IsDirectory).ToList();
+        if (files.Count == 0) return;
+        root.Children.RemoveAll(c => !c.IsDirectory);
+        var group = new FileEntry
+        {
+            Name = Loc.FilesIn(files.Count, root.Name.TrimEnd('\\')),
+            Kind = EntryKind.Directory,
+            IsFilesGroup = true,
+            IsHidden = true,
+            Children = files,
+        };
+        root.Children.Add(group);
+    }
+
     /// <summary>迭代式填 FullPath + 自底向上累加目录大小（显式栈，彻底避免深目录/损坏链导致的栈溢出）。</summary>
     private static void Accumulate(FileEntry root)
     {
@@ -747,10 +774,12 @@ public sealed class MftScanService : IScanService
         {
             var node = order[i];
             long total = 0;
+            long allocated = 0;
             int files = 0, folders = 0;
             foreach (var c in node.Children)
             {
                 total += c.Size;
+                allocated += c.Allocated;
                 if (c.IsDirectory)
                 {
                     folders += 1 + c.FolderCount;
@@ -758,7 +787,13 @@ public sealed class MftScanService : IScanService
                 }
                 else files += 1;
             }
-            node.Size = total;
+            if (node.IsDirectory)
+            {
+                node.Size = total;
+                node.Allocated = allocated;
+            }
+            else if (node.Allocated <= 0)
+                node.Allocated = node.Size;
             node.FileCount = files;
             node.FolderCount = folders;
         }

@@ -38,6 +38,11 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _cts;
     private bool _scanning;
     private DateTime _scanStart;
+    private string _search = "";
+    private string? _extFilter;
+    private SortKey _sort = SortKey.Size;
+
+    private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
     private static readonly object Placeholder = new();
 
@@ -75,8 +80,16 @@ public partial class MainWindow : Window
         AboutButton.Content = Loc.About;
         if (HeaderStats.Text is "就绪" or "Ready") HeaderStats.Text = Loc.Ready;
         PathCrumb.Text = _current == null || string.IsNullOrEmpty(_current.FullPath) ? Loc.Path : _current.FullPath;
+        NameHeader.Text = Loc.Path;
         PctHeader.Text = Loc.Pct;
         SizeHeader.Text = Loc.Size;
+        AllocHeader.Text = Loc.Allocated;
+        FilesHeader.Text = Loc.FilesCol;
+        FoldersHeader.Text = Loc.FoldersCol;
+        CtxOpen.Header = Loc.OpenInExplorer;
+        CtxCopyPath.Header = Loc.CopyPath;
+        CtxCopyName.Header = Loc.CopyName;
+        CtxProps.Header = Loc.Properties;
         ExtTitle.Text = Loc.ExtType;
         ColExt.Header = Loc.Ext;
         ColType.Header = Loc.Type;
@@ -248,18 +261,40 @@ public partial class MainWindow : Window
     private void PopulateTree()
     {
         DirTree.Items.Clear();
+        if (_root == null) return;
+        UpdateFilterHint();
         var root = new TreeViewItem { Header = MakeFolderHeader(_root, isRoot: true), Tag = _root, IsExpanded = true };
         DirTree.Items.Add(root);
         PopulateDirChildren(root);
         root.IsSelected = true;
     }
 
+    private void UpdateFilterHint()
+    {
+        if (!string.IsNullOrEmpty(_extFilter) || !string.IsNullOrWhiteSpace(_search))
+        {
+            var bits = new List<string>();
+            if (!string.IsNullOrEmpty(_extFilter)) bits.Add(Loc.FilterExt(_extFilter));
+            if (!string.IsNullOrWhiteSpace(_search)) bits.Add(_search);
+            FilterHint.Text = string.Join("  ·  ", bits) + "   (Esc / " + Loc.FilterOff + ")";
+            FilterHint.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            FilterHint.Text = "";
+            FilterHint.Visibility = Visibility.Collapsed;
+        }
+    }
+
     private static FrameworkElement MakeFolderHeader(FileEntry d, bool isRoot = false)
     {
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(168) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(88) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(132) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
         var name = new TextBlock
         {
             Text = d.Name,
@@ -268,22 +303,55 @@ public partial class MainWindow : Window
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
         double share = isRoot ? 1 : d.PercentShare;
-        var pctCell = new Grid { Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, Height = 22 };
+        var pctCell = MakePctBar(share, isRoot ? 100 : d.PercentValue, d.IsDimmed);
+        var size = ColText(FileEntry.FormatSize(d.Size), d.IsDimmed ? "TextMuted" : "AccentDim");
+        var alloc = ColText(FileEntry.FormatSize(d.Allocated), "TextMuted");
+        var files = ColText(d.IsDirectory || d.IsFilesGroup ? d.FileCount.ToString("N0") : "", "TextMuted");
+        var folders = ColText(d.IsDirectory ? d.FolderCount.ToString("N0") : "", "TextMuted");
+        Grid.SetColumn(name, 0);
+        Grid.SetColumn(pctCell, 1);
+        Grid.SetColumn(size, 2);
+        Grid.SetColumn(alloc, 3);
+        Grid.SetColumn(files, 4);
+        Grid.SetColumn(folders, 5);
+        grid.Children.Add(name);
+        grid.Children.Add(pctCell);
+        grid.Children.Add(size);
+        grid.Children.Add(alloc);
+        grid.Children.Add(files);
+        grid.Children.Add(folders);
+        return grid;
+    }
+
+    private static TextBlock ColText(string text, string brush)
+        => new()
+        {
+            Text = text,
+            Foreground = ThemeService.Brush(brush),
+            FontSize = 11,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+
+    private static Grid MakePctBar(double share, double pct, bool dim)
+    {
+        var pctCell = new Grid { Margin = new Thickness(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Height = 22 };
         pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
+        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
         var track = new Grid { Height = 6, VerticalAlignment = VerticalAlignment.Center };
         double rest = Math.Max(0, 1 - share);
         track.ColumnDefinitions.Add(new ColumnDefinition { Width = share <= 0 ? new GridLength(0) : new GridLength(share, GridUnitType.Star) });
         track.ColumnDefinitions.Add(new ColumnDefinition { Width = rest <= 0 ? new GridLength(0) : new GridLength(rest, GridUnitType.Star) });
-        var fill = new Border { Background = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Accent") };
+        var fill = new Border { Background = ThemeService.Brush(dim ? "TextMuted" : "Accent") };
         var bg = new Border { Background = ThemeService.Brush("Border") };
         Grid.SetColumn(bg, 1);
         track.Children.Add(fill);
         track.Children.Add(bg);
         var pctText = new TextBlock
         {
-            Text = (isRoot ? 100 : d.PercentValue).ToString("0.0") + " %",
-            Foreground = ThemeService.Brush(d.IsDimmed ? "Placeholder" : "TextMuted"),
+            Text = pct.ToString("0.0") + " %",
+            Foreground = ThemeService.Brush(dim ? "Placeholder" : "TextMuted"),
             FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
@@ -291,35 +359,101 @@ public partial class MainWindow : Window
         Grid.SetColumn(pctText, 1);
         pctCell.Children.Add(track);
         pctCell.Children.Add(pctText);
-        var size = new TextBlock
+        return pctCell;
+    }
+
+    private IEnumerable<FileEntry> VisibleChildren(FileEntry entry)
+    {
+        IEnumerable<FileEntry> kids = entry.Children;
+        if (!string.IsNullOrWhiteSpace(_search) || !string.IsNullOrEmpty(_extFilter))
+            kids = kids.Where(MatchesFilter);
+        return _sort switch
         {
-            Text = FileEntry.FormatSize(d.Size),
-            Foreground = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "AccentDim"),
-            FontSize = 11,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0),
+            SortKey.Name => kids.OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase),
+            SortKey.Allocated => kids.OrderByDescending(c => c.Allocated),
+            SortKey.Files => kids.OrderByDescending(c => c.FileCount),
+            SortKey.Folders => kids.OrderByDescending(c => c.FolderCount),
+            SortKey.Modified => kids.OrderByDescending(c => c.Modified),
+            _ => kids.OrderByDescending(c => c.Size),
         };
-        Grid.SetColumn(name, 0);
-        Grid.SetColumn(pctCell, 1);
-        Grid.SetColumn(size, 2);
-        grid.Children.Add(name);
-        grid.Children.Add(pctCell);
-        grid.Children.Add(size);
-        return grid;
+    }
+
+    private bool MatchesFilter(FileEntry e)
+    {
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            if (e.Name.Contains(_search, StringComparison.CurrentCultureIgnoreCase)
+                || (e.FullPath?.Contains(_search, StringComparison.CurrentCultureIgnoreCase) ?? false))
+                return true;
+            return e.IsDirectory && SubtreeHasName(e, _search);
+        }
+        if (!string.IsNullOrEmpty(_extFilter))
+        {
+            if (e.IsDirectory) return SubtreeHasExt(e, _extFilter);
+            return ExtOf(e).Equals(_extFilter, StringComparison.OrdinalIgnoreCase);
+        }
+        return true;
+    }
+
+    private static bool SubtreeHasName(FileEntry dir, string q)
+    {
+        var stack = new Stack<FileEntry>();
+        stack.Push(dir);
+        int n = 0;
+        while (stack.Count > 0 && n++ < 20000)
+        {
+            var x = stack.Pop();
+            foreach (var c in x.Children)
+            {
+                if (c.Name.Contains(q, StringComparison.CurrentCultureIgnoreCase)
+                    || (c.FullPath?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false))
+                    return true;
+                if (c.IsDirectory) stack.Push(c);
+            }
+        }
+        return false;
+    }
+
+    private static bool SubtreeHasExt(FileEntry dir, string ext)
+    {
+        var stack = new Stack<FileEntry>();
+        stack.Push(dir);
+        int n = 0;
+        while (stack.Count > 0 && n++ < 40000)
+        {
+            var x = stack.Pop();
+            foreach (var c in x.Children)
+            {
+                if (!c.IsDirectory && ExtOf(c).Equals(ext, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                if (c.IsDirectory) stack.Push(c);
+            }
+        }
+        return false;
+    }
+
+    private static string ExtOf(FileEntry e)
+    {
+        string ext = Path.GetExtension(e.Name);
+        if (e.Name.StartsWith('$') && ext.Length == 0) ext = e.Name;
+        return string.IsNullOrEmpty(ext) ? Loc.NoExt : ext;
     }
 
     private void PopulateDirChildren(TreeViewItem parent)
     {
         parent.Items.Clear();
         var entry = (FileEntry)parent.Tag;
-        const int maxFiles = 300;
-        var dirs = entry.Children.Where(c => c.IsDirectory).OrderByDescending(c => c.Size);
-        var files = entry.Children.Where(c => !c.IsDirectory).OrderByDescending(c => c.Size).ToList();
+        const int maxFiles = 400;
+        var visible = VisibleChildren(entry).ToList();
+        var dirs = visible.Where(c => c.IsDirectory);
+        var files = visible.Where(c => !c.IsDirectory).ToList();
         foreach (var d in dirs)
         {
             var item = new TreeViewItem { Header = MakeFolderHeader(d), Tag = d };
-            if (d.Children.Count > 0)
+            bool hasKids = d.Children.Count > 0 && (string.IsNullOrWhiteSpace(_search) && _extFilter == null
+                ? true
+                : d.Children.Any(MatchesFilter));
+            if (hasKids)
             {
                 item.Items.Add(new TreeViewItem { Header = "…", Tag = Placeholder });
                 item.Expanded += DirItem_Expanded;
@@ -336,10 +470,9 @@ public partial class MainWindow : Window
         {
             var more = new FileEntry
             {
-                Name = Loc.IsEn
-                    ? $"+ {files.Count - maxFiles:N0} more files"
-                    : $"还有 {files.Count - maxFiles:N0} 个文件",
+                Name = Loc.MoreFiles(files.Count - maxFiles),
                 Size = files.Skip(maxFiles).Sum(x => x.Size),
+                Allocated = files.Skip(maxFiles).Sum(x => x.Allocated),
                 Kind = EntryKind.File,
                 IsHidden = true,
             };
@@ -360,7 +493,7 @@ public partial class MainWindow : Window
         _current = dir;
         PathCrumb.Text = string.IsNullOrEmpty(dir.FullPath) ? Loc.Path : dir.FullPath;
         FileCountText.Text = Loc.FileDirCount(dir.FileCount, dir.FolderCount);
-        TotalSizeText.Text = FileEntry.FormatSize(dir.Size);
+        TotalSizeText.Text = FileEntry.FormatSize(dir.Size) + "  /  " + FileEntry.FormatSize(dir.Allocated);
         ShowExtStats(dir);
     }
 
@@ -478,7 +611,112 @@ public partial class MainWindow : Window
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (_current != null) ShowDirectory(_current);
+        _search = SearchBox.Text?.Trim() ?? "";
+        if (_root == null) return;
+        PopulateTree();
+        if (!string.IsNullOrWhiteSpace(_search) && DirTree.Items.Count > 0 && DirTree.Items[0] is TreeViewItem root)
+            ExpandMatches(root, 0);
+    }
+
+    private void ExpandMatches(TreeViewItem item, int depth)
+    {
+        if (depth > 4 || item.Tag is not FileEntry e) return;
+        if (e.IsDirectory && e.Children.Any(MatchesFilter))
+        {
+            item.IsExpanded = true;
+            if (item.Items.Count == 1 && item.Items[0] is TreeViewItem ph && ReferenceEquals(ph.Tag, Placeholder))
+                PopulateDirChildren(item);
+            foreach (var obj in item.Items)
+            {
+                if (obj is TreeViewItem child)
+                    ExpandMatches(child, depth + 1);
+            }
+        }
+    }
+
+    private FileEntry? ContextEntry()
+        => (DirTree.SelectedItem as TreeViewItem)?.Tag as FileEntry;
+
+    private void CtxOpen_Click(object sender, RoutedEventArgs e)
+    {
+        var entry = ContextEntry();
+        if (entry == null) return;
+        string path = entry.IsDirectory ? entry.FullPath : Path.GetDirectoryName(entry.FullPath) ?? entry.FullPath;
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            if (entry.IsDirectory)
+                Process.Start(new ProcessStartInfo("explorer.exe", "\"" + path + "\"") { UseShellExecute = true });
+            else
+                Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + entry.FullPath + "\"") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    private void CtxCopyPath_Click(object sender, RoutedEventArgs e)
+    {
+        var entry = ContextEntry();
+        if (entry == null) return;
+        try { Clipboard.SetText(entry.FullPath ?? entry.Name); } catch { }
+    }
+
+    private void CtxCopyName_Click(object sender, RoutedEventArgs e)
+    {
+        var entry = ContextEntry();
+        if (entry == null) return;
+        try { Clipboard.SetText(entry.Name); } catch { }
+    }
+
+    private void CtxProps_Click(object sender, RoutedEventArgs e)
+    {
+        var entry = ContextEntry();
+        if (entry == null) return;
+        MessageBox.Show(Loc.PropBody(entry), Loc.Properties, MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void SortName_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Name);
+    private void SortSize_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Size);
+    private void SortAlloc_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Allocated);
+    private void SortFiles_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Files);
+    private void SortFolders_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Folders);
+
+    private void SetSort(SortKey key)
+    {
+        _sort = key;
+        if (_root != null) PopulateTree();
+    }
+
+    private void ExtGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ExtGrid.SelectedItem is not ExtStat stat) return;
+        _extFilter = stat.Extension;
+        if (_root != null) PopulateTree();
+    }
+
+    private void ExtGrid_RightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (_extFilter == null) return;
+        _extFilter = null;
+        if (_root != null) PopulateTree();
+        e.Handled = true;
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            bool changed = false;
+            if (!string.IsNullOrEmpty(_extFilter)) { _extFilter = null; changed = true; }
+            if (!string.IsNullOrWhiteSpace(_search))
+            {
+                _search = "";
+                SearchBox.Text = "";
+                changed = true;
+            }
+            if (changed && _root != null) PopulateTree();
+            e.Handled = true;
+        }
+        base.OnKeyDown(e);
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)

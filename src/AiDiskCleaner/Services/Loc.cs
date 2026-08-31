@@ -1,3 +1,5 @@
+using AiDiskCleaner.Models;
+
 namespace AiDiskCleaner.Services;
 
 /// <summary>界面文案。Zh / En 两套，设置里切换。</summary>
@@ -63,6 +65,37 @@ public static class Loc
     public static string Repo => "https://github.com/DDWking/ai-disk-cleaner";
     public static string NoExt => IsEn ? "(no extension)" : "(无扩展名)";
     public static string Folder => IsEn ? "Folder" : "文件夹";
+    public static string Allocated => IsEn ? "Allocated" : "分配";
+    public static string Items => IsEn ? "Items" : "项目";
+    public static string FilesCol => IsEn ? "Files" : "文件";
+    public static string FoldersCol => IsEn ? "Folders" : "文件夹";
+    public static string OpenInExplorer => IsEn ? "Open in Explorer" : "在资源管理器中打开";
+    public static string CopyPath => IsEn ? "Copy path" : "复制路径";
+    public static string CopyName => IsEn ? "Copy name" : "复制名称";
+    public static string Properties => IsEn ? "Properties" : "属性";
+    public static string SortBySize => IsEn ? "Sort by size" : "按大小排序";
+    public static string SortByName => IsEn ? "Sort by name" : "按名称排序";
+    public static string SortByModified => IsEn ? "Sort by date" : "按修改时间排序";
+    public static string FilterOff => IsEn ? "Show all types" : "显示全部类型";
+    public static string FilterExt(string ext) => IsEn ? $"Filter: {ext}" : $"筛选：{ext}";
+    public static string MoreFiles(int n) => IsEn ? $"+ {n:N0} more files" : $"还有 {n:N0} 个文件";
+    public static string FilesIn(int n, string path) =>
+        IsEn ? $"{n:N0} files in {path}" : $"{n:N0} 个文件在 {path}";
+    public static string PropBody(FileEntry e)
+    {
+        var lines = new[]
+        {
+            e.FullPath,
+            "",
+            (IsEn ? "Size: " : "大小：") + FileEntry.FormatSize(e.Size),
+            (IsEn ? "Allocated: " : "分配：") + FileEntry.FormatSize(e.Allocated),
+            e.IsDirectory
+                ? FileDirCount(e.FileCount, e.FolderCount)
+                : (IsEn ? "Type: " : "类型：") + e.Category,
+            e.Modified == DateTime.MinValue ? "" : (IsEn ? "Modified: " : "修改：") + e.ModifiedText,
+        };
+        return string.Join(Environment.NewLine, lines.Where(s => s != null));
+    }
 
     public static string TypeName(string ext)
     {

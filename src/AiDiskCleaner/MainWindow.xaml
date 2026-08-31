@@ -437,6 +437,19 @@
     <Style TargetType="ScrollViewer">
       <Setter Property="Background" Value="Transparent"/>
     </Style>
+    <Style TargetType="ContextMenu">
+      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+    </Style>
+    <Style TargetType="MenuItem">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+      <Setter Property="Padding" Value="10,6"/>
+    </Style>
     <Style TargetType="GridSplitter">
       <Setter Property="Background" Value="{DynamicResource Border}"/>
       <Setter Property="Width" Value="12"/>
@@ -535,28 +548,48 @@
 
     <Grid>
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" MinWidth="360"/>
+        <ColumnDefinition Width="*" MinWidth="520"/>
         <ColumnDefinition Width="12"/>
-        <ColumnDefinition Width="400" MinWidth="260"/>
+        <ColumnDefinition Width="380" MinWidth="260"/>
       </Grid.ColumnDefinitions>
 
       <Border x:Name="LeftPanel" Grid.Column="0" Background="{DynamicResource PanelLeft}">
         <DockPanel>
-          <Grid DockPanel.Dock="Top" Margin="20,16,24,10">
+          <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="20,16,24,4" Text="路径"
+                     Foreground="{DynamicResource TextMuted}" FontSize="11" TextTrimming="CharacterEllipsis"/>
+          <TextBlock x:Name="FilterHint" DockPanel.Dock="Top" Margin="20,0,24,6" FontSize="11"
+                     Foreground="{DynamicResource Accent}" Visibility="Collapsed"/>
+          <Grid x:Name="TreeHeader" DockPanel.Dock="Top" Margin="20,0,24,8">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="168"/>
-              <ColumnDefinition Width="88"/>
+              <ColumnDefinition Width="132"/>
+              <ColumnDefinition Width="76"/>
+              <ColumnDefinition Width="76"/>
+              <ColumnDefinition Width="52"/>
+              <ColumnDefinition Width="52"/>
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="PathCrumb" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11"/>
-            <TextBlock x:Name="PctHeader" Grid.Column="1" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,60,0"/>
-            <TextBlock x:Name="SizeHeader" Grid.Column="2" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,8,0"/>
+            <TextBlock x:Name="NameHeader" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11" Cursor="Hand" MouseLeftButtonDown="SortName_Click"/>
+            <TextBlock x:Name="PctHeader" Grid.Column="1" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,56,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
+            <TextBlock x:Name="SizeHeader" Grid.Column="2" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
+            <TextBlock x:Name="AllocHeader" Grid.Column="3" Text="分配" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortAlloc_Click"/>
+            <TextBlock x:Name="FilesHeader" Grid.Column="4" Text="文件" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortFiles_Click"/>
+            <TextBlock x:Name="FoldersHeader" Grid.Column="5" Text="文件夹" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortFolders_Click"/>
           </Grid>
           <TreeView x:Name="DirTree" Padding="16,0,24,16"
                     Background="Transparent"
                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                    SelectedItemChanged="DirTree_SelectedItemChanged"/>
+                    SelectedItemChanged="DirTree_SelectedItemChanged">
+            <TreeView.ContextMenu>
+              <ContextMenu>
+                <MenuItem x:Name="CtxOpen" Header="在资源管理器中打开" Click="CtxOpen_Click"/>
+                <MenuItem x:Name="CtxCopyPath" Header="复制路径" Click="CtxCopyPath_Click"/>
+                <MenuItem x:Name="CtxCopyName" Header="复制名称" Click="CtxCopyName_Click"/>
+                <Separator/>
+                <MenuItem x:Name="CtxProps" Header="属性" Click="CtxProps_Click"/>
+              </ContextMenu>
+            </TreeView.ContextMenu>
+          </TreeView>
         </DockPanel>
       </Border>
 
@@ -572,7 +605,9 @@
                     RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
                     HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                     SelectionMode="Single" SelectionUnit="FullRow"
-                    VerticalContentAlignment="Center">
+                    VerticalContentAlignment="Center"
+                    MouseDoubleClick="ExtGrid_MouseDoubleClick"
+                    PreviewMouseRightButtonUp="ExtGrid_RightClick">
             <DataGrid.Resources>
               <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}"/>
             </DataGrid.Resources>

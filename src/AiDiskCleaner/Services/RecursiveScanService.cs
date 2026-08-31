@@ -40,10 +40,20 @@ public sealed class RecursiveScanService : IScanService
                     try { if ((d.Attributes & FileAttributes.ReparsePoint) != 0) continue; }
                     catch (Exception) { continue; }
 
-                    var child = new FileEntry { Name = d.Name, FullPath = d.FullName, Kind = EntryKind.Directory };
+                    var child = new FileEntry
+                    {
+                        Name = d.Name,
+                        FullPath = d.FullName,
+                        Kind = EntryKind.Directory,
+                        IsHidden = (d.Attributes & FileAttributes.Hidden) != 0,
+                        IsSystem = (d.Attributes & FileAttributes.System) != 0,
+                    };
                     parent.Children.Add(child);
                     ScanDirectory(d, child, progress, ct, ref count);
                     parent.Size += child.Size;
+                    parent.Allocated += child.Allocated;
+                    parent.FolderCount += 1 + child.FolderCount;
+                    parent.FileCount += child.FileCount;
                 }
                 else if (e is FileInfo f)
                 {
@@ -56,11 +66,16 @@ public sealed class RecursiveScanService : IScanService
                         Name = f.Name,
                         FullPath = f.FullName,
                         Size = size,
+                        Allocated = size,
                         Modified = modified,
                         Category = FileClassifier.Classify(f.Name),
                         Kind = EntryKind.File,
+                        IsHidden = (f.Attributes & FileAttributes.Hidden) != 0,
+                        IsSystem = (f.Attributes & FileAttributes.System) != 0,
                     });
                     parent.Size += size;
+                    parent.Allocated += size;
+                    parent.FileCount++;
                     count++;
                 }
 

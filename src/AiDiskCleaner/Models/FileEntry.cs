@@ -8,6 +8,8 @@ public class FileEntry
     public string Name { get; set; } = "";
     public string FullPath { get; set; } = "";
     public long Size { get; set; }
+    /// <summary>磁盘占用（Allocated）。稀疏/压缩文件会小于 Size。</summary>
+    public long Allocated { get; set; }
     public DateTime Modified { get; set; }
     public string Category { get; set; } = "其他";
     public EntryKind Kind { get; set; }
@@ -17,11 +19,14 @@ public class FileEntry
     public int FolderCount { get; set; }
     public bool IsHidden { get; set; }
     public bool IsSystem { get; set; }
+    /// <summary>根目录下「散文件」合成组，点开才列出文件。</summary>
+    public bool IsFilesGroup { get; set; }
 
     public bool IsDirectory => Kind == EntryKind.Directory;
-    public bool IsDimmed => IsHidden || IsSystem || Name.StartsWith('$');
+    public bool IsDimmed => IsHidden || IsSystem || Name.StartsWith('$') || IsFilesGroup;
 
     public string SizeText => FormatSize(Size);
+    public string AllocatedText => FormatSize(Allocated);
 
     /// <summary>当前列表里相对最大项的占用条宽度（像素）。</summary>
     public double SizeBarWidth { get; set; }
