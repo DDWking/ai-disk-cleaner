@@ -225,9 +225,73 @@
         </Setter.Value>
       </Setter>
     </Style>
+    <Style x:Key="TermScrollThumb" TargetType="Thumb">
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Thumb">
+            <Border x:Name="bd" Background="#1F3D2A" CornerRadius="0" Margin="1"/>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#39FF88"/>
+              </Trigger>
+              <Trigger Property="IsDragging" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#39FF88"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <ControlTemplate x:Key="TermVerticalScrollBar" TargetType="ScrollBar">
+      <Grid Background="#0B0F0C">
+        <Track x:Name="PART_Track" IsDirectionReversed="True">
+          <Track.DecreaseRepeatButton>
+            <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" IsTabStop="False"/>
+          </Track.DecreaseRepeatButton>
+          <Track.Thumb>
+            <Thumb Style="{StaticResource TermScrollThumb}"/>
+          </Track.Thumb>
+          <Track.IncreaseRepeatButton>
+            <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" IsTabStop="False"/>
+          </Track.IncreaseRepeatButton>
+        </Track>
+      </Grid>
+    </ControlTemplate>
+    <ControlTemplate x:Key="TermHorizontalScrollBar" TargetType="ScrollBar">
+      <Grid Background="#0B0F0C">
+        <Track x:Name="PART_Track">
+          <Track.DecreaseRepeatButton>
+            <RepeatButton Command="ScrollBar.PageLeftCommand" Opacity="0" IsTabStop="False"/>
+          </Track.DecreaseRepeatButton>
+          <Track.Thumb>
+            <Thumb Style="{StaticResource TermScrollThumb}"/>
+          </Track.Thumb>
+          <Track.IncreaseRepeatButton>
+            <RepeatButton Command="ScrollBar.PageRightCommand" Opacity="0" IsTabStop="False"/>
+          </Track.IncreaseRepeatButton>
+        </Track>
+      </Grid>
+    </ControlTemplate>
     <Style TargetType="ScrollBar">
-      <Setter Property="Width" Value="8"/>
       <Setter Property="Background" Value="#0B0F0C"/>
+      <Setter Property="Foreground" Value="#1F3D2A"/>
+      <Setter Property="Width" Value="8"/>
+      <Style.Triggers>
+        <Trigger Property="Orientation" Value="Vertical">
+          <Setter Property="Width" Value="8"/>
+          <Setter Property="MinWidth" Value="8"/>
+          <Setter Property="Template" Value="{StaticResource TermVerticalScrollBar}"/>
+        </Trigger>
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Height" Value="8"/>
+          <Setter Property="MinHeight" Value="8"/>
+          <Setter Property="Template" Value="{StaticResource TermHorizontalScrollBar}"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+    <Style TargetType="ScrollViewer">
+      <Setter Property="Background" Value="Transparent"/>
     </Style>
   </Window.Resources>
 
@@ -337,7 +401,12 @@
                     RowBackground="#0B0F0C" Background="#0B0F0C"
                     HorizontalGridLinesBrush="#1F3D2A" EnableRowVirtualization="True"
                     SelectionMode="Single" SelectionUnit="FullRow"
+                    ScrollViewer.VerticalScrollBarVisibility="Visible"
+                    ScrollViewer.HorizontalScrollBarVisibility="Auto"
                     MouseDoubleClick="FileGrid_MouseDoubleClick">
+            <DataGrid.Resources>
+              <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}"/>
+            </DataGrid.Resources>
             <DataGrid.Columns>
               <DataGridTextColumn Header="NAME" Binding="{Binding Name}" SortMemberPath="Name" Width="2*"/>
               <DataGridTextColumn Header="PCT" Binding="{Binding PercentText}" SortMemberPath="Size" Width="70">
