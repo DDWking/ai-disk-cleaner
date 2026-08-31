@@ -241,7 +241,7 @@ public partial class MainWindow : Window
     {
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(148) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(88) });
         var name = new TextBlock
         {
@@ -250,14 +250,37 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        var pct = new TextBlock
+        double barW = isRoot ? 72 : d.PercentBarWidth;
+        var pctCell = new Grid { Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
+        var track = new Border
         {
-            Text = isRoot ? "100 %" : d.PercentText,
+            Height = 6,
+            Background = ThemeService.Brush("Border"),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var fill = new Border
+        {
+            Height = 6,
+            Width = barW,
+            Background = ThemeService.Brush("Accent"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        track.Child = fill;
+        var pctText = new TextBlock
+        {
+            Text = (isRoot ? 100 : d.PercentValue).ToString("0.0") + " %",
             Foreground = ThemeService.Brush("TextMuted"),
             FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        Grid.SetColumn(track, 0);
+        Grid.SetColumn(pctText, 1);
+        pctCell.Children.Add(track);
+        pctCell.Children.Add(pctText);
         var size = new TextBlock
         {
             Text = FileEntry.FormatSize(d.Size),
@@ -268,10 +291,10 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 0, 8, 0),
         };
         Grid.SetColumn(name, 0);
-        Grid.SetColumn(pct, 1);
+        Grid.SetColumn(pctCell, 1);
         Grid.SetColumn(size, 2);
         grid.Children.Add(name);
-        grid.Children.Add(pct);
+        grid.Children.Add(pctCell);
         grid.Children.Add(size);
         return grid;
     }
@@ -345,6 +368,7 @@ public partial class MainWindow : Window
                     TypeName = Loc.TypeName(ext),
                     Size = kv.Value.Size,
                     Count = kv.Value.Count,
+                    Percent = 100.0 * kv.Value.Size / total,
                     PercentText = (100.0 * kv.Value.Size / total).ToString("0.0") + " %",
                 };
             })

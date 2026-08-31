@@ -23,15 +23,20 @@ public class FileEntry
     /// <summary>当前列表里相对最大项的占用条宽度（像素）。</summary>
     public double SizeBarWidth { get; set; }
 
-    public string PercentText
+    public double PercentValue
     {
         get
         {
             long parentSize = Parent?.Size ?? Size;
-            if (parentSize <= 0) return "";
-            return (100.0 * Size / parentSize).ToString("0.0") + " %";
+            if (parentSize <= 0) return 0;
+            return 100.0 * Size / parentSize;
         }
     }
+
+    public string PercentText => PercentValue <= 0 && Size == 0 ? "0.0 %" : PercentValue.ToString("0.0") + " %";
+
+    /// <summary>占比条宽度（像素，满格 72）。</summary>
+    public double PercentBarWidth => Math.Max(Size > 0 ? 2 : 0, PercentValue / 100.0 * 72);
 
     public string ItemText => IsDirectory ? FileCount.ToString("N0") : "";
 

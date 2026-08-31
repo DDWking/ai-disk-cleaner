@@ -9,7 +9,9 @@ public sealed class ExtStat
     public string TypeName { get; set; } = "";
     public long Size { get; set; }
     public int Count { get; set; }
+    public double Percent { get; set; }
     public string PercentText { get; set; } = "";
+    public double PercentBarWidth => Math.Max(Size > 0 ? 2 : 0, Percent / 100.0 * 72);
     public Brush Color { get; set; } = Brushes.LimeGreen;
     public string SizeText => FileEntry.FormatSize(Size);
 }
