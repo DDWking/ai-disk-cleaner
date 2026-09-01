@@ -54,6 +54,10 @@
 ```
 
 ### 2026-04-08  DDWking
+- 合进 main，发 v1.1.0：清理页 + 卸载页（注册表/商店/Steam/Windows 功能 + 残留勾选删除）
+- 还差：Treemap、Windows 更新 / 驱动
+
+### 2026-04-08  DDWking
 - 卸载页接上 BCU Steam 游戏和 Windows 功能；Steam 单独成组，功能默认折叠；卸功能会再确认一次（DISM，可能重启）
 - 还差：Windows 更新 / 驱动 / Chocolatey / Scoop
 
