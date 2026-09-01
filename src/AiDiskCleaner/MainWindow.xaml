@@ -22,6 +22,10 @@
     <Style TargetType="TextBlock">
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
     </Style>
+    <Style TargetType="DataGrid">
+      <Setter Property="CanUserAddRows" Value="False"/>
+      <Setter Property="CanUserDeleteRows" Value="False"/>
+    </Style>
     <Style TargetType="DataGridColumnHeader">
       <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
