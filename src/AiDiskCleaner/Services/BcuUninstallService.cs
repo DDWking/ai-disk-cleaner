@@ -1,4 +1,8 @@
 using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Klocman.Forms.Tools;
 using UninstallTools;
 using UninstallTools.Factory;
@@ -60,9 +64,48 @@ public static class BcuUninstallService
             InstallLocation = e.InstallLocation ?? "",
             CanUninstall = e.UninstallPossible && !e.IsProtected,
             IsProtected = e.IsProtected,
+            Icon = TryIcon(e),
             Entry = e,
             Status = e.IsProtected ? Loc.UninstallProtected : (e.UninstallPossible ? "" : Loc.UninstallNoWay),
         };
+    }
+
+    static ImageSource? TryIcon(ApplicationUninstallerEntry e)
+    {
+        try
+        {
+            var icon = e.GetIcon();
+            if (icon != null) return ToImage(icon);
+        }
+        catch { }
+        try
+        {
+            string? path = e.DisplayIcon;
+            if (string.IsNullOrWhiteSpace(path)) return null;
+            int comma = path.LastIndexOf(',');
+            if (comma > 0 && int.TryParse(path[(comma + 1)..], out _))
+                path = path[..comma].Trim('"', ' ');
+            path = path.Trim('"', ' ');
+            if (!File.Exists(path)) return null;
+            using var extracted = System.Drawing.Icon.ExtractAssociatedIcon(path);
+            return extracted == null ? null : ToImage(extracted);
+        }
+        catch { return null; }
+    }
+
+    static ImageSource? ToImage(Icon icon)
+    {
+        using var bmp = icon.ToBitmap();
+        using var ms = new MemoryStream();
+        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+        ms.Position = 0;
+        var img = new BitmapImage();
+        img.BeginInit();
+        img.CacheOption = BitmapCacheOption.OnLoad;
+        img.StreamSource = ms;
+        img.EndInit();
+        img.Freeze();
+        return img;
     }
 
     public static BulkUninstallTask StartUninstall(IEnumerable<AppUninstallItem> items)

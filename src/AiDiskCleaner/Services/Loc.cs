@@ -212,6 +212,9 @@ public static class Loc
         IsEn ? $"Run the official uninstaller for {n:N0} apps? Each may show its own window."
              : $"对 {n:N0} 个软件运行官方卸载程序？每个都可能弹出自己的窗口。";
     public static string UninstallProtected => IsEn ? "Protected" : "受保护";
+    public static string UninstallGroupOk => IsEn ? "Can uninstall" : "可卸载";
+    public static string UninstallGroupProtected(int n) =>
+        IsEn ? $"Protected ({n:N0})" : $"受保护（{n:N0}）";
     public static string UninstallNoWay => IsEn ? "No uninstaller" : "无法卸载";
     public static string UninstallRunning => IsEn ? "Uninstalling…" : "正在卸载…";
     public static string UninstallDone => IsEn ? "Done" : "完成";

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Windows.Media;
 using UninstallTools;
 
 namespace AiDiskCleaner.Models;
@@ -28,6 +29,7 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
     public string InstallLocation { get; set; } = "";
     public bool CanUninstall { get; set; }
     public bool IsProtected { get; set; }
+    public ImageSource? Icon { get; set; }
     public ApplicationUninstallerEntry? Entry { get; set; }
 
     public string SizeText => SizeBytes <= 0 ? "—" : FileEntry.FormatSize(SizeBytes);

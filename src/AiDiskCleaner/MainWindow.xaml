@@ -16,6 +16,8 @@
   </WindowChrome.WindowChrome>
   <Window.Resources>
     <local:ShareWidthConverter x:Key="ShareWidth"/>
+    <local:InvertBoolConverter x:Key="InvertBool"/>
+    <local:ProtectedGroupConverter x:Key="ProtectedGroup"/>
     <Style TargetType="TextBlock">
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
     </Style>
@@ -916,8 +918,61 @@
                       HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                       SelectionMode="Single" SelectionUnit="FullRow"
                       MouseLeftButtonUp="UninstallGrid_Click">
+              <DataGrid.GroupStyle>
+                <GroupStyle>
+                  <GroupStyle.ContainerStyle>
+                    <Style TargetType="GroupItem">
+                      <Setter Property="Template">
+                        <Setter.Value>
+                          <ControlTemplate TargetType="GroupItem">
+                            <Expander IsExpanded="{Binding Name, Converter={StaticResource InvertBool}}"
+                                      Background="Transparent" Foreground="{DynamicResource Text}"
+                                      BorderThickness="0" Padding="0">
+                              <Expander.Style>
+                                <Style TargetType="Expander">
+                                  <Setter Property="Template">
+                                    <Setter.Value>
+                                      <ControlTemplate TargetType="Expander">
+                                        <DockPanel>
+                                          <ToggleButton DockPanel.Dock="Top" Style="{StaticResource ExpandCollapseToggleStyle}"
+                                                        IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                                        HorizontalAlignment="Left" Margin="4,4,0,2"/>
+                                          <ContentPresenter DockPanel.Dock="Top" ContentSource="Header"
+                                                            Margin="24,-18,8,6" VerticalAlignment="Center"/>
+                                          <ContentPresenter x:Name="body" Visibility="Collapsed" Margin="0,0,0,4"/>
+                                        </DockPanel>
+                                        <ControlTemplate.Triggers>
+                                          <Trigger Property="IsExpanded" Value="True">
+                                            <Setter TargetName="body" Property="Visibility" Value="Visible"/>
+                                          </Trigger>
+                                        </ControlTemplate.Triggers>
+                                      </ControlTemplate>
+                                    </Setter.Value>
+                                  </Setter>
+                                </Style>
+                              </Expander.Style>
+                              <Expander.Header>
+                                <TextBlock FontSize="12" Foreground="{DynamicResource TextDim}" Margin="4,6"
+                                           Text="{Binding Converter={StaticResource ProtectedGroup}}"/>
+                              </Expander.Header>
+                              <ItemsPresenter/>
+                            </Expander>
+                          </ControlTemplate>
+                        </Setter.Value>
+                      </Setter>
+                    </Style>
+                  </GroupStyle.ContainerStyle>
+                </GroupStyle>
+              </DataGrid.GroupStyle>
               <DataGrid.Columns>
                 <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
+                <DataGridTemplateColumn Width="28" CanUserSort="False">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                      <Image Source="{Binding Icon}" Width="16" Height="16" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn x:Name="ColAppName" Header="名称" Binding="{Binding Name}" Width="140" IsReadOnly="True"/>
                 <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="90" IsReadOnly="True"/>
                 <DataGridTextColumn x:Name="ColAppSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="SizeBytes" Width="64" IsReadOnly="True">

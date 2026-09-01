@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -12,6 +13,28 @@ using UninstallTools;
 using UninstallTools.Uninstaller;
 
 namespace AiDiskCleaner;
+
+public sealed class InvertBoolConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is not true;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
+public sealed class ProtectedGroupConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is CollectionViewGroup g)
+            return g.Name is true ? Loc.UninstallGroupProtected(g.ItemCount) : Loc.UninstallGroupOk;
+        return value is true ? Loc.UninstallGroupProtected(0) : Loc.UninstallGroupOk;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
 
 public sealed class ShareWidthConverter : IValueConverter
 {
@@ -1347,9 +1370,20 @@ public partial class MainWindow : Window
         UninstallRunBtn.Visibility = Visibility.Visible;
         JunkDeleteBtn.Visibility = Visibility.Collapsed;
         JunkSafeBtn.Visibility = Visibility.Collapsed;
-        UninstallGrid.ItemsSource = _apps;
+        BindAppList();
         UninstallSummary.Text = _apps.Count == 0 ? Loc.UninstallHint : Loc.UninstallCount(_apps.Count);
         UpdateUninstallSelHint();
+    }
+
+    private void BindAppList()
+    {
+        var view = CollectionViewSource.GetDefaultView(_apps);
+        view.GroupDescriptions.Clear();
+        view.SortDescriptions.Clear();
+        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(AppUninstallItem.IsProtected)));
+        view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.IsProtected), ListSortDirection.Ascending));
+        view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.Name), ListSortDirection.Ascending));
+        UninstallGrid.ItemsSource = view;
     }
 
     private void RefreshUninstallPaneText()
