@@ -138,6 +138,7 @@ public partial class MainWindow : Window
         UninstallRefreshBtn.Content = Loc.Refresh;
         UninstallAllBtn.Content = Loc.SelectAll;
         UninstallRunBtn.Content = Loc.UninstallRun;
+        UninstallSearchHint.Text = Loc.UninstallSearchHint;
         JunkSafeBtn.Content = Loc.JunkSafe;
         JunkDeleteBtn.Content = Loc.JunkDelete;
         ColAppName.Header = Loc.ColName;
@@ -1285,11 +1286,15 @@ public partial class MainWindow : Window
         }
     }
 
+    private IEnumerable<AppUninstallItem> VisibleApps()
+        => UninstallGrid.Items.OfType<AppUninstallItem>();
+
     private void UninstallSelectAll_Click(object sender, RoutedEventArgs e)
     {
-        bool allOn = _apps.Where(x => x.CanUninstall).All(x => x.Selected) && _apps.Any(x => x.CanUninstall);
-        foreach (var a in _apps)
-            a.Selected = !allOn && a.CanUninstall;
+        var vis = VisibleApps().Where(x => x.CanUninstall).ToList();
+        bool allOn = vis.Count > 0 && vis.All(x => x.Selected);
+        foreach (var a in vis)
+            a.Selected = !allOn;
         UpdateUninstallSelHint();
     }
 
@@ -1299,7 +1304,8 @@ public partial class MainWindow : Window
     {
         var picked = _apps.Where(x => x.Selected && x.CanUninstall).ToList();
         UninstallSelHint.Text = picked.Count == 0 ? "" : Loc.UninstallCount(picked.Count);
-        bool allOn = _apps.Where(x => x.CanUninstall).All(x => x.Selected) && _apps.Any(x => x.CanUninstall);
+        var vis = VisibleApps().Where(x => x.CanUninstall).ToList();
+        bool allOn = vis.Count > 0 && vis.All(x => x.Selected);
         UninstallAllBtn.BorderBrush = ThemeService.Brush(allOn ? "Accent" : "Border");
         UninstallAllBtn.Foreground = ThemeService.Brush(allOn ? "Accent" : "TextDim");
     }
@@ -1379,33 +1385,82 @@ public partial class MainWindow : Window
         JunkDeleteBtn.Visibility = Visibility.Collapsed;
         JunkSafeBtn.Visibility = Visibility.Collapsed;
         BindAppList();
-        UninstallSummary.Text = _apps.Count == 0 ? Loc.UninstallHint : Loc.UninstallCount(_apps.Count);
-        UpdateUninstallSelHint();
     }
 
     private void BindAppList()
     {
         var view = CollectionViewSource.GetDefaultView(_apps);
-        view.GroupDescriptions.Clear();
-        view.SortDescriptions.Clear();
-        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(AppUninstallItem.IsProtected)));
-        view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.IsProtected), ListSortDirection.Ascending));
-        view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.Name), ListSortDirection.Ascending));
+        using (view.DeferRefresh())
+        {
+            view.GroupDescriptions.Clear();
+            view.SortDescriptions.Clear();
+            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(AppUninstallItem.IsProtected)));
+            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.IsProtected), ListSortDirection.Ascending));
+            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.SizeBytes), ListSortDirection.Descending));
+            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.Name), ListSortDirection.Ascending));
+            view.Filter = FilterApp;
+        }
         UninstallGrid.ItemsSource = view;
+        ApplyUninstallFilter();
     }
 
-    private void RefreshUninstallPaneText()
+    private bool FilterApp(object obj)
+    {
+        if (obj is not AppUninstallItem a) return false;
+        string q = UninstallSearchBox.Text?.Trim() ?? "";
+        if (q.Length == 0) return true;
+        return a.Name.Contains(q, StringComparison.CurrentCultureIgnoreCase)
+            || (a.Publisher?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false)
+            || (a.InstallLocation?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false);
+    }
+
+    private bool FilterJunk(object obj)
+    {
+        if (obj is not JunkItem j) return false;
+        string q = UninstallSearchBox.Text?.Trim() ?? "";
+        if (q.Length == 0) return true;
+        return j.AppName.Contains(q, StringComparison.CurrentCultureIgnoreCase)
+            || (j.Path?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false)
+            || (j.Category?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false);
+    }
+
+    private void UninstallSearch_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        UninstallSearchHint.Visibility = string.IsNullOrEmpty(UninstallSearchBox.Text)
+            ? Visibility.Visible : Visibility.Collapsed;
+        ApplyUninstallFilter();
+    }
+
+    private void ApplyUninstallFilter()
     {
         if (_showingJunk)
         {
-            int safe = _junk.Count(x => x.Safe);
-            UninstallSummary.Text = _junk.Count == 0 ? Loc.JunkNone : Loc.JunkHint(_junk.Count, safe);
+            if (JunkGrid.ItemsSource is ICollectionView jv)
+            {
+                jv.Filter = FilterJunk;
+                jv.Refresh();
+            }
+            int shown = JunkGrid.Items.Count;
+            UninstallSummary.Text = _junk.Count == 0
+                ? Loc.JunkNone
+                : Loc.JunkHint(_junk.Count, _junk.Count(x => x.Safe))
+                  + (string.IsNullOrWhiteSpace(UninstallSearchBox.Text) ? "" : "  ·  " + Loc.UninstallFiltered(shown, _junk.Count));
             UpdateJunkSelHint();
+            return;
         }
-        else if (_apps.Count == 0) UninstallSummary.Text = Loc.UninstallHint;
-        else UninstallSummary.Text = Loc.UninstallCount(_apps.Count);
+        if (UninstallGrid.ItemsSource is ICollectionView av)
+        {
+            av.Filter = FilterApp;
+            av.Refresh();
+        }
+        int n = UninstallGrid.Items.Count;
+        if (_apps.Count == 0) UninstallSummary.Text = Loc.UninstallHint;
+        else if (string.IsNullOrWhiteSpace(UninstallSearchBox.Text)) UninstallSummary.Text = Loc.UninstallCount(_apps.Count);
+        else UninstallSummary.Text = Loc.UninstallFiltered(n, _apps.Count);
         UpdateUninstallSelHint();
     }
+
+    private void RefreshUninstallPaneText() => ApplyUninstallFilter();
 
     private async Task ScanLeftovers(List<ApplicationUninstallerEntry> finished)
     {
@@ -1445,10 +1500,16 @@ public partial class MainWindow : Window
         UninstallRunBtn.Visibility = Visibility.Collapsed;
         JunkDeleteBtn.Visibility = Visibility.Visible;
         JunkSafeBtn.Visibility = Visibility.Visible;
-        JunkGrid.ItemsSource = _junk;
-        int safe = _junk.Count(x => x.Safe);
-        UninstallSummary.Text = _junk.Count == 0 ? Loc.JunkNone : Loc.JunkHint(_junk.Count, safe);
-        UpdateJunkSelHint();
+        var view = CollectionViewSource.GetDefaultView(_junk);
+        using (view.DeferRefresh())
+        {
+            view.SortDescriptions.Clear();
+            view.SortDescriptions.Add(new SortDescription(nameof(JunkItem.ConfidenceScore), ListSortDirection.Descending));
+            view.SortDescriptions.Add(new SortDescription(nameof(JunkItem.AppName), ListSortDirection.Ascending));
+            view.Filter = FilterJunk;
+        }
+        JunkGrid.ItemsSource = view;
+        ApplyUninstallFilter();
     }
 
     private void JunkSafe_Click(object sender, RoutedEventArgs e)

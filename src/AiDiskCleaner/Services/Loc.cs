@@ -207,6 +207,9 @@ public static class Loc
     public static string UninstallHint => IsEn
         ? "Refresh to list installed apps. Uninstall uses each app's own uninstaller (BCU engine)."
         : "点刷新列出已装软件。卸载走各软件自己的卸载程序（BCU 引擎）。";
+    public static string UninstallSearchHint => IsEn ? "Search apps…" : "搜索软件…";
+    public static string UninstallFiltered(int shown, int total) =>
+        IsEn ? $"{shown:N0} / {total:N0} apps" : $"{shown:N0} / {total:N0} 个软件";
     public static string UninstallCount(int n) => IsEn ? $"{n:N0} apps" : $"{n:N0} 个软件";
     public static string UninstallConfirm(int n) =>
         IsEn ? $"Run the official uninstaller for {n:N0} apps? Each may show its own window."

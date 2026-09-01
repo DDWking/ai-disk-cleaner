@@ -901,7 +901,15 @@
             <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
               <Button x:Name="UninstallRefreshBtn" Content="刷新" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallRefresh_Click"/>
               <Button x:Name="UninstallAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallSelectAll_Click"/>
-              <Button x:Name="JunkSafeBtn" Content="勾选安全残留" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="JunkSafe_Click" Visibility="Collapsed"/>
+              <Button x:Name="JunkSafeBtn" Content="勾选安全残留" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="JunkSafe_Click" Visibility="Collapsed"/>
+              <Grid Width="180" Margin="0,0,0,6">
+                <TextBox x:Name="UninstallSearchBox" Style="{StaticResource TermTextBox}"
+                         TextChanged="UninstallSearch_TextChanged"/>
+                <TextBlock x:Name="UninstallSearchHint" IsHitTestVisible="False"
+                           Background="{DynamicResource PanelRight}"
+                           Foreground="{DynamicResource Placeholder}" VerticalAlignment="Center"
+                           Margin="9,1,9,1" Padding="0,4" Text="搜索软件…"/>
+              </Grid>
             </WrapPanel>
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
               <Button x:Name="UninstallRunBtn" Content="卸载勾选项" Style="{StaticResource PrimaryButton}" Click="UninstallRun_Click"/>
