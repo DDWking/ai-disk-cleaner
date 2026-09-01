@@ -45,7 +45,7 @@ public partial class MainWindow : Window
     private int _liveShown;
     private int _liveExtShown;
     private CleanReport? _report;
-    private bool _cleanTab;
+    private bool _cleanTab = true;
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -72,6 +72,7 @@ public partial class MainWindow : Window
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
         ApplyUi();
+        ShowRightTab(true);
     }
 
     public void ApplyUi()
@@ -164,6 +165,8 @@ public partial class MainWindow : Window
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
         ScanProgressText.Text = Loc.Preparing;
+        ShowRightTab(true);
+        SetCleanProgress(0, Loc.CleanScan, determinate: false);
         BeginLiveScan(DriveBox.SelectedItem.ToString()!);
 
         var progress = new Progress<ScanProgress>(p =>
@@ -174,12 +177,14 @@ public partial class MainWindow : Window
                 ScanProgressBar.Value = p.Percent;
                 ScanProgressText.Text = Loc.ProgressLine(p.Percent, p.CurrentDirectory, p.FileCount);
                 HeaderStats.Text = Loc.ScanPct(p.Percent);
+                SetCleanProgress(p.Percent, Loc.ProgressLine(p.Percent, p.CurrentDirectory, p.FileCount), determinate: true);
             }
             else
             {
                 ScanProgressBar.IsIndeterminate = true;
                 ScanProgressText.Text = Loc.ProgressIndeterminate(p.CurrentDirectory, p.FileCount);
                 HeaderStats.Text = Loc.ScanCount(p.FileCount);
+                SetCleanProgress(0, Loc.ProgressIndeterminate(p.CurrentDirectory, p.FileCount), determinate: false);
             }
             FileCountText.Text = Loc.Files(p.FileCount);
             GrowLiveScan(p.Percent >= 0 ? p.Percent : Math.Min(90, p.FileCount / 8000));
@@ -203,10 +208,12 @@ public partial class MainWindow : Window
         catch (OperationCanceledException)
         {
             ClearLiveScan();
+            HideCleanProgress();
             HeaderStats.Text = Loc.Aborted;
         }
         catch (Exception ex)
         {
+            HideCleanProgress();
             MessageBox.Show(Loc.ScanFailedMsg(ex.Message), Loc.AppName,
                 MessageBoxButton.OK, MessageBoxImage.Error);
             HeaderStats.Text = Loc.ScanFailed;
@@ -236,6 +243,7 @@ public partial class MainWindow : Window
         ElapsedText.Text = Loc.Elapsed((DateTime.Now - _scanStart).TotalSeconds);
         HeaderStats.Text = Loc.Files(root.FileCount);
         CleanHintText.Text = Loc.Analyzing;
+        SetCleanProgress(5, Loc.Analyzing, determinate: true);
         _ = RunAnalyze(root);
         UiLog("FinishScan 全部完成");
     }
@@ -245,24 +253,46 @@ public partial class MainWindow : Window
         string drive = root.FullPath;
         var previous = ScanSnapshot.Load(drive);
         CleanReport report;
+        var analyzeProgress = new Progress<ScanProgress>(p =>
+        {
+            int pct = p.Percent >= 0 ? p.Percent : 0;
+            SetCleanProgress(pct, p.CurrentDirectory, determinate: p.Percent >= 0);
+        });
         try
         {
-            report = await Task.Run(() => CleanAnalyzer.Analyze(root, previous, CancellationToken.None));
+            report = await Task.Run(() => CleanAnalyzer.Analyze(root, previous, CancellationToken.None, analyzeProgress));
         }
         catch (Exception ex)
         {
             UiLog("分析失败: " + ex.Message);
+            HideCleanProgress();
             CleanHintText.Text = Loc.HintClean;
             return;
         }
         if (!ReferenceEquals(_root, root)) return;
         _report = report;
         try { ScanSnapshot.Capture(root).Save(); } catch { }
+        HideCleanProgress();
         RefreshCleanUi();
         CleanHintText.Text = report.Cleanable.Count > 0
             ? Loc.CleanHintReady(report.Cleanable.Count, FileEntry.FormatSize(report.CleanableBytes))
             : Loc.HintClean;
         UiLog($"分析完成: cleanable={report.Cleanable.Count} dup={report.Duplicates.Count}");
+    }
+
+    private void SetCleanProgress(double value, string text, bool determinate)
+    {
+        CleanProgressPanel.Visibility = Visibility.Visible;
+        CleanProgressBar.IsIndeterminate = !determinate;
+        if (determinate) CleanProgressBar.Value = Math.Clamp(value, 0, 100);
+        CleanProgressText.Text = text;
+    }
+
+    private void HideCleanProgress()
+    {
+        CleanProgressPanel.Visibility = Visibility.Collapsed;
+        CleanProgressBar.IsIndeterminate = false;
+        CleanProgressBar.Value = 0;
     }
 
     private static void UiLog(string msg)

@@ -256,6 +256,12 @@ public static class Loc
              : $"上次 {when:yyyy-MM-dd HH:mm}，根目录 {delta}";
     public static string CatCount(int n, string size) => $"{n:N0} · {size}";
     public static string HashingDups => IsEn ? "Checking duplicates…" : "正在核对重复文件…";
+    public static string CleanScan => IsEn ? "Scanning disk…" : "正在扫描磁盘…";
+    public static string CleanWalk => IsEn ? "Walking files…" : "正在遍历文件…";
+    public static string CleanRules => IsEn ? "Matching clean rules…" : "正在套清理规则…";
+    public static string CleanShortcuts => IsEn ? "Checking shortcuts…" : "正在检查快捷方式…";
+    public static string CleanDups => IsEn ? "Checking duplicates…" : "正在核对重复文件…";
+    public static string CleanCompare => IsEn ? "Comparing with last scan…" : "正在和上次扫描对比…";
 
     public static string Category(string fileName)
     {

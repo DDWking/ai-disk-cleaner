@@ -34,23 +34,29 @@ public static class CleanAnalyzer
         @"\windows\servicing\", @"\$mft", @"\program files\", @"\program files (x86)\",
     };
 
-    public static CleanReport Analyze(FileEntry root, ScanSnapshot? previous, CancellationToken ct)
+    public static CleanReport Analyze(FileEntry root, ScanSnapshot? previous, CancellationToken ct, IProgress<ScanProgress>? progress = null)
     {
         var report = new CleanReport();
         var files = new List<FileEntry>(Math.Max(1024, root.FileCount));
         var dirs = new List<FileEntry>();
+        progress?.Report(new ScanProgress(0, Loc.CleanWalk, 5));
         Walk(root, files, dirs, ct);
 
+        progress?.Report(new ScanProgress(files.Count, Loc.CleanRules, 20));
         FillCleanable(report, files, dirs);
         FillLarge(report, files);
         FillOld(report, files);
         FillEmpty(report, dirs);
         FillLongPaths(report, files, dirs);
+        progress?.Report(new ScanProgress(files.Count, Loc.CleanShortcuts, 45));
         FillBrokenShortcuts(report, files, ct);
+        progress?.Report(new ScanProgress(files.Count, Loc.CleanDups, 70));
         FillDuplicates(report, files, ct);
+        progress?.Report(new ScanProgress(files.Count, Loc.CleanCompare, 92));
         FillCompare(report, root, previous);
 
         report.CleanableBytes = report.Cleanable.Sum(x => x.Size);
+        progress?.Report(new ScanProgress(files.Count, Loc.Analyzing, 100));
         return report;
     }
 

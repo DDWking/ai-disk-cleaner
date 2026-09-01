@@ -650,7 +650,7 @@
             <Button x:Name="TabExtBtn" Content="扩展名" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabExt_Click"/>
             <Button x:Name="TabCleanBtn" Content="清理" Style="{StaticResource GhostButton}" Click="TabClean_Click"/>
           </StackPanel>
-          <DockPanel x:Name="ExtPane">
+          <DockPanel x:Name="ExtPane" Visibility="Collapsed">
           <TextBlock x:Name="ExtTitle" DockPanel.Dock="Top" Margin="20,0,20,8" Text="扩展名 / 类型" Foreground="{DynamicResource TextDim}" FontSize="11"/>
           <DataGrid x:Name="ExtGrid" AutoGenerateColumns="False" IsReadOnly="True"
                     CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
@@ -719,7 +719,12 @@
             </DataGrid.Columns>
           </DataGrid>
           </DockPanel>
-          <DockPanel x:Name="CleanPane" Visibility="Collapsed">
+          <DockPanel x:Name="CleanPane">
+            <StackPanel x:Name="CleanProgressPanel" DockPanel.Dock="Top" Margin="20,0,20,10" Visibility="Collapsed">
+              <TextBlock x:Name="CleanProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
+              <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"
+                           Foreground="{DynamicResource Accent}" Background="{DynamicResource Border}" BorderThickness="0"/>
+            </StackPanel>
             <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,0,20,8"
                        Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,0,16,8">
