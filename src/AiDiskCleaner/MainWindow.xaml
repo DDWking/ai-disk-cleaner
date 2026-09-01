@@ -925,7 +925,8 @@
                       RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
                       HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                       SelectionMode="Single" SelectionUnit="FullRow"
-                      MouseLeftButtonUp="UninstallGrid_Click">
+                      MouseLeftButtonUp="UninstallGrid_Click"
+                      MouseDoubleClick="UninstallGrid_DoubleClick">
               <DataGrid.GroupStyle>
                 <GroupStyle>
                   <GroupStyle.ContainerStyle>
@@ -980,9 +981,9 @@
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn x:Name="ColAppName" Header="名称" Binding="{Binding Name}" Width="140" IsReadOnly="True"/>
-                <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="90" IsReadOnly="True"/>
-                <DataGridTextColumn x:Name="ColAppSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="SizeBytes" Width="64" IsReadOnly="True">
+                <DataGridTextColumn x:Name="ColAppName" Header="名称" Binding="{Binding Name}" Width="*" MinWidth="180" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="110" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColAppSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="SizeBytes" Width="72" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="HorizontalAlignment" Value="Right"/>
@@ -990,7 +991,7 @@
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
-                <DataGridTextColumn x:Name="ColAppStatus" Header="状态" Binding="{Binding Status}" Width="*" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColAppStatus" Header="状态" Binding="{Binding Status}" Width="80" IsReadOnly="True"/>
               </DataGrid.Columns>
             </DataGrid>
             <DataGrid x:Name="JunkGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
@@ -1000,10 +1001,26 @@
                       RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
                       HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                       SelectionMode="Single" SelectionUnit="FullRow"
-                      MouseLeftButtonUp="JunkGrid_Click">
+                      MouseLeftButtonUp="JunkGrid_Click"
+                      MouseDoubleClick="JunkGrid_DoubleClick">
               <DataGrid.Columns>
-                <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
-                <DataGridTextColumn x:Name="ColJunkApp" Header="名称" Binding="{Binding AppName}" Width="110" IsReadOnly="True"/>
+                <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="40">
+                  <DataGridCheckBoxColumn.CellStyle>
+                    <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                      <Setter Property="Padding" Value="10,0,0,0"/>
+                      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                      <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    </Style>
+                  </DataGridCheckBoxColumn.CellStyle>
+                  <DataGridCheckBoxColumn.ElementStyle>
+                    <Style TargetType="CheckBox">
+                      <Setter Property="HorizontalAlignment" Value="Left"/>
+                      <Setter Property="VerticalAlignment" Value="Center"/>
+                      <Setter Property="Margin" Value="0"/>
+                    </Style>
+                  </DataGridCheckBoxColumn.ElementStyle>
+                </DataGridCheckBoxColumn>
+                <DataGridTextColumn x:Name="ColJunkApp" Header="名称" Binding="{Binding AppName}" Width="140" IsReadOnly="True"/>
                 <DataGridTextColumn x:Name="ColJunkKind" Header="类型" Binding="{Binding Category}" Width="80" IsReadOnly="True"/>
                 <DataGridTextColumn x:Name="ColJunkConf" Header="把握" Binding="{Binding ConfidenceText}" SortMemberPath="ConfidenceScore" Width="72" IsReadOnly="True"/>
                 <DataGridTextColumn x:Name="ColJunkPath" Header="路径" Binding="{Binding Path}" Width="*" IsReadOnly="True"/>

@@ -1300,6 +1300,40 @@ public partial class MainWindow : Window
 
     private void UninstallGrid_Click(object sender, MouseButtonEventArgs e) => UpdateUninstallSelHint();
 
+    private void UninstallGrid_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (UninstallGrid.SelectedItem is not AppUninstallItem app) return;
+        OpenFolder(app.InstallLocation);
+    }
+
+    private void JunkGrid_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (JunkGrid.SelectedItem is not JunkItem junk) return;
+        OpenFolder(junk.Path);
+    }
+
+    static void OpenFolder(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe", "\"" + path + "\"") { UseShellExecute = true });
+                return;
+            }
+            if (File.Exists(path))
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + path + "\"") { UseShellExecute = true });
+                return;
+            }
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                Process.Start(new ProcessStartInfo("explorer.exe", "\"" + dir + "\"") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
     private void UpdateUninstallSelHint()
     {
         var picked = _apps.Where(x => x.Selected && x.CanUninstall).ToList();
