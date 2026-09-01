@@ -950,18 +950,33 @@
                 </GroupStyle>
               </DataGrid.GroupStyle>
               <DataGrid.Columns>
-                <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
-                <DataGridTemplateColumn Width="36" CanUserSort="False">
+                <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="40">
+                  <DataGridCheckBoxColumn.CellStyle>
+                    <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                      <Setter Property="Padding" Value="10,0,0,0"/>
+                      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                      <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    </Style>
+                  </DataGridCheckBoxColumn.CellStyle>
+                  <DataGridCheckBoxColumn.ElementStyle>
+                    <Style TargetType="CheckBox">
+                      <Setter Property="HorizontalAlignment" Value="Left"/>
+                      <Setter Property="VerticalAlignment" Value="Center"/>
+                      <Setter Property="Margin" Value="0"/>
+                    </Style>
+                  </DataGridCheckBoxColumn.ElementStyle>
+                </DataGridCheckBoxColumn>
+                <DataGridTemplateColumn Width="40" CanUserSort="False">
                   <DataGridTemplateColumn.CellStyle>
                     <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
-                      <Setter Property="Padding" Value="4,0"/>
+                      <Setter Property="Padding" Value="4,0,8,0"/>
                       <Setter Property="HorizontalContentAlignment" Value="Center"/>
                     </Style>
                   </DataGridTemplateColumn.CellStyle>
                   <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                       <Image Source="{Binding Icon}" Width="18" Height="18" Stretch="Uniform"
-                             RenderOptions.BitmapScalingMode="HighQuality" RenderOptions.EdgeMode="Aliased"/>
+                             RenderOptions.BitmapScalingMode="HighQuality"/>
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
