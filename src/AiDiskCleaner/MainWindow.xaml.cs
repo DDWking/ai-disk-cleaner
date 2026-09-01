@@ -106,7 +106,7 @@ public partial class MainWindow : Window
         TabCleanBtn.Content = Loc.TabClean;
         SelectAllBtn.Content = Loc.SelectAll;
         SelectSafeBtn.Content = Loc.SelectSafe;
-        SelectNoneBtn.Content = Loc.SelectNone;
+        HighlightSelectMode();
         RecycleSelBtn.Content = Loc.RecycleSelected;
         ColCleanName.Header = Loc.ColName;
         ColCleanSize.Header = Loc.Size;
@@ -1123,25 +1123,51 @@ public partial class MainWindow : Window
 
     private void SelectAll_Click(object sender, RoutedEventArgs e)
     {
+        bool on = !IsAllSelected();
         foreach (var item in CurrentCleanList())
-            item.Selected = item.CanDelete;
+            item.Selected = on && item.CanDelete;
         UpdateCleanSelHint();
         CleanGrid.Items.Refresh();
     }
 
     private void SelectSafe_Click(object sender, RoutedEventArgs e)
     {
+        bool on = !IsSafeSelected();
         foreach (var item in CurrentCleanList())
-            item.Selected = item.CanDelete && (item.Group == Loc.GroupTemp || item.Group == Loc.GroupDump || item.Group == Loc.GroupRecycle);
+            item.Selected = on && item.CanDelete && IsSafeGroup(item);
         UpdateCleanSelHint();
         CleanGrid.Items.Refresh();
     }
 
-    private void SelectNone_Click(object sender, RoutedEventArgs e)
+    private static bool IsSafeGroup(CleanItem item)
+        => item.Group == Loc.GroupTemp || item.Group == Loc.GroupDump || item.Group == Loc.GroupRecycle;
+
+    private bool IsAllSelected()
     {
-        foreach (var item in CurrentCleanList()) item.Selected = false;
-        UpdateCleanSelHint();
-        CleanGrid.Items.Refresh();
+        var list = CurrentCleanList().Where(x => x.CanDelete).ToList();
+        return list.Count > 0 && list.All(x => x.Selected);
+    }
+
+    private bool IsSafeSelected()
+    {
+        var list = CurrentCleanList().Where(x => x.CanDelete).ToList();
+        if (list.Count == 0) return false;
+        return list.All(x => x.Selected == (x.CanDelete && IsSafeGroup(x)))
+               && list.Any(IsSafeGroup);
+    }
+
+    private void HighlightSelectMode()
+    {
+        bool all = IsAllSelected();
+        bool safe = !all && IsSafeSelected();
+        MarkSelectBtn(SelectAllBtn, all);
+        MarkSelectBtn(SelectSafeBtn, safe);
+    }
+
+    private static void MarkSelectBtn(Button b, bool on)
+    {
+        b.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
+        b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
     }
 
     private void UpdateCleanSelHint()
@@ -1150,6 +1176,7 @@ public partial class MainWindow : Window
         CleanSelHint.Text = picked.Count == 0
             ? ""
             : Loc.CatCount(picked.Count, FileEntry.FormatSize(picked.Sum(x => x.Size)));
+        HighlightSelectMode();
     }
 
     private void CleanGrid_Click(object sender, MouseButtonEventArgs e) => UpdateCleanSelHint();

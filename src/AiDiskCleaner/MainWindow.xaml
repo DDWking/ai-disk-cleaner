@@ -854,8 +854,7 @@
               <ComboBox x:Name="CleanCatBox" Width="148" Margin="0,0,8,6" SelectionChanged="CleanCat_Changed"
                         WindowChrome.IsHitTestVisibleInChrome="True"/>
               <Button x:Name="SelectAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectAll_Click"/>
-              <Button x:Name="SelectSafeBtn" Content="勾选安全项" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectSafe_Click"/>
-              <Button x:Name="SelectNoneBtn" Content="取消勾选" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="SelectNone_Click"/>
+              <Button x:Name="SelectSafeBtn" Content="勾选安全项" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="SelectSafe_Click"/>
             </WrapPanel>
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
               <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Click="RecycleSelected_Click"/>
