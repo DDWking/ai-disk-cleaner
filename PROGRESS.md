@@ -25,7 +25,7 @@
 
 **占坑规则：** 准备做某块，先改这张表再写代码。做完把「正在做」改成 `—`，日志里记一笔。
 
-两人在 **`ddw-develop`** 上直接 push，不要动 `main`。推之前先 `git pull`。步骤见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+两人在 **`ddw-develop`** 上直接 push。发布才合 `main`。推之前先 `git pull`。步骤见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 下一步（按优先级）
 
