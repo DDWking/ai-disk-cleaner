@@ -899,12 +899,15 @@
             <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
               <Button x:Name="UninstallRefreshBtn" Content="刷新" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallRefresh_Click"/>
               <Button x:Name="UninstallAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallSelectAll_Click"/>
+              <Button x:Name="JunkSafeBtn" Content="勾选安全残留" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="JunkSafe_Click" Visibility="Collapsed"/>
             </WrapPanel>
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
               <Button x:Name="UninstallRunBtn" Content="卸载勾选项" Style="{StaticResource PrimaryButton}" Click="UninstallRun_Click"/>
+              <Button x:Name="JunkDeleteBtn" Content="删除残留" Style="{StaticResource PrimaryButton}" Click="JunkDelete_Click" Visibility="Collapsed"/>
               <TextBlock x:Name="UninstallSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
                          Foreground="{DynamicResource TextDim}" FontSize="11"/>
             </StackPanel>
+            <Grid>
             <DataGrid x:Name="UninstallGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
                       HeadersVisibility="Column" GridLinesVisibility="None"
                       BorderThickness="0" RowHeight="32" Margin="12,0,16,0"
@@ -928,6 +931,23 @@
                 <DataGridTextColumn x:Name="ColAppStatus" Header="状态" Binding="{Binding Status}" Width="*" IsReadOnly="True"/>
               </DataGrid.Columns>
             </DataGrid>
+            <DataGrid x:Name="JunkGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
+                      HeadersVisibility="Column" GridLinesVisibility="None"
+                      BorderThickness="0" RowHeight="32" Margin="12,0,16,0" Visibility="Collapsed"
+                      AlternatingRowBackground="{DynamicResource RowAlt}"
+                      RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
+                      HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
+                      SelectionMode="Single" SelectionUnit="FullRow"
+                      MouseLeftButtonUp="JunkGrid_Click">
+              <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
+                <DataGridTextColumn x:Name="ColJunkApp" Header="名称" Binding="{Binding AppName}" Width="110" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColJunkKind" Header="类型" Binding="{Binding Category}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColJunkConf" Header="把握" Binding="{Binding ConfidenceText}" SortMemberPath="ConfidenceScore" Width="72" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColJunkPath" Header="路径" Binding="{Binding Path}" Width="*" IsReadOnly="True"/>
+              </DataGrid.Columns>
+            </DataGrid>
+            </Grid>
           </DockPanel>
         </DockPanel>
       </Border>

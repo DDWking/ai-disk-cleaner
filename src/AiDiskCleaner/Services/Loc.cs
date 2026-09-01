@@ -1,4 +1,5 @@
 using AiDiskCleaner.Models;
+using UninstallTools.Junk.Confidence;
 
 namespace AiDiskCleaner.Services;
 
@@ -216,6 +217,29 @@ public static class Loc
     public static string UninstallDone => IsEn ? "Done" : "完成";
     public static string UninstallFailed => IsEn ? "Failed" : "失败";
     public static string UninstallWaiting => IsEn ? "Waiting" : "等待";
+    public static string JunkScanning => IsEn ? "Scanning leftovers…" : "正在扫描残留…";
+    public static string JunkNone => IsEn ? "No leftovers found." : "没有发现残留。";
+    public static string JunkHint(int n, int safe) =>
+        IsEn ? $"{n:N0} leftover items. High-confidence ones are checked ({safe:N0}). Review before deleting."
+             : $"发现 {n:N0} 项残留。高置信度已勾选（{safe:N0}）。删前请核对。";
+    public static string JunkDelete => IsEn ? "Delete leftovers" : "删除残留";
+    public static string JunkSafe => IsEn ? "Select safe leftovers" : "勾选安全残留";
+    public static string JunkConfirm(int n) =>
+        IsEn ? $"Permanently remove {n:N0} leftover items? Files go to Recycle Bin; registry keys are deleted."
+             : $"删除 {n:N0} 项残留？文件进回收站，注册表项会直接删。";
+    public static string JunkDeleted(int ok, int fail) =>
+        IsEn ? $"Removed {ok:N0} leftovers" + (fail > 0 ? $", {fail:N0} failed" : "")
+             : $"已删残留 {ok:N0} 项" + (fail > 0 ? $"，失败 {fail:N0}" : "");
+    public static string ColCategory => IsEn ? "Kind" : "类型";
+    public static string ColConfidence => IsEn ? "Confidence" : "把握";
+    public static string JunkLevel(ConfidenceLevel level) => level switch
+    {
+        ConfidenceLevel.VeryGood => IsEn ? "Very likely" : "很有把握",
+        ConfidenceLevel.Good => IsEn ? "Likely" : "较有把握",
+        ConfidenceLevel.Questionable => IsEn ? "Unsure" : "不确定",
+        ConfidenceLevel.Bad => IsEn ? "Risky" : "风险高",
+        _ => IsEn ? "Unknown" : "未知",
+    };
     public static string Publisher => IsEn ? "Publisher" : "发布者";
     public static string Status => IsEn ? "Status" : "状态";
     public static string Refresh => IsEn ? "Refresh" : "刷新";

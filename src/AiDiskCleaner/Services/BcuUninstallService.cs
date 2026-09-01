@@ -2,6 +2,9 @@ using System.Diagnostics;
 using Klocman.Forms.Tools;
 using UninstallTools;
 using UninstallTools.Factory;
+using UninstallTools.Junk;
+using UninstallTools.Junk.Confidence;
+using UninstallTools.Junk.Containers;
 using UninstallTools.Uninstaller;
 using AiDiskCleaner.Models;
 
@@ -80,5 +83,69 @@ public static class BcuUninstallService
         var task = UninstallManager.CreateBulkUninstallTask(targets, cfg);
         task.Start();
         return task;
+    }
+
+    public static List<JunkItem> FindLeftovers(
+        IEnumerable<ApplicationUninstallerEntry> targets,
+        ICollection<ApplicationUninstallerEntry> all,
+        IProgress<ScanProgress>? progress,
+        CancellationToken ct)
+    {
+        PremadeDialogs.SendErrorAction ??= ex => Trace.WriteLine("BCU: " + ex);
+        var list = JunkManager.FindJunk(targets, all, p =>
+        {
+            ct.ThrowIfCancellationRequested();
+            string msg = p.Inner?.Message ?? p.Message ?? Loc.JunkScanning;
+            int total = p.TotalCount > 0 ? p.TotalCount : 1;
+            int pct = Math.Clamp(p.CurrentCount * 100 / Math.Max(total, 1), 0, 99);
+            progress?.Report(new ScanProgress(p.CurrentCount, msg, pct));
+        }).ToList();
+
+        return list
+            .Select(WrapJunk)
+            .OrderByDescending(x => x.ConfidenceScore)
+            .ThenBy(x => x.AppName, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
+    public static JunkItem WrapJunk(IJunkResult j)
+    {
+        var level = j.Confidence.GetConfidence();
+        bool safe = level is ConfidenceLevel.Good or ConfidenceLevel.VeryGood;
+        return new JunkItem
+        {
+            AppName = j.Application?.DisplayName ?? "",
+            Category = j.Source?.CategoryName ?? "",
+            Path = j.GetDisplayName(),
+            ConfidenceScore = j.Confidence.GetRawConfidence(),
+            ConfidenceText = Loc.JunkLevel(level),
+            Safe = safe,
+            Selected = safe,
+            Result = j,
+        };
+    }
+
+    public static (int Ok, int Fail) DeleteLeftovers(IEnumerable<JunkItem> items)
+    {
+        var picked = items.Where(x => x.Selected && x.Result != null).Select(x => x.Result!).ToList();
+        var sorted = picked
+            .OrderByDescending(x => x is RunProcessJunk)
+            .ThenByDescending(x => x is StartupJunkNode)
+            .ToList();
+        int ok = 0, fail = 0;
+        foreach (var j in sorted)
+        {
+            try
+            {
+                j.Delete();
+                ok++;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine("junk delete: " + ex);
+                fail++;
+            }
+        }
+        return (ok, fail);
     }
 }

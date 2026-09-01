@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
+using UninstallTools;
 using UninstallTools.Uninstaller;
 
 namespace AiDiskCleaner;
@@ -51,6 +52,8 @@ public partial class MainWindow : Window
     private List<AppUninstallItem> _apps = new();
     private bool _listingApps;
     private BulkUninstallTask? _uninstallTask;
+    private List<JunkItem> _junk = new();
+    private bool _showingJunk;
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -112,13 +115,17 @@ public partial class MainWindow : Window
         UninstallRefreshBtn.Content = Loc.Refresh;
         UninstallAllBtn.Content = Loc.SelectAll;
         UninstallRunBtn.Content = Loc.UninstallRun;
+        JunkSafeBtn.Content = Loc.JunkSafe;
+        JunkDeleteBtn.Content = Loc.JunkDelete;
         ColAppName.Header = Loc.ColName;
         ColAppPub.Header = Loc.Publisher;
         ColAppSize.Header = Loc.Size;
         ColAppStatus.Header = Loc.Status;
-        if (_apps.Count == 0) UninstallSummary.Text = Loc.UninstallHint;
-        else UninstallSummary.Text = Loc.UninstallCount(_apps.Count);
-        UpdateUninstallSelHint();
+        ColJunkApp.Header = Loc.ColName;
+        ColJunkKind.Header = Loc.ColCategory;
+        ColJunkConf.Header = Loc.ColConfidence;
+        ColJunkPath.Header = Loc.Path;
+        RefreshUninstallPaneText();
         SelectAllBtn.Content = Loc.SelectAll;
         SelectSafeBtn.Content = Loc.SelectSafe;
         HighlightSelectMode();
@@ -1230,9 +1237,8 @@ public partial class MainWindow : Window
             });
             var list = await Task.Run(() => BcuUninstallService.ListApps(progress, CancellationToken.None));
             _apps = list;
-            UninstallGrid.ItemsSource = _apps;
-            UninstallSummary.Text = Loc.UninstallCount(_apps.Count);
-            UpdateUninstallSelHint();
+            _junk.Clear();
+            ShowAppList();
         }
         catch (Exception ex)
         {
@@ -1322,10 +1328,125 @@ public partial class MainWindow : Window
         UninstallProgressText.Text = Loc.UninstallRunning + $" {done}/{total}";
         if (!task.Finished) return;
         UninstallRunBtn.IsEnabled = true;
-        UninstallProgressPanel.Visibility = Visibility.Collapsed;
         int ok = task.AllUninstallersList.Count(x => x.CurrentStatus == UninstallStatus.Completed);
         int fail = task.AllUninstallersList.Count(x => x.CurrentStatus == UninstallStatus.Failed);
         HeaderStats.Text = fail == 0 ? Loc.UninstallDone : $"{Loc.UninstallDone} {ok}, {Loc.UninstallFailed} {fail}";
+        var finished = task.AllUninstallersList
+            .Where(x => x.CurrentStatus == UninstallStatus.Completed && x.UninstallerEntry != null)
+            .Select(x => x.UninstallerEntry)
+            .ToList();
+        if (finished.Count > 0) _ = ScanLeftovers(finished);
+        else UninstallProgressPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowAppList()
+    {
+        _showingJunk = false;
+        UninstallGrid.Visibility = Visibility.Visible;
+        JunkGrid.Visibility = Visibility.Collapsed;
+        UninstallRunBtn.Visibility = Visibility.Visible;
+        JunkDeleteBtn.Visibility = Visibility.Collapsed;
+        JunkSafeBtn.Visibility = Visibility.Collapsed;
+        UninstallGrid.ItemsSource = _apps;
+        UninstallSummary.Text = _apps.Count == 0 ? Loc.UninstallHint : Loc.UninstallCount(_apps.Count);
+        UpdateUninstallSelHint();
+    }
+
+    private void RefreshUninstallPaneText()
+    {
+        if (_showingJunk)
+        {
+            int safe = _junk.Count(x => x.Safe);
+            UninstallSummary.Text = _junk.Count == 0 ? Loc.JunkNone : Loc.JunkHint(_junk.Count, safe);
+            UpdateJunkSelHint();
+        }
+        else if (_apps.Count == 0) UninstallSummary.Text = Loc.UninstallHint;
+        else UninstallSummary.Text = Loc.UninstallCount(_apps.Count);
+        UpdateUninstallSelHint();
+    }
+
+    private async Task ScanLeftovers(List<ApplicationUninstallerEntry> finished)
+    {
+        UninstallProgressPanel.Visibility = Visibility.Visible;
+        UninstallProgressBar.IsIndeterminate = true;
+        UninstallProgressText.Text = Loc.JunkScanning;
+        UninstallSummary.Text = Loc.JunkScanning;
+        try
+        {
+            var all = _apps.Select(x => x.Entry).Where(x => x != null).Cast<ApplicationUninstallerEntry>().ToList();
+            var progress = new Progress<ScanProgress>(p =>
+            {
+                UninstallProgressBar.IsIndeterminate = p.Percent < 0;
+                if (p.Percent >= 0) UninstallProgressBar.Value = p.Percent;
+                UninstallProgressText.Text = p.CurrentDirectory;
+            });
+            var list = await Task.Run(() => BcuUninstallService.FindLeftovers(finished, all, progress, CancellationToken.None));
+            _junk = list;
+            ShowJunkList();
+        }
+        catch (Exception ex)
+        {
+            ShowAlert(Loc.TabUninstall, ex.Message);
+        }
+        finally
+        {
+            UninstallProgressPanel.Visibility = Visibility.Collapsed;
+            UninstallProgressBar.IsIndeterminate = false;
+        }
+    }
+
+    private void ShowJunkList()
+    {
+        _showingJunk = true;
+        UninstallGrid.Visibility = Visibility.Collapsed;
+        JunkGrid.Visibility = Visibility.Visible;
+        UninstallRunBtn.Visibility = Visibility.Collapsed;
+        JunkDeleteBtn.Visibility = Visibility.Visible;
+        JunkSafeBtn.Visibility = Visibility.Visible;
+        JunkGrid.ItemsSource = _junk;
+        int safe = _junk.Count(x => x.Safe);
+        UninstallSummary.Text = _junk.Count == 0 ? Loc.JunkNone : Loc.JunkHint(_junk.Count, safe);
+        UpdateJunkSelHint();
+    }
+
+    private void JunkSafe_Click(object sender, RoutedEventArgs e)
+    {
+        bool allSafe = _junk.Where(x => x.Safe).All(x => x.Selected) && _junk.Any(x => x.Safe);
+        foreach (var j in _junk)
+            j.Selected = !allSafe && j.Safe;
+        UpdateJunkSelHint();
+    }
+
+    private void JunkGrid_Click(object sender, MouseButtonEventArgs e) => UpdateJunkSelHint();
+
+    private void UpdateJunkSelHint()
+    {
+        var picked = _junk.Where(x => x.Selected).ToList();
+        UninstallSelHint.Text = picked.Count == 0 ? "" : Loc.UninstallCount(picked.Count);
+        bool allSafe = _junk.Where(x => x.Safe).All(x => x.Selected) && _junk.Any(x => x.Safe);
+        JunkSafeBtn.BorderBrush = ThemeService.Brush(allSafe ? "Accent" : "Border");
+        JunkSafeBtn.Foreground = ThemeService.Brush(allSafe ? "Accent" : "TextDim");
+    }
+
+    private void JunkDelete_Click(object sender, RoutedEventArgs e)
+    {
+        var picked = _junk.Where(x => x.Selected).ToList();
+        if (picked.Count == 0)
+        {
+            ShowAlert(Loc.JunkDelete, Loc.NothingSelected);
+            return;
+        }
+        AskConfirm(Loc.JunkDelete, Loc.JunkConfirm(picked.Count), () =>
+        {
+            var (ok, fail) = BcuUninstallService.DeleteLeftovers(picked);
+            foreach (var item in picked) _junk.Remove(item);
+            JunkGrid.ItemsSource = null;
+            JunkGrid.ItemsSource = _junk;
+            int safe = _junk.Count(x => x.Safe);
+            UninstallSummary.Text = _junk.Count == 0 ? Loc.JunkNone : Loc.JunkHint(_junk.Count, safe);
+            UpdateJunkSelHint();
+            HeaderStats.Text = Loc.JunkDeleted(ok, fail);
+        });
     }
 
     private void CleanGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
