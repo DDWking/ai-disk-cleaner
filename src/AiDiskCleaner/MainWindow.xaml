@@ -646,7 +646,12 @@
 
       <Border x:Name="RightPanel" Grid.Column="2" Background="{DynamicResource PanelRight}">
         <DockPanel>
-          <TextBlock x:Name="ExtTitle" DockPanel.Dock="Top" Margin="20,16,20,8" Text="扩展名 / 类型" Foreground="{DynamicResource TextDim}" FontSize="11"/>
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,12,16,8">
+            <Button x:Name="TabExtBtn" Content="扩展名" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabExt_Click"/>
+            <Button x:Name="TabCleanBtn" Content="清理" Style="{StaticResource GhostButton}" Click="TabClean_Click"/>
+          </StackPanel>
+          <DockPanel x:Name="ExtPane">
+          <TextBlock x:Name="ExtTitle" DockPanel.Dock="Top" Margin="20,0,20,8" Text="扩展名 / 类型" Foreground="{DynamicResource TextDim}" FontSize="11"/>
           <DataGrid x:Name="ExtGrid" AutoGenerateColumns="False" IsReadOnly="True"
                     CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
                     BorderThickness="0" RowHeight="32" Margin="12,0,16,12"
@@ -713,6 +718,46 @@
               </DataGridTextColumn>
             </DataGrid.Columns>
           </DataGrid>
+          </DockPanel>
+          <DockPanel x:Name="CleanPane" Visibility="Collapsed">
+            <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,0,20,8"
+                       Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,0,16,8">
+              <ComboBox x:Name="CleanCatBox" Width="168" SelectionChanged="CleanCat_Changed"
+                        WindowChrome.IsHitTestVisibleInChrome="True"/>
+              <Button x:Name="SelectSafeBtn" Content="勾选安全项" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="SelectSafe_Click"/>
+              <Button x:Name="SelectNoneBtn" Content="取消勾选" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="SelectNone_Click"/>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
+              <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Click="RecycleSelected_Click"/>
+              <TextBlock x:Name="CleanSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
+                         Foreground="{DynamicResource TextDim}" FontSize="11"/>
+            </StackPanel>
+            <DataGrid x:Name="CleanGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
+                      HeadersVisibility="Column" GridLinesVisibility="None"
+                      BorderThickness="0" RowHeight="32" Margin="12,0,16,0"
+                      AlternatingRowBackground="{DynamicResource RowAlt}"
+                      RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
+                      HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
+                      SelectionMode="Single" SelectionUnit="FullRow"
+                      VerticalContentAlignment="Center"
+                      MouseDoubleClick="CleanGrid_MouseDoubleClick"
+                      MouseLeftButtonUp="CleanGrid_Click">
+              <DataGrid.Columns>
+                <DataGridCheckBoxColumn x:Name="ColPick" Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
+                <DataGridTextColumn x:Name="ColCleanName" Header="名称" Binding="{Binding Name}" Width="120" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColCleanSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="72" IsReadOnly="True">
+                  <DataGridTextColumn.ElementStyle>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="HorizontalAlignment" Value="Right"/>
+                      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                    </Style>
+                  </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn x:Name="ColCleanWhy" Header="原因" Binding="{Binding Reason}" Width="*" IsReadOnly="True"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
         </DockPanel>
       </Border>
     </Grid>

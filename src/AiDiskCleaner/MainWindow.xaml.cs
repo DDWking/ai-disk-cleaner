@@ -44,6 +44,8 @@ public partial class MainWindow : Window
     private TreeViewItem? _liveRoot;
     private int _liveShown;
     private int _liveExtShown;
+    private CleanReport? _report;
+    private bool _cleanTab;
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -98,6 +100,15 @@ public partial class MainWindow : Window
         ColType.Header = Loc.Type;
         ColPct.Header = Loc.Pct;
         ColSize.Header = Loc.Size;
+        TabExtBtn.Content = Loc.TabExt;
+        TabCleanBtn.Content = Loc.TabClean;
+        SelectSafeBtn.Content = Loc.SelectSafe;
+        SelectNoneBtn.Content = Loc.SelectNone;
+        RecycleSelBtn.Content = Loc.RecycleSelected;
+        ColCleanName.Header = Loc.ColName;
+        ColCleanSize.Header = Loc.Size;
+        ColCleanWhy.Header = Loc.ColReason;
+        RefreshCleanUi();
         DialogClose.Content = Loc.Close;
         ThemeLabel.Text = Loc.Theme;
         LangLabel.Text = Loc.Language;
@@ -224,12 +235,34 @@ public partial class MainWindow : Window
         UiLog("PopulateTree 完成");
         ElapsedText.Text = Loc.Elapsed((DateTime.Now - _scanStart).TotalSeconds);
         HeaderStats.Text = Loc.Files(root.FileCount);
-        var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志" or "Temporary" or "Log").ToList();
-        UiLog($"cleanable 计算完成: {cleanable.Count:N0}");
-        CleanHintText.Text = cleanable.Count > 0
-            ? Loc.HintTemp(cleanable.Count, FileEntry.FormatSize(cleanable.Sum(f => f.Size)))
-            : Loc.HintClean;
+        CleanHintText.Text = Loc.Analyzing;
+        _ = RunAnalyze(root);
         UiLog("FinishScan 全部完成");
+    }
+
+    private async Task RunAnalyze(FileEntry root)
+    {
+        string drive = root.FullPath;
+        var previous = ScanSnapshot.Load(drive);
+        CleanReport report;
+        try
+        {
+            report = await Task.Run(() => CleanAnalyzer.Analyze(root, previous, CancellationToken.None));
+        }
+        catch (Exception ex)
+        {
+            UiLog("分析失败: " + ex.Message);
+            CleanHintText.Text = Loc.HintClean;
+            return;
+        }
+        if (!ReferenceEquals(_root, root)) return;
+        _report = report;
+        try { ScanSnapshot.Capture(root).Save(); } catch { }
+        RefreshCleanUi();
+        CleanHintText.Text = report.Cleanable.Count > 0
+            ? Loc.CleanHintReady(report.Cleanable.Count, FileEntry.FormatSize(report.CleanableBytes))
+            : Loc.HintClean;
+        UiLog($"分析完成: cleanable={report.Cleanable.Count} dup={report.Duplicates.Count}");
     }
 
     private static void UiLog(string msg)
@@ -936,5 +969,183 @@ public partial class MainWindow : Window
             Process.Start(new ProcessStartInfo(Loc.Repo) { UseShellExecute = true });
         }
         catch { }
+    }
+
+    private void TabExt_Click(object sender, RoutedEventArgs e) => ShowRightTab(clean: false);
+    private void TabClean_Click(object sender, RoutedEventArgs e) => ShowRightTab(clean: true);
+
+    private void ShowRightTab(bool clean)
+    {
+        _cleanTab = clean;
+        ExtPane.Visibility = clean ? Visibility.Collapsed : Visibility.Visible;
+        CleanPane.Visibility = clean ? Visibility.Visible : Visibility.Collapsed;
+        TabExtBtn.BorderBrush = ThemeService.Brush(clean ? "Border" : "Accent");
+        TabCleanBtn.BorderBrush = ThemeService.Brush(clean ? "Accent" : "Border");
+        TabExtBtn.Foreground = ThemeService.Brush(clean ? "TextDim" : "Accent");
+        TabCleanBtn.Foreground = ThemeService.Brush(clean ? "Accent" : "TextDim");
+    }
+
+    private void RefreshCleanUi()
+    {
+        if (CleanCatBox == null) return;
+        int keep = CleanCatBox.SelectedIndex;
+        var cats = new List<string>
+        {
+            Label(Loc.CatCleanable, _report?.Cleanable),
+            Label(Loc.CatLarge, _report?.LargeFiles),
+            Label(Loc.CatOld, _report?.OldFiles),
+            Label(Loc.CatDup, _report?.Duplicates),
+            Label(Loc.CatEmpty, _report?.EmptyFolders),
+            Label(Loc.CatShortcut, _report?.BrokenShortcuts),
+            Label(Loc.CatLong, _report?.LongPaths),
+            Label(Loc.CatCompare, _report?.Compare),
+        };
+        CleanCatBox.ItemsSource = cats;
+        CleanCatBox.SelectedIndex = keep >= 0 && keep < cats.Count ? keep : 0;
+        ShowCleanCat();
+        if (_report == null)
+            CleanSummary.Text = Loc.AnalyzeAfterScan;
+        else if (CleanCatBox.SelectedIndex == 7)
+            CleanSummary.Text = _report.CompareNote;
+        else
+            CleanSummary.Text = Loc.CleanHintReady(_report.Cleanable.Count, FileEntry.FormatSize(_report.CleanableBytes));
+        UpdateCleanSelHint();
+        ShowRightTab(_cleanTab);
+    }
+
+    private static string Label(string title, List<CleanItem>? items)
+    {
+        if (items == null || items.Count == 0) return title + "  ·  0";
+        return title + "  ·  " + Loc.CatCount(items.Count, FileEntry.FormatSize(items.Sum(x => x.Size)));
+    }
+
+    private void CleanCat_Changed(object sender, SelectionChangedEventArgs e) => ShowCleanCat();
+
+    private void ShowCleanCat()
+    {
+        if (_report == null)
+        {
+            CleanGrid.ItemsSource = null;
+            return;
+        }
+        CleanGrid.ItemsSource = CurrentCleanList();
+        if (CleanCatBox.SelectedIndex == 7)
+            CleanSummary.Text = _report.CompareNote;
+        UpdateCleanSelHint();
+    }
+
+    private List<CleanItem> CurrentCleanList()
+        => CleanCatBox.SelectedIndex switch
+        {
+            1 => _report?.LargeFiles ?? new(),
+            2 => _report?.OldFiles ?? new(),
+            3 => _report?.Duplicates ?? new(),
+            4 => _report?.EmptyFolders ?? new(),
+            5 => _report?.BrokenShortcuts ?? new(),
+            6 => _report?.LongPaths ?? new(),
+            7 => _report?.Compare ?? new(),
+            _ => _report?.Cleanable ?? new(),
+        };
+
+    private void SelectSafe_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var item in CurrentCleanList())
+            item.Selected = item.CanDelete && (item.Group == Loc.GroupTemp || item.Group == Loc.GroupDump || item.Group == Loc.GroupRecycle);
+        UpdateCleanSelHint();
+        CleanGrid.Items.Refresh();
+    }
+
+    private void SelectNone_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var item in CurrentCleanList()) item.Selected = false;
+        UpdateCleanSelHint();
+        CleanGrid.Items.Refresh();
+    }
+
+    private void UpdateCleanSelHint()
+    {
+        var picked = CurrentCleanList().Where(x => x.Selected && x.CanDelete).ToList();
+        CleanSelHint.Text = picked.Count == 0
+            ? ""
+            : Loc.CatCount(picked.Count, FileEntry.FormatSize(picked.Sum(x => x.Size)));
+    }
+
+    private void CleanGrid_Click(object sender, MouseButtonEventArgs e) => UpdateCleanSelHint();
+
+    private void CleanGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (CleanGrid.SelectedItem is not CleanItem item) return;
+        string path = item.IsDirectory ? item.FullPath : Path.GetDirectoryName(item.FullPath) ?? item.FullPath;
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            if (item.IsDirectory)
+                Process.Start(new ProcessStartInfo("explorer.exe", "\"" + path + "\"") { UseShellExecute = true });
+            else
+                Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + item.FullPath + "\"") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    private void RecycleSelected_Click(object sender, RoutedEventArgs e)
+    {
+        var picked = CurrentCleanList().Where(x => x.Selected && x.CanDelete && !string.IsNullOrEmpty(x.FullPath)).ToList();
+        if (picked.Count == 0)
+        {
+            MessageBox.Show(Loc.NothingSelected, Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        long bytes = picked.Sum(x => x.Size);
+        var confirm = MessageBox.Show(
+            Loc.RecycleManyConfirm(picked.Count, FileEntry.FormatSize(bytes)),
+            Loc.DeleteToRecycle, MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        int ok = 0;
+        var failed = new List<string>();
+        var gone = new HashSet<CleanItem>();
+        foreach (var item in picked)
+        {
+            if (item.Entry != null && RecycleService.IsProtected(item.Entry))
+            {
+                failed.Add(item.Name);
+                continue;
+            }
+            try
+            {
+                RecycleService.SendToRecycle(item.FullPath);
+                ok++;
+                gone.Add(item);
+                if (item.Entry?.Parent != null)
+                {
+                    item.Entry.Parent.Children.Remove(item.Entry);
+                    RecalcUp(item.Entry.Parent);
+                }
+            }
+            catch
+            {
+                failed.Add(item.Name);
+            }
+        }
+
+        if (_report != null)
+        {
+            foreach (var list in new[]
+            {
+                _report.Cleanable, _report.LargeFiles, _report.OldFiles, _report.Duplicates,
+                _report.EmptyFolders, _report.BrokenShortcuts, _report.LongPaths,
+            })
+                list.RemoveAll(gone.Contains);
+            _report.CleanableBytes = _report.Cleanable.Sum(x => x.Size);
+        }
+        if (_root != null)
+        {
+            PopulateTree();
+            ShowDirectory(_current ?? _root);
+        }
+        RefreshCleanUi();
+        HeaderStats.Text = Loc.RecycleManyOk(ok);
+        if (failed.Count > 0)
+            MessageBox.Show(Loc.DeleteFailed(string.Join(", ", failed.Take(8))), Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 }

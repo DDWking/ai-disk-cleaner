@@ -195,6 +195,68 @@ public static class Loc
         };
     }
 
+    public static string TabExt => IsEn ? "Types" : "扩展名";
+    public static string TabClean => IsEn ? "Clean" : "清理";
+    public static string Analyze => IsEn ? "Analyze" : "分析";
+    public static string Analyzing => IsEn ? "Analyzing…" : "正在分析…";
+    public static string RecycleSelected => IsEn ? "Recycle selected" : "删除勾选项";
+    public static string SelectSafe => IsEn ? "Select safe" : "勾选安全项";
+    public static string SelectNone => IsEn ? "Clear checks" : "取消勾选";
+    public static string CleanHintReady(int n, string size) =>
+        IsEn ? $"Cleanable: {n:N0} items, about {size}" : $"可清理：{n:N0} 项，约 {size}";
+    public static string RecycleManyConfirm(int n, string size) =>
+        IsEn ? $"Move {n:N0} items ({size}) to Recycle Bin?" : $"把 {n:N0} 项（{size}）删到回收站？";
+    public static string RecycleManyOk(int n) => IsEn ? $"Moved {n:N0} items" : $"已移到回收站 {n:N0} 项";
+    public static string NothingSelected => IsEn ? "Nothing selected." : "没有勾选项。";
+    public static string ColReason => IsEn ? "Why" : "原因";
+    public static string ColName => IsEn ? "Name" : "名称";
+
+    public static string CatCleanable => IsEn ? "Safe to clean" : "可清理";
+    public static string CatLarge => IsEn ? "Largest files" : "大文件";
+    public static string CatOld => IsEn ? "Old files" : "老文件";
+    public static string CatDup => IsEn ? "Duplicates" : "重复文件";
+    public static string CatEmpty => IsEn ? "Empty folders" : "空文件夹";
+    public static string CatShortcut => IsEn ? "Broken shortcuts" : "失效快捷方式";
+    public static string CatLong => IsEn ? "Long paths" : "超长路径";
+    public static string CatCompare => IsEn ? "Since last scan" : "和上次比";
+
+    public static string GroupTemp => IsEn ? "Temp / cache" : "临时/缓存";
+    public static string GroupDump => IsEn ? "Crash dumps" : "崩溃转储";
+    public static string GroupInstaller => IsEn ? "Installers" : "安装包";
+    public static string GroupRecycle => IsEn ? "Recycle Bin" : "回收站";
+    public static string GroupLarge => IsEn ? "Large" : "大文件";
+    public static string GroupOld => IsEn ? "Old" : "老文件";
+    public static string GroupDup => IsEn ? "Duplicate" : "重复";
+    public static string GroupEmpty => IsEn ? "Empty" : "空文件夹";
+    public static string GroupShortcut => IsEn ? "Shortcut" : "快捷方式";
+    public static string GroupLong => IsEn ? "Long path" : "超长路径";
+    public static string GroupCompare => IsEn ? "Delta" : "变化";
+
+    public static string ReasonTempDir => IsEn ? "In a temp/cache folder" : "在临时/缓存目录里";
+    public static string ReasonTempExt => IsEn ? "Temp / log leftover" : "临时或日志残留";
+    public static string ReasonDump => IsEn ? "Crash dump" : "崩溃转储";
+    public static string ReasonWinUpdate => IsEn ? "Windows update leftover" : "Windows 更新残留";
+    public static string ReasonInstaller => IsEn ? "Installer in Downloads" : "下载里的安装包";
+    public static string ReasonRecycle => IsEn ? "Already in Recycle Bin" : "已在回收站";
+    public static string ReasonLarge => IsEn ? "Among the largest files" : "占用最大的文件之一";
+    public static string ReasonOld(string age) => IsEn ? $"Not modified for {age}" : $"已 {age} 未改";
+    public static string ReasonEmpty => IsEn ? "Folder has no files" : "空文件夹";
+    public static string ReasonBroken(string target) =>
+        IsEn ? "Target missing: " + target : "目标不存在：" + target;
+    public static string ReasonLong(int n) => IsEn ? $"Path {n} chars" : $"路径 {n} 字";
+    public static string ReasonDupKeep => IsEn ? "Keep (shortest path)" : "保留（路径最短）";
+    public static string ReasonDupExtra(string keep) =>
+        IsEn ? "Same content as " + keep : "与此项相同：" + keep;
+    public static string ReasonGrew(string size) => IsEn ? "Grew " + size : "多了 " + size;
+    public static string ReasonShrunk(string size) => IsEn ? "Shrank " + size : "少了 " + size;
+    public static string ReasonGone => IsEn ? "Gone since last scan" : "上次有，这次没了";
+    public static string CompareFirst => IsEn ? "First scan of this drive — next scan can compare." : "这盘第一次扫，下次才能对比。";
+    public static string CompareSince(DateTime when, string delta) =>
+        IsEn ? $"Last scan {when:yyyy-MM-dd HH:mm}, root {delta}"
+             : $"上次 {when:yyyy-MM-dd HH:mm}，根目录 {delta}";
+    public static string CatCount(int n, string size) => $"{n:N0} · {size}";
+    public static string HashingDups => IsEn ? "Checking duplicates…" : "正在核对重复文件…";
+
     public static string Category(string fileName)
     {
         if (fileName.StartsWith('$')) return IsEn ? "System" : "系统";

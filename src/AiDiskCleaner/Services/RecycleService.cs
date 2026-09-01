@@ -33,14 +33,27 @@ public static class RecycleService
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new InvalidOperationException("empty path");
-        var op = new ShellNative.SHFILEOPSTRUCT
+        SendMany(new[] { path });
+    }
+
+    public static void SendMany(IEnumerable<string> paths)
+    {
+        var list = paths.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (list.Count == 0) return;
+        const int chunk = 40;
+        for (int i = 0; i < list.Count; i += chunk)
         {
-            wFunc = ShellNative.FO_DELETE,
-            pFrom = path + "\0\0",
-            fFlags = (ushort)(ShellNative.FOF_ALLOWUNDO | ShellNative.FOF_NOCONFIRMATION | ShellNative.FOF_SILENT | ShellNative.FOF_NOERRORUI),
-        };
-        int rc = ShellNative.SHFileOperation(ref op);
-        if (rc != 0 || op.fAnyOperationsAborted)
-            throw new IOException("SHFileOperation " + rc);
+            var slice = list.Skip(i).Take(chunk).ToList();
+            string joined = string.Join("\0", slice) + "\0\0";
+            var op = new ShellNative.SHFILEOPSTRUCT
+            {
+                wFunc = ShellNative.FO_DELETE,
+                pFrom = joined,
+                fFlags = (ushort)(ShellNative.FOF_ALLOWUNDO | ShellNative.FOF_NOCONFIRMATION | ShellNative.FOF_SILENT | ShellNative.FOF_NOERRORUI),
+            };
+            int rc = ShellNative.SHFileOperation(ref op);
+            if (rc != 0 || op.fAnyOperationsAborted)
+                throw new IOException("SHFileOperation " + rc);
+        }
     }
 }
