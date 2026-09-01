@@ -38,7 +38,14 @@ public partial class App : Application
         {
             string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DashaoHuo");
             Directory.CreateDirectory(dir);
-            File.AppendAllText(Path.Combine(dir, "crash.log"),
+            string log = Path.Combine(dir, "crash.log");
+            try
+            {
+                var fi = new FileInfo(log);
+                if (fi.Exists && fi.Length > 512 * 1024) fi.Delete();
+            }
+            catch { }
+            File.AppendAllText(log,
                 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + Environment.NewLine + ex + Environment.NewLine + Environment.NewLine);
         }
         catch { }
