@@ -26,11 +26,11 @@ public static class BcuUninstallService
         PremadeDialogs.SendErrorAction ??= ex => Trace.WriteLine("BCU: " + ex);
         UninstallToolsGlobalConfig.ScanRegistry = true;
         UninstallToolsGlobalConfig.ScanStoreApps = true;
+        UninstallToolsGlobalConfig.ScanSteam = true;
+        UninstallToolsGlobalConfig.ScanWinFeatures = true;
         UninstallToolsGlobalConfig.ScanDrives = false;
         UninstallToolsGlobalConfig.ScanPreDefined = false;
-        UninstallToolsGlobalConfig.ScanSteam = false;
         UninstallToolsGlobalConfig.ScanOculus = false;
-        UninstallToolsGlobalConfig.ScanWinFeatures = false;
         UninstallToolsGlobalConfig.ScanWinUpdates = false;
         UninstallToolsGlobalConfig.ScanChocolatey = false;
         UninstallToolsGlobalConfig.ScanScoop = false;
@@ -56,18 +56,28 @@ public static class BcuUninstallService
     {
         long bytes = 0;
         try { bytes = e.EstimatedSize.GetKbSize() * 1024L; } catch { }
+        bool steam = e.UninstallerKind == UninstallerType.Steam;
+        bool feature = e.UninstallerKind == UninstallerType.WindowsFeature;
+        int group = e.IsProtected ? 3 : feature ? 2 : steam ? 1 : 0;
+        string pub = e.PublisherTrimmed ?? "";
+        if (pub.Length == 0 && steam) pub = "Steam";
+        string status = e.IsProtected ? Loc.UninstallProtected
+            : feature ? Loc.UninstallWinFeature
+            : steam ? "Steam"
+            : e.UninstallPossible ? "" : Loc.UninstallNoWay;
         return new AppUninstallItem
         {
             Name = e.DisplayName,
-            Publisher = e.PublisherTrimmed ?? "",
+            Publisher = pub,
             Version = e.DisplayVersion ?? "",
             SizeBytes = bytes,
             InstallLocation = e.InstallLocation ?? "",
             CanUninstall = e.UninstallPossible && !e.IsProtected,
             IsProtected = e.IsProtected,
+            GroupKey = group,
             IconBytes = TryIconBytes(e),
             Entry = e,
-            Status = e.IsProtected ? Loc.UninstallProtected : (e.UninstallPossible ? "" : Loc.UninstallNoWay),
+            Status = status,
         };
     }
 

@@ -216,8 +216,15 @@ public static class Loc
              : $"对 {n:N0} 个软件运行官方卸载程序？每个都可能弹出自己的窗口。";
     public static string UninstallProtected => IsEn ? "Protected" : "受保护";
     public static string UninstallGroupOk => IsEn ? "Can uninstall" : "可卸载";
+    public static string UninstallGroupSteam(int n) => IsEn ? $"Steam ({n:N0})" : $"Steam（{n:N0}）";
+    public static string UninstallGroupFeatures(int n) =>
+        IsEn ? $"Windows features ({n:N0})" : $"Windows 功能（{n:N0}）";
     public static string UninstallGroupProtected(int n) =>
         IsEn ? $"Protected ({n:N0})" : $"受保护（{n:N0}）";
+    public static string UninstallWinFeature => IsEn ? "Windows feature" : "Windows 功能";
+    public static string UninstallConfirmFeatures(int n, int features) =>
+        IsEn ? $"Run uninstallers for {n:N0} items, including {features:N0} Windows features? Features use DISM and may need a reboot."
+             : $"对 {n:N0} 项运行卸载（含 {features:N0} 个 Windows 功能）？功能走 DISM，可能要重启。";
     public static string UninstallNoWay => IsEn ? "No uninstaller" : "无法卸载";
     public static string UninstallRunning => IsEn ? "Uninstalling…" : "正在卸载…";
     public static string UninstallDone => IsEn ? "Done" : "完成";

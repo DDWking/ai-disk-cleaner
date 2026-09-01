@@ -23,13 +23,34 @@ public sealed class InvertBoolConverter : IValueConverter
         => Binding.DoNothing;
 }
 
-public sealed class ProtectedGroupConverter : IValueConverter
+/// <summary>GroupKey 0/1 默认展开，2/3（Windows 功能、受保护）折叠。</summary>
+public sealed class GroupExpandedConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is 0 or 1;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
+public sealed class AppGroupConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
+        int key = 0, n = 0;
         if (value is CollectionViewGroup g)
-            return g.Name is true ? Loc.UninstallGroupProtected(g.ItemCount) : Loc.UninstallGroupOk;
-        return value is true ? Loc.UninstallGroupProtected(0) : Loc.UninstallGroupOk;
+        {
+            key = g.Name is int i ? i : 0;
+            n = g.ItemCount;
+        }
+        else if (value is int i) key = i;
+        return key switch
+        {
+            1 => Loc.UninstallGroupSteam(n),
+            2 => Loc.UninstallGroupFeatures(n),
+            3 => Loc.UninstallGroupProtected(n),
+            _ => Loc.UninstallGroupOk,
+        };
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
@@ -1352,7 +1373,11 @@ public partial class MainWindow : Window
             ShowAlert(Loc.TabUninstall, Loc.NothingSelected);
             return;
         }
-        AskConfirm(Loc.TabUninstall, Loc.UninstallConfirm(picked.Count), () => RunUninstall(picked));
+        int features = picked.Count(x => x.GroupKey == 2);
+        string msg = features > 0
+            ? Loc.UninstallConfirmFeatures(picked.Count, features)
+            : Loc.UninstallConfirm(picked.Count);
+        AskConfirm(Loc.TabUninstall, msg, () => RunUninstall(picked));
     }
 
     private void RunUninstall(List<AppUninstallItem> picked)
@@ -1428,8 +1453,8 @@ public partial class MainWindow : Window
         {
             view.GroupDescriptions.Clear();
             view.SortDescriptions.Clear();
-            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(AppUninstallItem.IsProtected)));
-            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.IsProtected), ListSortDirection.Ascending));
+            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(AppUninstallItem.GroupKey)));
+            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.GroupKey), ListSortDirection.Ascending));
             view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.SizeBytes), ListSortDirection.Descending));
             view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.Name), ListSortDirection.Ascending));
             view.Filter = FilterApp;
@@ -1445,7 +1470,8 @@ public partial class MainWindow : Window
         if (q.Length == 0) return true;
         return a.Name.Contains(q, StringComparison.CurrentCultureIgnoreCase)
             || (a.Publisher?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false)
-            || (a.InstallLocation?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false);
+            || (a.InstallLocation?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false)
+            || (a.Status?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false);
     }
 
     private bool FilterJunk(object obj)

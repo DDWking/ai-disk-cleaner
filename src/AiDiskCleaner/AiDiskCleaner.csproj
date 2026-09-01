@@ -24,6 +24,9 @@
     <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\StoreAppHelper\StoreAppHelper.csproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+    <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\SteamHelper\SteamHelper.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\vendor\Bulk-Crap-Uninstaller\Licence.txt" Link="THIRD-PARTY\BCUninstaller\Licence.txt" CopyToOutputDirectory="PreserveNewest" />

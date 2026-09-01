@@ -29,6 +29,8 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
     public string InstallLocation { get; set; } = "";
     public bool CanUninstall { get; set; }
     public bool IsProtected { get; set; }
+    /// <summary>0 普通软件，1 Steam，2 Windows 功能，3 受保护。决定分组和默认折叠。</summary>
+    public int GroupKey { get; set; }
     public byte[]? IconBytes { get; set; }
     public ImageSource? Icon { get; set; }
     public ApplicationUninstallerEntry? Entry { get; set; }
