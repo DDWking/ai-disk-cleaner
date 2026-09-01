@@ -104,6 +104,7 @@ public partial class MainWindow : Window
         ColSize.Header = Loc.Size;
         TabExtBtn.Content = Loc.TabExt;
         TabCleanBtn.Content = Loc.TabClean;
+        SelectAllBtn.Content = Loc.SelectAll;
         SelectSafeBtn.Content = Loc.SelectSafe;
         SelectNoneBtn.Content = Loc.SelectNone;
         RecycleSelBtn.Content = Loc.RecycleSelected;
@@ -1119,6 +1120,14 @@ public partial class MainWindow : Window
             7 => _report?.Compare ?? new(),
             _ => _report?.Cleanable ?? new(),
         };
+
+    private void SelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var item in CurrentCleanList())
+            item.Selected = item.CanDelete;
+        UpdateCleanSelHint();
+        CleanGrid.Items.Refresh();
+    }
 
     private void SelectSafe_Click(object sender, RoutedEventArgs e)
     {

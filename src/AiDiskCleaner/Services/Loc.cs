@@ -202,6 +202,7 @@ public static class Loc
     public static string Analyze => IsEn ? "Analyze" : "分析";
     public static string Analyzing => IsEn ? "Analyzing…" : "正在分析…";
     public static string RecycleSelected => IsEn ? "Recycle selected" : "删除勾选项";
+    public static string SelectAll => IsEn ? "Select all" : "全选";
     public static string SelectSafe => IsEn ? "Select safe" : "勾选安全项";
     public static string SelectNone => IsEn ? "Clear checks" : "取消勾选";
     public static string CleanHintReady(int n, string size) =>
