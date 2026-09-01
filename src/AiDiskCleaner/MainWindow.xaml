@@ -294,15 +294,51 @@
       <Setter Property="Padding" Value="14,6"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+      <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border Background="{TemplateBinding Background}"
+            <Border x:Name="bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    Padding="{TemplateBinding Padding}">
+                    Padding="{TemplateBinding Padding}"
+                    RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="pressScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource HoverBg}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="0.96" Duration="0:0:0.06"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="0.96" Duration="0:0:0.06"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="1" Duration="0:0:0.10"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="1" Duration="0:0:0.10"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -319,13 +355,38 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border x:Name="bd" Background="{TemplateBinding Background}">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="pressScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="0.88" Duration="0:0:0.06"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="0.88" Duration="0:0:0.06"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="1" Duration="0:0:0.10"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="1" Duration="0:0:0.10"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -336,13 +397,38 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border x:Name="bd" Background="Transparent">
+            <Border x:Name="bd" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="pressScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="{DynamicResource CloseHoverBg}"/>
                 <Setter Property="Foreground" Value="{DynamicResource CloseHoverFg}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="0.88" Duration="0:0:0.06"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="0.88" Duration="0:0:0.06"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="1" Duration="0:0:0.10"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="1" Duration="0:0:0.10"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -357,15 +443,52 @@
       <Setter Property="Padding" Value="14,6"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+      <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border Background="{TemplateBinding Background}"
+            <Border x:Name="bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    Padding="{TemplateBinding Padding}">
+                    Padding="{TemplateBinding Padding}"
+                    RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="pressScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource HoverBg}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="0.96" Duration="0:0:0.06"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="0.96" Duration="0:0:0.06"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="1" Duration="0:0:0.10"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="1" Duration="0:0:0.10"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
