@@ -29,6 +29,7 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
     public string InstallLocation { get; set; } = "";
     public bool CanUninstall { get; set; }
     public bool IsProtected { get; set; }
+    public byte[]? IconBytes { get; set; }
     public ImageSource? Icon { get; set; }
     public ApplicationUninstallerEntry? Entry { get; set; }
 

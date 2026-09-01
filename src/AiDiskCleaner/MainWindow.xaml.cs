@@ -1021,6 +1021,8 @@ public partial class MainWindow : Window
         if (settings) HighlightThemeButtons();
     }
 
+    public void ShowCrash(string text) => ShowAlert(Loc.AppName, text);
+
     private void ShowAlert(string title, string text)
     {
         _confirmYes = null;
@@ -1259,6 +1261,12 @@ public partial class MainWindow : Window
                 UninstallProgressText.Text = p.CurrentDirectory;
             });
             var list = await Task.Run(() => BcuUninstallService.ListApps(progress, CancellationToken.None));
+            foreach (var app in list)
+            {
+                try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }
+                catch { app.Icon = null; }
+                app.IconBytes = null;
+            }
             _apps = list;
             _junk.Clear();
             ShowAppList();

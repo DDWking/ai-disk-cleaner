@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -64,18 +65,18 @@ public static class BcuUninstallService
             InstallLocation = e.InstallLocation ?? "",
             CanUninstall = e.UninstallPossible && !e.IsProtected,
             IsProtected = e.IsProtected,
-            Icon = TryIcon(e),
+            IconBytes = TryIconBytes(e),
             Entry = e,
             Status = e.IsProtected ? Loc.UninstallProtected : (e.UninstallPossible ? "" : Loc.UninstallNoWay),
         };
     }
 
-    static ImageSource? TryIcon(ApplicationUninstallerEntry e)
+    static byte[]? TryIconBytes(ApplicationUninstallerEntry e)
     {
         try
         {
             var icon = e.GetIcon();
-            if (icon != null) return ToImage(icon);
+            if (icon != null) return ToPng(icon);
         }
         catch { }
         try
@@ -87,18 +88,24 @@ public static class BcuUninstallService
                 path = path[..comma].Trim('"', ' ');
             path = path.Trim('"', ' ');
             if (!File.Exists(path)) return null;
-            using var extracted = System.Drawing.Icon.ExtractAssociatedIcon(path);
-            return extracted == null ? null : ToImage(extracted);
+            using var extracted = Icon.ExtractAssociatedIcon(path);
+            return extracted == null ? null : ToPng(extracted);
         }
         catch { return null; }
     }
 
-    static ImageSource? ToImage(Icon icon)
+    static byte[]? ToPng(Icon icon)
     {
         using var bmp = icon.ToBitmap();
         using var ms = new MemoryStream();
-        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-        ms.Position = 0;
+        bmp.Save(ms, ImageFormat.Png);
+        return ms.ToArray();
+    }
+
+    public static ImageSource? ToImage(byte[]? png)
+    {
+        if (png == null || png.Length == 0) return null;
+        using var ms = new MemoryStream(png);
         var img = new BitmapImage();
         img.BeginInit();
         img.CacheOption = BitmapCacheOption.OnLoad;
