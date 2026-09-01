@@ -57,6 +57,8 @@ public static class Loc
     public static string LangZh => "中文";
     public static string LangEn => "English";
     public static string Close => IsEn ? "Close" : "关闭";
+    public static string Yes => IsEn ? "Yes" : "确定";
+    public static string No => IsEn ? "No" : "取消";
     public static string AboutTitle => IsEn ? "About" : "关于";
     public static string SettingsTitle => IsEn ? "Settings" : "设置";
     public static string AboutBody => IsEn

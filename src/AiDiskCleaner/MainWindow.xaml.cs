@@ -46,6 +46,7 @@ public partial class MainWindow : Window
     private int _liveExtShown;
     private CleanReport? _report;
     private bool _cleanTab = true;
+    private Action? _confirmYes;
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -111,6 +112,8 @@ public partial class MainWindow : Window
         ColCleanWhy.Header = Loc.ColReason;
         RefreshCleanUi();
         DialogClose.Content = Loc.Close;
+        ConfirmYesBtn.Content = Loc.Yes;
+        ConfirmNoBtn.Content = Loc.No;
         ThemeLabel.Text = Loc.Theme;
         LangLabel.Text = Loc.Language;
         ThemeTerminalBtn.Content = Loc.ThemeTerminal;
@@ -214,8 +217,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HideCleanProgress();
-            MessageBox.Show(Loc.ScanFailedMsg(ex.Message), Loc.AppName,
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            ShowAlert(Loc.ScanFailed, Loc.ScanFailedMsg(ex.Message));
             HeaderStats.Text = Loc.ScanFailed;
         }
         finally
@@ -809,39 +811,41 @@ public partial class MainWindow : Window
         if (item?.Tag is not FileEntry entry) return;
         if (RecycleService.IsProtected(entry))
         {
-            MessageBox.Show(Loc.DeleteBlocked, Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowAlert(Loc.DeleteToRecycle, Loc.DeleteBlocked);
             return;
         }
         string path = entry.FullPath;
         if (string.IsNullOrWhiteSpace(path) || (!File.Exists(path) && !Directory.Exists(path)))
         {
-            MessageBox.Show(Loc.DeleteFailed(path), Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowAlert(Loc.DeleteToRecycle, Loc.DeleteFailed(path));
             return;
         }
-        var confirm = MessageBox.Show(
+        AskConfirm(
+            Loc.DeleteToRecycle,
             Loc.DeleteConfirm(entry.Name, FileEntry.FormatSize(entry.Allocated > 0 ? entry.Allocated : entry.Size)),
-            Loc.DeleteToRecycle, MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes) return;
-        try
-        {
-            RecycleService.SendToRecycle(path);
-            var parent = entry.Parent;
-            parent?.Children.Remove(entry);
-            if (item.Parent is TreeViewItem treeParent)
-                treeParent.Items.Remove(item);
-            else
-                DirTree.Items.Remove(item);
-            if (parent != null)
+            () =>
             {
-                RecalcUp(parent);
-                ShowDirectory(parent);
-            }
-            HeaderStats.Text = Loc.DeleteOk;
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(Loc.DeleteFailed(ex.Message), Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Error);
-        }
+                try
+                {
+                    RecycleService.SendToRecycle(path);
+                    var parent = entry.Parent;
+                    parent?.Children.Remove(entry);
+                    if (item.Parent is TreeViewItem treeParent)
+                        treeParent.Items.Remove(item);
+                    else
+                        DirTree.Items.Remove(item);
+                    if (parent != null)
+                    {
+                        RecalcUp(parent);
+                        ShowDirectory(parent);
+                    }
+                    HeaderStats.Text = Loc.DeleteOk;
+                }
+                catch (Exception ex)
+                {
+                    ShowAlert(Loc.DeleteToRecycle, Loc.DeleteFailed(ex.Message));
+                }
+            });
     }
 
     private static void RecalcUp(FileEntry node)
@@ -905,7 +909,7 @@ public partial class MainWindow : Window
     {
         var entry = ContextEntry();
         if (entry == null) return;
-        MessageBox.Show(Loc.PropBody(entry), Loc.Properties, MessageBoxButton.OK, MessageBoxImage.Information);
+        ShowAlert(Loc.Properties, Loc.PropBody(entry));
     }
 
     private void SortName_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Name);
@@ -954,24 +958,63 @@ public partial class MainWindow : Window
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
-    {
-        DialogTitle.Text = Loc.SettingsTitle;
-        SettingsBody.Visibility = Visibility.Visible;
-        AboutBody.Visibility = Visibility.Collapsed;
-        Overlay.Visibility = Visibility.Visible;
-        HighlightThemeButtons();
-    }
+        => OpenOverlay(Loc.SettingsTitle, settings: true);
 
     private void AboutButton_Click(object sender, RoutedEventArgs e)
+        => OpenOverlay(Loc.AboutTitle, about: true);
+
+    private void OpenOverlay(string title, bool settings = false, bool about = false, bool alert = false, bool confirm = false)
     {
-        DialogTitle.Text = Loc.AboutTitle;
-        SettingsBody.Visibility = Visibility.Collapsed;
-        AboutBody.Visibility = Visibility.Visible;
+        DialogTitle.Text = title;
+        SettingsBody.Visibility = settings ? Visibility.Visible : Visibility.Collapsed;
+        AboutBody.Visibility = about ? Visibility.Visible : Visibility.Collapsed;
+        AlertBody.Visibility = alert || confirm ? Visibility.Visible : Visibility.Collapsed;
+        ConfirmButtons.Visibility = confirm ? Visibility.Visible : Visibility.Collapsed;
+        DialogClose.Visibility = confirm ? Visibility.Collapsed : Visibility.Visible;
         Overlay.Visibility = Visibility.Visible;
+        if (settings) HighlightThemeButtons();
     }
 
-    private void CloseOverlay_Click(object sender, RoutedEventArgs e) => Overlay.Visibility = Visibility.Collapsed;
-    private void Overlay_Click(object sender, MouseButtonEventArgs e) => Overlay.Visibility = Visibility.Collapsed;
+    private void ShowAlert(string title, string text)
+    {
+        _confirmYes = null;
+        AlertText.Text = text;
+        OpenOverlay(title, alert: true);
+    }
+
+    private void AskConfirm(string title, string text, Action onYes)
+    {
+        _confirmYes = onYes;
+        AlertText.Text = text;
+        OpenOverlay(title, confirm: true);
+    }
+
+    private void ConfirmYes_Click(object sender, RoutedEventArgs e)
+    {
+        var act = _confirmYes;
+        _confirmYes = null;
+        Overlay.Visibility = Visibility.Collapsed;
+        act?.Invoke();
+    }
+
+    private void ConfirmNo_Click(object sender, RoutedEventArgs e)
+    {
+        _confirmYes = null;
+        Overlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void CloseOverlay_Click(object sender, RoutedEventArgs e)
+    {
+        _confirmYes = null;
+        Overlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void Overlay_Click(object sender, MouseButtonEventArgs e)
+    {
+        _confirmYes = null;
+        Overlay.Visibility = Visibility.Collapsed;
+    }
+
     private void Dialog_Click(object sender, MouseButtonEventArgs e) => e.Handled = true;
 
     private void Theme_Click(object sender, RoutedEventArgs e)
@@ -1122,15 +1165,18 @@ public partial class MainWindow : Window
         var picked = CurrentCleanList().Where(x => x.Selected && x.CanDelete && !string.IsNullOrEmpty(x.FullPath)).ToList();
         if (picked.Count == 0)
         {
-            MessageBox.Show(Loc.NothingSelected, Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Information);
+            ShowAlert(Loc.DeleteToRecycle, Loc.NothingSelected);
             return;
         }
         long bytes = picked.Sum(x => x.Size);
-        var confirm = MessageBox.Show(
+        AskConfirm(
+            Loc.DeleteToRecycle,
             Loc.RecycleManyConfirm(picked.Count, FileEntry.FormatSize(bytes)),
-            Loc.DeleteToRecycle, MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes) return;
+            () => RecyclePicked(picked));
+    }
 
+    private void RecyclePicked(List<CleanItem> picked)
+    {
         int ok = 0;
         var failed = new List<string>();
         var gone = new HashSet<CleanItem>();
@@ -1176,6 +1222,6 @@ public partial class MainWindow : Window
         RefreshCleanUi();
         HeaderStats.Text = Loc.RecycleManyOk(ok);
         if (failed.Count > 0)
-            MessageBox.Show(Loc.DeleteFailed(string.Join(", ", failed.Take(8))), Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowAlert(Loc.DeleteToRecycle, Loc.DeleteFailed(string.Join(", ", failed.Take(8))));
     }
 }

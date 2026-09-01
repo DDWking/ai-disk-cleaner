@@ -794,6 +794,13 @@
           <TextBlock x:Name="RepoLink" Foreground="{DynamicResource Accent}" Cursor="Hand" TextDecorations="Underline"
                      MouseLeftButtonDown="RepoLink_Click"/>
         </StackPanel>
+        <StackPanel x:Name="AlertBody" Visibility="Collapsed">
+          <TextBlock x:Name="AlertText" Foreground="{DynamicResource Text}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+        </StackPanel>
+        <StackPanel x:Name="ConfirmButtons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0" Visibility="Collapsed">
+          <Button x:Name="ConfirmNoBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="ConfirmNo_Click"/>
+          <Button x:Name="ConfirmYesBtn" Style="{StaticResource PrimaryButton}" Click="ConfirmYes_Click"/>
+        </StackPanel>
         <Button x:Name="DialogClose" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Right" Margin="0,20,0,0" Click="CloseOverlay_Click"/>
       </StackPanel>
     </Border>
