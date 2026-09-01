@@ -2,17 +2,35 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.18362.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <RootNamespace>AiDiskCleaner</RootNamespace>
     <AssemblyName>AiDiskCleaner</AssemblyName>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version>1.1.0</Version>
+    <FileVersion>1.1.0.0</FileVersion>
+    <InformationalVersion>1.1.0</InformationalVersion>
     <Product>大扫货</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\logo-256.png" />
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\UninstallTools\UninstallTools.csproj" />
+    <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\StoreAppHelper\StoreAppHelper.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\SteamHelper\SteamHelper.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\vendor\Bulk-Crap-Uninstaller\Licence.txt" Link="THIRD-PARTY\BCUninstaller\Licence.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\vendor\Bulk-Crap-Uninstaller\NOTICE" Link="THIRD-PARTY\BCUninstaller\NOTICE" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 
 </Project>

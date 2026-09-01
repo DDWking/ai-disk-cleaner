@@ -1,0 +1,7 @@
+<Project>
+  <!-- BCU UninstallTools 带 Scripting COM，dotnet SDK 编不了。大小估算改走 Everything/目录遍历，列表和卸载不依赖它。 -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'UninstallTools'">
+    <COMReference Remove="Scripting" />
+    <Compile Remove="Factory\InfoAdders\FastSizeGenerator.cs" />
+  </ItemGroup>
+</Project>

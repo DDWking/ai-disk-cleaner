@@ -1,4 +1,5 @@
 using AiDiskCleaner.Models;
+using UninstallTools.Junk.Confidence;
 
 namespace AiDiskCleaner.Services;
 
@@ -57,11 +58,13 @@ public static class Loc
     public static string LangZh => "中文";
     public static string LangEn => "English";
     public static string Close => IsEn ? "Close" : "关闭";
+    public static string Yes => IsEn ? "Yes" : "确定";
+    public static string No => IsEn ? "No" : "取消";
     public static string AboutTitle => IsEn ? "About" : "关于";
     public static string SettingsTitle => IsEn ? "Settings" : "设置";
     public static string AboutBody => IsEn
-        ? "A fast NTFS disk scanner. Open source under MIT."
-        : "NTFS 磁盘秒扫工具，MIT 开源。";
+        ? "A fast NTFS disk scanner. MIT. Uninstall list uses Bulk Crap Uninstaller (Apache 2.0, Marcin Szeniak)."
+        : "NTFS 磁盘秒扫。MIT。卸载列表使用 Bulk Crap Uninstaller（Apache 2.0，Marcin Szeniak）。";
     public static string Repo => "https://github.com/DDWking/ai-disk-cleaner";
     public static string NoExt => IsEn ? "(no extension)" : "(无扩展名)";
     public static string Folder => IsEn ? "Folder" : "文件夹";
@@ -194,6 +197,131 @@ public static class Loc
             _ => "其他",
         };
     }
+
+    public static string TabExt => IsEn ? "Types" : "扩展名";
+    public static string TabClean => IsEn ? "Clean" : "清理";
+    public static string TabUninstall => IsEn ? "Uninstall" : "卸载";
+    public static string UninstallRefresh => IsEn ? "Refresh" : "刷新";
+    public static string UninstallRun => IsEn ? "Uninstall selected" : "卸载勾选项";
+    public static string UninstallListing => IsEn ? "Listing installed apps…" : "正在列出已装软件…";
+    public static string UninstallHint => IsEn
+        ? "Refresh to list installed apps. Uninstall uses each app's own uninstaller (BCU engine)."
+        : "点刷新列出已装软件。卸载走各软件自己的卸载程序（BCU 引擎）。";
+    public static string UninstallSearchHint => IsEn ? "Search apps…" : "搜索软件…";
+    public static string UninstallFiltered(int shown, int total) =>
+        IsEn ? $"{shown:N0} / {total:N0} apps" : $"{shown:N0} / {total:N0} 个软件";
+    public static string UninstallCount(int n) => IsEn ? $"{n:N0} apps" : $"{n:N0} 个软件";
+    public static string UninstallConfirm(int n) =>
+        IsEn ? $"Run the official uninstaller for {n:N0} apps? Each may show its own window."
+             : $"对 {n:N0} 个软件运行官方卸载程序？每个都可能弹出自己的窗口。";
+    public static string UninstallProtected => IsEn ? "Protected" : "受保护";
+    public static string UninstallGroupOk => IsEn ? "Can uninstall" : "可卸载";
+    public static string UninstallGroupSteam(int n) => IsEn ? $"Steam ({n:N0})" : $"Steam（{n:N0}）";
+    public static string UninstallGroupFeatures(int n) =>
+        IsEn ? $"Windows features ({n:N0})" : $"Windows 功能（{n:N0}）";
+    public static string UninstallGroupProtected(int n) =>
+        IsEn ? $"Protected ({n:N0})" : $"受保护（{n:N0}）";
+    public static string UninstallWinFeature => IsEn ? "Windows feature" : "Windows 功能";
+    public static string UninstallConfirmFeatures(int n, int features) =>
+        IsEn ? $"Run uninstallers for {n:N0} items, including {features:N0} Windows features? Features use DISM and may need a reboot."
+             : $"对 {n:N0} 项运行卸载（含 {features:N0} 个 Windows 功能）？功能走 DISM，可能要重启。";
+    public static string UninstallNoWay => IsEn ? "No uninstaller" : "无法卸载";
+    public static string UninstallRunning => IsEn ? "Uninstalling…" : "正在卸载…";
+    public static string UninstallDone => IsEn ? "Done" : "完成";
+    public static string UninstallFailed => IsEn ? "Failed" : "失败";
+    public static string UninstallWaiting => IsEn ? "Waiting" : "等待";
+    public static string JunkScanning => IsEn ? "Scanning leftovers…" : "正在扫描残留…";
+    public static string JunkNone => IsEn ? "No leftovers found." : "没有发现残留。";
+    public static string JunkHint(int n, int safe) =>
+        IsEn ? $"{n:N0} leftover items. High-confidence ones are checked ({safe:N0}). Review before deleting."
+             : $"发现 {n:N0} 项残留。高置信度已勾选（{safe:N0}）。删前请核对。";
+    public static string JunkDelete => IsEn ? "Delete leftovers" : "删除残留";
+    public static string JunkSafe => IsEn ? "Select safe leftovers" : "勾选安全残留";
+    public static string JunkConfirm(int n) =>
+        IsEn ? $"Permanently remove {n:N0} leftover items? Files go to Recycle Bin; registry keys are deleted."
+             : $"删除 {n:N0} 项残留？文件进回收站，注册表项会直接删。";
+    public static string JunkDeleted(int ok, int fail) =>
+        IsEn ? $"Removed {ok:N0} leftovers" + (fail > 0 ? $", {fail:N0} failed" : "")
+             : $"已删残留 {ok:N0} 项" + (fail > 0 ? $"，失败 {fail:N0}" : "");
+    public static string ColCategory => IsEn ? "Kind" : "类型";
+    public static string ColConfidence => IsEn ? "Confidence" : "把握";
+    public static string JunkLevel(ConfidenceLevel level) => level switch
+    {
+        ConfidenceLevel.VeryGood => IsEn ? "Very likely" : "很有把握",
+        ConfidenceLevel.Good => IsEn ? "Likely" : "较有把握",
+        ConfidenceLevel.Questionable => IsEn ? "Unsure" : "不确定",
+        ConfidenceLevel.Bad => IsEn ? "Risky" : "风险高",
+        _ => IsEn ? "Unknown" : "未知",
+    };
+    public static string Publisher => IsEn ? "Publisher" : "发布者";
+    public static string Status => IsEn ? "Status" : "状态";
+    public static string Refresh => IsEn ? "Refresh" : "刷新";
+    public static string Analyze => IsEn ? "Analyze" : "分析";
+    public static string Analyzing => IsEn ? "Analyzing…" : "正在分析…";
+    public static string RecycleSelected => IsEn ? "Recycle selected" : "删除勾选项";
+    public static string SelectAll => IsEn ? "Select all" : "全选";
+    public static string SelectSafe => IsEn ? "Select safe" : "勾选安全项";
+    public static string SelectNone => IsEn ? "Clear checks" : "取消勾选";
+    public static string CleanHintReady(int n, string size) =>
+        IsEn ? $"Cleanable: {n:N0} items, about {size}" : $"可清理：{n:N0} 项，约 {size}";
+    public static string RecycleManyConfirm(int n, string size) =>
+        IsEn ? $"Move {n:N0} items ({size}) to Recycle Bin?" : $"把 {n:N0} 项（{size}）删到回收站？";
+    public static string RecycleManyOk(int n) => IsEn ? $"Moved {n:N0} items" : $"已移到回收站 {n:N0} 项";
+    public static string NothingSelected => IsEn ? "Nothing selected." : "没有勾选项。";
+    public static string ColReason => IsEn ? "Why" : "原因";
+    public static string ColName => IsEn ? "Name" : "名称";
+
+    public static string CatCleanable => IsEn ? "Safe to clean" : "可清理";
+    public static string CatLarge => IsEn ? "Largest files" : "大文件";
+    public static string CatOld => IsEn ? "Old files" : "老文件";
+    public static string CatDup => IsEn ? "Duplicates" : "重复文件";
+    public static string CatEmpty => IsEn ? "Empty folders" : "空文件夹";
+    public static string CatShortcut => IsEn ? "Broken shortcuts" : "失效快捷方式";
+    public static string CatLong => IsEn ? "Long paths" : "超长路径";
+    public static string CatCompare => IsEn ? "Since last scan" : "和上次比";
+
+    public static string GroupTemp => IsEn ? "Temp / cache" : "临时/缓存";
+    public static string GroupDump => IsEn ? "Crash dumps" : "崩溃转储";
+    public static string GroupInstaller => IsEn ? "Installers" : "安装包";
+    public static string GroupRecycle => IsEn ? "Recycle Bin" : "回收站";
+    public static string GroupLarge => IsEn ? "Large" : "大文件";
+    public static string GroupOld => IsEn ? "Old" : "老文件";
+    public static string GroupDup => IsEn ? "Duplicate" : "重复";
+    public static string GroupEmpty => IsEn ? "Empty" : "空文件夹";
+    public static string GroupShortcut => IsEn ? "Shortcut" : "快捷方式";
+    public static string GroupLong => IsEn ? "Long path" : "超长路径";
+    public static string GroupCompare => IsEn ? "Delta" : "变化";
+
+    public static string ReasonTempDir => IsEn ? "In a temp/cache folder" : "在临时/缓存目录里";
+    public static string ReasonTempExt => IsEn ? "Temp / log leftover" : "临时或日志残留";
+    public static string ReasonDump => IsEn ? "Crash dump" : "崩溃转储";
+    public static string ReasonWinUpdate => IsEn ? "Windows update leftover" : "Windows 更新残留";
+    public static string ReasonInstaller => IsEn ? "Installer in Downloads" : "下载里的安装包";
+    public static string ReasonRecycle => IsEn ? "Already in Recycle Bin" : "已在回收站";
+    public static string ReasonLarge => IsEn ? "Among the largest files" : "占用最大的文件之一";
+    public static string ReasonOld(string age) => IsEn ? $"Not modified for {age}" : $"已 {age} 未改";
+    public static string ReasonEmpty => IsEn ? "Folder has no files" : "空文件夹";
+    public static string ReasonBroken(string target) =>
+        IsEn ? "Target missing: " + target : "目标不存在：" + target;
+    public static string ReasonLong(int n) => IsEn ? $"Path {n} chars" : $"路径 {n} 字";
+    public static string ReasonDupKeep => IsEn ? "Keep (shortest path)" : "保留（路径最短）";
+    public static string ReasonDupExtra(string keep) =>
+        IsEn ? "Same content as " + keep : "与此项相同：" + keep;
+    public static string ReasonGrew(string size) => IsEn ? "Grew " + size : "多了 " + size;
+    public static string ReasonShrunk(string size) => IsEn ? "Shrank " + size : "少了 " + size;
+    public static string ReasonGone => IsEn ? "Gone since last scan" : "上次有，这次没了";
+    public static string CompareFirst => IsEn ? "First scan of this drive — next scan can compare." : "这盘第一次扫，下次才能对比。";
+    public static string CompareSince(DateTime when, string delta) =>
+        IsEn ? $"Last scan {when:yyyy-MM-dd HH:mm}, root {delta}"
+             : $"上次 {when:yyyy-MM-dd HH:mm}，根目录 {delta}";
+    public static string CatCount(int n, string size) => $"{n:N0} · {size}";
+    public static string HashingDups => IsEn ? "Checking duplicates…" : "正在核对重复文件…";
+    public static string CleanScan => IsEn ? "Scanning disk…" : "正在扫描磁盘…";
+    public static string CleanWalk => IsEn ? "Walking files…" : "正在遍历文件…";
+    public static string CleanRules => IsEn ? "Matching clean rules…" : "正在套清理规则…";
+    public static string CleanShortcuts => IsEn ? "Checking shortcuts…" : "正在检查快捷方式…";
+    public static string CleanDups => IsEn ? "Checking duplicates…" : "正在核对重复文件…";
+    public static string CleanCompare => IsEn ? "Comparing with last scan…" : "正在和上次扫描对比…";
 
     public static string Category(string fileName)
     {

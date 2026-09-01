@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -8,8 +9,53 @@ using System.Windows.Input;
 using System.Windows.Media;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
+using UninstallTools;
+using UninstallTools.Uninstaller;
 
 namespace AiDiskCleaner;
+
+public sealed class InvertBoolConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is not true;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
+/// <summary>GroupKey 0/1 默认展开，2/3（Windows 功能、受保护）折叠。</summary>
+public sealed class GroupExpandedConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is 0 or 1;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
+public sealed class AppGroupConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        int key = 0, n = 0;
+        if (value is CollectionViewGroup g)
+        {
+            key = g.Name is int i ? i : 0;
+            n = g.ItemCount;
+        }
+        else if (value is int i) key = i;
+        return key switch
+        {
+            1 => Loc.UninstallGroupSteam(n),
+            2 => Loc.UninstallGroupFeatures(n),
+            3 => Loc.UninstallGroupProtected(n),
+            _ => Loc.UninstallGroupOk,
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
 
 public sealed class ShareWidthConverter : IValueConverter
 {
@@ -44,6 +90,14 @@ public partial class MainWindow : Window
     private TreeViewItem? _liveRoot;
     private int _liveShown;
     private int _liveExtShown;
+    private CleanReport? _report;
+    private int _rightTab; // 0 清理 1 扩展名 2 卸载
+    private Action? _confirmYes;
+    private List<AppUninstallItem> _apps = new();
+    private bool _listingApps;
+    private BulkUninstallTask? _uninstallTask;
+    private List<JunkItem> _junk = new();
+    private bool _showingJunk;
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -70,6 +124,7 @@ public partial class MainWindow : Window
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
         ApplyUi();
+        ShowRightTab(0);
     }
 
     public void ApplyUi()
@@ -98,7 +153,35 @@ public partial class MainWindow : Window
         ColType.Header = Loc.Type;
         ColPct.Header = Loc.Pct;
         ColSize.Header = Loc.Size;
+        TabExtBtn.Content = Loc.TabExt;
+        TabCleanBtn.Content = Loc.TabClean;
+        TabUninstallBtn.Content = Loc.TabUninstall;
+        UninstallRefreshBtn.Content = Loc.Refresh;
+        UninstallAllBtn.Content = Loc.SelectAll;
+        UninstallRunBtn.Content = Loc.UninstallRun;
+        UninstallSearchHint.Text = Loc.UninstallSearchHint;
+        JunkSafeBtn.Content = Loc.JunkSafe;
+        JunkDeleteBtn.Content = Loc.JunkDelete;
+        ColAppName.Header = Loc.ColName;
+        ColAppPub.Header = Loc.Publisher;
+        ColAppSize.Header = Loc.Size;
+        ColAppStatus.Header = Loc.Status;
+        ColJunkApp.Header = Loc.ColName;
+        ColJunkKind.Header = Loc.ColCategory;
+        ColJunkConf.Header = Loc.ColConfidence;
+        ColJunkPath.Header = Loc.Path;
+        RefreshUninstallPaneText();
+        SelectAllBtn.Content = Loc.SelectAll;
+        SelectSafeBtn.Content = Loc.SelectSafe;
+        HighlightSelectMode();
+        RecycleSelBtn.Content = Loc.RecycleSelected;
+        ColCleanName.Header = Loc.ColName;
+        ColCleanSize.Header = Loc.Size;
+        ColCleanWhy.Header = Loc.ColReason;
+        RefreshCleanUi();
         DialogClose.Content = Loc.Close;
+        ConfirmYesBtn.Content = Loc.Yes;
+        ConfirmNoBtn.Content = Loc.No;
         ThemeLabel.Text = Loc.Theme;
         LangLabel.Text = Loc.Language;
         ThemeTerminalBtn.Content = Loc.ThemeTerminal;
@@ -153,6 +236,8 @@ public partial class MainWindow : Window
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
         ScanProgressText.Text = Loc.Preparing;
+        ShowRightTab(0);
+        SetCleanProgress(0, Loc.CleanScan, determinate: false);
         BeginLiveScan(DriveBox.SelectedItem.ToString()!);
 
         var progress = new Progress<ScanProgress>(p =>
@@ -163,12 +248,14 @@ public partial class MainWindow : Window
                 ScanProgressBar.Value = p.Percent;
                 ScanProgressText.Text = Loc.ProgressLine(p.Percent, p.CurrentDirectory, p.FileCount);
                 HeaderStats.Text = Loc.ScanPct(p.Percent);
+                SetCleanProgress(p.Percent, Loc.ProgressLine(p.Percent, p.CurrentDirectory, p.FileCount), determinate: true);
             }
             else
             {
                 ScanProgressBar.IsIndeterminate = true;
                 ScanProgressText.Text = Loc.ProgressIndeterminate(p.CurrentDirectory, p.FileCount);
                 HeaderStats.Text = Loc.ScanCount(p.FileCount);
+                SetCleanProgress(0, Loc.ProgressIndeterminate(p.CurrentDirectory, p.FileCount), determinate: false);
             }
             FileCountText.Text = Loc.Files(p.FileCount);
             GrowLiveScan(p.Percent >= 0 ? p.Percent : Math.Min(90, p.FileCount / 8000));
@@ -192,12 +279,13 @@ public partial class MainWindow : Window
         catch (OperationCanceledException)
         {
             ClearLiveScan();
+            HideCleanProgress();
             HeaderStats.Text = Loc.Aborted;
         }
         catch (Exception ex)
         {
-            MessageBox.Show(Loc.ScanFailedMsg(ex.Message), Loc.AppName,
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            HideCleanProgress();
+            ShowAlert(Loc.ScanFailed, Loc.ScanFailedMsg(ex.Message));
             HeaderStats.Text = Loc.ScanFailed;
         }
         finally
@@ -224,12 +312,57 @@ public partial class MainWindow : Window
         UiLog("PopulateTree 完成");
         ElapsedText.Text = Loc.Elapsed((DateTime.Now - _scanStart).TotalSeconds);
         HeaderStats.Text = Loc.Files(root.FileCount);
-        var cleanable = _allFiles.Where(f => f.Category is "临时" or "日志" or "Temporary" or "Log").ToList();
-        UiLog($"cleanable 计算完成: {cleanable.Count:N0}");
-        CleanHintText.Text = cleanable.Count > 0
-            ? Loc.HintTemp(cleanable.Count, FileEntry.FormatSize(cleanable.Sum(f => f.Size)))
-            : Loc.HintClean;
+        CleanHintText.Text = Loc.Analyzing;
+        SetCleanProgress(5, Loc.Analyzing, determinate: true);
+        _ = RunAnalyze(root);
         UiLog("FinishScan 全部完成");
+    }
+
+    private async Task RunAnalyze(FileEntry root)
+    {
+        string drive = root.FullPath;
+        var previous = ScanSnapshot.Load(drive);
+        CleanReport report;
+        var analyzeProgress = new Progress<ScanProgress>(p =>
+        {
+            int pct = p.Percent >= 0 ? p.Percent : 0;
+            SetCleanProgress(pct, p.CurrentDirectory, determinate: p.Percent >= 0);
+        });
+        try
+        {
+            report = await Task.Run(() => CleanAnalyzer.Analyze(root, previous, CancellationToken.None, analyzeProgress));
+        }
+        catch (Exception ex)
+        {
+            UiLog("分析失败: " + ex.Message);
+            HideCleanProgress();
+            CleanHintText.Text = Loc.HintClean;
+            return;
+        }
+        if (!ReferenceEquals(_root, root)) return;
+        _report = report;
+        try { ScanSnapshot.Capture(root).Save(); } catch { }
+        HideCleanProgress();
+        RefreshCleanUi();
+        CleanHintText.Text = report.Cleanable.Count > 0
+            ? Loc.CleanHintReady(report.Cleanable.Count, FileEntry.FormatSize(report.CleanableBytes))
+            : Loc.HintClean;
+        UiLog($"分析完成: cleanable={report.Cleanable.Count} dup={report.Duplicates.Count}");
+    }
+
+    private void SetCleanProgress(double value, string text, bool determinate)
+    {
+        CleanProgressPanel.Visibility = Visibility.Visible;
+        CleanProgressBar.IsIndeterminate = !determinate;
+        if (determinate) CleanProgressBar.Value = Math.Clamp(value, 0, 100);
+        CleanProgressText.Text = text;
+    }
+
+    private void HideCleanProgress()
+    {
+        CleanProgressPanel.Visibility = Visibility.Collapsed;
+        CleanProgressBar.IsIndeterminate = false;
+        CleanProgressBar.Value = 0;
     }
 
     private static void UiLog(string msg)
@@ -296,11 +429,11 @@ public partial class MainWindow : Window
     {
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(132) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
         var name = new TextBlock
         {
             Text = d.Name,
@@ -338,13 +471,14 @@ public partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 4, 0),
+            TextAlignment = TextAlignment.Right,
         };
 
     private static Grid MakePctBar(double share, double pct, bool dim)
     {
-        var pctCell = new Grid { Margin = new Thickness(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Height = 22 };
+        var pctCell = new Grid { Margin = new Thickness(6, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center, Height = 22 };
         pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
         var track = new Grid { Height = 6, VerticalAlignment = VerticalAlignment.Center };
         double rest = Math.Max(0, 1 - share);
         track.ColumnDefinitions.Add(new ColumnDefinition { Width = share <= 0 ? new GridLength(0) : new GridLength(share, GridUnitType.Star) });
@@ -745,39 +879,41 @@ public partial class MainWindow : Window
         if (item?.Tag is not FileEntry entry) return;
         if (RecycleService.IsProtected(entry))
         {
-            MessageBox.Show(Loc.DeleteBlocked, Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowAlert(Loc.DeleteToRecycle, Loc.DeleteBlocked);
             return;
         }
         string path = entry.FullPath;
         if (string.IsNullOrWhiteSpace(path) || (!File.Exists(path) && !Directory.Exists(path)))
         {
-            MessageBox.Show(Loc.DeleteFailed(path), Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowAlert(Loc.DeleteToRecycle, Loc.DeleteFailed(path));
             return;
         }
-        var confirm = MessageBox.Show(
+        AskConfirm(
+            Loc.DeleteToRecycle,
             Loc.DeleteConfirm(entry.Name, FileEntry.FormatSize(entry.Allocated > 0 ? entry.Allocated : entry.Size)),
-            Loc.DeleteToRecycle, MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes) return;
-        try
-        {
-            RecycleService.SendToRecycle(path);
-            var parent = entry.Parent;
-            parent?.Children.Remove(entry);
-            if (item.Parent is TreeViewItem treeParent)
-                treeParent.Items.Remove(item);
-            else
-                DirTree.Items.Remove(item);
-            if (parent != null)
+            () =>
             {
-                RecalcUp(parent);
-                ShowDirectory(parent);
-            }
-            HeaderStats.Text = Loc.DeleteOk;
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(Loc.DeleteFailed(ex.Message), Loc.AppName, MessageBoxButton.OK, MessageBoxImage.Error);
-        }
+                try
+                {
+                    RecycleService.SendToRecycle(path);
+                    var parent = entry.Parent;
+                    parent?.Children.Remove(entry);
+                    if (item.Parent is TreeViewItem treeParent)
+                        treeParent.Items.Remove(item);
+                    else
+                        DirTree.Items.Remove(item);
+                    if (parent != null)
+                    {
+                        RecalcUp(parent);
+                        ShowDirectory(parent);
+                    }
+                    HeaderStats.Text = Loc.DeleteOk;
+                }
+                catch (Exception ex)
+                {
+                    ShowAlert(Loc.DeleteToRecycle, Loc.DeleteFailed(ex.Message));
+                }
+            });
     }
 
     private static void RecalcUp(FileEntry node)
@@ -841,7 +977,7 @@ public partial class MainWindow : Window
     {
         var entry = ContextEntry();
         if (entry == null) return;
-        MessageBox.Show(Loc.PropBody(entry), Loc.Properties, MessageBoxButton.OK, MessageBoxImage.Information);
+        ShowAlert(Loc.Properties, Loc.PropBody(entry));
     }
 
     private void SortName_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Name);
@@ -890,24 +1026,65 @@ public partial class MainWindow : Window
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
-    {
-        DialogTitle.Text = Loc.SettingsTitle;
-        SettingsBody.Visibility = Visibility.Visible;
-        AboutBody.Visibility = Visibility.Collapsed;
-        Overlay.Visibility = Visibility.Visible;
-        HighlightThemeButtons();
-    }
+        => OpenOverlay(Loc.SettingsTitle, settings: true);
 
     private void AboutButton_Click(object sender, RoutedEventArgs e)
+        => OpenOverlay(Loc.AboutTitle, about: true);
+
+    private void OpenOverlay(string title, bool settings = false, bool about = false, bool alert = false, bool confirm = false)
     {
-        DialogTitle.Text = Loc.AboutTitle;
-        SettingsBody.Visibility = Visibility.Collapsed;
-        AboutBody.Visibility = Visibility.Visible;
+        DialogTitle.Text = title;
+        SettingsBody.Visibility = settings ? Visibility.Visible : Visibility.Collapsed;
+        AboutBody.Visibility = about ? Visibility.Visible : Visibility.Collapsed;
+        AlertBody.Visibility = alert || confirm ? Visibility.Visible : Visibility.Collapsed;
+        ConfirmButtons.Visibility = confirm ? Visibility.Visible : Visibility.Collapsed;
+        DialogClose.Visibility = confirm ? Visibility.Collapsed : Visibility.Visible;
         Overlay.Visibility = Visibility.Visible;
+        if (settings) HighlightThemeButtons();
     }
 
-    private void CloseOverlay_Click(object sender, RoutedEventArgs e) => Overlay.Visibility = Visibility.Collapsed;
-    private void Overlay_Click(object sender, MouseButtonEventArgs e) => Overlay.Visibility = Visibility.Collapsed;
+    public void ShowCrash(string text) => ShowAlert(Loc.AppName, text);
+
+    private void ShowAlert(string title, string text)
+    {
+        _confirmYes = null;
+        AlertText.Text = text;
+        OpenOverlay(title, alert: true);
+    }
+
+    private void AskConfirm(string title, string text, Action onYes)
+    {
+        _confirmYes = onYes;
+        AlertText.Text = text;
+        OpenOverlay(title, confirm: true);
+    }
+
+    private void ConfirmYes_Click(object sender, RoutedEventArgs e)
+    {
+        var act = _confirmYes;
+        _confirmYes = null;
+        Overlay.Visibility = Visibility.Collapsed;
+        act?.Invoke();
+    }
+
+    private void ConfirmNo_Click(object sender, RoutedEventArgs e)
+    {
+        _confirmYes = null;
+        Overlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void CloseOverlay_Click(object sender, RoutedEventArgs e)
+    {
+        _confirmYes = null;
+        Overlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void Overlay_Click(object sender, MouseButtonEventArgs e)
+    {
+        _confirmYes = null;
+        Overlay.Visibility = Visibility.Collapsed;
+    }
+
     private void Dialog_Click(object sender, MouseButtonEventArgs e) => e.Handled = true;
 
     private void Theme_Click(object sender, RoutedEventArgs e)
@@ -935,5 +1112,583 @@ public partial class MainWindow : Window
             Process.Start(new ProcessStartInfo(Loc.Repo) { UseShellExecute = true });
         }
         catch { }
+    }
+
+    private void TabClean_Click(object sender, RoutedEventArgs e) => ShowRightTab(0);
+    private void TabExt_Click(object sender, RoutedEventArgs e) => ShowRightTab(1);
+    private void TabUninstall_Click(object sender, RoutedEventArgs e)
+    {
+        ShowRightTab(2);
+        if (_apps.Count == 0 && !_listingApps) _ = LoadApps();
+    }
+
+    private void ShowRightTab(int tab)
+    {
+        _rightTab = tab;
+        CleanPane.Visibility = tab == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ExtPane.Visibility = tab == 1 ? Visibility.Visible : Visibility.Collapsed;
+        UninstallPane.Visibility = tab == 2 ? Visibility.Visible : Visibility.Collapsed;
+        MarkTab(TabCleanBtn, tab == 0);
+        MarkTab(TabExtBtn, tab == 1);
+        MarkTab(TabUninstallBtn, tab == 2);
+    }
+
+    private static void MarkTab(Button b, bool on)
+    {
+        b.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
+        b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
+    }
+
+    private void RefreshCleanUi()
+    {
+        if (CleanCatBox == null) return;
+        int keep = CleanCatBox.SelectedIndex;
+        var cats = new List<string>
+        {
+            Label(Loc.CatCleanable, _report?.Cleanable),
+            Label(Loc.CatLarge, _report?.LargeFiles),
+            Label(Loc.CatOld, _report?.OldFiles),
+            Label(Loc.CatDup, _report?.Duplicates),
+            Label(Loc.CatEmpty, _report?.EmptyFolders),
+            Label(Loc.CatShortcut, _report?.BrokenShortcuts),
+            Label(Loc.CatLong, _report?.LongPaths),
+            Label(Loc.CatCompare, _report?.Compare),
+        };
+        CleanCatBox.ItemsSource = cats;
+        CleanCatBox.SelectedIndex = keep >= 0 && keep < cats.Count ? keep : 0;
+        ShowCleanCat();
+        if (_report == null)
+            CleanSummary.Text = Loc.AnalyzeAfterScan;
+        else if (CleanCatBox.SelectedIndex == 7)
+            CleanSummary.Text = _report.CompareNote;
+        else
+            CleanSummary.Text = Loc.CleanHintReady(_report.Cleanable.Count, FileEntry.FormatSize(_report.CleanableBytes));
+        UpdateCleanSelHint();
+        ShowRightTab(_rightTab);
+    }
+
+    private static string Label(string title, List<CleanItem>? items)
+    {
+        if (items == null || items.Count == 0) return title + "  ·  0";
+        return title + "  ·  " + Loc.CatCount(items.Count, FileEntry.FormatSize(items.Sum(x => x.Size)));
+    }
+
+    private void CleanCat_Changed(object sender, SelectionChangedEventArgs e) => ShowCleanCat();
+
+    private void ShowCleanCat()
+    {
+        if (_report == null)
+        {
+            CleanGrid.ItemsSource = null;
+            return;
+        }
+        CleanGrid.ItemsSource = CurrentCleanList();
+        if (CleanCatBox.SelectedIndex == 7)
+            CleanSummary.Text = _report.CompareNote;
+        UpdateCleanSelHint();
+    }
+
+    private List<CleanItem> CurrentCleanList()
+        => CleanCatBox.SelectedIndex switch
+        {
+            1 => _report?.LargeFiles ?? new(),
+            2 => _report?.OldFiles ?? new(),
+            3 => _report?.Duplicates ?? new(),
+            4 => _report?.EmptyFolders ?? new(),
+            5 => _report?.BrokenShortcuts ?? new(),
+            6 => _report?.LongPaths ?? new(),
+            7 => _report?.Compare ?? new(),
+            _ => _report?.Cleanable ?? new(),
+        };
+
+    private void SelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        bool on = !IsAllSelected();
+        foreach (var item in CurrentCleanList())
+            item.Selected = on && item.CanDelete;
+        UpdateCleanSelHint();
+        CleanGrid.Items.Refresh();
+    }
+
+    private void SelectSafe_Click(object sender, RoutedEventArgs e)
+    {
+        bool on = !IsSafeSelected();
+        foreach (var item in CurrentCleanList())
+            item.Selected = on && item.CanDelete && IsSafeGroup(item);
+        UpdateCleanSelHint();
+        CleanGrid.Items.Refresh();
+    }
+
+    private static bool IsSafeGroup(CleanItem item)
+        => item.Group == Loc.GroupTemp || item.Group == Loc.GroupDump || item.Group == Loc.GroupRecycle;
+
+    private bool IsAllSelected()
+    {
+        var list = CurrentCleanList().Where(x => x.CanDelete).ToList();
+        return list.Count > 0 && list.All(x => x.Selected);
+    }
+
+    private bool IsSafeSelected()
+    {
+        var list = CurrentCleanList().Where(x => x.CanDelete).ToList();
+        if (list.Count == 0) return false;
+        return list.All(x => x.Selected == (x.CanDelete && IsSafeGroup(x)))
+               && list.Any(IsSafeGroup);
+    }
+
+    private void HighlightSelectMode()
+    {
+        bool all = IsAllSelected();
+        bool safe = !all && IsSafeSelected();
+        MarkSelectBtn(SelectAllBtn, all);
+        MarkSelectBtn(SelectSafeBtn, safe);
+    }
+
+    private static void MarkSelectBtn(Button b, bool on)
+    {
+        b.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
+        b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
+    }
+
+    private void UpdateCleanSelHint()
+    {
+        var picked = CurrentCleanList().Where(x => x.Selected && x.CanDelete).ToList();
+        CleanSelHint.Text = picked.Count == 0
+            ? ""
+            : Loc.CatCount(picked.Count, FileEntry.FormatSize(picked.Sum(x => x.Size)));
+        HighlightSelectMode();
+    }
+
+    private void CleanGrid_Click(object sender, MouseButtonEventArgs e) => UpdateCleanSelHint();
+
+    private async void UninstallRefresh_Click(object sender, RoutedEventArgs e) => await LoadApps();
+
+    private async Task LoadApps()
+    {
+        if (_listingApps) return;
+        _listingApps = true;
+        UninstallRefreshBtn.IsEnabled = false;
+        UninstallRunBtn.IsEnabled = false;
+        UninstallProgressPanel.Visibility = Visibility.Visible;
+        UninstallProgressBar.IsIndeterminate = true;
+        UninstallProgressBar.Value = 0;
+        UninstallProgressText.Text = Loc.UninstallListing;
+        UninstallSummary.Text = Loc.UninstallListing;
+        try
+        {
+            var progress = new Progress<ScanProgress>(p =>
+            {
+                UninstallProgressBar.IsIndeterminate = p.Percent < 0;
+                if (p.Percent >= 0) UninstallProgressBar.Value = p.Percent;
+                UninstallProgressText.Text = p.CurrentDirectory;
+            });
+            var list = await Task.Run(() => BcuUninstallService.ListApps(progress, CancellationToken.None));
+            foreach (var app in list)
+            {
+                try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }
+                catch { app.Icon = null; }
+                app.IconBytes = null;
+            }
+            _apps = list;
+            _junk.Clear();
+            ShowAppList();
+        }
+        catch (Exception ex)
+        {
+            ShowAlert(Loc.TabUninstall, ex.Message);
+        }
+        finally
+        {
+            _listingApps = false;
+            UninstallRefreshBtn.IsEnabled = true;
+            UninstallRunBtn.IsEnabled = true;
+            UninstallProgressPanel.Visibility = Visibility.Collapsed;
+            UninstallProgressBar.IsIndeterminate = false;
+        }
+    }
+
+    private IEnumerable<AppUninstallItem> VisibleApps()
+        => UninstallGrid.Items.OfType<AppUninstallItem>();
+
+    private void UninstallSelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        var vis = VisibleApps().Where(x => x.CanUninstall).ToList();
+        bool allOn = vis.Count > 0 && vis.All(x => x.Selected);
+        foreach (var a in vis)
+            a.Selected = !allOn;
+        UpdateUninstallSelHint();
+    }
+
+    private void UninstallGrid_Click(object sender, MouseButtonEventArgs e) => UpdateUninstallSelHint();
+
+    private void UninstallGrid_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (UninstallGrid.SelectedItem is not AppUninstallItem app) return;
+        OpenFolder(app.InstallLocation);
+    }
+
+    private void JunkGrid_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (JunkGrid.SelectedItem is not JunkItem junk) return;
+        OpenFolder(junk.Path);
+    }
+
+    static void OpenFolder(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe", "\"" + path + "\"") { UseShellExecute = true });
+                return;
+            }
+            if (File.Exists(path))
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + path + "\"") { UseShellExecute = true });
+                return;
+            }
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                Process.Start(new ProcessStartInfo("explorer.exe", "\"" + dir + "\"") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    private void UpdateUninstallSelHint()
+    {
+        var picked = _apps.Where(x => x.Selected && x.CanUninstall).ToList();
+        UninstallSelHint.Text = picked.Count == 0 ? "" : Loc.UninstallCount(picked.Count);
+        var vis = VisibleApps().Where(x => x.CanUninstall).ToList();
+        bool allOn = vis.Count > 0 && vis.All(x => x.Selected);
+        UninstallAllBtn.BorderBrush = ThemeService.Brush(allOn ? "Accent" : "Border");
+        UninstallAllBtn.Foreground = ThemeService.Brush(allOn ? "Accent" : "TextDim");
+    }
+
+    private void UninstallRun_Click(object sender, RoutedEventArgs e)
+    {
+        var picked = _apps.Where(x => x.Selected && x.CanUninstall).ToList();
+        if (picked.Count == 0)
+        {
+            ShowAlert(Loc.TabUninstall, Loc.NothingSelected);
+            return;
+        }
+        int features = picked.Count(x => x.GroupKey == 2);
+        string msg = features > 0
+            ? Loc.UninstallConfirmFeatures(picked.Count, features)
+            : Loc.UninstallConfirm(picked.Count);
+        AskConfirm(Loc.TabUninstall, msg, () => RunUninstall(picked));
+    }
+
+    private void RunUninstall(List<AppUninstallItem> picked)
+    {
+        try
+        {
+            _uninstallTask?.Dispose();
+            _uninstallTask = BcuUninstallService.StartUninstall(picked);
+            UninstallProgressPanel.Visibility = Visibility.Visible;
+            UninstallProgressBar.IsIndeterminate = true;
+            UninstallProgressText.Text = Loc.UninstallRunning;
+            UninstallRunBtn.IsEnabled = false;
+            _uninstallTask.OnStatusChanged += (_, _) => Dispatcher.BeginInvoke(RefreshUninstallTask);
+        }
+        catch (Exception ex)
+        {
+            ShowAlert(Loc.TabUninstall, ex.Message);
+        }
+    }
+
+    private void RefreshUninstallTask()
+    {
+        var task = _uninstallTask;
+        if (task == null) return;
+        var byEntry = task.AllUninstallersList.ToDictionary(x => x.UninstallerEntry);
+        foreach (var app in _apps)
+        {
+            if (app.Entry == null || !byEntry.TryGetValue(app.Entry, out var row)) continue;
+            app.Status = row.CurrentStatus switch
+            {
+                UninstallStatus.Waiting => Loc.UninstallWaiting,
+                UninstallStatus.Uninstalling => Loc.UninstallRunning,
+                UninstallStatus.Completed => Loc.UninstallDone,
+                UninstallStatus.Failed => Loc.UninstallFailed,
+                UninstallStatus.Protected => Loc.UninstallProtected,
+                UninstallStatus.Skipped => Loc.UninstallFailed,
+                _ => app.Status,
+            };
+        }
+        int done = task.AllUninstallersList.Count(x => x.Finished);
+        int total = task.AllUninstallersList.Count;
+        UninstallProgressBar.IsIndeterminate = false;
+        UninstallProgressBar.Value = total == 0 ? 0 : done * 100.0 / total;
+        UninstallProgressText.Text = Loc.UninstallRunning + $" {done}/{total}";
+        if (!task.Finished) return;
+        UninstallRunBtn.IsEnabled = true;
+        int ok = task.AllUninstallersList.Count(x => x.CurrentStatus == UninstallStatus.Completed);
+        int fail = task.AllUninstallersList.Count(x => x.CurrentStatus == UninstallStatus.Failed);
+        HeaderStats.Text = fail == 0 ? Loc.UninstallDone : $"{Loc.UninstallDone} {ok}, {Loc.UninstallFailed} {fail}";
+        var finished = task.AllUninstallersList
+            .Where(x => x.CurrentStatus == UninstallStatus.Completed && x.UninstallerEntry != null)
+            .Select(x => x.UninstallerEntry)
+            .ToList();
+        if (finished.Count > 0) _ = ScanLeftovers(finished);
+        else UninstallProgressPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowAppList()
+    {
+        _showingJunk = false;
+        UninstallGrid.Visibility = Visibility.Visible;
+        JunkGrid.Visibility = Visibility.Collapsed;
+        UninstallRunBtn.Visibility = Visibility.Visible;
+        JunkDeleteBtn.Visibility = Visibility.Collapsed;
+        JunkSafeBtn.Visibility = Visibility.Collapsed;
+        BindAppList();
+    }
+
+    private void BindAppList()
+    {
+        var view = CollectionViewSource.GetDefaultView(_apps);
+        using (view.DeferRefresh())
+        {
+            view.GroupDescriptions.Clear();
+            view.SortDescriptions.Clear();
+            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(AppUninstallItem.GroupKey)));
+            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.GroupKey), ListSortDirection.Ascending));
+            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.SizeBytes), ListSortDirection.Descending));
+            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.Name), ListSortDirection.Ascending));
+            view.Filter = FilterApp;
+        }
+        UninstallGrid.ItemsSource = view;
+        ApplyUninstallFilter();
+    }
+
+    private bool FilterApp(object obj)
+    {
+        if (obj is not AppUninstallItem a) return false;
+        string q = UninstallSearchBox.Text?.Trim() ?? "";
+        if (q.Length == 0) return true;
+        return a.Name.Contains(q, StringComparison.CurrentCultureIgnoreCase)
+            || (a.Publisher?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false)
+            || (a.InstallLocation?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false)
+            || (a.Status?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false);
+    }
+
+    private bool FilterJunk(object obj)
+    {
+        if (obj is not JunkItem j) return false;
+        string q = UninstallSearchBox.Text?.Trim() ?? "";
+        if (q.Length == 0) return true;
+        return j.AppName.Contains(q, StringComparison.CurrentCultureIgnoreCase)
+            || (j.Path?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false)
+            || (j.Category?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false);
+    }
+
+    private void UninstallSearch_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        UninstallSearchHint.Visibility = string.IsNullOrEmpty(UninstallSearchBox.Text)
+            ? Visibility.Visible : Visibility.Collapsed;
+        ApplyUninstallFilter();
+    }
+
+    private void ApplyUninstallFilter()
+    {
+        if (_showingJunk)
+        {
+            if (JunkGrid.ItemsSource is ICollectionView jv)
+            {
+                jv.Filter = FilterJunk;
+                jv.Refresh();
+            }
+            int shown = JunkGrid.Items.Count;
+            UninstallSummary.Text = _junk.Count == 0
+                ? Loc.JunkNone
+                : Loc.JunkHint(_junk.Count, _junk.Count(x => x.Safe))
+                  + (string.IsNullOrWhiteSpace(UninstallSearchBox.Text) ? "" : "  ·  " + Loc.UninstallFiltered(shown, _junk.Count));
+            UpdateJunkSelHint();
+            return;
+        }
+        if (UninstallGrid.ItemsSource is ICollectionView av)
+        {
+            av.Filter = FilterApp;
+            av.Refresh();
+        }
+        int n = UninstallGrid.Items.Count;
+        if (_apps.Count == 0) UninstallSummary.Text = Loc.UninstallHint;
+        else if (string.IsNullOrWhiteSpace(UninstallSearchBox.Text)) UninstallSummary.Text = Loc.UninstallCount(_apps.Count);
+        else UninstallSummary.Text = Loc.UninstallFiltered(n, _apps.Count);
+        UpdateUninstallSelHint();
+    }
+
+    private void RefreshUninstallPaneText() => ApplyUninstallFilter();
+
+    private async Task ScanLeftovers(List<ApplicationUninstallerEntry> finished)
+    {
+        UninstallProgressPanel.Visibility = Visibility.Visible;
+        UninstallProgressBar.IsIndeterminate = true;
+        UninstallProgressText.Text = Loc.JunkScanning;
+        UninstallSummary.Text = Loc.JunkScanning;
+        try
+        {
+            var all = _apps.Select(x => x.Entry).Where(x => x != null).Cast<ApplicationUninstallerEntry>().ToList();
+            var progress = new Progress<ScanProgress>(p =>
+            {
+                UninstallProgressBar.IsIndeterminate = p.Percent < 0;
+                if (p.Percent >= 0) UninstallProgressBar.Value = p.Percent;
+                UninstallProgressText.Text = p.CurrentDirectory;
+            });
+            var list = await Task.Run(() => BcuUninstallService.FindLeftovers(finished, all, progress, CancellationToken.None));
+            _junk = list;
+            ShowJunkList();
+        }
+        catch (Exception ex)
+        {
+            ShowAlert(Loc.TabUninstall, ex.Message);
+        }
+        finally
+        {
+            UninstallProgressPanel.Visibility = Visibility.Collapsed;
+            UninstallProgressBar.IsIndeterminate = false;
+        }
+    }
+
+    private void ShowJunkList()
+    {
+        _showingJunk = true;
+        UninstallGrid.Visibility = Visibility.Collapsed;
+        JunkGrid.Visibility = Visibility.Visible;
+        UninstallRunBtn.Visibility = Visibility.Collapsed;
+        JunkDeleteBtn.Visibility = Visibility.Visible;
+        JunkSafeBtn.Visibility = Visibility.Visible;
+        var view = CollectionViewSource.GetDefaultView(_junk);
+        using (view.DeferRefresh())
+        {
+            view.SortDescriptions.Clear();
+            view.SortDescriptions.Add(new SortDescription(nameof(JunkItem.ConfidenceScore), ListSortDirection.Descending));
+            view.SortDescriptions.Add(new SortDescription(nameof(JunkItem.AppName), ListSortDirection.Ascending));
+            view.Filter = FilterJunk;
+        }
+        JunkGrid.ItemsSource = view;
+        ApplyUninstallFilter();
+    }
+
+    private void JunkSafe_Click(object sender, RoutedEventArgs e)
+    {
+        bool allSafe = _junk.Where(x => x.Safe).All(x => x.Selected) && _junk.Any(x => x.Safe);
+        foreach (var j in _junk)
+            j.Selected = !allSafe && j.Safe;
+        UpdateJunkSelHint();
+    }
+
+    private void JunkGrid_Click(object sender, MouseButtonEventArgs e) => UpdateJunkSelHint();
+
+    private void UpdateJunkSelHint()
+    {
+        var picked = _junk.Where(x => x.Selected).ToList();
+        UninstallSelHint.Text = picked.Count == 0 ? "" : Loc.UninstallCount(picked.Count);
+        bool allSafe = _junk.Where(x => x.Safe).All(x => x.Selected) && _junk.Any(x => x.Safe);
+        JunkSafeBtn.BorderBrush = ThemeService.Brush(allSafe ? "Accent" : "Border");
+        JunkSafeBtn.Foreground = ThemeService.Brush(allSafe ? "Accent" : "TextDim");
+    }
+
+    private void JunkDelete_Click(object sender, RoutedEventArgs e)
+    {
+        var picked = _junk.Where(x => x.Selected).ToList();
+        if (picked.Count == 0)
+        {
+            ShowAlert(Loc.JunkDelete, Loc.NothingSelected);
+            return;
+        }
+        AskConfirm(Loc.JunkDelete, Loc.JunkConfirm(picked.Count), () =>
+        {
+            var (ok, fail) = BcuUninstallService.DeleteLeftovers(picked);
+            foreach (var item in picked) _junk.Remove(item);
+            JunkGrid.ItemsSource = null;
+            JunkGrid.ItemsSource = _junk;
+            int safe = _junk.Count(x => x.Safe);
+            UninstallSummary.Text = _junk.Count == 0 ? Loc.JunkNone : Loc.JunkHint(_junk.Count, safe);
+            UpdateJunkSelHint();
+            HeaderStats.Text = Loc.JunkDeleted(ok, fail);
+        });
+    }
+
+    private void CleanGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (CleanGrid.SelectedItem is not CleanItem item) return;
+        string path = item.IsDirectory ? item.FullPath : Path.GetDirectoryName(item.FullPath) ?? item.FullPath;
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            if (item.IsDirectory)
+                Process.Start(new ProcessStartInfo("explorer.exe", "\"" + path + "\"") { UseShellExecute = true });
+            else
+                Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + item.FullPath + "\"") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    private void RecycleSelected_Click(object sender, RoutedEventArgs e)
+    {
+        var picked = CurrentCleanList().Where(x => x.Selected && x.CanDelete && !string.IsNullOrEmpty(x.FullPath)).ToList();
+        if (picked.Count == 0)
+        {
+            ShowAlert(Loc.DeleteToRecycle, Loc.NothingSelected);
+            return;
+        }
+        long bytes = picked.Sum(x => x.Size);
+        AskConfirm(
+            Loc.DeleteToRecycle,
+            Loc.RecycleManyConfirm(picked.Count, FileEntry.FormatSize(bytes)),
+            () => RecyclePicked(picked));
+    }
+
+    private void RecyclePicked(List<CleanItem> picked)
+    {
+        int ok = 0;
+        var failed = new List<string>();
+        var gone = new HashSet<CleanItem>();
+        foreach (var item in picked)
+        {
+            if (item.Entry != null && RecycleService.IsProtected(item.Entry))
+            {
+                failed.Add(item.Name);
+                continue;
+            }
+            try
+            {
+                RecycleService.SendToRecycle(item.FullPath);
+                ok++;
+                gone.Add(item);
+                if (item.Entry?.Parent != null)
+                {
+                    item.Entry.Parent.Children.Remove(item.Entry);
+                    RecalcUp(item.Entry.Parent);
+                }
+            }
+            catch
+            {
+                failed.Add(item.Name);
+            }
+        }
+
+        if (_report != null)
+        {
+            foreach (var list in new[]
+            {
+                _report.Cleanable, _report.LargeFiles, _report.OldFiles, _report.Duplicates,
+                _report.EmptyFolders, _report.BrokenShortcuts, _report.LongPaths,
+            })
+                list.RemoveAll(gone.Contains);
+            _report.CleanableBytes = _report.Cleanable.Sum(x => x.Size);
+        }
+        if (_root != null)
+        {
+            PopulateTree();
+            ShowDirectory(_current ?? _root);
+        }
+        RefreshCleanUi();
+        HeaderStats.Text = Loc.RecycleManyOk(ok);
+        if (failed.Count > 0)
+            ShowAlert(Loc.DeleteToRecycle, Loc.DeleteFailed(string.Join(", ", failed.Take(8))));
     }
 }

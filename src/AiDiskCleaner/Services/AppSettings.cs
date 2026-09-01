@@ -8,8 +8,9 @@ public enum AppLang { Zh, En }
 
 public sealed class AppSettings
 {
-    public AppTheme Theme { get; set; } = AppTheme.Terminal;
+    public AppTheme Theme { get; set; } = AppTheme.Mono;
     public AppLang Lang { get; set; } = AppLang.Zh;
+    public int UiRev { get; set; }
 
     private static string Path =>
         System.IO.Path.Combine(
@@ -22,7 +23,16 @@ public sealed class AppSettings
         {
             var path = Path;
             if (File.Exists(path))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path)) ?? new AppSettings();
+            {
+                var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path)) ?? new AppSettings();
+                if (loaded.UiRev < 1)
+                {
+                    loaded.Theme = AppTheme.Mono;
+                    loaded.UiRev = 1;
+                    loaded.Save();
+                }
+                return loaded;
+            }
         }
         catch { }
         return new AppSettings();

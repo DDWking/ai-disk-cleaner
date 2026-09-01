@@ -6,6 +6,7 @@
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
+        Icon="Assets/app.ico"
         Background="{DynamicResource Bg}"
         Foreground="{DynamicResource Text}"
         FontFamily="{DynamicResource AppFont}">
@@ -15,8 +16,15 @@
   </WindowChrome.WindowChrome>
   <Window.Resources>
     <local:ShareWidthConverter x:Key="ShareWidth"/>
+    <local:InvertBoolConverter x:Key="InvertBool"/>
+    <local:GroupExpandedConverter x:Key="GroupExpanded"/>
+    <local:AppGroupConverter x:Key="AppGroup"/>
     <Style TargetType="TextBlock">
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+    </Style>
+    <Style TargetType="DataGrid">
+      <Setter Property="CanUserAddRows" Value="False"/>
+      <Setter Property="CanUserDeleteRows" Value="False"/>
     </Style>
     <Style TargetType="DataGridColumnHeader">
       <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
@@ -64,11 +72,11 @@
         </Trigger>
       </Style.Triggers>
     </Style>
-    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#163322"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#39FF88"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#163322"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#39FF88"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#163322"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#282828"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#282828"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#282828"/>
     <Style x:Key="ExpandCollapseToggleStyle" TargetType="ToggleButton">
       <Setter Property="Focusable" Value="False"/>
       <Setter Property="Width" Value="16"/>
@@ -98,9 +106,9 @@
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     </Style>
     <Style TargetType="TreeViewItem">
-      <Setter Property="Foreground" Value="#C8F5D0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="Background" Value="Transparent"/>
-      <Setter Property="Padding" Value="4,6"/>
+      <Setter Property="Padding" Value="0,6"/>
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -293,15 +301,51 @@
       <Setter Property="Padding" Value="14,6"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+      <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border Background="{TemplateBinding Background}"
+            <Border x:Name="bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    Padding="{TemplateBinding Padding}">
+                    Padding="{TemplateBinding Padding}"
+                    RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="pressScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource HoverBg}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="0.96" Duration="0:0:0.06"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="0.96" Duration="0:0:0.06"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="1" Duration="0:0:0.10"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="1" Duration="0:0:0.10"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -318,13 +362,38 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border x:Name="bd" Background="{TemplateBinding Background}">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="pressScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="0.88" Duration="0:0:0.06"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="0.88" Duration="0:0:0.06"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="1" Duration="0:0:0.10"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="1" Duration="0:0:0.10"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -335,13 +404,38 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border x:Name="bd" Background="Transparent">
+            <Border x:Name="bd" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="pressScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="{DynamicResource CloseHoverBg}"/>
                 <Setter Property="Foreground" Value="{DynamicResource CloseHoverFg}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="0.88" Duration="0:0:0.06"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="0.88" Duration="0:0:0.06"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="1" Duration="0:0:0.10"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="1" Duration="0:0:0.10"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -356,15 +450,52 @@
       <Setter Property="Padding" Value="14,6"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+      <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border Background="{TemplateBinding Background}"
+            <Border x:Name="bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    Padding="{TemplateBinding Padding}">
+                    Padding="{TemplateBinding Padding}"
+                    RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="pressScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource HoverBg}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="0.96" Duration="0:0:0.06"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="0.96" Duration="0:0:0.06"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleX"
+                                       To="1" Duration="0:0:0.10"/>
+                      <DoubleAnimation Storyboard.TargetName="pressScale" Storyboard.TargetProperty="ScaleY"
+                                       To="1" Duration="0:0:0.10"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -602,26 +733,28 @@
                      Foreground="{DynamicResource TextMuted}" FontSize="11" TextTrimming="CharacterEllipsis"/>
           <TextBlock x:Name="FilterHint" DockPanel.Dock="Top" Margin="20,0,24,6" FontSize="11"
                      Foreground="{DynamicResource Accent}" Visibility="Collapsed"/>
-          <Grid x:Name="TreeHeader" DockPanel.Dock="Top" Margin="20,0,24,8">
+          <Grid x:Name="TreeHeader" DockPanel.Dock="Top" Margin="16,0,0,8">
             <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="16"/>
               <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="132"/>
-              <ColumnDefinition Width="76"/>
-              <ColumnDefinition Width="76"/>
-              <ColumnDefinition Width="52"/>
-              <ColumnDefinition Width="52"/>
+              <ColumnDefinition Width="140"/>
+              <ColumnDefinition Width="80"/>
+              <ColumnDefinition Width="80"/>
+              <ColumnDefinition Width="80"/>
+              <ColumnDefinition Width="72"/>
+              <ColumnDefinition Width="{x:Static SystemParameters.VerticalScrollBarWidth}"/>
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="NameHeader" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11" Cursor="Hand" MouseLeftButtonDown="SortName_Click"/>
-            <TextBlock x:Name="PctHeader" Grid.Column="1" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,56,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
-            <TextBlock x:Name="SizeHeader" Grid.Column="2" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
-            <TextBlock x:Name="AllocHeader" Grid.Column="3" Text="分配" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortAlloc_Click"/>
-            <TextBlock x:Name="FilesHeader" Grid.Column="4" Text="文件" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortFiles_Click"/>
-            <TextBlock x:Name="FoldersHeader" Grid.Column="5" Text="文件夹" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="SortFolders_Click"/>
+            <TextBlock x:Name="NameHeader" Grid.Column="1" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11" Cursor="Hand" MouseLeftButtonDown="SortName_Click"/>
+            <TextBlock x:Name="PctHeader" Grid.Column="2" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
+            <TextBlock x:Name="SizeHeader" Grid.Column="3" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
+            <TextBlock x:Name="AllocHeader" Grid.Column="4" Text="分配" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortAlloc_Click"/>
+            <TextBlock x:Name="FilesHeader" Grid.Column="5" Text="文件" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortFiles_Click"/>
+            <TextBlock x:Name="FoldersHeader" Grid.Column="6" Text="文件夹" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortFolders_Click"/>
           </Grid>
-          <TreeView x:Name="DirTree" Padding="16,0,24,16"
+          <TreeView x:Name="DirTree" Padding="16,0,0,16"
                     Background="Transparent"
                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                    ScrollViewer.VerticalScrollBarVisibility="Auto"
+                    ScrollViewer.VerticalScrollBarVisibility="Visible"
                     SelectedItemChanged="DirTree_SelectedItemChanged"
                     PreviewMouseRightButtonDown="DirTree_PreviewRightDown">
             <TreeView.ContextMenu>
@@ -643,7 +776,13 @@
 
       <Border x:Name="RightPanel" Grid.Column="2" Background="{DynamicResource PanelRight}">
         <DockPanel>
-          <TextBlock x:Name="ExtTitle" DockPanel.Dock="Top" Margin="20,16,20,8" Text="扩展名 / 类型" Foreground="{DynamicResource TextDim}" FontSize="11"/>
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,12,16,8">
+            <Button x:Name="TabCleanBtn" Content="清理" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabClean_Click"/>
+            <Button x:Name="TabExtBtn" Content="扩展名" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabExt_Click"/>
+            <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource GhostButton}" Click="TabUninstall_Click"/>
+          </StackPanel>
+          <DockPanel x:Name="ExtPane" Visibility="Collapsed">
+          <TextBlock x:Name="ExtTitle" DockPanel.Dock="Top" Margin="20,0,20,8" Text="扩展名 / 类型" Foreground="{DynamicResource TextDim}" FontSize="11"/>
           <DataGrid x:Name="ExtGrid" AutoGenerateColumns="False" IsReadOnly="True"
                     CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
                     BorderThickness="0" RowHeight="32" Margin="12,0,16,12"
@@ -710,6 +849,190 @@
               </DataGridTextColumn>
             </DataGrid.Columns>
           </DataGrid>
+          </DockPanel>
+          <DockPanel x:Name="CleanPane">
+            <StackPanel x:Name="CleanProgressPanel" DockPanel.Dock="Top" Margin="20,0,20,10" Visibility="Collapsed">
+              <TextBlock x:Name="CleanProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
+              <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"
+                           Foreground="{DynamicResource Accent}" Background="{DynamicResource Border}" BorderThickness="0"/>
+            </StackPanel>
+            <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,0,20,8"
+                       Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
+            <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
+              <ComboBox x:Name="CleanCatBox" Width="148" Margin="0,0,8,6" SelectionChanged="CleanCat_Changed"
+                        WindowChrome.IsHitTestVisibleInChrome="True"/>
+              <Button x:Name="SelectAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectAll_Click"/>
+              <Button x:Name="SelectSafeBtn" Content="勾选安全项" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="SelectSafe_Click"/>
+            </WrapPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
+              <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Click="RecycleSelected_Click"/>
+              <TextBlock x:Name="CleanSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
+                         Foreground="{DynamicResource TextDim}" FontSize="11"/>
+            </StackPanel>
+            <DataGrid x:Name="CleanGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
+                      HeadersVisibility="Column" GridLinesVisibility="None"
+                      BorderThickness="0" RowHeight="32" Margin="12,0,16,0"
+                      AlternatingRowBackground="{DynamicResource RowAlt}"
+                      RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
+                      HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
+                      SelectionMode="Single" SelectionUnit="FullRow"
+                      VerticalContentAlignment="Center"
+                      MouseDoubleClick="CleanGrid_MouseDoubleClick"
+                      MouseLeftButtonUp="CleanGrid_Click">
+              <DataGrid.Columns>
+                <DataGridCheckBoxColumn x:Name="ColPick" Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
+                <DataGridTextColumn x:Name="ColCleanName" Header="名称" Binding="{Binding Name}" Width="120" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColCleanSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="72" IsReadOnly="True">
+                  <DataGridTextColumn.ElementStyle>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="HorizontalAlignment" Value="Right"/>
+                      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                    </Style>
+                  </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn x:Name="ColCleanWhy" Header="原因" Binding="{Binding Reason}" Width="*" IsReadOnly="True"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+          <DockPanel x:Name="UninstallPane" Visibility="Collapsed">
+            <StackPanel x:Name="UninstallProgressPanel" DockPanel.Dock="Top" Margin="20,0,20,10" Visibility="Collapsed">
+              <TextBlock x:Name="UninstallProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
+              <ProgressBar x:Name="UninstallProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"
+                           Foreground="{DynamicResource Accent}" Background="{DynamicResource Border}" BorderThickness="0"/>
+            </StackPanel>
+            <TextBlock x:Name="UninstallSummary" DockPanel.Dock="Top" Margin="20,0,20,8"
+                       Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"
+                       Text="点刷新列出已装软件。卸载走各软件自己的卸载程序。"/>
+            <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
+              <Button x:Name="UninstallRefreshBtn" Content="刷新" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallRefresh_Click"/>
+              <Button x:Name="UninstallAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallSelectAll_Click"/>
+              <Button x:Name="JunkSafeBtn" Content="勾选安全残留" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="JunkSafe_Click" Visibility="Collapsed"/>
+              <Grid Width="180" Margin="0,0,0,6">
+                <TextBox x:Name="UninstallSearchBox" Style="{StaticResource TermTextBox}"
+                         TextChanged="UninstallSearch_TextChanged"/>
+                <TextBlock x:Name="UninstallSearchHint" IsHitTestVisible="False"
+                           Background="{DynamicResource PanelRight}"
+                           Foreground="{DynamicResource Placeholder}" VerticalAlignment="Center"
+                           Margin="9,1,9,1" Padding="0,4" Text="搜索软件…"/>
+              </Grid>
+            </WrapPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
+              <Button x:Name="UninstallRunBtn" Content="卸载勾选项" Style="{StaticResource PrimaryButton}" Click="UninstallRun_Click"/>
+              <Button x:Name="JunkDeleteBtn" Content="删除残留" Style="{StaticResource PrimaryButton}" Click="JunkDelete_Click" Visibility="Collapsed"/>
+              <TextBlock x:Name="UninstallSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
+                         Foreground="{DynamicResource TextDim}" FontSize="11"/>
+            </StackPanel>
+            <Grid>
+            <DataGrid x:Name="UninstallGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
+                      HeadersVisibility="Column" GridLinesVisibility="None"
+                      BorderThickness="0" RowHeight="32" Margin="12,0,16,0"
+                      AlternatingRowBackground="{DynamicResource RowAlt}"
+                      RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
+                      HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
+                      SelectionMode="Single" SelectionUnit="FullRow"
+                      MouseLeftButtonUp="UninstallGrid_Click"
+                      MouseDoubleClick="UninstallGrid_DoubleClick">
+              <DataGrid.GroupStyle>
+                <GroupStyle>
+                  <GroupStyle.ContainerStyle>
+                    <Style TargetType="{x:Type GroupItem}">
+                      <Setter Property="Margin" Value="0,4,0,8"/>
+                      <Setter Property="Template">
+                        <Setter.Value>
+                          <ControlTemplate TargetType="{x:Type GroupItem}">
+                            <Expander IsExpanded="{Binding Name, Converter={StaticResource GroupExpanded}, Mode=OneWay}"
+                                      Background="Transparent" BorderThickness="0" Padding="0">
+                              <Expander.Header>
+                                <TextBlock FontSize="12" Foreground="{DynamicResource TextDim}" Margin="4,2"
+                                           Text="{Binding Converter={StaticResource AppGroup}}"/>
+                              </Expander.Header>
+                              <ItemsPresenter/>
+                            </Expander>
+                          </ControlTemplate>
+                        </Setter.Value>
+                      </Setter>
+                    </Style>
+                  </GroupStyle.ContainerStyle>
+                </GroupStyle>
+              </DataGrid.GroupStyle>
+              <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="40">
+                  <DataGridCheckBoxColumn.CellStyle>
+                    <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                      <Setter Property="Padding" Value="10,0,0,0"/>
+                      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                      <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    </Style>
+                  </DataGridCheckBoxColumn.CellStyle>
+                  <DataGridCheckBoxColumn.ElementStyle>
+                    <Style TargetType="CheckBox">
+                      <Setter Property="HorizontalAlignment" Value="Left"/>
+                      <Setter Property="VerticalAlignment" Value="Center"/>
+                      <Setter Property="Margin" Value="0"/>
+                    </Style>
+                  </DataGridCheckBoxColumn.ElementStyle>
+                </DataGridCheckBoxColumn>
+                <DataGridTemplateColumn Width="40" CanUserSort="False">
+                  <DataGridTemplateColumn.CellStyle>
+                    <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                      <Setter Property="Padding" Value="4,0,8,0"/>
+                      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                    </Style>
+                  </DataGridTemplateColumn.CellStyle>
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                      <Image Source="{Binding Icon}" Width="18" Height="18" Stretch="Uniform"
+                             RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn x:Name="ColAppName" Header="名称" Binding="{Binding Name}" Width="*" MinWidth="180" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="110" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColAppSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="SizeBytes" Width="72" IsReadOnly="True">
+                  <DataGridTextColumn.ElementStyle>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="HorizontalAlignment" Value="Right"/>
+                      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                    </Style>
+                  </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn x:Name="ColAppStatus" Header="状态" Binding="{Binding Status}" Width="80" IsReadOnly="True"/>
+              </DataGrid.Columns>
+            </DataGrid>
+            <DataGrid x:Name="JunkGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
+                      HeadersVisibility="Column" GridLinesVisibility="None"
+                      BorderThickness="0" RowHeight="32" Margin="12,0,16,0" Visibility="Collapsed"
+                      AlternatingRowBackground="{DynamicResource RowAlt}"
+                      RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
+                      HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
+                      SelectionMode="Single" SelectionUnit="FullRow"
+                      MouseLeftButtonUp="JunkGrid_Click"
+                      MouseDoubleClick="JunkGrid_DoubleClick">
+              <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="40">
+                  <DataGridCheckBoxColumn.CellStyle>
+                    <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                      <Setter Property="Padding" Value="10,0,0,0"/>
+                      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                      <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    </Style>
+                  </DataGridCheckBoxColumn.CellStyle>
+                  <DataGridCheckBoxColumn.ElementStyle>
+                    <Style TargetType="CheckBox">
+                      <Setter Property="HorizontalAlignment" Value="Left"/>
+                      <Setter Property="VerticalAlignment" Value="Center"/>
+                      <Setter Property="Margin" Value="0"/>
+                    </Style>
+                  </DataGridCheckBoxColumn.ElementStyle>
+                </DataGridCheckBoxColumn>
+                <DataGridTextColumn x:Name="ColJunkApp" Header="名称" Binding="{Binding AppName}" Width="140" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColJunkKind" Header="类型" Binding="{Binding Category}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColJunkConf" Header="把握" Binding="{Binding ConfidenceText}" SortMemberPath="ConfidenceScore" Width="72" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColJunkPath" Header="路径" Binding="{Binding Path}" Width="*" IsReadOnly="True"/>
+              </DataGrid.Columns>
+            </DataGrid>
+            </Grid>
+          </DockPanel>
         </DockPanel>
       </Border>
     </Grid>
@@ -735,9 +1058,18 @@
           </StackPanel>
         </StackPanel>
         <StackPanel x:Name="AboutBody" Visibility="Collapsed">
+          <Image Source="Assets/logo-256.png" Width="88" Height="88" HorizontalAlignment="Left" Margin="0,0,0,16"
+                 RenderOptions.BitmapScalingMode="HighQuality"/>
           <TextBlock x:Name="AboutText" Foreground="{DynamicResource Text}" TextWrapping="Wrap" Margin="0,0,0,16"/>
           <TextBlock x:Name="RepoLink" Foreground="{DynamicResource Accent}" Cursor="Hand" TextDecorations="Underline"
                      MouseLeftButtonDown="RepoLink_Click"/>
+        </StackPanel>
+        <StackPanel x:Name="AlertBody" Visibility="Collapsed">
+          <TextBlock x:Name="AlertText" Foreground="{DynamicResource Text}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+        </StackPanel>
+        <StackPanel x:Name="ConfirmButtons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0" Visibility="Collapsed">
+          <Button x:Name="ConfirmNoBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="ConfirmNo_Click"/>
+          <Button x:Name="ConfirmYesBtn" Style="{StaticResource PrimaryButton}" Click="ConfirmYes_Click"/>
         </StackPanel>
         <Button x:Name="DialogClose" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Right" Margin="0,20,0,0" Click="CloseOverlay_Click"/>
       </StackPanel>
