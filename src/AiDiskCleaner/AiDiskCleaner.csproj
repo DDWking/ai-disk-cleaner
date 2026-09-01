@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.18362.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -18,6 +18,16 @@
   <ItemGroup>
     <Resource Include="Assets\logo-256.png" />
     <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\UninstallTools\UninstallTools.csproj" />
+    <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\StoreAppHelper\StoreAppHelper.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\vendor\Bulk-Crap-Uninstaller\Licence.txt" Link="THIRD-PARTY\BCUninstaller\Licence.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\vendor\Bulk-Crap-Uninstaller\NOTICE" Link="THIRD-PARTY\BCUninstaller\NOTICE" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

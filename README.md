@@ -11,7 +11,8 @@ Windows 下的磁盘占用分析工具。直接读 NTFS 的 `$MFT`，秒级扫�
 - 右边当前目录：文件夹 + 文件，默认按大小降序
 - 顶部显示卷容量：总共 / 已用 / 可用
 - 文件名搜索（当前目录）
-- 临时 / 日志文件的清理建议（还很初级）
+- 临时 / 日志文件的清理建议
+- 卸载页：列出已装软件（注册表 + 商店应用），勾选后走官方卸载程序。引擎来自 [Bulk Crap Uninstaller](https://github.com/Klocman/Bulk-Crap-Uninstaller)（Apache 2.0）
 
 ## 下载
 
@@ -57,6 +58,14 @@ git pull origin ddw-develop
 git push origin ddw-develop
 ```
 
+克隆后要拉 submodule（卸载引擎）：
+
+```powershell
+git clone --recurse-submodules https://github.com/DDWking/ai-disk-cleaner.git
+# 已经 clone 过的：
+git submodule update --init --recursive
+```
+
 ## 协议
 
-[MIT](LICENSE)
+本仓库代码 [MIT](LICENSE)。卸载引擎来自 Bulk Crap Uninstaller，Apache 2.0，见 [THIRD-PARTY.md](THIRD-PARTY.md)。

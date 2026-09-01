@@ -62,8 +62,8 @@ public static class Loc
     public static string AboutTitle => IsEn ? "About" : "关于";
     public static string SettingsTitle => IsEn ? "Settings" : "设置";
     public static string AboutBody => IsEn
-        ? "A fast NTFS disk scanner. Open source under MIT."
-        : "NTFS 磁盘秒扫工具，MIT 开源。";
+        ? "A fast NTFS disk scanner. MIT. Uninstall list uses Bulk Crap Uninstaller (Apache 2.0, Marcin Szeniak)."
+        : "NTFS 磁盘秒扫。MIT。卸载列表使用 Bulk Crap Uninstaller（Apache 2.0，Marcin Szeniak）。";
     public static string Repo => "https://github.com/DDWking/ai-disk-cleaner";
     public static string NoExt => IsEn ? "(no extension)" : "(无扩展名)";
     public static string Folder => IsEn ? "Folder" : "文件夹";
@@ -199,6 +199,26 @@ public static class Loc
 
     public static string TabExt => IsEn ? "Types" : "扩展名";
     public static string TabClean => IsEn ? "Clean" : "清理";
+    public static string TabUninstall => IsEn ? "Uninstall" : "卸载";
+    public static string UninstallRefresh => IsEn ? "Refresh" : "刷新";
+    public static string UninstallRun => IsEn ? "Uninstall selected" : "卸载勾选项";
+    public static string UninstallListing => IsEn ? "Listing installed apps…" : "正在列出已装软件…";
+    public static string UninstallHint => IsEn
+        ? "Refresh to list installed apps. Uninstall uses each app's own uninstaller (BCU engine)."
+        : "点刷新列出已装软件。卸载走各软件自己的卸载程序（BCU 引擎）。";
+    public static string UninstallCount(int n) => IsEn ? $"{n:N0} apps" : $"{n:N0} 个软件";
+    public static string UninstallConfirm(int n) =>
+        IsEn ? $"Run the official uninstaller for {n:N0} apps? Each may show its own window."
+             : $"对 {n:N0} 个软件运行官方卸载程序？每个都可能弹出自己的窗口。";
+    public static string UninstallProtected => IsEn ? "Protected" : "受保护";
+    public static string UninstallNoWay => IsEn ? "No uninstaller" : "无法卸载";
+    public static string UninstallRunning => IsEn ? "Uninstalling…" : "正在卸载…";
+    public static string UninstallDone => IsEn ? "Done" : "完成";
+    public static string UninstallFailed => IsEn ? "Failed" : "失败";
+    public static string UninstallWaiting => IsEn ? "Waiting" : "等待";
+    public static string Publisher => IsEn ? "Publisher" : "发布者";
+    public static string Status => IsEn ? "Status" : "状态";
+    public static string Refresh => IsEn ? "Refresh" : "刷新";
     public static string Analyze => IsEn ? "Analyze" : "分析";
     public static string Analyzing => IsEn ? "Analyzing…" : "正在分析…";
     public static string RecycleSelected => IsEn ? "Recycle selected" : "删除勾选项";

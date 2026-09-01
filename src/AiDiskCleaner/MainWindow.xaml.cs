@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
+using UninstallTools.Uninstaller;
 
 namespace AiDiskCleaner;
 
@@ -45,8 +46,11 @@ public partial class MainWindow : Window
     private int _liveShown;
     private int _liveExtShown;
     private CleanReport? _report;
-    private bool _cleanTab = true;
+    private int _rightTab; // 0 清理 1 扩展名 2 卸载
     private Action? _confirmYes;
+    private List<AppUninstallItem> _apps = new();
+    private bool _listingApps;
+    private BulkUninstallTask? _uninstallTask;
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -73,7 +77,7 @@ public partial class MainWindow : Window
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
         ApplyUi();
-        ShowRightTab(true);
+        ShowRightTab(0);
     }
 
     public void ApplyUi()
@@ -104,6 +108,17 @@ public partial class MainWindow : Window
         ColSize.Header = Loc.Size;
         TabExtBtn.Content = Loc.TabExt;
         TabCleanBtn.Content = Loc.TabClean;
+        TabUninstallBtn.Content = Loc.TabUninstall;
+        UninstallRefreshBtn.Content = Loc.Refresh;
+        UninstallAllBtn.Content = Loc.SelectAll;
+        UninstallRunBtn.Content = Loc.UninstallRun;
+        ColAppName.Header = Loc.ColName;
+        ColAppPub.Header = Loc.Publisher;
+        ColAppSize.Header = Loc.Size;
+        ColAppStatus.Header = Loc.Status;
+        if (_apps.Count == 0) UninstallSummary.Text = Loc.UninstallHint;
+        else UninstallSummary.Text = Loc.UninstallCount(_apps.Count);
+        UpdateUninstallSelHint();
         SelectAllBtn.Content = Loc.SelectAll;
         SelectSafeBtn.Content = Loc.SelectSafe;
         HighlightSelectMode();
@@ -169,7 +184,7 @@ public partial class MainWindow : Window
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
         ScanProgressText.Text = Loc.Preparing;
-        ShowRightTab(true);
+        ShowRightTab(0);
         SetCleanProgress(0, Loc.CleanScan, determinate: false);
         BeginLiveScan(DriveBox.SelectedItem.ToString()!);
 
@@ -1045,18 +1060,29 @@ public partial class MainWindow : Window
         catch { }
     }
 
-    private void TabExt_Click(object sender, RoutedEventArgs e) => ShowRightTab(clean: false);
-    private void TabClean_Click(object sender, RoutedEventArgs e) => ShowRightTab(clean: true);
-
-    private void ShowRightTab(bool clean)
+    private void TabClean_Click(object sender, RoutedEventArgs e) => ShowRightTab(0);
+    private void TabExt_Click(object sender, RoutedEventArgs e) => ShowRightTab(1);
+    private void TabUninstall_Click(object sender, RoutedEventArgs e)
     {
-        _cleanTab = clean;
-        ExtPane.Visibility = clean ? Visibility.Collapsed : Visibility.Visible;
-        CleanPane.Visibility = clean ? Visibility.Visible : Visibility.Collapsed;
-        TabExtBtn.BorderBrush = ThemeService.Brush(clean ? "Border" : "Accent");
-        TabCleanBtn.BorderBrush = ThemeService.Brush(clean ? "Accent" : "Border");
-        TabExtBtn.Foreground = ThemeService.Brush(clean ? "TextDim" : "Accent");
-        TabCleanBtn.Foreground = ThemeService.Brush(clean ? "Accent" : "TextDim");
+        ShowRightTab(2);
+        if (_apps.Count == 0 && !_listingApps) _ = LoadApps();
+    }
+
+    private void ShowRightTab(int tab)
+    {
+        _rightTab = tab;
+        CleanPane.Visibility = tab == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ExtPane.Visibility = tab == 1 ? Visibility.Visible : Visibility.Collapsed;
+        UninstallPane.Visibility = tab == 2 ? Visibility.Visible : Visibility.Collapsed;
+        MarkTab(TabCleanBtn, tab == 0);
+        MarkTab(TabExtBtn, tab == 1);
+        MarkTab(TabUninstallBtn, tab == 2);
+    }
+
+    private static void MarkTab(Button b, bool on)
+    {
+        b.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
+        b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
     }
 
     private void RefreshCleanUi()
@@ -1084,7 +1110,7 @@ public partial class MainWindow : Window
         else
             CleanSummary.Text = Loc.CleanHintReady(_report.Cleanable.Count, FileEntry.FormatSize(_report.CleanableBytes));
         UpdateCleanSelHint();
-        ShowRightTab(_cleanTab);
+        ShowRightTab(_rightTab);
     }
 
     private static string Label(string title, List<CleanItem>? items)
@@ -1180,6 +1206,127 @@ public partial class MainWindow : Window
     }
 
     private void CleanGrid_Click(object sender, MouseButtonEventArgs e) => UpdateCleanSelHint();
+
+    private async void UninstallRefresh_Click(object sender, RoutedEventArgs e) => await LoadApps();
+
+    private async Task LoadApps()
+    {
+        if (_listingApps) return;
+        _listingApps = true;
+        UninstallRefreshBtn.IsEnabled = false;
+        UninstallRunBtn.IsEnabled = false;
+        UninstallProgressPanel.Visibility = Visibility.Visible;
+        UninstallProgressBar.IsIndeterminate = true;
+        UninstallProgressBar.Value = 0;
+        UninstallProgressText.Text = Loc.UninstallListing;
+        UninstallSummary.Text = Loc.UninstallListing;
+        try
+        {
+            var progress = new Progress<ScanProgress>(p =>
+            {
+                UninstallProgressBar.IsIndeterminate = p.Percent < 0;
+                if (p.Percent >= 0) UninstallProgressBar.Value = p.Percent;
+                UninstallProgressText.Text = p.CurrentDirectory;
+            });
+            var list = await Task.Run(() => BcuUninstallService.ListApps(progress, CancellationToken.None));
+            _apps = list;
+            UninstallGrid.ItemsSource = _apps;
+            UninstallSummary.Text = Loc.UninstallCount(_apps.Count);
+            UpdateUninstallSelHint();
+        }
+        catch (Exception ex)
+        {
+            ShowAlert(Loc.TabUninstall, ex.Message);
+        }
+        finally
+        {
+            _listingApps = false;
+            UninstallRefreshBtn.IsEnabled = true;
+            UninstallRunBtn.IsEnabled = true;
+            UninstallProgressPanel.Visibility = Visibility.Collapsed;
+            UninstallProgressBar.IsIndeterminate = false;
+        }
+    }
+
+    private void UninstallSelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        bool allOn = _apps.Where(x => x.CanUninstall).All(x => x.Selected) && _apps.Any(x => x.CanUninstall);
+        foreach (var a in _apps)
+            a.Selected = !allOn && a.CanUninstall;
+        UpdateUninstallSelHint();
+    }
+
+    private void UninstallGrid_Click(object sender, MouseButtonEventArgs e) => UpdateUninstallSelHint();
+
+    private void UpdateUninstallSelHint()
+    {
+        var picked = _apps.Where(x => x.Selected && x.CanUninstall).ToList();
+        UninstallSelHint.Text = picked.Count == 0 ? "" : Loc.UninstallCount(picked.Count);
+        bool allOn = _apps.Where(x => x.CanUninstall).All(x => x.Selected) && _apps.Any(x => x.CanUninstall);
+        UninstallAllBtn.BorderBrush = ThemeService.Brush(allOn ? "Accent" : "Border");
+        UninstallAllBtn.Foreground = ThemeService.Brush(allOn ? "Accent" : "TextDim");
+    }
+
+    private void UninstallRun_Click(object sender, RoutedEventArgs e)
+    {
+        var picked = _apps.Where(x => x.Selected && x.CanUninstall).ToList();
+        if (picked.Count == 0)
+        {
+            ShowAlert(Loc.TabUninstall, Loc.NothingSelected);
+            return;
+        }
+        AskConfirm(Loc.TabUninstall, Loc.UninstallConfirm(picked.Count), () => RunUninstall(picked));
+    }
+
+    private void RunUninstall(List<AppUninstallItem> picked)
+    {
+        try
+        {
+            _uninstallTask?.Dispose();
+            _uninstallTask = BcuUninstallService.StartUninstall(picked);
+            UninstallProgressPanel.Visibility = Visibility.Visible;
+            UninstallProgressBar.IsIndeterminate = true;
+            UninstallProgressText.Text = Loc.UninstallRunning;
+            UninstallRunBtn.IsEnabled = false;
+            _uninstallTask.OnStatusChanged += (_, _) => Dispatcher.BeginInvoke(RefreshUninstallTask);
+        }
+        catch (Exception ex)
+        {
+            ShowAlert(Loc.TabUninstall, ex.Message);
+        }
+    }
+
+    private void RefreshUninstallTask()
+    {
+        var task = _uninstallTask;
+        if (task == null) return;
+        var byEntry = task.AllUninstallersList.ToDictionary(x => x.UninstallerEntry);
+        foreach (var app in _apps)
+        {
+            if (app.Entry == null || !byEntry.TryGetValue(app.Entry, out var row)) continue;
+            app.Status = row.CurrentStatus switch
+            {
+                UninstallStatus.Waiting => Loc.UninstallWaiting,
+                UninstallStatus.Uninstalling => Loc.UninstallRunning,
+                UninstallStatus.Completed => Loc.UninstallDone,
+                UninstallStatus.Failed => Loc.UninstallFailed,
+                UninstallStatus.Protected => Loc.UninstallProtected,
+                UninstallStatus.Skipped => Loc.UninstallFailed,
+                _ => app.Status,
+            };
+        }
+        int done = task.AllUninstallersList.Count(x => x.Finished);
+        int total = task.AllUninstallersList.Count;
+        UninstallProgressBar.IsIndeterminate = false;
+        UninstallProgressBar.Value = total == 0 ? 0 : done * 100.0 / total;
+        UninstallProgressText.Text = Loc.UninstallRunning + $" {done}/{total}";
+        if (!task.Finished) return;
+        UninstallRunBtn.IsEnabled = true;
+        UninstallProgressPanel.Visibility = Visibility.Collapsed;
+        int ok = task.AllUninstallersList.Count(x => x.CurrentStatus == UninstallStatus.Completed);
+        int fail = task.AllUninstallersList.Count(x => x.CurrentStatus == UninstallStatus.Failed);
+        HeaderStats.Text = fail == 0 ? Loc.UninstallDone : $"{Loc.UninstallDone} {ok}, {Loc.UninstallFailed} {fail}";
+    }
 
     private void CleanGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {

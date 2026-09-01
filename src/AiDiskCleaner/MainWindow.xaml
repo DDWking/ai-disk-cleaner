@@ -771,7 +771,8 @@
         <DockPanel>
           <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,12,16,8">
             <Button x:Name="TabCleanBtn" Content="清理" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabClean_Click"/>
-            <Button x:Name="TabExtBtn" Content="扩展名" Style="{StaticResource GhostButton}" Click="TabExt_Click"/>
+            <Button x:Name="TabExtBtn" Content="扩展名" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabExt_Click"/>
+            <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource GhostButton}" Click="TabUninstall_Click"/>
           </StackPanel>
           <DockPanel x:Name="ExtPane" Visibility="Collapsed">
           <TextBlock x:Name="ExtTitle" DockPanel.Dock="Top" Margin="20,0,20,8" Text="扩展名 / 类型" Foreground="{DynamicResource TextDim}" FontSize="11"/>
@@ -883,6 +884,48 @@
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
                 <DataGridTextColumn x:Name="ColCleanWhy" Header="原因" Binding="{Binding Reason}" Width="*" IsReadOnly="True"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+          <DockPanel x:Name="UninstallPane" Visibility="Collapsed">
+            <StackPanel x:Name="UninstallProgressPanel" DockPanel.Dock="Top" Margin="20,0,20,10" Visibility="Collapsed">
+              <TextBlock x:Name="UninstallProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
+              <ProgressBar x:Name="UninstallProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"
+                           Foreground="{DynamicResource Accent}" Background="{DynamicResource Border}" BorderThickness="0"/>
+            </StackPanel>
+            <TextBlock x:Name="UninstallSummary" DockPanel.Dock="Top" Margin="20,0,20,8"
+                       Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"
+                       Text="点刷新列出已装软件。卸载走各软件自己的卸载程序。"/>
+            <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
+              <Button x:Name="UninstallRefreshBtn" Content="刷新" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallRefresh_Click"/>
+              <Button x:Name="UninstallAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallSelectAll_Click"/>
+            </WrapPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
+              <Button x:Name="UninstallRunBtn" Content="卸载勾选项" Style="{StaticResource PrimaryButton}" Click="UninstallRun_Click"/>
+              <TextBlock x:Name="UninstallSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
+                         Foreground="{DynamicResource TextDim}" FontSize="11"/>
+            </StackPanel>
+            <DataGrid x:Name="UninstallGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
+                      HeadersVisibility="Column" GridLinesVisibility="None"
+                      BorderThickness="0" RowHeight="32" Margin="12,0,16,0"
+                      AlternatingRowBackground="{DynamicResource RowAlt}"
+                      RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
+                      HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
+                      SelectionMode="Single" SelectionUnit="FullRow"
+                      MouseLeftButtonUp="UninstallGrid_Click">
+              <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
+                <DataGridTextColumn x:Name="ColAppName" Header="名称" Binding="{Binding Name}" Width="140" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="90" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColAppSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="SizeBytes" Width="64" IsReadOnly="True">
+                  <DataGridTextColumn.ElementStyle>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="HorizontalAlignment" Value="Right"/>
+                      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                    </Style>
+                  </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn x:Name="ColAppStatus" Header="状态" Binding="{Binding Status}" Width="*" IsReadOnly="True"/>
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>

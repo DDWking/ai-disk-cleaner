@@ -1,0 +1,3 @@
+[submodule "vendor/Bulk-Crap-Uninstaller"]
+	path = vendor/Bulk-Crap-Uninstaller
+	url = git@github.com:Klocman/Bulk-Crap-Uninstaller.git
