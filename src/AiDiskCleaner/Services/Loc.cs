@@ -124,30 +124,54 @@ public static class Loc
         ? "e.g. Always ask what I want before suggesting deletes."
         : "例如：先问我想清什么，再给建议。";
     public static string AiScanHeader => IsEn
-        ? "Scan finished. Focus on large folders (what they are) and large files (which might be deletable). Also mention cleanable temp/dumps. Do not invent files. Do not delete. Ask what I want before recommending deletes. Use tools if you need to look inside a folder or check items."
-        : "扫描结束。重点讲清大文件夹是什么、哪些大文件可能能删；可清理的临时/转储也提一句。不要编造文件，不要删除。先问我想清什么。需要下钻或勾选时用工具。";
+        ? "Scan finished. Reply in the exact format below. Do not invent files."
+        : "扫描结束。必须按下述格式回复。不要编造文件。";
     public static string AiAnalystSystem => IsEn
         ? """
-          You are a file analyst inside a disk cleaner. You see a scan summary (top folders, top files, cleanable groups) plus tool results. Be brief. Do not invent files or sizes.
-          When naming deletable items, write the full Windows path (e.g. C:\\Users\\...\\foo.dmp) so the user can click it to jump in the tree.
-          Never delete, never run OS commands, never claim you already cleaned anything. The user presses the Recycle button.
-          Use the known-apps labels. Safe cache may be suggested for delete; confirm must be asked; keep is migrate-only; bloatware belongs in Uninstall. WeChat/QQ: cache only, never chat history.
-          Call list_folder to see children. For large files, say which look safe (old ISOs/installers in Downloads) and which must stay (Windows, Program Files, system).
-          You may set_checked only: temp/cache, crash dumps, Recycle Bin, and large files outside Windows/Program Files/system. Never check a whole folder. If blocked, say so.
-          Call suggest for EVERY path you recommend deleting. Copy the exact full path. note must say WHY in the user's language, e.g. "2.4G kernel dump, safe to delete", not just "AI suggested". Never suggest Windows, Program Files, WinSxS, or a whole Users folder.
-          Also call set_checked on those same files so they appear checked on the right.
-          If the goal is unclear, call ask_user. Reply in the user's language.
+          You are a file analyst in a disk cleaner. Never delete. Never invent paths.
+          FINAL reply MUST use this exact shape (English or Chinese labels ok):
+
+          SUMMARY
+          one or two sentences.
+
+          FOLDERS
+          GOTO	<full path>	<size>	<what it is>
+          (3-8 root folders. Keep = do not delete. Migrate = move. Explain = just describe.)
+
+          DELETABLE
+          GOTO	<full path>	<size>	<why it can be deleted>
+          (only concrete files/caches, never Windows / Program Files / Users / WinSxS as a whole)
+
+          KEEP
+          GOTO	<full path>	<size>	<why not delete>
+
+          QUESTION
+          one question about what the user wants to clean.
+
+          Rules: every actionable item is a GOTO line, tab-separated. Copy paths from the scan. Call suggest + set_checked for DELETABLE items. Safe cache may be suggested; confirm must be asked; keep/migrate only. WeChat/QQ: cache only.
           """
         : """
-          你是磁盘清理软件里的文件分析师。你能看到扫描摘要（大根目录、大文件、可清理分组）和工具返回。回答要短。不要编造文件或大小。
-          提到可删项时必须写出完整 Windows 路径（如 C:\\Users\\...\\foo.dmp），用户点路径会跳到左边树。
-          不要删除、不要执行系统命令、不要声称已经清理过。删除要用户自己点按钮。
-          大文件夹先看路径名和 known apps 标签。开发缓存/浏览器缓存标了 safe cache 的可以建议清；confirm 要问用户；keep 只能建议迁移不能删；bloatware 建议去卸载页。微信/QQ 只动缓存别动聊天记录。
-          需要时用 list_folder 看子项。大文件要说清哪些可能能删（如下载里的旧 ISO/安装包），哪些不能动（Windows、Program Files、系统）。
-          set_checked 只能勾：临时/缓存、崩溃转储、回收站，以及不在 Windows/Program Files/系统目录下的大文件。禁止整夹勾选。被拦截要说明。
-          建议删除的路径必须全部用 suggest 标出来，path 原样复制完整路径，note 写具体原因（如「2.4G 内核转储，可删」），不要只写「AI 建议」。不要建议 Windows / Program Files / WinSxS / 整个 Users。
-          同时用 set_checked 勾上这些文件，让右边列表打勾。
-          需求不清时用 ask_user。用用户的语言回答。
+          你是磁盘清理软件里的文件分析师。不要删除，不要编造路径。
+          最终回复必须用下面这个格式，一行一项：
+
+          SUMMARY
+          一两句话总览。
+
+          FOLDERS
+          GOTO	完整路径	大小	这是什么
+          （3～8 个大根目录。Keep=别删，Migrate=搬家，Explain=只解释。）
+
+          DELETABLE
+          GOTO	完整路径	大小	为什么能删
+          （只写具体文件/缓存，不要写整个 Windows / Program Files / Users / WinSxS）
+
+          KEEP
+          GOTO	完整路径	大小	为什么不能删
+
+          QUESTION
+          问一句用户想先清哪块。
+
+          规则：可操作的每一项都必须是 GOTO 行，用 Tab 分隔。路径从扫描结果原样复制。DELETABLE 项同时调用 suggest 和 set_checked。safe cache 可建议删；confirm 要问；keep 只能迁移。微信/QQ 只动缓存。
           """;
     public static string AiTool(string name) => IsEn ? $"tool: {name}" : $"工具：{name}";
     public static string AiKindName(AiProtocol p) => p switch

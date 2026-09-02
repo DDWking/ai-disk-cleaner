@@ -855,35 +855,7 @@
                 <ItemsControl x:Name="AiChatList">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                      <StackPanel Margin="0,0,0,10">
-                        <TextBlock Text="{Binding Who}" FontSize="11" Margin="0,0,0,2">
-                          <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                              <Setter Property="Foreground" Value="#8A8A8A"/>
-                              <Style.Triggers>
-                                <DataTrigger Binding="{Binding Log}" Value="True">
-                                  <Setter Property="Foreground" Value="#6A6A6A"/>
-                                </DataTrigger>
-                              </Style.Triggers>
-                            </Style>
-                          </TextBlock.Style>
-                        </TextBlock>
-                        <ctrl:MarkdownText Markdown="{Binding Text}" FontSize="13" TextWrapping="Wrap"
-                                           PathClick="ChatPath_Click">
-                          <ctrl:MarkdownText.Style>
-                            <Style TargetType="ctrl:MarkdownText">
-                              <Setter Property="Foreground" Value="#F2F2F2"/>
-                              <Setter Property="FontSize" Value="13"/>
-                              <Style.Triggers>
-                                <DataTrigger Binding="{Binding Log}" Value="True">
-                                  <Setter Property="Foreground" Value="#A8A8A8"/>
-                                  <Setter Property="FontSize" Value="12"/>
-                                </DataTrigger>
-                              </Style.Triggers>
-                            </Style>
-                          </ctrl:MarkdownText.Style>
-                        </ctrl:MarkdownText>
-                      </StackPanel>
+                      <ctrl:ChatBubble Line="{Binding}" PathClick="ChatPath_Click" Margin="0,0,0,10"/>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>

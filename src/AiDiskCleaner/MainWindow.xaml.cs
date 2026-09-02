@@ -1466,7 +1466,14 @@ public partial class MainWindow : Window, IAnalystHost
 
     void AddChat(string who, string text, bool log = false)
     {
-        _chat.Add(new ChatLine { Who = who, Text = text, Log = log });
+        var line = new ChatLine
+        {
+            Who = who,
+            Text = text,
+            Log = log,
+            Parts = log ? new() : ChatFormat.Parse(text),
+        };
+        _chat.Add(line);
         Dispatcher.BeginInvoke(() => AiChatScroll.ScrollToEnd(), System.Windows.Threading.DispatcherPriority.Background);
     }
 
