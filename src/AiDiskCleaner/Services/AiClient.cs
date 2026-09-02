@@ -59,13 +59,13 @@ public static class AiClient
 
     public static async Task<AiReply> TurnAsync(string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
     {
-        var s = App.Settings;
-        string baseUrl = (s.AiBaseUrl ?? "").Trim().TrimEnd('/');
-        string model = (s.AiModel ?? "").Trim();
-        string key = s.AiApiKey ?? "";
+        var p = App.Settings.CurrentProvider();
+        string baseUrl = (p?.BaseUrl ?? "").Trim().TrimEnd('/');
+        string model = (App.Settings.AiModel ?? "").Trim();
+        string key = p?.ApiKey ?? "";
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(model))
             throw new InvalidOperationException(Loc.AiNeedConfig);
-        var proto = ParseProtocol(s.AiProtocol);
+        var proto = ParseProtocol(p?.Protocol);
         try
         {
             return proto switch
@@ -91,12 +91,12 @@ public static class AiClient
 
     public static async Task<List<string>> ListModelsAsync(CancellationToken ct)
     {
-        var s = App.Settings;
-        string baseUrl = (s.AiBaseUrl ?? "").Trim().TrimEnd('/');
+        var p = App.Settings.CurrentProvider();
+        string baseUrl = (p?.BaseUrl ?? "").Trim().TrimEnd('/');
         if (string.IsNullOrWhiteSpace(baseUrl))
             throw new InvalidOperationException(Loc.AiNeedUrl);
-        var proto = ParseProtocol(s.AiProtocol);
-        string key = s.AiApiKey ?? "";
+        var proto = ParseProtocol(p?.Protocol);
+        string key = p?.ApiKey ?? "";
         using var req = new HttpRequestMessage(HttpMethod.Get, Join(baseUrl, "models"));
         Auth(req, proto, key);
         using var res = await Http.SendAsync(req, ct);

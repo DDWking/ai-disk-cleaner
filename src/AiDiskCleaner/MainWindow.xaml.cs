@@ -106,6 +106,8 @@ public partial class MainWindow : Window, IAnalystHost
     private bool _aiBusy;
     private bool _aiOk;
     private bool _aiTried;
+    private readonly Dictionary<string, string> _aiNotes = new(StringComparer.OrdinalIgnoreCase);
+    private bool _provLock;
     private readonly ObservableCollection<ChatLine> _chat = new();
     private readonly List<AiMsg> _turns = new();
     FileEntry? IAnalystHost.Root => _root;
@@ -220,7 +222,11 @@ public partial class MainWindow : Window, IAnalystHost
         AiChatSendBtn.Content = Loc.AiSend;
         AiChatClearBtn.Content = Loc.AiClear;
         AiChatInput.Tag = Loc.AiChatHint;
+        AiRunBtn.Content = Loc.AiAnalyze;
+        AiAddProvBtn.Content = Loc.AiAddProvider;
+        AiDelProvBtn.Content = Loc.AiDelProvider;
         FillAiProtoBox();
+        FillRunModels();
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_current == null)
@@ -463,12 +469,17 @@ public partial class MainWindow : Window, IAnalystHost
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        bool marked = !string.IsNullOrEmpty(d.FullPath) && _aiNotes.ContainsKey(d.FullPath);
+        string note = marked ? _aiNotes[d.FullPath] : "";
         var name = new TextBlock
         {
-            Text = d.Name,
-            Foreground = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Text"),
+            Text = string.IsNullOrEmpty(note) ? d.Name : d.Name + "  ·  " + note,
+            Foreground = marked
+                ? new SolidColorBrush(Color.FromRgb(0x5C, 0xC8, 0xFF))
+                : ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Text"),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
+            ToolTip = string.IsNullOrEmpty(note) ? null : note,
         };
         double pct = isRoot && _volumeTotal > 0
             ? 100.0 * _volumeUsed / _volumeTotal
@@ -493,6 +504,8 @@ public partial class MainWindow : Window, IAnalystHost
         grid.Children.Add(alloc);
         grid.Children.Add(files);
         grid.Children.Add(folders);
+        if (marked)
+            grid.Background = new SolidColorBrush(Color.FromArgb(0x40, 0x1A, 0x5A, 0x90));
         return grid;
     }
 
@@ -1173,32 +1186,115 @@ public partial class MainWindow : Window, IAnalystHost
     void LoadAiFields()
     {
         _aiModelLock = true;
-        AiNameBox.Text = App.Settings.AiName ?? "";
-        AiUrlBox.Text = App.Settings.AiBaseUrl ?? "";
-        var proto = AiClient.ParseProtocol(App.Settings.AiProtocol);
-        int i = Array.IndexOf(AiProtos, proto);
-        AiProtoBox.SelectedIndex = i < 0 ? 0 : i;
-        AiModelBox.Text = App.Settings.AiModel ?? "";
-        AiKeyBox.Password = App.Settings.AiApiKey ?? "";
+        _provLock = true;
+        App.Settings.Migrate();
+        AiProvList.ItemsSource = null;
+        AiProvList.ItemsSource = App.Settings.AiProviders;
+        var cur = App.Settings.CurrentProvider();
+        if (cur != null) AiProvList.SelectedItem = cur;
+        ShowProv(cur);
         AiExtraBox.Text = App.Settings.AiExtraPrompt ?? "";
         AiTestHint.Text = "";
-        FillModelPick(App.Settings.AiModels, App.Settings.AiModel);
-        AiModelHint.Text = AiModelPick.Items.Count == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(AiModelPick.Items.Count);
+        _provLock = false;
         _aiModelLock = false;
+        FillRunModels();
+        RefreshAiLamp();
+    }
+
+    void ShowProv(AiProviderCfg? p)
+    {
+        AiNameBox.Text = p?.Name ?? "";
+        AiUrlBox.Text = p?.BaseUrl ?? "";
+        var proto = AiClient.ParseProtocol(p?.Protocol);
+        int i = Array.IndexOf(AiProtos, proto);
+        AiProtoBox.SelectedIndex = i < 0 ? 0 : i;
+        AiKeyBox.Password = p?.ApiKey ?? "";
+        string model = App.Settings.AiModel ?? "";
+        if (p != null && (string.IsNullOrEmpty(model) || !p.Models.Contains(model, StringComparer.OrdinalIgnoreCase)) && p.Models.Count > 0)
+            model = p.Models[0];
+        AiModelBox.Text = model;
+        FillModelPick(p?.Models, model);
+        AiModelHint.Text = (p?.Models.Count ?? 0) == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(p!.Models.Count);
     }
 
     void SaveAiFields()
     {
         if (AiUrlBox == null) return;
-        int i = AiProtoBox.SelectedIndex;
-        App.Settings.AiName = AiNameBox.Text?.Trim() ?? "";
-        App.Settings.AiBaseUrl = AiUrlBox.Text?.Trim() ?? "";
-        App.Settings.AiProtocol = AiClient.ProtocolId(i >= 0 && i < AiProtos.Length ? AiProtos[i] : AiProtocol.Completions);
-        App.Settings.AiModel = AiModelBox.Text?.Trim() ?? "";
-        App.Settings.AiModels = AiModelPick.Items.OfType<string>().ToList();
-        App.Settings.AiApiKey = AiKeyBox.Password ?? "";
-        App.Settings.AiExtraPrompt = AiExtraBox.Text ?? "";
+        App.Settings.Migrate();
+        var p = App.Settings.CurrentProvider();
+        if (p == null)
+        {
+            p = NewProv();
+            App.Settings.AiProviders.Add(p);
+            App.Settings.AiActiveId = p.Id;
+        }
+        WriteProv(p);
         App.Settings.Save();
+        FillRunModels();
+        RefreshAiLamp();
+    }
+
+    static AiProviderCfg NewProv()
+        => new()
+        {
+            Id = "p" + Guid.NewGuid().ToString("N")[..8],
+            Name = Loc.IsEn ? "Provider" : "提供方",
+            Protocol = "completions",
+        };
+
+    private void AiProvList_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_provLock) return;
+        if (e.RemovedItems.Count > 0 && e.RemovedItems[0] is AiProviderCfg old)
+            WriteProv(old);
+        if (AiProvList.SelectedItem is AiProviderCfg p)
+        {
+            App.Settings.AiActiveId = p.Id;
+            if (p.Models.Count > 0 && (string.IsNullOrEmpty(App.Settings.AiModel) || !p.Models.Contains(App.Settings.AiModel, StringComparer.OrdinalIgnoreCase)))
+                App.Settings.AiModel = p.Models[0];
+            App.Settings.Save();
+            _aiModelLock = true;
+            ShowProv(p);
+            _aiModelLock = false;
+            FillRunModels();
+            RefreshAiLamp();
+        }
+    }
+
+    void WriteProv(AiProviderCfg p)
+    {
+        int i = AiProtoBox.SelectedIndex;
+        p.Name = AiNameBox.Text?.Trim() ?? "";
+        if (string.IsNullOrEmpty(p.Name)) p.Name = p.Id;
+        p.BaseUrl = AiUrlBox.Text?.Trim() ?? "";
+        p.Protocol = AiClient.ProtocolId(i >= 0 && i < AiProtos.Length ? AiProtos[i] : AiProtocol.Completions);
+        p.ApiKey = AiKeyBox.Password ?? "";
+        p.Models = AiModelPick.Items.OfType<string>().ToList();
+        string model = AiModelBox.Text?.Trim() ?? "";
+        if (!string.IsNullOrEmpty(model) && !p.Models.Contains(model, StringComparer.OrdinalIgnoreCase))
+            p.Models.Add(model);
+        App.Settings.AiModel = model;
+        App.Settings.AiExtraPrompt = AiExtraBox.Text ?? "";
+    }
+
+    private void AiAddProv_Click(object sender, RoutedEventArgs e)
+    {
+        SaveAiFields();
+        var p = NewProv();
+        App.Settings.AiProviders.Add(p);
+        App.Settings.AiActiveId = p.Id;
+        App.Settings.Save();
+        LoadAiFields();
+    }
+
+    private void AiDelProv_Click(object sender, RoutedEventArgs e)
+    {
+        var p = App.Settings.CurrentProvider();
+        if (p == null) return;
+        App.Settings.AiProviders.Remove(p);
+        App.Settings.AiActiveId = App.Settings.AiProviders.FirstOrDefault()?.Id ?? "";
+        App.Settings.Save();
+        LoadAiFields();
     }
 
     void FillModelPick(IEnumerable<string>? ids, string? current)
@@ -1240,8 +1336,11 @@ public partial class MainWindow : Window, IAnalystHost
             if (string.IsNullOrEmpty(current) && ids.Count > 0)
                 AiModelBox.Text = ids[0];
             _aiModelLock = false;
+            var p = App.Settings.CurrentProvider();
+            if (p != null) p.Models = ids;
             App.Settings.AiModels = ids;
             App.Settings.Save();
+            FillRunModels();
             AiModelHint.Text = ids.Count == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(ids.Count);
         }
         catch (Exception ex)
@@ -1308,24 +1407,67 @@ public partial class MainWindow : Window, IAnalystHost
     }
 
     bool AiConfigured()
-        => !string.IsNullOrWhiteSpace(App.Settings.AiBaseUrl) && !string.IsNullOrWhiteSpace(App.Settings.AiModel);
+    {
+        var p = App.Settings.CurrentProvider();
+        return p != null && !string.IsNullOrWhiteSpace(p.BaseUrl) && !string.IsNullOrWhiteSpace(App.Settings.AiModel);
+    }
 
     async Task AutoAnalyze(FileEntry root, CleanReport report)
     {
+        if (_chat.Count == 0)
+            AddChat(Loc.AiBot, Loc.AiScanSkip);
+        RefreshAiLamp();
+        await Task.CompletedTask;
+    }
+
+    void FillRunModels()
+    {
+        if (AiRunModelBox == null) return;
+        _aiModelLock = true;
+        var p = App.Settings.CurrentProvider();
+        var models = p?.Models ?? new List<string>();
+        AiRunModelBox.ItemsSource = models;
+        string cur = App.Settings.AiModel ?? "";
+        if (!string.IsNullOrEmpty(cur) && models.Contains(cur, StringComparer.OrdinalIgnoreCase))
+            AiRunModelBox.SelectedItem = models.First(x => x.Equals(cur, StringComparison.OrdinalIgnoreCase));
+        else if (models.Count > 0)
+            AiRunModelBox.SelectedIndex = 0;
+        _aiModelLock = false;
+    }
+
+    private void AiRunModel_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_aiModelLock) return;
+        if (AiRunModelBox.SelectedItem is string id && !string.IsNullOrWhiteSpace(id))
+        {
+            App.Settings.AiModel = id;
+            App.Settings.Save();
+            RefreshAiLamp();
+        }
+    }
+
+    private async void AiRun_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        if (_report == null || _root == null)
+        {
+            AddChat(Loc.AiBot, Loc.AiNeedScanFirst);
+            return;
+        }
         if (!AiConfigured())
         {
-            SetAiLamp(false);
-            if (_chat.Count == 0)
-                AddChat(Loc.AiBot, Loc.AiScanSkip);
+            AddChat(Loc.AiBot, Loc.AiScanSkip);
             return;
         }
         DiskAnalyst.ResetSession();
-        await AskAnalyst(DiskAnalyst.Opening(root, report, _volumeUsed, _volumeTotal));
+        _aiNotes.Clear();
+        AddChat(Loc.AiYou, Loc.AiAnalyze);
+        await AskAnalyst(DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal));
     }
 
-    void AddChat(string who, string text)
+    void AddChat(string who, string text, bool log = false)
     {
-        _chat.Add(new ChatLine { Who = who, Text = text });
+        _chat.Add(new ChatLine { Who = who, Text = text, Log = log });
         Dispatcher.BeginInvoke(() => AiChatScroll.ScrollToEnd(), System.Windows.Threading.DispatcherPriority.Background);
     }
 
@@ -1381,6 +1523,7 @@ public partial class MainWindow : Window, IAnalystHost
             string last = "";
             for (int round = 0; round < DiskAnalyst.MaxRounds; round++)
             {
+                AddChat(Loc.AiBot, Loc.AiRound(round + 1), log: true);
                 bool overBudget = DiskAnalyst.EstimateTokens(_turns) >= DiskAnalyst.TokenBudget;
                 var reply = await AiClient.TurnAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), overBudget ? null : tools, CancellationToken.None);
                 last = (reply.Text ?? "").Trim();
@@ -1397,8 +1540,10 @@ public partial class MainWindow : Window, IAnalystHost
                 bool stop = false;
                 foreach (var call in reply.Calls)
                 {
-                    AddChat(Loc.AiBot, Loc.AiTool(call.Name));
                     string result = DiskAnalyst.Run(call.Name, call.Arguments, this);
+                    string preview = result.Replace("\r", " ").Replace("\n", " ");
+                    if (preview.Length > 160) preview = preview[..157] + "…";
+                    AddChat(Loc.AiBot, Loc.AiToolResult(call.Name, preview), log: true);
                     _turns.Add(new AiMsg { Role = "tool", Text = result, CallId = call.Id, ToolName = call.Name });
                     if (call.Name == "ask_user")
                     {
@@ -1439,6 +1584,30 @@ public partial class MainWindow : Window, IAnalystHost
         if (showLarge && CleanCatBox.Items.Count > 1)
             CleanCatBox.SelectedIndex = 1;
         RefreshCleanUi();
+        PaintAiNotes();
+    }
+
+    void IAnalystHost.OnSuggest(string path, string note)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        _aiNotes[path] = note.Trim();
+        Dispatcher.BeginInvoke(PaintAiNotes, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    void PaintAiNotes()
+    {
+        foreach (var obj in DirTree.Items)
+            if (obj is TreeViewItem item)
+                PaintItem(item);
+    }
+
+    void PaintItem(TreeViewItem item)
+    {
+        if (item.Tag is FileEntry e)
+            item.Header = MakeFolderHeader(e, ReferenceEquals(e, _root));
+        foreach (var child in item.Items)
+            if (child is TreeViewItem t && t.Tag is FileEntry)
+                PaintItem(t);
     }
 
     private async void AiChatSend_Click(object sender, RoutedEventArgs e)
@@ -1471,7 +1640,9 @@ public partial class MainWindow : Window, IAnalystHost
         if (_aiBusy) return;
         _chat.Clear();
         _turns.Clear();
+        _aiNotes.Clear();
         DiskAnalyst.ResetSession();
+        if (_root != null) PaintAiNotes();
     }
 
     private async void CtxAskAi_Click(object sender, RoutedEventArgs e)

@@ -8,6 +8,7 @@ public interface IAnalystHost
     FileEntry? Root { get; }
     CleanReport? Report { get; }
     void OnChecksChanged(bool showLarge);
+    void OnSuggest(string path, string note);
 }
 
 public static class DiskAnalyst
@@ -105,6 +106,30 @@ public static class DiskAnalyst
                     },
                     ["required"] = new[] { "paths", "checked" },
                 }),
+            ("suggest",
+                "Mark files/folders the user might delete. This only highlights them in the tree with your short note. It does not delete. Use full paths from the scan.",
+                new Dictionary<string, object>
+                {
+                    ["type"] = "object",
+                    ["properties"] = new Dictionary<string, object>
+                    {
+                        ["items"] = new Dictionary<string, object>
+                        {
+                            ["type"] = "array",
+                            ["items"] = new Dictionary<string, object>
+                            {
+                                ["type"] = "object",
+                                ["properties"] = new Dictionary<string, object>
+                                {
+                                    ["path"] = new Dictionary<string, object> { ["type"] = "string" },
+                                    ["note"] = new Dictionary<string, object> { ["type"] = "string", ["description"] = "Short reason, one line" },
+                                },
+                                ["required"] = new[] { "path", "note" },
+                            },
+                        },
+                    },
+                    ["required"] = new[] { "items" },
+                }),
             ("ask_user",
                 "Ask the user a short question when the goal is unclear. Stop after this.",
                 Props(("question", "Question to show the user"))),
@@ -130,6 +155,7 @@ public static class DiskAnalyst
             "list_folder" => ListFolder(Str(args, "path"), host),
             "search_clean" => Search(Str(args, "query"), host),
             "set_checked" => SetChecked(args, host),
+            "suggest" => Suggest(args, host),
             "ask_user" => "shown",
             _ => "unknown tool",
         };
@@ -214,10 +240,27 @@ public static class DiskAnalyst
             if (!CanAiCheck(item)) { blocked++; continue; }
             item.Selected = on;
             ok++;
-            if (item.Group == Loc.GroupLarge) large = true;
+            if (on) host.OnSuggest(item.FullPath, item.Reason);
+            if (item.Group == Loc.GroupLarge || item.Group == Loc.GroupInstaller) large = true;
         }
         if (ok > 0) host.OnChecksChanged(large);
         return $"checked={on} ok={ok} blocked={blocked} missing={missing}";
+    }
+
+    static string Suggest(JsonElement args, IAnalystHost host)
+    {
+        if (!args.TryGetProperty("items", out var arr) || arr.ValueKind != JsonValueKind.Array)
+            return "no items";
+        int n = 0;
+        foreach (var it in arr.EnumerateArray().Take(40))
+        {
+            string path = Str(it, "path");
+            string note = Str(it, "note");
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            host.OnSuggest(path, string.IsNullOrWhiteSpace(note) ? "AI" : note.Trim());
+            n++;
+        }
+        return $"marked {n}";
     }
 
     static IEnumerable<CleanItem> AllItems(CleanReport r)
