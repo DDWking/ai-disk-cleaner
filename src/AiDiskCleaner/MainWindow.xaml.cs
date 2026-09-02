@@ -200,6 +200,9 @@ public partial class MainWindow : Window
         AiKeyLabel.Text = Loc.AiApiKey;
         AiTestBtn.Content = Loc.AiTest;
         AiFetchBtn.Content = Loc.AiFetchModels;
+        AiNameBox.Tag = Loc.AiNameHint;
+        AiUrlBox.Tag = Loc.AiUrlHint;
+        AiModelBox.Tag = Loc.AiModelHintBox;
         AiModelHint.Text = Loc.AiModelsEmpty;
         AiExplainBtn.Content = Loc.AiExplain;
         FillAiProtoBox();

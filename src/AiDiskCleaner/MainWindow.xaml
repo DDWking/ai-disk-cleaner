@@ -317,7 +317,7 @@
                               VerticalScrollBarVisibility="Hidden"
                               CanContentScroll="False"
                               Focusable="False"/>
-                <TextBlock x:Name="Placeholder" Text="{DynamicResource SearchHintText}"
+                <TextBlock x:Name="Placeholder" Text="{TemplateBinding Tag}"
                            Foreground="{DynamicResource Placeholder}"
                            VerticalAlignment="Center"
                            HorizontalAlignment="Left"
@@ -721,6 +721,7 @@
         <TextBox x:Name="SearchBox" Grid.Column="4" Width="220" MaxWidth="340"
                  HorizontalAlignment="Left" VerticalAlignment="Center"
                  Style="{StaticResource TermTextBox}"
+                 Tag="{DynamicResource SearchHintText}"
                  WindowChrome.IsHitTestVisibleInChrome="True"
                  TextChanged="SearchBox_TextChanged"/>
         <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
@@ -951,7 +952,7 @@
               <Button x:Name="UninstallAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallSelectAll_Click"/>
               <Button x:Name="JunkSafeBtn" Content="勾选安全残留" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="JunkSafe_Click" Visibility="Collapsed"/>
               <Grid Width="180" Margin="0,0,0,6">
-                <TextBox x:Name="UninstallSearchBox" Style="{StaticResource TermTextBox}"
+                <TextBox x:Name="UninstallSearchBox" Style="{StaticResource TermTextBox}" Tag=""
                          TextChanged="UninstallSearch_TextChanged"/>
                 <TextBlock x:Name="UninstallSearchHint" IsHitTestVisible="False"
                            Background="{DynamicResource PanelRight}"
@@ -1101,9 +1102,9 @@
             </StackPanel>
             <TextBlock x:Name="AiSectionLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
             <TextBlock x:Name="AiNameLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
-            <TextBox x:Name="AiNameBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28"/>
+            <TextBox x:Name="AiNameBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28" Tag="显示名称"/>
             <TextBlock x:Name="AiUrlLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
-            <TextBox x:Name="AiUrlBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28"/>
+            <TextBox x:Name="AiUrlBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28" Tag="https://api.example.com/v1"/>
             <TextBlock x:Name="AiProtoLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
             <ComboBox x:Name="AiProtoBox" Margin="0,0,0,10"/>
             <TextBlock x:Name="AiKeyLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
@@ -1116,7 +1117,7 @@
                       Padding="10,4" FontSize="11" Click="AiFetch_Click"/>
             </Grid>
             <ComboBox x:Name="AiModelPick" Margin="0,0,0,6" SelectionChanged="AiModelPick_Changed"/>
-            <TextBox x:Name="AiModelBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,6" Height="28"/>
+            <TextBox x:Name="AiModelBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,6" Height="28" Tag="模型 ID"/>
             <TextBlock x:Name="AiModelHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
                        TextWrapping="Wrap" Margin="0,0,0,12"/>
             <StackPanel Orientation="Horizontal">

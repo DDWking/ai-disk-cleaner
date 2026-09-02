@@ -53,6 +53,9 @@ public static class Loc
     public static string Language => IsEn ? "Language" : "语言";
     public static string AiSection => IsEn ? "Custom provider" : "自定义提供方";
     public static string AiName => IsEn ? "Display name" : "显示名称";
+    public static string AiNameHint => IsEn ? "My provider" : "显示名称";
+    public static string AiUrlHint => "https://api.example.com/v1";
+    public static string AiModelHintBox => IsEn ? "model id" : "模型 ID";
     public static string AiBaseUrl => IsEn ? "API URL" : "API 地址";
     public static string AiProtocolTitle => IsEn ? "API protocol" : "API 协议";
     public static string AiModel => IsEn ? "Model catalog" : "模型目录";
