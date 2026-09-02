@@ -1045,12 +1045,6 @@
       <StackPanel>
         <TextBlock x:Name="DialogTitle" FontSize="16" Foreground="{DynamicResource Accent}" Margin="0,0,0,16"/>
         <StackPanel x:Name="SettingsBody">
-          <TextBlock x:Name="ThemeLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
-          <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-            <Button x:Name="ThemeTerminalBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Theme_Click" Tag="Terminal"/>
-            <Button x:Name="ThemeMonoBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Theme_Click" Tag="Mono"/>
-            <Button x:Name="ThemeCyberBtn" Style="{StaticResource GhostButton}" Click="Theme_Click" Tag="Cyberpunk"/>
-          </StackPanel>
           <TextBlock x:Name="LangLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
           <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="LangZhBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Lang_Click" Tag="Zh"/>

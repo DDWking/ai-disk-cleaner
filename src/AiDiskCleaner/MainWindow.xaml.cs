@@ -184,11 +184,7 @@ public partial class MainWindow : Window
         DialogClose.Content = Loc.Close;
         ConfirmYesBtn.Content = Loc.Yes;
         ConfirmNoBtn.Content = Loc.No;
-        ThemeLabel.Text = Loc.Theme;
         LangLabel.Text = Loc.Language;
-        ThemeTerminalBtn.Content = Loc.ThemeTerminal;
-        ThemeMonoBtn.Content = Loc.ThemeMono;
-        ThemeCyberBtn.Content = Loc.ThemeCyber;
         LangZhBtn.Content = Loc.LangZh;
         LangEnBtn.Content = Loc.LangEn;
         AboutText.Text = Loc.AboutBody;
@@ -216,10 +212,6 @@ public partial class MainWindow : Window
             b.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
             b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
         }
-        var t = App.Settings.Theme;
-        Mark(ThemeTerminalBtn, t == AppTheme.Terminal);
-        Mark(ThemeMonoBtn, t == AppTheme.Mono);
-        Mark(ThemeCyberBtn, t == AppTheme.Cyberpunk);
         Mark(LangZhBtn, Loc.Lang == AppLang.Zh);
         Mark(LangEnBtn, Loc.Lang == AppLang.En);
     }
@@ -1096,22 +1088,10 @@ public partial class MainWindow : Window
 
     private void Dialog_Click(object sender, MouseButtonEventArgs e) => e.Handled = true;
 
-    private void Theme_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { Tag: string tag }) return;
-        var theme = tag switch
-        {
-            "Mono" => AppTheme.Mono,
-            "Cyberpunk" => AppTheme.Cyberpunk,
-            _ => AppTheme.Terminal,
-        };
-        App.SaveUi(theme, Loc.Lang);
-    }
-
     private void Lang_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string tag }) return;
-        App.SaveUi(App.Settings.Theme, tag == "En" ? AppLang.En : AppLang.Zh);
+        App.SaveUi(tag == "En" ? AppLang.En : AppLang.Zh);
     }
 
     private void RepoLink_Click(object sender, MouseButtonEventArgs e)

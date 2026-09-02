@@ -24,25 +24,6 @@ public sealed class ThemePalette
 
 public static class ThemeService
 {
-    public static readonly ThemePalette Terminal = new()
-    {
-        Bg = C(0x0B, 0x0F, 0x0C),
-        PanelLeft = C(0x07, 0x14, 0x0C),
-        PanelRight = C(0x14, 0x1C, 0x16),
-        Border = C(0x1F, 0x3D, 0x2A),
-        Accent = C(0x39, 0xFF, 0x88),
-        AccentDim = C(0x3A, 0xC4, 0x6A),
-        Text = C(0x7D, 0xFF, 0x9A),
-        TextDim = C(0x6B, 0x8F, 0x74),
-        TextMuted = C(0x2E, 0x6B, 0x45),
-        SelectBg = C(0x0E, 0x3A, 0x1C),
-        HoverBg = C(0x12, 0x20, 0x18),
-        CloseHoverBg = C(0x5A, 0x1A, 0x1A),
-        Placeholder = C(0x3D, 0x5C, 0x45),
-        Overlay = Color.FromArgb(0xCC, 0x00, 0x00, 0x00),
-        Font = "Cascadia Mono, Consolas, Courier New",
-    };
-
     public static readonly ThemePalette Mono = new()
     {
         Bg = C(0x00, 0x00, 0x00),
@@ -62,37 +43,11 @@ public static class ThemeService
         Font = "Cascadia Mono, Consolas, Courier New",
     };
 
-    public static readonly ThemePalette Cyberpunk = new()
-    {
-        Bg = C(0x0B, 0x02, 0x18),
-        PanelLeft = C(0x12, 0x00, 0x2A),
-        PanelRight = C(0x18, 0x05, 0x30),
-        Border = C(0xFF, 0x00, 0xA8),
-        Accent = C(0x00, 0xF0, 0xFF),
-        AccentDim = C(0xFF, 0x2E, 0xC4),
-        Text = C(0xE6, 0xF7, 0xFF),
-        TextDim = C(0x8A, 0x7A, 0xB8),
-        TextMuted = C(0x5A, 0x3B, 0x7A),
-        SelectBg = C(0x2A, 0x08, 0x50),
-        HoverBg = C(0x1E, 0x06, 0x40),
-        CloseHoverBg = C(0x5A, 0x00, 0x30),
-        Placeholder = C(0x5A, 0x3B, 0x7A),
-        Overlay = Color.FromArgb(0xD0, 0x05, 0x00, 0x14),
-        Font = "Cascadia Mono, Consolas, Courier New",
-    };
-
     public static ThemePalette Current { get; private set; } = Mono;
 
-    public static ThemePalette Of(AppTheme theme) => theme switch
+    public static void Apply()
     {
-        AppTheme.Mono => Mono,
-        AppTheme.Cyberpunk => Cyberpunk,
-        _ => Terminal,
-    };
-
-    public static void Apply(AppTheme theme)
-    {
-        Current = Of(theme);
+        Current = Mono;
         var p = Current;
         var app = Application.Current;
         if (app == null) return;

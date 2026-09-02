@@ -50,11 +50,7 @@ public static class Loc
     public static string HintTemp(int count, string size) =>
         IsEn ? $"Hint: {count} temp/log files, about {size}"
              : $"建议：{count} 个临时/日志文件，约 {size}";
-    public static string Theme => IsEn ? "Theme" : "主题";
     public static string Language => IsEn ? "Language" : "语言";
-    public static string ThemeTerminal => IsEn ? "Terminal" : "终端";
-    public static string ThemeMono => IsEn ? "Black & White" : "黑白";
-    public static string ThemeCyber => IsEn ? "Cyberpunk" : "赛博朋克";
     public static string LangZh => "中文";
     public static string LangEn => "English";
     public static string Close => IsEn ? "Close" : "关闭";

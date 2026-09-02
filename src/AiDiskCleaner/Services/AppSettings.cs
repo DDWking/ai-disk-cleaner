@@ -3,12 +3,10 @@ using System.Text.Json;
 
 namespace AiDiskCleaner.Services;
 
-public enum AppTheme { Terminal, Mono, Cyberpunk }
 public enum AppLang { Zh, En }
 
 public sealed class AppSettings
 {
-    public AppTheme Theme { get; set; } = AppTheme.Mono;
     public AppLang Lang { get; set; } = AppLang.Zh;
     public int UiRev { get; set; }
 
@@ -25,10 +23,9 @@ public sealed class AppSettings
             if (File.Exists(path))
             {
                 var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path)) ?? new AppSettings();
-                if (loaded.UiRev < 1)
+                if (loaded.UiRev < 2)
                 {
-                    loaded.Theme = AppTheme.Mono;
-                    loaded.UiRev = 1;
+                    loaded.UiRev = 2;
                     loaded.Save();
                 }
                 return loaded;
