@@ -9,6 +9,10 @@ public sealed class AppSettings
 {
     public AppLang Lang { get; set; } = AppLang.Zh;
     public int UiRev { get; set; }
+    public string AiProvider { get; set; } = nameof(AiKind.OpenAI);
+    public string AiBaseUrl { get; set; } = "https://api.openai.com/v1";
+    public string AiModel { get; set; } = "gpt-4o-mini";
+    public string AiApiKey { get; set; } = "";
 
     private static string Path =>
         System.IO.Path.Combine(

@@ -26,6 +26,51 @@
       <Setter Property="CanUserAddRows" Value="False"/>
       <Setter Property="CanUserDeleteRows" Value="False"/>
     </Style>
+    <Style TargetType="PasswordBox">
+      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CaretBrush" Value="{DynamicResource Accent}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style TargetType="ProgressBar">
+      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+      <Setter Property="Background" Value="{DynamicResource Border}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Height" Value="8"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ProgressBar">
+            <Border Background="{TemplateBinding Background}">
+              <Grid>
+                <Rectangle x:Name="PART_Track"/>
+                <Rectangle x:Name="PART_Indicator" HorizontalAlignment="Left" Fill="{TemplateBinding Foreground}"/>
+                <Rectangle x:Name="pulse" Fill="{TemplateBinding Foreground}" Opacity="0" HorizontalAlignment="Stretch"/>
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsIndeterminate" Value="True">
+                <Setter TargetName="PART_Indicator" Property="Opacity" Value="0"/>
+                <Setter TargetName="pulse" Property="Opacity" Value="0.35"/>
+                <Trigger.EnterActions>
+                  <BeginStoryboard x:Name="pulseBoard">
+                    <Storyboard RepeatBehavior="Forever">
+                      <DoubleAnimation Storyboard.TargetName="pulse" Storyboard.TargetProperty="Opacity"
+                                       From="0.18" To="0.55" Duration="0:0:0.9" AutoReverse="True"/>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <StopStoryboard BeginStoryboardName="pulseBoard"/>
+                </Trigger.ExitActions>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style TargetType="DataGridColumnHeader">
       <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
@@ -701,8 +746,7 @@
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <ProgressBar x:Name="ScanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"
-                     Foreground="{DynamicResource Accent}" Background="{DynamicResource Border}" BorderThickness="0"/>
+        <ProgressBar x:Name="ScanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
         <TextBlock x:Name="ScanProgressText" Grid.Column="1" Foreground="{DynamicResource TextDim}" Margin="12,0,0,0"
                    VerticalAlignment="Center" Text="正在扫描…"/>
       </Grid>
@@ -853,8 +897,7 @@
           <DockPanel x:Name="CleanPane">
             <StackPanel x:Name="CleanProgressPanel" DockPanel.Dock="Top" Margin="20,0,20,10" Visibility="Collapsed">
               <TextBlock x:Name="CleanProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
-              <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"
-                           Foreground="{DynamicResource Accent}" Background="{DynamicResource Border}" BorderThickness="0"/>
+              <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
             </StackPanel>
             <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,0,20,8"
                        Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
@@ -866,6 +909,7 @@
             </WrapPanel>
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
               <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Click="RecycleSelected_Click"/>
+              <Button x:Name="AiExplainBtn" Content="AI 解释勾选项" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="AiExplain_Click"/>
               <TextBlock x:Name="CleanSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
                          Foreground="{DynamicResource TextDim}" FontSize="11"/>
             </StackPanel>
@@ -897,8 +941,7 @@
           <DockPanel x:Name="UninstallPane" Visibility="Collapsed">
             <StackPanel x:Name="UninstallProgressPanel" DockPanel.Dock="Top" Margin="20,0,20,10" Visibility="Collapsed">
               <TextBlock x:Name="UninstallProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
-              <ProgressBar x:Name="UninstallProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"
-                           Foreground="{DynamicResource Accent}" Background="{DynamicResource Border}" BorderThickness="0"/>
+              <ProgressBar x:Name="UninstallProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
             </StackPanel>
             <TextBlock x:Name="UninstallSummary" DockPanel.Dock="Top" Margin="20,0,20,8"
                        Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"
@@ -1038,19 +1081,42 @@
     </Grid>
   </DockPanel>
 
-  <Border x:Name="Overlay" Background="{DynamicResource Overlay}" Visibility="Collapsed" MouseLeftButtonDown="Overlay_Click">
-    <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Accent}" BorderThickness="1"
-            Width="420" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28,24"
+  <Border x:Name="Overlay" Background="{DynamicResource Overlay}" Visibility="Collapsed" Opacity="0"
+          MouseLeftButtonDown="Overlay_Click">
+    <Border x:Name="DialogCard" Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Accent}" BorderThickness="1"
+            Width="480" MaxHeight="640" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28,24"
+            RenderTransformOrigin="0.5,0.5"
             MouseLeftButtonDown="Dialog_Click">
+      <Border.RenderTransform>
+        <ScaleTransform x:Name="DialogScale" ScaleX="0.97" ScaleY="0.97"/>
+      </Border.RenderTransform>
       <StackPanel>
         <TextBlock x:Name="DialogTitle" FontSize="16" Foreground="{DynamicResource Accent}" Margin="0,0,0,16"/>
-        <StackPanel x:Name="SettingsBody">
-          <TextBlock x:Name="LangLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
-          <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button x:Name="LangZhBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Lang_Click" Tag="Zh"/>
-            <Button x:Name="LangEnBtn" Style="{StaticResource GhostButton}" Click="Lang_Click" Tag="En"/>
+        <ScrollViewer x:Name="SettingsBody" MaxHeight="480" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
+            <TextBlock x:Name="LangLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+              <Button x:Name="LangZhBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Lang_Click" Tag="Zh"/>
+              <Button x:Name="LangEnBtn" Style="{StaticResource GhostButton}" Click="Lang_Click" Tag="En"/>
+            </StackPanel>
+            <TextBlock x:Name="AiSectionLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
+            <TextBlock x:Name="AiProviderLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
+            <ComboBox x:Name="AiKindBox" Margin="0,0,0,10" SelectionChanged="AiKind_Changed"/>
+            <TextBlock x:Name="AiUrlLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="AiUrlBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28"/>
+            <TextBlock x:Name="AiModelLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="AiModelBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28"/>
+            <TextBlock x:Name="AiKeyLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
+            <PasswordBox x:Name="AiKeyBox" Margin="0,0,0,12" Height="28" Padding="8,0"
+                         Background="{DynamicResource PanelRight}" Foreground="{DynamicResource Accent}"
+                         BorderBrush="{DynamicResource Border}" BorderThickness="1" CaretBrush="{DynamicResource Accent}"/>
+            <StackPanel Orientation="Horizontal">
+              <Button x:Name="AiTestBtn" Style="{StaticResource GhostButton}" Click="AiTest_Click"/>
+              <TextBlock x:Name="AiTestHint" Margin="12,0,0,0" VerticalAlignment="Center"
+                         Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
+            </StackPanel>
           </StackPanel>
-        </StackPanel>
+        </ScrollViewer>
         <StackPanel x:Name="AboutBody" Visibility="Collapsed">
           <Image Source="Assets/logo-256.png" Width="88" Height="88" HorizontalAlignment="Left" Margin="0,0,0,16"
                  RenderOptions.BitmapScalingMode="HighQuality"/>
@@ -1058,9 +1124,9 @@
           <TextBlock x:Name="RepoLink" Foreground="{DynamicResource Accent}" Cursor="Hand" TextDecorations="Underline"
                      MouseLeftButtonDown="RepoLink_Click"/>
         </StackPanel>
-        <StackPanel x:Name="AlertBody" Visibility="Collapsed">
+        <ScrollViewer x:Name="AlertBody" MaxHeight="360" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
           <TextBlock x:Name="AlertText" Foreground="{DynamicResource Text}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-        </StackPanel>
+        </ScrollViewer>
         <StackPanel x:Name="ConfirmButtons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0" Visibility="Collapsed">
           <Button x:Name="ConfirmNoBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="ConfirmNo_Click"/>
           <Button x:Name="ConfirmYesBtn" Style="{StaticResource PrimaryButton}" Click="ConfirmYes_Click"/>

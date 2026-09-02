@@ -51,6 +51,34 @@ public static class Loc
         IsEn ? $"Hint: {count} temp/log files, about {size}"
              : $"建议：{count} 个临时/日志文件，约 {size}";
     public static string Language => IsEn ? "Language" : "语言";
+    public static string AiSection => IsEn ? "AI (explains checked items only)" : "AI（只解释已勾选项）";
+    public static string AiProvider => IsEn ? "Provider" : "供应商";
+    public static string AiBaseUrl => IsEn ? "Base URL" : "接口地址";
+    public static string AiModel => IsEn ? "Model" : "模型";
+    public static string AiApiKey => IsEn ? "API key" : "API 密钥";
+    public static string AiTest => IsEn ? "Test" : "测试连接";
+    public static string AiExplain => IsEn ? "AI explain" : "AI 解释勾选项";
+    public static string AiNeedConfig => IsEn ? "Set base URL and model first." : "先填接口地址和模型。";
+    public static string AiNeedKey => IsEn ? "API key is empty." : "还没填 API 密钥。";
+    public static string AiNeedItems => IsEn ? "Check some items first." : "先勾几项再解释。";
+    public static string AiWorking => IsEn ? "Asking the model…" : "正在问模型…";
+    public static string AiOk => IsEn ? "Connected." : "连通。";
+    public static string AiTitle => IsEn ? "AI" : "AI 建议";
+    public static string AiSystem => IsEn
+        ? "You help with disk cleanup. Only use the listed items. Be brief. Do not invent files. Do not recommend deleting protected system items. Reply in the user's language."
+        : "你是磁盘清理助手。只根据列出的勾选项给简短建议，不要编造没给的文件，不要建议删除系统保护项。用中文。";
+    public static string AiPromptHeader => IsEn
+        ? "Explain these checked items. Should I delete them? Any risk?"
+        : "解释这些已勾选项：能不能删、有没有风险？";
+    public static string AiKindName(AiKind k) => k switch
+    {
+        AiKind.DeepSeek => "DeepSeek",
+        AiKind.Anthropic => "Anthropic / Claude",
+        AiKind.Gemini => "Google Gemini",
+        AiKind.Ollama => IsEn ? "Ollama (local)" : "Ollama（本地）",
+        AiKind.Custom => IsEn ? "Custom (OpenAI-compatible)" : "自定义（OpenAI 兼容）",
+        _ => "OpenAI",
+    };
     public static string LangZh => "中文";
     public static string LangEn => "English";
     public static string Close => IsEn ? "Close" : "关闭";

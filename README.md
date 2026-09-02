@@ -11,7 +11,7 @@ Windows 下的磁盘占用分析工具。直接读 NTFS 的 `$MFT`，秒级扫�
 - 右边当前目录：文件夹 + 文件，默认按大小降序
 - 顶部显示卷容量：总共 / 已用 / 可用
 - 文件名搜索（当前目录）
-- 临时 / 日志文件的清理建议
+- 临时 / 日志文件的清理建议；设置里可接 OpenAI 兼容 / Anthropic / Gemini / Ollama，只把已勾选项发给模型解释
 - 卸载页：列出已装软件（注册表 + 商店应用 + Steam 游戏 + Windows 功能），勾选后走官方卸载程序；卸完可扫残留，勾选后才删。引擎来自 [Bulk Crap Uninstaller](https://github.com/Klocman/Bulk-Crap-Uninstaller)（Apache 2.0）
 
 ## 下载

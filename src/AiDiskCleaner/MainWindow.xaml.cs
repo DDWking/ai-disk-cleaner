@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 using UninstallTools;
@@ -100,6 +101,10 @@ public partial class MainWindow : Window
     private bool _showingJunk;
     private long _volumeTotal;
     private long _volumeUsed;
+    private bool _aiKindLock;
+    private bool _aiBusy;
+    private static readonly AiKind[] AiKinds =
+        { AiKind.OpenAI, AiKind.DeepSeek, AiKind.Anthropic, AiKind.Gemini, AiKind.Ollama, AiKind.Custom };
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -187,6 +192,14 @@ public partial class MainWindow : Window
         LangLabel.Text = Loc.Language;
         LangZhBtn.Content = Loc.LangZh;
         LangEnBtn.Content = Loc.LangEn;
+        AiSectionLabel.Text = Loc.AiSection;
+        AiProviderLabel.Text = Loc.AiProvider;
+        AiUrlLabel.Text = Loc.AiBaseUrl;
+        AiModelLabel.Text = Loc.AiModel;
+        AiKeyLabel.Text = Loc.AiApiKey;
+        AiTestBtn.Content = Loc.AiTest;
+        AiExplainBtn.Content = Loc.AiExplain;
+        FillAiKindBox();
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_current == null)
@@ -1040,8 +1053,41 @@ public partial class MainWindow : Window
         AlertBody.Visibility = alert || confirm ? Visibility.Visible : Visibility.Collapsed;
         ConfirmButtons.Visibility = confirm ? Visibility.Visible : Visibility.Collapsed;
         DialogClose.Visibility = confirm ? Visibility.Collapsed : Visibility.Visible;
+        if (settings)
+        {
+            HighlightThemeButtons();
+            LoadAiFields();
+        }
+        ShowOverlay();
+    }
+
+    void ShowOverlay()
+    {
+        Overlay.BeginAnimation(OpacityProperty, null);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         Overlay.Visibility = Visibility.Visible;
-        if (settings) HighlightThemeButtons();
+        Overlay.Opacity = 0;
+        DialogScale.ScaleX = 0.97;
+        DialogScale.ScaleY = 0.97;
+        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140)) { EasingFunction = new QuadraticEase() };
+        var grow = new DoubleAnimation(0.97, 1, TimeSpan.FromMilliseconds(160)) { EasingFunction = new QuadraticEase() };
+        Overlay.BeginAnimation(OpacityProperty, fade);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, grow.Clone());
+    }
+
+    void HideOverlay()
+    {
+        SaveAiFields();
+        Overlay.BeginAnimation(OpacityProperty, null);
+        var fade = new DoubleAnimation(Overlay.Opacity, 0, TimeSpan.FromMilliseconds(110));
+        fade.Completed += (_, _) =>
+        {
+            Overlay.Visibility = Visibility.Collapsed;
+            Overlay.BeginAnimation(OpacityProperty, null);
+        };
+        Overlay.BeginAnimation(OpacityProperty, fade);
     }
 
     public void ShowCrash(string text) => ShowAlert(Loc.AppName, text);
@@ -1064,26 +1110,26 @@ public partial class MainWindow : Window
     {
         var act = _confirmYes;
         _confirmYes = null;
-        Overlay.Visibility = Visibility.Collapsed;
+        HideOverlay();
         act?.Invoke();
     }
 
     private void ConfirmNo_Click(object sender, RoutedEventArgs e)
     {
         _confirmYes = null;
-        Overlay.Visibility = Visibility.Collapsed;
+        HideOverlay();
     }
 
     private void CloseOverlay_Click(object sender, RoutedEventArgs e)
     {
         _confirmYes = null;
-        Overlay.Visibility = Visibility.Collapsed;
+        HideOverlay();
     }
 
     private void Overlay_Click(object sender, MouseButtonEventArgs e)
     {
         _confirmYes = null;
-        Overlay.Visibility = Visibility.Collapsed;
+        HideOverlay();
     }
 
     private void Dialog_Click(object sender, MouseButtonEventArgs e) => e.Handled = true;
@@ -1091,7 +1137,112 @@ public partial class MainWindow : Window
     private void Lang_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string tag }) return;
+        SaveAiFields();
         App.SaveUi(tag == "En" ? AppLang.En : AppLang.Zh);
+        LoadAiFields();
+    }
+
+    void FillAiKindBox()
+    {
+        _aiKindLock = true;
+        AiKindBox.ItemsSource = AiKinds.Select(Loc.AiKindName).ToList();
+        _aiKindLock = false;
+    }
+
+    void LoadAiFields()
+    {
+        _aiKindLock = true;
+        var kind = Enum.TryParse<AiKind>(App.Settings.AiProvider, true, out var k) ? k : AiKind.OpenAI;
+        int i = Array.IndexOf(AiKinds, kind);
+        AiKindBox.SelectedIndex = i < 0 ? 0 : i;
+        AiUrlBox.Text = App.Settings.AiBaseUrl ?? "";
+        AiModelBox.Text = App.Settings.AiModel ?? "";
+        AiKeyBox.Password = App.Settings.AiApiKey ?? "";
+        AiTestHint.Text = "";
+        _aiKindLock = false;
+    }
+
+    void SaveAiFields()
+    {
+        if (AiKindBox == null) return;
+        int i = AiKindBox.SelectedIndex;
+        App.Settings.AiProvider = (i >= 0 && i < AiKinds.Length ? AiKinds[i] : AiKind.OpenAI).ToString();
+        App.Settings.AiBaseUrl = AiUrlBox.Text?.Trim() ?? "";
+        App.Settings.AiModel = AiModelBox.Text?.Trim() ?? "";
+        App.Settings.AiApiKey = AiKeyBox.Password ?? "";
+        App.Settings.Save();
+    }
+
+    private void AiKind_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_aiKindLock) return;
+        int i = AiKindBox.SelectedIndex;
+        if (i < 0 || i >= AiKinds.Length) return;
+        var kind = AiKinds[i];
+        var preset = AiClient.Preset(kind);
+        App.Settings.AiProvider = kind.ToString();
+        if (kind != AiKind.Custom)
+        {
+            AiUrlBox.Text = preset.Url;
+            AiModelBox.Text = preset.Model;
+        }
+        SaveAiFields();
+    }
+
+    private async void AiTest_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        SaveAiFields();
+        _aiBusy = true;
+        AiTestBtn.IsEnabled = false;
+        AiTestHint.Text = Loc.AiWorking;
+        try
+        {
+            string reply = await AiClient.TestAsync(CancellationToken.None);
+            AiTestHint.Text = string.IsNullOrWhiteSpace(reply) ? Loc.AiOk : Loc.AiOk + "  " + reply.Trim();
+        }
+        catch (Exception ex)
+        {
+            AiTestHint.Text = ex.Message;
+        }
+        finally
+        {
+            _aiBusy = false;
+            AiTestBtn.IsEnabled = true;
+        }
+    }
+
+    private async void AiExplain_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        var picked = CurrentCleanList().Where(x => x.Selected).Take(40).ToList();
+        if (picked.Count == 0)
+        {
+            ShowAlert(Loc.AiTitle, Loc.AiNeedItems);
+            return;
+        }
+        _aiBusy = true;
+        AiExplainBtn.IsEnabled = false;
+        SetCleanProgress(0, Loc.AiWorking, determinate: false);
+        try
+        {
+            var lines = picked.Select(x =>
+                $"- {x.Name}  {x.SizeText}  {x.Reason}  {(x.CanDelete ? "" : "[protected]")}  {x.FullPath}");
+            string user = Loc.AiPromptHeader + Environment.NewLine + string.Join(Environment.NewLine, lines);
+            string reply = await AiClient.ChatAsync(Loc.AiSystem, user, CancellationToken.None);
+            HideCleanProgress();
+            ShowAlert(Loc.AiTitle, string.IsNullOrWhiteSpace(reply) ? Loc.AiOk : reply.Trim());
+        }
+        catch (Exception ex)
+        {
+            HideCleanProgress();
+            ShowAlert(Loc.AiTitle, ex.Message);
+        }
+        finally
+        {
+            _aiBusy = false;
+            AiExplainBtn.IsEnabled = true;
+        }
     }
 
     private void RepoLink_Click(object sender, MouseButtonEventArgs e)
