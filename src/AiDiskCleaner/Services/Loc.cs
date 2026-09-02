@@ -83,14 +83,23 @@ public static class Loc
     public static string AiPromptHeader => IsEn
         ? "Explain these checked items. Should I delete them? Any risk?"
         : "解释这些已勾选项：能不能删、有没有风险？";
-    public static string AiChatTitle => IsEn ? "File analyst" : "文件分析师";
+    public static string AiChatTitle => IsEn ? "AI" : "AI";
     public static string AiChatHint => IsEn ? "Ask about this disk…" : "问这张盘…";
     public static string AiSend => IsEn ? "Send" : "发送";
     public static string AiClear => IsEn ? "Clear" : "清空";
     public static string AiNeedScan => IsEn ? "Scan first." : "先扫描再问。";
     public static string AiScanSkip => IsEn ? "Set API URL and model in Settings to auto-analyze." : "在设置里填 API 地址和模型后，扫完会自动分析。";
     public static string AiYou => IsEn ? "You" : "你";
-    public static string AiBot => IsEn ? "Analyst" : "分析师";
+    public static string AiBot => ModelLabel();
+    public static string ModelLabel()
+    {
+        string name = (App.Settings.AiModel ?? "").Trim();
+        return string.IsNullOrEmpty(name) ? (IsEn ? "AI" : "AI") : name;
+    }
+    public static string AiLampOff => IsEn ? "not connected" : "未连接";
+    public static string AiLampOn => IsEn ? "connected" : "已连接";
+    public static string AiLampBusy => IsEn ? "reading…" : "正在分析…";
+    public static string AiLampFail => IsEn ? "failed" : "失败";
     public static string AiExtraPrompt => IsEn ? "Extra instructions (optional)" : "额外提示词（可选）";
     public static string AiExtraHint => IsEn
         ? "e.g. Always ask what I want before suggesting deletes."

@@ -104,6 +104,8 @@ public partial class MainWindow : Window, IAnalystHost
     private long _volumeUsed;
     private bool _aiModelLock;
     private bool _aiBusy;
+    private bool _aiOk;
+    private bool _aiTried;
     private readonly ObservableCollection<ChatLine> _chat = new();
     private readonly List<AiMsg> _turns = new();
     FileEntry? IAnalystHost.Root => _root;
@@ -213,7 +215,7 @@ public partial class MainWindow : Window, IAnalystHost
         AiExtraBox.Tag = Loc.AiExtraHint;
         AiModelHint.Text = Loc.AiModelsEmpty;
         AiExplainBtn.Content = Loc.AiExplain;
-        AiChatTitle.Text = Loc.AiChatTitle;
+        RefreshAiLamp();
         AiChatSendBtn.Content = Loc.AiSend;
         AiChatClearBtn.Content = Loc.AiClear;
         AiChatInput.Tag = Loc.AiChatHint;
@@ -1262,10 +1264,12 @@ public partial class MainWindow : Window, IAnalystHost
         {
             string reply = await AiClient.TestAsync(CancellationToken.None);
             AiTestHint.Text = string.IsNullOrWhiteSpace(reply) ? Loc.AiOk : Loc.AiOk + "  " + reply.Trim();
+            SetAiLamp(true);
         }
         catch (Exception ex)
         {
             AiTestHint.Text = ex.Message;
+            SetAiLamp(false);
         }
         finally
         {
@@ -1308,6 +1312,7 @@ public partial class MainWindow : Window, IAnalystHost
     {
         if (!AiConfigured())
         {
+            SetAiLamp(false);
             if (_chat.Count == 0)
                 AddChat(Loc.AiBot, Loc.AiScanSkip);
             return;
@@ -1327,10 +1332,43 @@ public partial class MainWindow : Window, IAnalystHost
         return _turns.Skip(_turns.Count - 24).ToList();
     }
 
+    void RefreshAiLamp()
+    {
+        AiChatTitle.Text = Loc.ModelLabel();
+        if (_aiBusy)
+        {
+            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0xE8, 0xC5, 0x4A));
+            AiChatStatus.Text = Loc.AiLampBusy;
+        }
+        else if (_aiOk)
+        {
+            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0x3D, 0xD6, 0x68));
+            AiChatStatus.Text = Loc.AiLampOn;
+        }
+        else if (_aiTried)
+        {
+            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0xE0, 0x4F, 0x4F));
+            AiChatStatus.Text = Loc.AiLampFail;
+        }
+        else
+        {
+            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A));
+            AiChatStatus.Text = Loc.AiLampOff;
+        }
+    }
+
+    void SetAiLamp(bool ok)
+    {
+        _aiTried = true;
+        _aiOk = ok;
+        RefreshAiLamp();
+    }
+
     async Task<string> AskAnalyst(string user)
     {
         if (_aiBusy) return "";
         _aiBusy = true;
+        RefreshAiLamp();
         AiChatSendBtn.IsEnabled = false;
         AiExplainBtn.IsEnabled = false;
         try
@@ -1346,6 +1384,7 @@ public partial class MainWindow : Window, IAnalystHost
                 {
                     if (string.IsNullOrEmpty(last)) last = Loc.AiOk;
                     _turns.Add(new AiMsg { Role = "assistant", Text = last });
+                    SetAiLamp(true);
                     AddChat(Loc.AiBot, last);
                     return last;
                 }
@@ -1377,12 +1416,14 @@ public partial class MainWindow : Window, IAnalystHost
         {
             if (_turns.Count > 0 && _turns[^1].Role == "user")
                 _turns.RemoveAt(_turns.Count - 1);
+            SetAiLamp(false);
             AddChat(Loc.AiBot, ex.Message);
             return "";
         }
         finally
         {
             _aiBusy = false;
+            RefreshAiLamp();
             AiChatSendBtn.IsEnabled = true;
             AiExplainBtn.IsEnabled = true;
         }
