@@ -19,6 +19,7 @@ public sealed class CleanItem : INotifyPropertyChanged
     public string Reason { get; set; } = "";
     public string Group { get; set; } = "";
     public bool CanDelete { get; set; } = true;
+    public bool AiSuggested { get; set; }
     public FileEntry? Entry { get; set; }
     public bool IsDirectory { get; set; }
 

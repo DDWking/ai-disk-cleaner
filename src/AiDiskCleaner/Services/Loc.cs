@@ -50,11 +50,136 @@ public static class Loc
     public static string HintTemp(int count, string size) =>
         IsEn ? $"Hint: {count} temp/log files, about {size}"
              : $"建议：{count} 个临时/日志文件，约 {size}";
-    public static string Theme => IsEn ? "Theme" : "主题";
     public static string Language => IsEn ? "Language" : "语言";
-    public static string ThemeTerminal => IsEn ? "Terminal" : "终端";
-    public static string ThemeMono => IsEn ? "Black & White" : "黑白";
-    public static string ThemeCyber => IsEn ? "Cyberpunk" : "赛博朋克";
+    public static string AiSection => IsEn ? "Providers" : "提供方";
+    public static string AiSectionHint => IsEn
+        ? "Add providers, then pick a model in the chat pane."
+        : "添加提供方后，在分析栏里选模型。";
+    public static string AiEdit => IsEn ? "Edit" : "编辑";
+    public static string AiCustomTag => IsEn ? "custom" : "自定义";
+    public static string AiAddCustom => IsEn ? "+ Add custom provider" : "+ 添加自定义提供方";
+    public static string AiEditTitle => IsEn ? "Edit provider" : "编辑提供方";
+    public static string AiName => IsEn ? "Display name" : "显示名称";
+    public static string AiNameHint => IsEn ? "My provider" : "显示名称";
+    public static string AiUrlHint => "https://api.example.com/v1";
+    public static string AiModelHintBox => IsEn ? "model id" : "模型 ID";
+    public static string AiBaseUrl => IsEn ? "API URL" : "API 地址";
+    public static string AiProtocolTitle => IsEn ? "API protocol" : "API 协议";
+    public static string AiModel => IsEn ? "Model catalog" : "模型目录";
+    public static string AiApiKey => IsEn ? "API key" : "API 密钥";
+    public static string AiTest => IsEn ? "Test" : "测试连接";
+    public static string AiFetchModels => IsEn ? "Fetch models" : "获取可用模型";
+    public static string AiNeedUrl => IsEn ? "Fill in the API URL first." : "先填 API 地址。";
+    public static string AiModelsEmpty => IsEn
+        ? "No models yet. Fetch, or type an ID below."
+        : "还没有模型。点获取，或在下面手填 ID。";
+    public static string AiModelsOk(int n) => IsEn ? $"{n:N0} models" : $"已获取 {n:N0} 个模型";
+    public static string AiProtoCompletions => "openai-completions";
+    public static string AiProtoResponses => "openai-responses";
+    public static string AiProtoAnthropic => "anthropic-messages";
+    public static string AiExplain => IsEn ? "AI explain" : "AI 解释勾选项";
+    public static string AiNeedConfig => IsEn ? "Set base URL and model first." : "先填接口地址和模型。";
+    public static string AiNeedKey => IsEn ? "API key is empty." : "还没填 API 密钥。";
+    public static string AiNeedItems => IsEn ? "Check some items first." : "先勾几项再解释。";
+    public static string AiWorking => IsEn ? "Asking the model…" : "正在问模型…";
+    public static string AiOk => IsEn ? "Connected." : "连通。";
+    public static string AiTitle => IsEn ? "AI" : "AI 建议";
+    public static string AiSystem => IsEn
+        ? "You help with disk cleanup. Only use the listed items. Be brief. Do not invent files. Do not recommend deleting protected system items. Reply in the user's language."
+        : "你是磁盘清理助手。只根据列出的勾选项给简短建议，不要编造没给的文件，不要建议删除系统保护项。用中文。";
+    public static string AiPromptHeader => IsEn
+        ? "Explain these checked items. Should I delete them? Any risk?"
+        : "解释这些已勾选项：能不能删、有没有风险？";
+    public static string AiChatTitle => IsEn ? "AI" : "AI";
+    public static string AiChatHint => IsEn ? "Ask about this disk…" : "问这张盘…";
+    public static string AiSend => IsEn ? "Send" : "发送";
+    public static string AiClear => IsEn ? "Clear" : "清空";
+    public static string AiNeedScan => IsEn ? "Scan first." : "先扫描再问。";
+    public static string AiScanSkip => IsEn ? "Add a provider in Settings, pick a model, then click Analyze." : "在设置里添加提供方，选好模型，再点分析。";
+    public static string AiAnalyze => IsEn ? "Analyze" : "分析";
+    public static string AiAddProvider => IsEn ? "Add" : "添加";
+    public static string AiDelProvider => IsEn ? "Remove" : "删除";
+    public static string AiProviderList => IsEn ? "Providers" : "提供方";
+    public static string AiPickModel => IsEn ? "Model" : "模型";
+    public static string AiNeedScanFirst => IsEn ? "Scan the disk first." : "先扫描磁盘。";
+    public static string AiRound(int n) => IsEn ? $"round {n}" : $"第 {n} 轮";
+    public static string AiToolResult(string name, string preview) =>
+        IsEn ? $"{name} → {preview}" : $"{name} → {preview}";
+    public static string AiYou => IsEn ? "You" : "你";
+    public static string AiBot => ModelLabel();
+    public static string ModelLabel()
+    {
+        string name = (App.Settings.AiModel ?? "").Trim();
+        return string.IsNullOrEmpty(name) ? (IsEn ? "AI" : "AI") : name;
+    }
+    public static string AiLampOff => IsEn ? "not configured" : "未配置";
+    public static string AiReady => IsEn ? "ready" : "已配置";
+    public static string AiMark => IsEn ? "AI suggested" : "AI 建议";
+    public static string AiInside(string note) => IsEn ? "inside: " + note : "内有 · " + note;
+    public static string AiLampOn => IsEn ? "connected" : "已连接";
+    public static string AiLampBusy => IsEn ? "reading…" : "正在分析…";
+    public static string AiLampFail => IsEn ? "failed" : "失败";
+    public static string AiExtraPrompt => IsEn ? "Extra instructions (optional)" : "额外提示词（可选）";
+    public static string AiExtraHint => IsEn
+        ? "e.g. Always ask what I want before suggesting deletes."
+        : "例如：先问我想清什么，再给建议。";
+    public static string AiScanHeader => IsEn
+        ? "Scan finished. Reply in the exact format below. Do not invent files."
+        : "扫描结束。必须按下述格式回复。不要编造文件。";
+    public static string AiAnalystSystem => IsEn
+        ? """
+          You are a file analyst in a disk cleaner. Never delete. Never invent paths.
+          FINAL reply MUST use this exact shape (English or Chinese labels ok):
+
+          SUMMARY
+          one or two sentences.
+
+          FOLDERS
+          GOTO	<full path>	<size>	<what it is>
+          (3-8 root folders. Keep = do not delete. Migrate = move. Explain = just describe.)
+
+          DELETABLE
+          GOTO	<full path>	<size>	<why it can be deleted>
+          (only concrete files/caches, never Windows / Program Files / Users / WinSxS as a whole)
+
+          KEEP
+          GOTO	<full path>	<size>	<why not delete>
+
+          QUESTION
+          one question about what the user wants to clean.
+
+          Rules: every actionable item is a GOTO line, tab-separated. Copy paths from the scan. Call suggest + set_checked for DELETABLE items. Safe cache may be suggested; confirm must be asked; keep/migrate only. WeChat/QQ: cache only.
+          """
+        : """
+          你是磁盘清理软件里的文件分析师。不要删除，不要编造路径。
+          最终回复必须用下面这个格式，一行一项：
+
+          SUMMARY
+          一两句话总览。
+
+          FOLDERS
+          GOTO	完整路径	大小	这是什么
+          （3～8 个大根目录。Keep=别删，Migrate=搬家，Explain=只解释。）
+
+          DELETABLE
+          GOTO	完整路径	大小	为什么能删
+          （只写具体文件/缓存，不要写整个 Windows / Program Files / Users / WinSxS）
+
+          KEEP
+          GOTO	完整路径	大小	为什么不能删
+
+          QUESTION
+          问一句用户想先清哪块。
+
+          规则：可操作的每一项都必须是 GOTO 行，用 Tab 分隔。路径从扫描结果原样复制。DELETABLE 项同时调用 suggest 和 set_checked。safe cache 可建议删；confirm 要问；keep 只能迁移。微信/QQ 只动缓存。
+          """;
+    public static string AiTool(string name) => IsEn ? $"tool: {name}" : $"工具：{name}";
+    public static string AiKindName(AiProtocol p) => p switch
+    {
+        AiProtocol.Responses => AiProtoResponses,
+        AiProtocol.Anthropic => AiProtoAnthropic,
+        _ => AiProtoCompletions,
+    };
     public static string LangZh => "中文";
     public static string LangEn => "English";
     public static string Close => IsEn ? "Close" : "关闭";
@@ -296,7 +421,10 @@ public static class Loc
     public static string ReasonTempExt => IsEn ? "Temp / log leftover" : "临时或日志残留";
     public static string ReasonDump => IsEn ? "Crash dump" : "崩溃转储";
     public static string ReasonWinUpdate => IsEn ? "Windows update leftover" : "Windows 更新残留";
-    public static string ReasonInstaller => IsEn ? "Installer in Downloads" : "下载里的安装包";
+    public static string ReasonInstaller => IsEn ? "Installer in Downloads, likely safe" : "下载里的安装包，可考虑删";
+    public static string ReasonOldInstaller => IsEn ? "Old disk image / installer, unused for months" : "很久没动的镜像/安装包";
+    public static string ReasonVmDisk => IsEn ? "VM / WSL / emulator disk image" : "虚拟机 / WSL / 模拟器磁盘";
+    public static string AskAiFolder => IsEn ? "Ask AI what this is" : "问 AI 这是什么";
     public static string ReasonRecycle => IsEn ? "Already in Recycle Bin" : "已在回收站";
     public static string ReasonLarge => IsEn ? "Among the largest files" : "占用最大的文件之一";
     public static string ReasonOld(string age) => IsEn ? $"Not modified for {age}" : $"已 {age} 未改";

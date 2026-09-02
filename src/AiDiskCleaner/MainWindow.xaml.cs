@@ -2,11 +2,15 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Collections.ObjectModel;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using AiDiskCleaner.Controls;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 using UninstallTools;
@@ -72,7 +76,7 @@ public sealed class ShareWidthConverter : IValueConverter
         => Binding.DoNothing;
 }
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IAnalystHost
 {
     private const int MaxDisplayRows = 50000; // 文件列表最多渲染的行数，超出只显示前 N 行
 
@@ -98,6 +102,19 @@ public partial class MainWindow : Window
     private BulkUninstallTask? _uninstallTask;
     private List<JunkItem> _junk = new();
     private bool _showingJunk;
+    private long _volumeTotal;
+    private long _volumeUsed;
+    private bool _aiModelLock;
+    private bool _aiBusy;
+    private bool _aiOk;
+    private bool _aiTried;
+    private readonly Dictionary<string, string> _aiNotes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ObservableCollection<ChatLine> _chat = new();
+    private readonly List<AiMsg> _turns = new();
+    FileEntry? IAnalystHost.Root => _root;
+    CleanReport? IAnalystHost.Report => _report;
+    private static readonly AiProtocol[] AiProtos =
+        { AiProtocol.Completions, AiProtocol.Responses, AiProtocol.Anthropic };
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -123,6 +140,7 @@ public partial class MainWindow : Window
         };
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
+        AiChatList.ItemsSource = _chat;
         ApplyUi();
         ShowRightTab(0);
     }
@@ -147,6 +165,7 @@ public partial class MainWindow : Window
         CtxCopyPath.Header = Loc.CopyPath;
         CtxCopyName.Header = Loc.CopyName;
         CtxDelete.Header = Loc.DeleteToRecycle;
+        CtxAskAi.Header = Loc.AskAiFolder;
         CtxProps.Header = Loc.Properties;
         ExtTitle.Text = Loc.ExtType;
         ColExt.Header = Loc.Ext;
@@ -182,13 +201,31 @@ public partial class MainWindow : Window
         DialogClose.Content = Loc.Close;
         ConfirmYesBtn.Content = Loc.Yes;
         ConfirmNoBtn.Content = Loc.No;
-        ThemeLabel.Text = Loc.Theme;
         LangLabel.Text = Loc.Language;
-        ThemeTerminalBtn.Content = Loc.ThemeTerminal;
-        ThemeMonoBtn.Content = Loc.ThemeMono;
-        ThemeCyberBtn.Content = Loc.ThemeCyber;
         LangZhBtn.Content = Loc.LangZh;
         LangEnBtn.Content = Loc.LangEn;
+        AiSectionLabel.Text = Loc.AiSection;
+        AiSectionHint.Text = Loc.AiSectionHint;
+        AiNameLabel.Text = Loc.AiName;
+        AiUrlLabel.Text = Loc.AiBaseUrl;
+        AiProtoLabel.Text = Loc.AiProtocolTitle;
+        AiModelLabel.Text = Loc.AiModel;
+        AiKeyLabel.Text = Loc.AiApiKey;
+        AiTestBtn.Content = Loc.AiTest;
+        AiFetchBtn.Content = Loc.AiFetchModels;
+        AiNameBox.Tag = Loc.AiNameHint;
+        AiUrlBox.Tag = Loc.AiUrlHint;
+        AiModelBox.Tag = Loc.AiModelHintBox;
+        AiModelHint.Text = Loc.AiModelsEmpty;
+        AiExplainBtn.Content = Loc.AiExplain;
+        RefreshAiLamp();
+        AiChatSendBtn.Content = Loc.AiSend;
+        AiChatClearBtn.Content = Loc.AiClear;
+        AiChatInput.Tag = Loc.AiChatHint;
+        AiRunBtn.Content = Loc.AiAnalyze;
+        AiAddProvBtn.Content = Loc.AiAddCustom;
+        FillAiProtoBox();
+        FillRunModels();
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_current == null)
@@ -214,10 +251,6 @@ public partial class MainWindow : Window
             b.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
             b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
         }
-        var t = App.Settings.Theme;
-        Mark(ThemeTerminalBtn, t == AppTheme.Terminal);
-        Mark(ThemeMonoBtn, t == AppTheme.Mono);
-        Mark(ThemeCyberBtn, t == AppTheme.Cyberpunk);
         Mark(LangZhBtn, Loc.Lang == AppLang.Zh);
         Mark(LangEnBtn, Loc.Lang == AppLang.En);
     }
@@ -348,6 +381,7 @@ public partial class MainWindow : Window
             ? Loc.CleanHintReady(report.Cleanable.Count, FileEntry.FormatSize(report.CleanableBytes))
             : Loc.HintClean;
         UiLog($"分析完成: cleanable={report.Cleanable.Count} dup={report.Duplicates.Count}");
+        _ = AutoAnalyze(root, report);
     }
 
     private void SetCleanProgress(double value, string text, bool determinate)
@@ -425,7 +459,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private static FrameworkElement MakeFolderHeader(FileEntry d, bool isRoot = false)
+    private FrameworkElement MakeFolderHeader(FileEntry d, bool isRoot = false)
     {
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
@@ -434,15 +468,26 @@ public partial class MainWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        var mark = MarkFor(d.FullPath);
+        string note = mark.Note;
+        bool marked = mark.Hit;
         var name = new TextBlock
         {
-            Text = d.Name,
-            Foreground = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Text"),
+            Text = string.IsNullOrEmpty(note) ? d.Name : d.Name + "  ·  " + note,
+            Foreground = marked
+                ? new SolidColorBrush(Color.FromRgb(0x5C, 0xC8, 0xFF))
+                : ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Text"),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
+            ToolTip = string.IsNullOrEmpty(note) ? null : note,
         };
-        double share = isRoot ? 1 : d.PercentShare;
-        var pctCell = MakePctBar(share, isRoot ? 100 : d.PercentValue, d.IsDimmed);
+        double pct = isRoot && _volumeTotal > 0
+            ? 100.0 * _volumeUsed / _volumeTotal
+            : d.PercentValue;
+        double share = isRoot && _volumeTotal > 0
+            ? Math.Clamp(_volumeUsed / (double)_volumeTotal, 0, 1)
+            : d.PercentShare;
+        var pctCell = MakePctBar(share, pct, d.IsDimmed);
         var size = ColText(FileEntry.FormatSize(d.Size), d.IsDimmed ? "TextMuted" : "AccentDim");
         var alloc = ColText(FileEntry.FormatSize(d.Allocated), "TextMuted");
         var files = ColText(d.IsDirectory || d.IsFilesGroup ? d.FileCount.ToString("N0") : "", "TextMuted");
@@ -459,6 +504,8 @@ public partial class MainWindow : Window
         grid.Children.Add(alloc);
         grid.Children.Add(files);
         grid.Children.Add(folders);
+        if (marked)
+            grid.Background = new SolidColorBrush(Color.FromArgb(0x40, 0x1A, 0x5A, 0x90));
         return grid;
     }
 
@@ -626,6 +673,7 @@ public partial class MainWindow : Window
         var item = (TreeViewItem)sender;
         if (item.Items.Count == 1 && item.Items[0] is TreeViewItem ph && ReferenceEquals(ph.Tag, Placeholder))
             PopulateDirChildren(item);
+        PaintItem(item);
     }
 
     private void ShowDirectory(FileEntry dir)
@@ -800,7 +848,9 @@ public partial class MainWindow : Window
             if (DriveBox.SelectedItem is not string name) return;
             var d = new DriveInfo(name);
             if (!d.IsReady) return;
-            long used = d.TotalSize - d.TotalFreeSpace;
+            _volumeTotal = d.TotalSize;
+            _volumeUsed = d.TotalSize - d.TotalFreeSpace;
+            long used = _volumeUsed;
             double pct = d.TotalSize > 0 ? 100.0 * used / d.TotalSize : 0;
             VolumeText.Text = Loc.Volume(
                 FileEntry.FormatSize(d.TotalSize),
@@ -871,6 +921,7 @@ public partial class MainWindow : Window
         bool ok = entry != null && !RecycleService.IsProtected(entry);
         CtxDelete.IsEnabled = ok;
         CtxDelete.Header = ok ? Loc.DeleteToRecycle : Loc.DeleteBlocked;
+        CtxAskAi.IsEnabled = entry is { IsDirectory: true } && !entry.IsFilesGroup;
     }
 
     private void CtxDelete_Click(object sender, RoutedEventArgs e)
@@ -1035,12 +1086,54 @@ public partial class MainWindow : Window
     {
         DialogTitle.Text = title;
         SettingsBody.Visibility = settings ? Visibility.Visible : Visibility.Collapsed;
+        ProvEditBody.Visibility = Visibility.Collapsed;
         AboutBody.Visibility = about ? Visibility.Visible : Visibility.Collapsed;
         AlertBody.Visibility = alert || confirm ? Visibility.Visible : Visibility.Collapsed;
         ConfirmButtons.Visibility = confirm ? Visibility.Visible : Visibility.Collapsed;
         DialogClose.Visibility = confirm ? Visibility.Collapsed : Visibility.Visible;
+        if (settings)
+        {
+            HighlightThemeButtons();
+            LoadAiFields();
+        }
+        ShowOverlay();
+    }
+
+    void ShowOverlay()
+    {
+        Overlay.BeginAnimation(OpacityProperty, null);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         Overlay.Visibility = Visibility.Visible;
-        if (settings) HighlightThemeButtons();
+        Overlay.Opacity = 0;
+        DialogScale.ScaleX = 0.97;
+        DialogScale.ScaleY = 0.97;
+        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140)) { EasingFunction = new QuadraticEase() };
+        var grow = new DoubleAnimation(0.97, 1, TimeSpan.FromMilliseconds(160)) { EasingFunction = new QuadraticEase() };
+        Overlay.BeginAnimation(OpacityProperty, fade);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, grow.Clone());
+    }
+
+    void HideOverlay()
+    {
+        SaveAiFields();
+        if (ProvEditBody.Visibility == Visibility.Visible && Overlay.Visibility == Visibility.Visible)
+        {
+            ProvEditBody.Visibility = Visibility.Collapsed;
+            SettingsBody.Visibility = Visibility.Visible;
+            DialogTitle.Text = Loc.SettingsTitle;
+            LoadAiFields();
+            return;
+        }
+        Overlay.BeginAnimation(OpacityProperty, null);
+        var fade = new DoubleAnimation(Overlay.Opacity, 0, TimeSpan.FromMilliseconds(110));
+        fade.Completed += (_, _) =>
+        {
+            Overlay.Visibility = Visibility.Collapsed;
+            Overlay.BeginAnimation(OpacityProperty, null);
+        };
+        Overlay.BeginAnimation(OpacityProperty, fade);
     }
 
     public void ShowCrash(string text) => ShowAlert(Loc.AppName, text);
@@ -1063,46 +1156,687 @@ public partial class MainWindow : Window
     {
         var act = _confirmYes;
         _confirmYes = null;
-        Overlay.Visibility = Visibility.Collapsed;
+        HideOverlay();
         act?.Invoke();
     }
 
     private void ConfirmNo_Click(object sender, RoutedEventArgs e)
     {
         _confirmYes = null;
-        Overlay.Visibility = Visibility.Collapsed;
+        HideOverlay();
     }
 
     private void CloseOverlay_Click(object sender, RoutedEventArgs e)
     {
         _confirmYes = null;
-        Overlay.Visibility = Visibility.Collapsed;
+        HideOverlay();
     }
 
     private void Overlay_Click(object sender, MouseButtonEventArgs e)
     {
         _confirmYes = null;
-        Overlay.Visibility = Visibility.Collapsed;
+        HideOverlay();
     }
 
     private void Dialog_Click(object sender, MouseButtonEventArgs e) => e.Handled = true;
 
-    private void Theme_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { Tag: string tag }) return;
-        var theme = tag switch
-        {
-            "Mono" => AppTheme.Mono,
-            "Cyberpunk" => AppTheme.Cyberpunk,
-            _ => AppTheme.Terminal,
-        };
-        App.SaveUi(theme, Loc.Lang);
-    }
-
     private void Lang_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string tag }) return;
-        App.SaveUi(App.Settings.Theme, tag == "En" ? AppLang.En : AppLang.Zh);
+        SaveAiFields();
+        App.SaveUi(tag == "En" ? AppLang.En : AppLang.Zh);
+        LoadAiFields();
+    }
+
+    void FillAiProtoBox()
+    {
+        AiProtoBox.ItemsSource = AiProtos.Select(Loc.AiKindName).ToList();
+    }
+
+    void LoadAiFields()
+    {
+        App.Settings.Migrate();
+        AiProvCards.ItemsSource = null;
+        AiProvCards.ItemsSource = App.Settings.AiProviders.ToList();
+        FillRunModels();
+        RefreshAiLamp();
+    }
+
+    void OpenProvEdit(AiProviderCfg p)
+    {
+        App.Settings.AiActiveId = p.Id;
+        App.Settings.Save();
+        SettingsBody.Visibility = Visibility.Collapsed;
+        ProvEditBody.Visibility = Visibility.Visible;
+        AboutBody.Visibility = Visibility.Collapsed;
+        AlertBody.Visibility = Visibility.Collapsed;
+        ConfirmButtons.Visibility = Visibility.Collapsed;
+        DialogClose.Visibility = Visibility.Visible;
+        DialogTitle.Text = Loc.AiEditTitle;
+        _aiModelLock = true;
+        ShowProv(p);
+        AiTestHint.Text = "";
+        _aiModelLock = false;
+        FillRunModels();
+        RefreshAiLamp();
+    }
+
+    void ShowProv(AiProviderCfg? p)
+    {
+        AiNameBox.Text = p?.Name ?? "";
+        AiUrlBox.Text = p?.BaseUrl ?? "";
+        var proto = AiClient.ParseProtocol(p?.Protocol);
+        int i = Array.IndexOf(AiProtos, proto);
+        AiProtoBox.SelectedIndex = i < 0 ? 0 : i;
+        AiKeyBox.Password = p?.ApiKey ?? "";
+        string model = App.Settings.AiModel ?? "";
+        if (p != null && (string.IsNullOrEmpty(model) || !p.Models.Contains(model, StringComparer.OrdinalIgnoreCase)) && p.Models.Count > 0)
+            model = p.Models[0];
+        AiModelBox.Text = model;
+        FillModelPick(p?.Models, model);
+        AiModelHint.Text = (p?.Models.Count ?? 0) == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(p!.Models.Count);
+    }
+
+    void SaveAiFields()
+    {
+        if (AiUrlBox == null || ProvEditBody.Visibility != Visibility.Visible) return;
+        App.Settings.Migrate();
+        var p = App.Settings.CurrentProvider();
+        if (p == null) return;
+        WriteProv(p);
+        App.Settings.Save();
+        FillRunModels();
+        RefreshAiLamp();
+    }
+
+    static AiProviderCfg NewProv()
+        => new()
+        {
+            Id = "p" + Guid.NewGuid().ToString("N")[..8],
+            Name = Loc.IsEn ? "Provider" : "提供方",
+            Protocol = "completions",
+        };
+
+    void WriteProv(AiProviderCfg p)
+    {
+        int i = AiProtoBox.SelectedIndex;
+        p.Name = AiNameBox.Text?.Trim() ?? "";
+        if (string.IsNullOrEmpty(p.Name)) p.Name = p.Id;
+        p.BaseUrl = AiUrlBox.Text?.Trim() ?? "";
+        p.Protocol = AiClient.ProtocolId(i >= 0 && i < AiProtos.Length ? AiProtos[i] : AiProtocol.Completions);
+        p.ApiKey = AiKeyBox.Password ?? "";
+        p.Models = (AiModelPick.ItemsSource as IEnumerable<string>)?.ToList()
+                   ?? AiModelPick.Items.OfType<string>().ToList();
+        string model = AiModelBox.Text?.Trim() ?? "";
+        if (!string.IsNullOrEmpty(model) && !p.Models.Contains(model, StringComparer.OrdinalIgnoreCase))
+            p.Models.Add(model);
+        App.Settings.AiModel = model;
+    }
+
+    private void AiAddProv_Click(object sender, RoutedEventArgs e)
+    {
+        var p = NewProv();
+        App.Settings.AiProviders.Add(p);
+        App.Settings.AiActiveId = p.Id;
+        App.Settings.Save();
+        OpenProvEdit(p);
+    }
+
+    private void AiEditProv_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: AiProviderCfg p })
+            OpenProvEdit(p);
+    }
+
+    private void AiDelProvCard_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: AiProviderCfg p }) return;
+        App.Settings.AiProviders.Remove(p);
+        if (App.Settings.AiActiveId == p.Id)
+            App.Settings.AiActiveId = App.Settings.AiProviders.FirstOrDefault()?.Id ?? "";
+        App.Settings.Save();
+        LoadAiFields();
+    }
+
+    void FillModelPick(IEnumerable<string>? ids, string? current)
+    {
+        var list = (ids ?? Array.Empty<string>())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        AiModelPick.ItemsSource = list;
+        if (list.Count == 0) return;
+        string pick = current ?? "";
+        var match = list.FirstOrDefault(x => x.Equals(pick, StringComparison.OrdinalIgnoreCase));
+        AiModelPick.SelectedItem = match ?? list[0];
+    }
+
+    private void AiModelPick_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_aiModelLock) return;
+        if (AiModelPick.SelectedItem is string id && !string.IsNullOrWhiteSpace(id))
+            AiModelBox.Text = id;
+    }
+
+    private async void AiFetch_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        SaveAiFields();
+        _aiBusy = true;
+        AiFetchBtn.IsEnabled = false;
+        AiModelHint.Text = Loc.AiWorking;
+        try
+        {
+            var ids = await AiClient.ListModelsAsync(CancellationToken.None);
+            _aiModelLock = true;
+            string current = AiModelBox.Text?.Trim() ?? "";
+            FillModelPick(ids, current);
+            if (string.IsNullOrEmpty(current) && ids.Count > 0)
+                AiModelBox.Text = ids[0];
+            _aiModelLock = false;
+            var p = App.Settings.CurrentProvider();
+            if (p != null) p.Models = ids.ToList();
+            App.Settings.AiModels = ids.ToList();
+            App.Settings.Save();
+            FillRunModels();
+            AiModelHint.Text = ids.Count == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(ids.Count);
+        }
+        catch (Exception ex)
+        {
+            AiModelHint.Text = ex.Message;
+        }
+        finally
+        {
+            _aiBusy = false;
+            AiFetchBtn.IsEnabled = true;
+        }
+    }
+
+    private async void AiTest_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        SaveAiFields();
+        _aiBusy = true;
+        AiTestBtn.IsEnabled = false;
+        AiTestHint.Text = Loc.AiWorking;
+        try
+        {
+            string reply = await AiClient.TestAsync(CancellationToken.None);
+            AiTestHint.Text = string.IsNullOrWhiteSpace(reply) ? Loc.AiOk : Loc.AiOk + "  " + reply.Trim();
+            SetAiLamp(true);
+        }
+        catch (Exception ex)
+        {
+            AiTestHint.Text = ex.Message;
+            SetAiLamp(false);
+        }
+        finally
+        {
+            _aiBusy = false;
+            AiTestBtn.IsEnabled = true;
+        }
+    }
+
+    private async void AiExplain_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        var picked = CurrentCleanList().Where(x => x.Selected).Take(40).ToList();
+        if (picked.Count == 0)
+        {
+            ShowAlert(Loc.AiTitle, Loc.AiNeedItems);
+            return;
+        }
+        SetCleanProgress(0, Loc.AiWorking, determinate: false);
+        try
+        {
+            var lines = picked.Select(x =>
+                $"- {x.Name}  {x.SizeText}  {x.Reason}  {(x.CanDelete ? "" : "[protected]")}  {x.FullPath}");
+            string user = Loc.AiPromptHeader + Environment.NewLine + string.Join(Environment.NewLine, lines);
+            AddChat(Loc.AiYou, Loc.AiExplain);
+            await AskAnalyst(user);
+        }
+        catch
+        {
+        }
+        finally
+        {
+            HideCleanProgress();
+        }
+    }
+
+    bool AiConfigured()
+    {
+        var p = App.Settings.CurrentProvider();
+        return p != null && !string.IsNullOrWhiteSpace(p.BaseUrl) && !string.IsNullOrWhiteSpace(App.Settings.AiModel);
+    }
+
+    async Task AutoAnalyze(FileEntry root, CleanReport report)
+    {
+        if (_chat.Count == 0)
+            AddChat(Loc.AiBot, Loc.AiScanSkip);
+        RefreshAiLamp();
+        await Task.CompletedTask;
+    }
+
+    void FillRunModels()
+    {
+        if (AiRunModelBox == null) return;
+        _aiModelLock = true;
+        var p = App.Settings.CurrentProvider();
+        var models = p?.Models ?? new List<string>();
+        AiRunModelBox.ItemsSource = models;
+        string cur = App.Settings.AiModel ?? "";
+        if (!string.IsNullOrEmpty(cur) && models.Contains(cur, StringComparer.OrdinalIgnoreCase))
+            AiRunModelBox.SelectedItem = models.First(x => x.Equals(cur, StringComparison.OrdinalIgnoreCase));
+        else if (models.Count > 0)
+            AiRunModelBox.SelectedIndex = 0;
+        _aiModelLock = false;
+    }
+
+    private void AiRunModel_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_aiModelLock) return;
+        if (AiRunModelBox.SelectedItem is string id && !string.IsNullOrWhiteSpace(id))
+        {
+            App.Settings.AiModel = id;
+            App.Settings.Save();
+            RefreshAiLamp();
+        }
+    }
+
+    private async void AiRun_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        if (_report == null || _root == null)
+        {
+            AddChat(Loc.AiBot, Loc.AiNeedScanFirst);
+            return;
+        }
+        if (!AiConfigured())
+        {
+            AddChat(Loc.AiBot, Loc.AiScanSkip);
+            return;
+        }
+        DiskAnalyst.ResetSession();
+        _aiNotes.Clear();
+        ClearAiSuggested();
+        AddChat(Loc.AiYou, Loc.AiAnalyze);
+        await AskAnalyst(DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal));
+    }
+
+    void AddChat(string who, string text, bool log = false)
+    {
+        var line = new ChatLine
+        {
+            Who = who,
+            Text = text,
+            Log = log,
+            Parts = log ? new() : ChatFormat.Parse(text),
+        };
+        _chat.Add(line);
+        Dispatcher.BeginInvoke(() => AiChatScroll.ScrollToEnd(), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    List<AiMsg> PackedTurns()
+    {
+        if (_turns.Count <= 24) return _turns.ToList();
+        return _turns.Skip(_turns.Count - 24).ToList();
+    }
+
+    void RefreshAiLamp()
+    {
+        if (_aiBusy)
+        {
+            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0xE8, 0xC5, 0x4A));
+            AiChatStatus.Text = Loc.AiLampBusy;
+        }
+        else if (_aiOk)
+        {
+            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0x3D, 0xD6, 0x68));
+            AiChatStatus.Text = Loc.AiLampOn;
+        }
+        else if (_aiTried)
+        {
+            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0xE0, 0x4F, 0x4F));
+            AiChatStatus.Text = Loc.AiLampFail;
+        }
+        else if (AiConfigured())
+        {
+            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0x3D, 0xD6, 0x68));
+            AiChatStatus.Text = Loc.AiReady;
+        }
+        else
+        {
+            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A));
+            AiChatStatus.Text = Loc.AiLampOff;
+        }
+    }
+
+    void SetAiLamp(bool ok)
+    {
+        _aiTried = true;
+        _aiOk = ok;
+        RefreshAiLamp();
+    }
+
+    async Task<string> AskAnalyst(string user)
+    {
+        if (_aiBusy) return "";
+        _aiBusy = true;
+        RefreshAiLamp();
+        AiChatSendBtn.IsEnabled = false;
+        AiExplainBtn.IsEnabled = false;
+        try
+        {
+            _turns.Add(new AiMsg { Role = "user", Text = user });
+            var proto = AiClient.ParseProtocol(App.Settings.CurrentProvider()?.Protocol);
+            var tools = DiskAnalyst.Tools(proto);
+            string last = "";
+            for (int round = 0; round < DiskAnalyst.MaxRounds; round++)
+            {
+                AddChat(Loc.AiBot, Loc.AiRound(round + 1), log: true);
+                bool overBudget = DiskAnalyst.EstimateTokens(_turns) >= DiskAnalyst.TokenBudget;
+                var reply = await AiClient.TurnAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), overBudget ? null : tools, CancellationToken.None);
+                last = (reply.Text ?? "").Trim();
+                if (!reply.HasTools)
+                {
+                    if (string.IsNullOrEmpty(last)) last = Loc.AiOk;
+                    _turns.Add(new AiMsg { Role = "assistant", Text = last });
+                    HarvestNotes(last);
+                    SetAiLamp(true);
+                    AddChat(Loc.AiBot, last);
+                    return last;
+                }
+                _turns.Add(new AiMsg { Role = "assistant", Text = last, Calls = reply.Calls });
+                if (!string.IsNullOrEmpty(last)) AddChat(Loc.AiBot, last);
+                bool stop = false;
+                foreach (var call in reply.Calls)
+                {
+                    string result = DiskAnalyst.Run(call.Name, call.Arguments, this);
+                    string preview = result.Replace("\r", " ").Replace("\n", " ");
+                    if (preview.Length > 160) preview = preview[..157] + "…";
+                    AddChat(Loc.AiBot, Loc.AiToolResult(call.Name, preview), log: true);
+                    _turns.Add(new AiMsg { Role = "tool", Text = result, CallId = call.Id, ToolName = call.Name });
+                    if (call.Name == "ask_user")
+                    {
+                        string q = DiskAnalyst.AskQuestion(call.Arguments);
+                        if (!string.IsNullOrWhiteSpace(q)) AddChat(Loc.AiBot, q);
+                        stop = true;
+                    }
+                }
+                if (stop) return last;
+            }
+            if (!string.IsNullOrEmpty(last))
+            {
+                _turns.Add(new AiMsg { Role = "assistant", Text = last });
+                HarvestNotes(last);
+                AddChat(Loc.AiBot, last);
+            }
+            return last;
+        }
+        catch (Exception ex)
+        {
+            if (_turns.Count > 0 && _turns[^1].Role == "user")
+                _turns.RemoveAt(_turns.Count - 1);
+            SetAiLamp(false);
+            AddChat(Loc.AiBot, ex.Message);
+            return "";
+        }
+        finally
+        {
+            _aiBusy = false;
+            RefreshAiLamp();
+            AiChatSendBtn.IsEnabled = true;
+            AiExplainBtn.IsEnabled = true;
+        }
+    }
+
+    void IAnalystHost.OnChecksChanged(bool showLarge)
+    {
+        ShowRightTab(0);
+        if (showLarge && CleanCatBox.Items.Count > 1)
+            CleanCatBox.SelectedIndex = 1;
+        RefreshCleanUi();
+        PaintAiNotes();
+    }
+
+    void HarvestNotes(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || _report == null) return;
+        int n = 0;
+        foreach (Match m in Regex.Matches(text, @"[A-Za-z]:\\[^\s|*?""<>]{3,240}"))
+        {
+            if (n++ >= 40) break;
+            string path = m.Value.TrimEnd('。', '.', ',', '，', '、', ')', '）', ']', '`', '"', '\'');
+            string key = NormPath(path);
+            if (key.Length < 4 || _aiNotes.ContainsKey(key)) continue;
+            ApplySuggest(key, Loc.AiMark, check: AllCleanItems().Any(x => string.Equals(NormPath(x.FullPath), key, StringComparison.OrdinalIgnoreCase)));
+        }
+        Dispatcher.BeginInvoke(() => { PaintAiNotes(); RefreshCleanUi(); }, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    void IAnalystHost.OnSuggest(string path, string note)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        ApplySuggest(path, string.IsNullOrWhiteSpace(note) ? Loc.AiMark : note.Trim(), check: true);
+        Dispatcher.BeginInvoke(() => { PaintAiNotes(); RefreshCleanUi(); }, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    void ApplySuggest(string path, string note, bool check)
+    {
+        string key = NormPath(path);
+        if (key.Length == 0 || IsProtectedSuggest(key)) return;
+        _aiNotes[key] = ClipNote(note);
+        string? parent = Path.GetDirectoryName(key);
+        int depth = 0;
+        while (!string.IsNullOrEmpty(parent) && parent.Length >= 3 && depth++ < 24)
+        {
+            string p = NormPath(parent);
+            if (p.Length <= 3 || IsProtectedSuggest(p)) break;
+            if (!_aiNotes.ContainsKey(p) || _aiNotes[p] == Loc.AiMark)
+                _aiNotes[p] = Loc.AiInside(ClipNote(note));
+            parent = Path.GetDirectoryName(p);
+        }
+        if (!check || _report == null) return;
+        var item = AllCleanItems().FirstOrDefault(x => string.Equals(NormPath(x.FullPath), key, StringComparison.OrdinalIgnoreCase));
+        if (item == null)
+        {
+            item = AllCleanItems().FirstOrDefault(x =>
+                !string.IsNullOrEmpty(x.FullPath)
+                && key.StartsWith(NormPath(x.FullPath) + "\\", StringComparison.OrdinalIgnoreCase)
+                && DiskAnalyst.CanAiCheck(x));
+        }
+        if (item == null || !DiskAnalyst.CanAiCheck(item)) return;
+        item.Selected = true;
+        item.AiSuggested = true;
+        if (!string.IsNullOrWhiteSpace(note) && note != Loc.AiMark)
+            item.Reason = ClipNote(note);
+    }
+
+    IEnumerable<CleanItem> AllCleanItems()
+    {
+        if (_report == null) yield break;
+        foreach (var x in _report.Cleanable) yield return x;
+        foreach (var x in _report.LargeFiles) yield return x;
+        foreach (var x in _report.OldFiles) yield return x;
+        foreach (var x in _report.Duplicates) yield return x;
+    }
+
+    static bool IsProtectedSuggest(string path)
+    {
+        string p = path.ToLowerInvariant();
+        if (p is "c:" or "c:\\" or "d:" or "d:\\") return true;
+        if (p is @"c:\windows" or @"c:\users" or @"c:\program files" or @"c:\program files (x86)" or @"c:\programdata")
+            return true;
+        if (p.Contains(@"\windows\winsxs")) return true;
+        return false;
+    }
+
+    static string ClipNote(string note)
+    {
+        string t = (note ?? "").Replace('\n', ' ').Replace('\r', ' ').Trim();
+        if (t.Equals("AI", StringComparison.OrdinalIgnoreCase) || t == Loc.AiMark) return Loc.AiMark;
+        return t.Length > 40 ? t[..37] + "…" : t;
+    }
+
+    static string NormPath(string? p)
+        => (p ?? "").Replace('/', '\\').Trim().TrimEnd('\\');
+
+    (bool Hit, string Note) MarkFor(string? path)
+    {
+        string key = NormPath(path);
+        if (key.Length == 0) return (false, "");
+        if (_aiNotes.TryGetValue(key, out var exact))
+            return (true, exact);
+        return (false, "");
+    }
+
+    void PaintAiNotes()
+    {
+        foreach (var obj in DirTree.Items)
+            if (obj is TreeViewItem item)
+                PaintItem(item);
+    }
+
+    void PaintItem(TreeViewItem item)
+    {
+        if (item.Tag is FileEntry e)
+            item.Header = MakeFolderHeader(e, ReferenceEquals(e, _root));
+        foreach (var child in item.Items)
+            if (child is TreeViewItem t && t.Tag is FileEntry)
+                PaintItem(t);
+    }
+
+    private void ChatPath_Click(object sender, RoutedEventArgs e)
+    {
+        if (e is not PathClickEventArgs { Path: string path } || string.IsNullOrWhiteSpace(path)) return;
+        JumpToPath(path);
+    }
+
+    void JumpToPath(string path)
+    {
+        string key = NormPath(path);
+        if (key.Length < 3 || _root == null) return;
+        if (!_aiNotes.ContainsKey(key))
+            ApplySuggest(key, NearbyNote(key) ?? Loc.AiMark, check: false);
+        var item = RevealInTree(key);
+        if (item == null) return;
+        item.IsSelected = true;
+        item.BringIntoView();
+        if (item.Tag is FileEntry e)
+            ShowDirectory(e.IsDirectory ? e : e.Parent ?? e);
+        PaintAiNotes();
+    }
+
+    string? NearbyNote(string key)
+    {
+        if (_aiNotes.TryGetValue(key, out var n) && n != Loc.AiMark) return n;
+        string? parent = Path.GetDirectoryName(key);
+        while (!string.IsNullOrEmpty(parent) && parent.Length >= 3)
+        {
+            string p = NormPath(parent);
+            if (_aiNotes.TryGetValue(p, out var note) && note != Loc.AiMark && !note.StartsWith("内有") && !note.StartsWith("inside:"))
+                return note;
+            parent = Path.GetDirectoryName(p);
+        }
+        return null;
+    }
+
+    TreeViewItem? RevealInTree(string path)
+    {
+        if (DirTree.Items.Count == 0 || DirTree.Items[0] is not TreeViewItem rootItem) return null;
+        string want = NormPath(path);
+        var item = rootItem;
+        EnsureTreeChildren(item);
+        while (true)
+        {
+            TreeViewItem? next = null;
+            foreach (var obj in item.Items)
+            {
+                if (obj is not TreeViewItem child || child.Tag is not FileEntry e) continue;
+                string cur = NormPath(e.FullPath);
+                if (string.Equals(cur, want, StringComparison.OrdinalIgnoreCase)
+                    || want.StartsWith(cur + "\\", StringComparison.OrdinalIgnoreCase))
+                {
+                    next = child;
+                    break;
+                }
+            }
+            if (next == null) return item;
+            item = next;
+            string here = NormPath((item.Tag as FileEntry)?.FullPath);
+            if (string.Equals(here, want, StringComparison.OrdinalIgnoreCase)) return item;
+            item.IsExpanded = true;
+            EnsureTreeChildren(item);
+        }
+    }
+
+    void EnsureTreeChildren(TreeViewItem item)
+    {
+        if (item.Tag is not FileEntry e || !e.IsDirectory) return;
+        bool stub = item.Items.Count == 1 && (item.Items[0] as TreeViewItem)?.Tag == Placeholder;
+        if (stub || (item.Items.Count == 0 && e.Children.Count > 0))
+            PopulateDirChildren(item);
+    }
+
+    private async void AiChatSend_Click(object sender, RoutedEventArgs e)
+        => await SendChat();
+
+    private async void AiChatInput_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        await SendChat();
+    }
+
+    async Task SendChat()
+    {
+        string text = AiChatInput.Text?.Trim() ?? "";
+        if (string.IsNullOrEmpty(text) || _aiBusy) return;
+        if (_report == null)
+        {
+            AddChat(Loc.AiBot, Loc.AiNeedScan);
+            return;
+        }
+        AiChatInput.Text = "";
+        AddChat(Loc.AiYou, text);
+        try { await AskAnalyst(text); }
+        catch { }
+    }
+
+    private void AiChatClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        _chat.Clear();
+        _turns.Clear();
+        _aiNotes.Clear();
+        ClearAiSuggested();
+        DiskAnalyst.ResetSession();
+        if (_root != null) PaintAiNotes();
+        RefreshCleanUi();
+    }
+
+    void ClearAiSuggested()
+    {
+        foreach (var x in AllCleanItems())
+        {
+            if (!x.AiSuggested) continue;
+            x.AiSuggested = false;
+            x.Selected = false;
+        }
+    }
+
+    private async void CtxAskAi_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        if (ContextEntry() is not { IsDirectory: true } dir || dir.IsFilesGroup) return;
+        if (!AiConfigured())
+        {
+            AddChat(Loc.AiBot, Loc.AiScanSkip);
+            return;
+        }
+        AddChat(Loc.AiYou, Loc.AskAiFolder + "  " + dir.FullPath);
+        await AskAnalyst(DiskAnalyst.FolderAsk(dir));
     }
 
     private void RepoLink_Click(object sender, MouseButtonEventArgs e)

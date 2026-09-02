@@ -115,6 +115,11 @@ public static class CleanAnalyzer
                 reason = Loc.ReasonDump;
                 group = Loc.GroupDump;
             }
+            else if (AppSignatures.IsSafeCache(path))
+            {
+                reason = AppSignatures.Describe(path) ?? Loc.ReasonTempDir;
+                group = Loc.GroupTemp;
+            }
             else if (path.Contains(@"\windows\softwaredistribution\download\") || path.Contains(@"\windows\temp\"))
             {
                 reason = Loc.ReasonWinUpdate;
@@ -141,9 +146,10 @@ public static class CleanAnalyzer
         {
             if (!CanOffer(d)) continue;
             string path = (d.FullPath ?? "").ToLowerInvariant().Replace('/', '\\');
-            if (path.EndsWith(@"\windows\temp") || path.EndsWith(@"\appdata\local\temp"))
+            if (path.EndsWith(@"\windows\temp") || path.EndsWith(@"\appdata\local\temp")
+                || AppSignatures.IsSafeCache(path))
             {
-                report.Cleanable.Add(Item(d, Loc.ReasonTempDir, Loc.GroupTemp, selected: false));
+                report.Cleanable.Add(Item(d, AppSignatures.Describe(path) ?? Loc.ReasonTempDir, Loc.GroupTemp, selected: false));
             }
         }
 
@@ -155,7 +161,12 @@ public static class CleanAnalyzer
     private static void FillLarge(CleanReport report, List<FileEntry> files)
     {
         foreach (var f in files.Where(CanList).OrderByDescending(x => x.Size).Take(80))
-            report.LargeFiles.Add(Item(f, Loc.ReasonLarge, Loc.GroupLarge, selected: false));
+        {
+            var hint = KnownPaths.LargeHint(f);
+            string reason = hint?.Reason ?? Loc.ReasonLarge;
+            string group = hint?.Group ?? Loc.GroupLarge;
+            report.LargeFiles.Add(Item(f, reason, group, selected: false));
+        }
     }
 
     private static void FillOld(CleanReport report, List<FileEntry> files)
