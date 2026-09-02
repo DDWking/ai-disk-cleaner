@@ -777,9 +777,9 @@
       <Border x:Name="LeftPanel" Grid.Column="0" Background="{DynamicResource PanelLeft}">
         <Grid>
           <Grid.RowDefinitions>
-            <RowDefinition Height="*" MinHeight="180"/>
+            <RowDefinition Height="*" MinHeight="120"/>
             <RowDefinition Height="8"/>
-            <RowDefinition Height="220" MinHeight="140"/>
+            <RowDefinition Height="2*" MinHeight="220"/>
           </Grid.RowDefinitions>
           <DockPanel>
             <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="20,16,24,4" Text=""

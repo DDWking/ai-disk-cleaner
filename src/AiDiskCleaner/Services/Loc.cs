@@ -115,6 +115,7 @@ public static class Loc
     public static string AiLampOff => IsEn ? "not configured" : "未配置";
     public static string AiReady => IsEn ? "ready" : "已配置";
     public static string AiMark => IsEn ? "AI suggested" : "AI 建议";
+    public static string AiInside => IsEn ? "has AI suggestion inside" : "内有 AI 建议";
     public static string AiLampOn => IsEn ? "connected" : "已连接";
     public static string AiLampBusy => IsEn ? "reading…" : "正在分析…";
     public static string AiLampFail => IsEn ? "failed" : "失败";

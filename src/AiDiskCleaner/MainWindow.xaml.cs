@@ -467,8 +467,9 @@ public partial class MainWindow : Window, IAnalystHost
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
-        string note = NoteFor(d.FullPath);
-        bool marked = !string.IsNullOrEmpty(note);
+        var mark = MarkFor(d.FullPath);
+        string note = mark.Note;
+        bool marked = mark.Hit;
         var name = new TextBlock
         {
             Text = string.IsNullOrEmpty(note) ? d.Name : d.Name + "  ·  " + note,
@@ -671,6 +672,7 @@ public partial class MainWindow : Window, IAnalystHost
         var item = (TreeViewItem)sender;
         if (item.Items.Count == 1 && item.Items[0] is TreeViewItem ph && ReferenceEquals(ph.Tag, Placeholder))
             PopulateDirChildren(item);
+        PaintItem(item);
     }
 
     private void ShowDirectory(FileEntry dir)
@@ -1591,106 +1593,53 @@ public partial class MainWindow : Window, IAnalystHost
 
     void HarvestNotes(string text)
     {
-        if (string.IsNullOrWhiteSpace(text) || _root == null) return;
-        foreach (Match m in Regex.Matches(text, @"[A-Za-z]:\\[^\s|*?""<>]+"))
+        if (string.IsNullOrWhiteSpace(text)) return;
+        int n = 0;
+        foreach (Match m in Regex.Matches(text, @"[A-Za-z]:\\[^\s|*?""<>]{3,240}"))
         {
-            string path = m.Value.TrimEnd('。', '.', ',', '，', '、', ')', '）', ']', '`');
-            var hit = FindEntry(path);
-            if (hit == null) continue;
-            string key = NormPath(hit.FullPath);
-            if (_aiNotes.ContainsKey(key)) continue;
-            ((IAnalystHost)this).OnSuggest(hit.FullPath, Loc.AiMark);
+            if (n++ >= 40) break;
+            string path = m.Value.TrimEnd('。', '.', ',', '，', '、', ')', '）', ']', '`', '"', '\'');
+            string key = NormPath(path);
+            if (key.Length < 4 || _aiNotes.ContainsKey(key)) continue;
+            RememberNote(key, Loc.AiMark);
         }
+        Dispatcher.BeginInvoke(PaintAiNotes, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     void IAnalystHost.OnSuggest(string path, string note)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
+        RememberNote(NormPath(path), string.IsNullOrWhiteSpace(note) ? Loc.AiMark : note.Trim());
+        Dispatcher.BeginInvoke(PaintAiNotes, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    void RememberNote(string path, string note)
+    {
         string key = NormPath(path);
-        var hit = FindEntry(path);
-        if (hit != null) key = NormPath(hit.FullPath);
-        _aiNotes[key] = note.Trim();
-        Dispatcher.BeginInvoke(() =>
+        if (key.Length == 0) return;
+        _aiNotes[key] = note;
+        string? parent = Path.GetDirectoryName(key);
+        int depth = 0;
+        while (!string.IsNullOrEmpty(parent) && parent.Length >= 2 && depth++ < 24)
         {
-            RevealPath(key);
-            PaintAiNotes();
-        }, System.Windows.Threading.DispatcherPriority.Background);
+            string p = NormPath(parent);
+            if (p.Length <= 2) break;
+            if (!_aiNotes.ContainsKey(p))
+                _aiNotes[p] = Loc.AiInside;
+            parent = Path.GetDirectoryName(p);
+        }
     }
 
     static string NormPath(string? p)
         => (p ?? "").Replace('/', '\\').Trim().TrimEnd('\\');
 
-    string NoteFor(string? path)
+    (bool Hit, string Note) MarkFor(string? path)
     {
         string key = NormPath(path);
-        if (key.Length == 0) return "";
-        if (_aiNotes.TryGetValue(key, out var n)) return n;
-        foreach (var kv in _aiNotes)
-            if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase))
-                return kv.Value;
-        return "";
-    }
-
-    FileEntry? FindEntry(string path)
-    {
-        if (_root == null) return null;
-        string want = NormPath(path);
-        if (want.Length == 0) return null;
-        var stack = new Stack<FileEntry>();
-        stack.Push(_root);
-        FileEntry? best = null;
-        while (stack.Count > 0)
-        {
-            var n = stack.Pop();
-            string cur = NormPath(n.FullPath);
-            if (string.Equals(cur, want, StringComparison.OrdinalIgnoreCase))
-                return n;
-            if (want.StartsWith(cur + "\\", StringComparison.OrdinalIgnoreCase) && (best == null || cur.Length > NormPath(best.FullPath).Length))
-                best = n;
-            if (n.IsDirectory)
-                foreach (var c in n.Children)
-                    stack.Push(c);
-        }
-        return best;
-    }
-
-    void RevealPath(string path)
-    {
-        if (DirTree.Items.Count == 0 || DirTree.Items[0] is not TreeViewItem rootItem) return;
-        string want = NormPath(path);
-        var item = rootItem;
-        EnsureChildren(item);
-        string acc = NormPath((item.Tag as FileEntry)?.FullPath);
-        while (true)
-        {
-            TreeViewItem? next = null;
-            foreach (var obj in item.Items)
-            {
-                if (obj is not TreeViewItem child || child.Tag is not FileEntry e) continue;
-                string cur = NormPath(e.FullPath);
-                if (string.Equals(cur, want, StringComparison.OrdinalIgnoreCase)
-                    || want.StartsWith(cur + "\\", StringComparison.OrdinalIgnoreCase))
-                {
-                    next = child;
-                    acc = cur;
-                    break;
-                }
-            }
-            if (next == null) break;
-            item = next;
-            if (string.Equals(acc, want, StringComparison.OrdinalIgnoreCase)) break;
-            item.IsExpanded = true;
-            EnsureChildren(item);
-        }
-        PaintItem(item);
-    }
-
-    void EnsureChildren(TreeViewItem item)
-    {
-        if (item.Tag is not FileEntry e || !e.IsDirectory) return;
-        bool stub = item.Items.Count == 1 && (item.Items[0] as TreeViewItem)?.Tag == Placeholder;
-        if (stub || item.Items.Count == 0)
-            PopulateDirChildren(item);
+        if (key.Length == 0) return (false, "");
+        if (_aiNotes.TryGetValue(key, out var exact))
+            return (true, exact);
+        return (false, "");
     }
 
     void PaintAiNotes()
