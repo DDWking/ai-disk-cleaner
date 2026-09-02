@@ -370,7 +370,10 @@ public static class Loc
     public static string ReasonTempExt => IsEn ? "Temp / log leftover" : "临时或日志残留";
     public static string ReasonDump => IsEn ? "Crash dump" : "崩溃转储";
     public static string ReasonWinUpdate => IsEn ? "Windows update leftover" : "Windows 更新残留";
-    public static string ReasonInstaller => IsEn ? "Installer in Downloads" : "下载里的安装包";
+    public static string ReasonInstaller => IsEn ? "Installer in Downloads, likely safe" : "下载里的安装包，可考虑删";
+    public static string ReasonOldInstaller => IsEn ? "Old disk image / installer, unused for months" : "很久没动的镜像/安装包";
+    public static string ReasonVmDisk => IsEn ? "VM / WSL / emulator disk image" : "虚拟机 / WSL / 模拟器磁盘";
+    public static string AskAiFolder => IsEn ? "Ask AI what this is" : "问 AI 这是什么";
     public static string ReasonRecycle => IsEn ? "Already in Recycle Bin" : "已在回收站";
     public static string ReasonLarge => IsEn ? "Among the largest files" : "占用最大的文件之一";
     public static string ReasonOld(string age) => IsEn ? $"Not modified for {age}" : $"已 {age} 未改";

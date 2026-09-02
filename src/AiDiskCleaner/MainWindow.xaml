@@ -817,6 +817,7 @@
                   <MenuItem x:Name="CtxCopyName" Header="复制名称" Click="CtxCopyName_Click"/>
                   <MenuItem Style="{StaticResource MenuLine}"/>
                   <MenuItem x:Name="CtxDelete" Header="删除到回收站" Click="CtxDelete_Click"/>
+                  <MenuItem x:Name="CtxAskAi" Header="问 AI 这是什么" Click="CtxAskAi_Click"/>
                   <MenuItem Style="{StaticResource MenuLine}"/>
                   <MenuItem x:Name="CtxProps" Header="属性" Click="CtxProps_Click"/>
                 </ContextMenu>

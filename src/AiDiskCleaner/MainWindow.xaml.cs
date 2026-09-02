@@ -162,6 +162,7 @@ public partial class MainWindow : Window, IAnalystHost
         CtxCopyPath.Header = Loc.CopyPath;
         CtxCopyName.Header = Loc.CopyName;
         CtxDelete.Header = Loc.DeleteToRecycle;
+        CtxAskAi.Header = Loc.AskAiFolder;
         CtxProps.Header = Loc.Properties;
         ExtTitle.Text = Loc.ExtType;
         ColExt.Header = Loc.Ext;
@@ -906,6 +907,7 @@ public partial class MainWindow : Window, IAnalystHost
         bool ok = entry != null && !RecycleService.IsProtected(entry);
         CtxDelete.IsEnabled = ok;
         CtxDelete.Header = ok ? Loc.DeleteToRecycle : Loc.DeleteBlocked;
+        CtxAskAi.IsEnabled = entry is { IsDirectory: true } && !entry.IsFilesGroup;
     }
 
     private void CtxDelete_Click(object sender, RoutedEventArgs e)
@@ -1317,6 +1319,7 @@ public partial class MainWindow : Window, IAnalystHost
                 AddChat(Loc.AiBot, Loc.AiScanSkip);
             return;
         }
+        DiskAnalyst.ResetSession();
         await AskAnalyst(DiskAnalyst.Opening(root, report, _volumeUsed, _volumeTotal));
     }
 
@@ -1378,7 +1381,8 @@ public partial class MainWindow : Window, IAnalystHost
             string last = "";
             for (int round = 0; round < DiskAnalyst.MaxRounds; round++)
             {
-                var reply = await AiClient.TurnAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), tools, CancellationToken.None);
+                bool overBudget = DiskAnalyst.EstimateTokens(_turns) >= DiskAnalyst.TokenBudget;
+                var reply = await AiClient.TurnAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), overBudget ? null : tools, CancellationToken.None);
                 last = (reply.Text ?? "").Trim();
                 if (!reply.HasTools)
                 {
@@ -1467,6 +1471,20 @@ public partial class MainWindow : Window, IAnalystHost
         if (_aiBusy) return;
         _chat.Clear();
         _turns.Clear();
+        DiskAnalyst.ResetSession();
+    }
+
+    private async void CtxAskAi_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        if (ContextEntry() is not { IsDirectory: true } dir || dir.IsFilesGroup) return;
+        if (!AiConfigured())
+        {
+            AddChat(Loc.AiBot, Loc.AiScanSkip);
+            return;
+        }
+        AddChat(Loc.AiYou, Loc.AskAiFolder + "  " + dir.FullPath);
+        await AskAnalyst(DiskAnalyst.FolderAsk(dir));
     }
 
     private void RepoLink_Click(object sender, MouseButtonEventArgs e)

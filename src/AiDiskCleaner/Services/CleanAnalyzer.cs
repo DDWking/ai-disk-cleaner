@@ -155,7 +155,12 @@ public static class CleanAnalyzer
     private static void FillLarge(CleanReport report, List<FileEntry> files)
     {
         foreach (var f in files.Where(CanList).OrderByDescending(x => x.Size).Take(80))
-            report.LargeFiles.Add(Item(f, Loc.ReasonLarge, Loc.GroupLarge, selected: false));
+        {
+            var hint = KnownPaths.LargeHint(f);
+            string reason = hint?.Reason ?? Loc.ReasonLarge;
+            string group = hint?.Group ?? Loc.GroupLarge;
+            report.LargeFiles.Add(Item(f, reason, group, selected: false));
+        }
     }
 
     private static void FillOld(CleanReport report, List<FileEntry> files)

@@ -13,6 +13,8 @@ public interface IAnalystHost
 public static class DiskAnalyst
 {
     public const int MaxRounds = 6;
+    public const int TokenBudget = 12000;
+    static readonly HashSet<string> Listed = new(StringComparer.OrdinalIgnoreCase);
 
     public static string SystemPrompt()
     {
@@ -35,7 +37,7 @@ public static class DiskAnalyst
         lines.Add("");
         lines.Add("largest files (top 40):");
         foreach (var f in report.LargeFiles.Take(40))
-            lines.Add($"  {f.SizeText}  {f.FullPath}");
+            lines.Add($"  {ItemLine(f)}");
         lines.Add("");
         lines.Add($"cleanable: {report.Cleanable.Count:N0} items, {FileEntry.FormatSize(report.CleanableBytes)}");
         foreach (var g in report.Cleanable.GroupBy(x => string.IsNullOrEmpty(x.Group) ? "-" : x.Group)
@@ -47,6 +49,30 @@ public static class DiskAnalyst
             lines.Add("compare: " + report.CompareNote);
         return string.Join(Environment.NewLine, lines);
     }
+
+    public static string FolderAsk(FileEntry dir)
+    {
+        var lines = new List<string>
+        {
+            Loc.IsEn
+                ? "Explain this folder only. What is it? Which children look deletable? Do not invent files."
+                : "只解释这个文件夹：它是什么、哪些子项可能能删。不要编造。",
+            Line(dir),
+            "children (top 20):",
+        };
+        foreach (var c in dir.Children
+                     .Where(x => !x.IsFilesGroup && !string.IsNullOrEmpty(x.FullPath))
+                     .OrderByDescending(x => x.Size)
+                     .Take(20))
+            lines.Add("  " + Line(c));
+        Listed.Add(Norm(dir.FullPath));
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    public static void ResetSession() => Listed.Clear();
+
+    public static int EstimateTokens(IEnumerable<AiMsg> turns)
+        => Math.Max(1, turns.Sum(t => (t.Text?.Length ?? 0) + 8) / 4);
 
     public static IReadOnlyList<object> Tools(AiProtocol proto)
     {
@@ -124,7 +150,7 @@ public static class DiskAnalyst
         if (!x.CanDelete) return false;
         if (x.Group == Loc.GroupTemp || x.Group == Loc.GroupDump || x.Group == Loc.GroupRecycle)
             return true;
-        if (x.Group == Loc.GroupLarge)
+        if (x.Group == Loc.GroupLarge || x.Group == Loc.GroupInstaller)
             return !IsSystemPath(x.FullPath);
         return false;
     }
@@ -135,6 +161,9 @@ public static class DiskAnalyst
         if (root == null) return "no scan";
         var dir = Find(root, path);
         if (dir == null) return "folder not in scan tree: " + path;
+        string key = Norm(dir.FullPath);
+        if (!Listed.Add(key))
+            return "already listed this folder; use the previous result";
         var kids = dir.Children
             .Where(c => !c.IsFilesGroup && !string.IsNullOrEmpty(c.FullPath))
             .OrderByDescending(c => c.Size)
@@ -142,7 +171,9 @@ public static class DiskAnalyst
             .Select(Line)
             .ToList();
         if (kids.Count == 0) return "empty";
-        return string.Join(Environment.NewLine, kids);
+        string? known = KnownPaths.Describe(dir.FullPath);
+        string head = known == null ? "" : known + Environment.NewLine;
+        return head + string.Join(Environment.NewLine, kids);
     }
 
     static string Search(string query, IAnalystHost host)
@@ -239,11 +270,13 @@ public static class DiskAnalyst
                || p.Contains(@"\$");
     }
 
-    static string Line(FileEntry e)
-        => $"{e.SizeText}  {(e.IsDirectory ? "dir" : "file")}  {e.FileCount:N0} files  {e.FullPath}";
+    static string Line(FileEntry e) => KnownPaths.Fingerprint(e);
 
     static string ItemLine(CleanItem x)
-        => $"{x.SizeText}  [{x.Group}]  {(x.CanDelete ? "" : "protected ")}{(CanAiCheck(x) ? "checkable " : "")}{x.Reason}  {x.FullPath}";
+    {
+        string extra = x.Entry != null ? KnownPaths.Fingerprint(x.Entry) : x.FullPath;
+        return $"{x.SizeText}  [{x.Group}]  {(x.CanDelete ? "" : "protected ")}{(CanAiCheck(x) ? "checkable " : "")}{x.Reason}  {extra}";
+    }
 
     static object Props(params (string Name, string Desc)[] fields)
     {
