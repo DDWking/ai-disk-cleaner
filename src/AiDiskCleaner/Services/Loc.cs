@@ -83,6 +83,24 @@ public static class Loc
     public static string AiPromptHeader => IsEn
         ? "Explain these checked items. Should I delete them? Any risk?"
         : "解释这些已勾选项：能不能删、有没有风险？";
+    public static string AiChatTitle => IsEn ? "File analyst" : "文件分析师";
+    public static string AiChatHint => IsEn ? "Ask about this disk…" : "问这张盘…";
+    public static string AiSend => IsEn ? "Send" : "发送";
+    public static string AiClear => IsEn ? "Clear" : "清空";
+    public static string AiNeedScan => IsEn ? "Scan first." : "先扫描再问。";
+    public static string AiScanSkip => IsEn ? "Set API URL and model in Settings to auto-analyze." : "在设置里填 API 地址和模型后，扫完会自动分析。";
+    public static string AiYou => IsEn ? "You" : "你";
+    public static string AiBot => IsEn ? "Analyst" : "分析师";
+    public static string AiExtraPrompt => IsEn ? "Extra instructions (optional)" : "额外提示词（可选）";
+    public static string AiExtraHint => IsEn
+        ? "e.g. Always ask what I want before suggesting deletes."
+        : "例如：先问我想清什么，再给建议。";
+    public static string AiScanHeader => IsEn
+        ? "Scan finished. Analyze this summary only. Do not invent files. Do not delete. Ask what I want before recommending deletes."
+        : "扫描结束。只根据这份摘要分析，不要编造文件，不要删除。先问我想清什么，再给建议。";
+    public static string AiAnalystSystem => IsEn
+        ? "You are a file analyst for a disk cleaner. You only see a scan summary and what the user types. Be brief. Do not invent files or sizes. Never delete, never run commands, never claim you already cleaned anything. Ask what the user wants before recommending deletes. Protected / system items stay. Reply in the user's language."
+        : "你是磁盘清理软件里的文件分析师。你只能看到扫描摘要和用户输入。回答要短。不要编造文件或大小。不要删除、不要执行命令、不要声称已经清理过。先问清楚用户想清什么，再给建议。系统保护项不要动。用用户的语言回答。";
     public static string AiKindName(AiProtocol p) => p switch
     {
         AiProtocol.Responses => AiProtoResponses,

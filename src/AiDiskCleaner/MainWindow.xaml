@@ -674,12 +674,10 @@
     </Style>
     <Style TargetType="GridSplitter">
       <Setter Property="Background" Value="{DynamicResource Border}"/>
-      <Setter Property="Width" Value="12"/>
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
       <Setter Property="VerticalAlignment" Value="Stretch"/>
       <Setter Property="ResizeBehavior" Value="PreviousAndNext"/>
       <Setter Property="ShowsPreview" Value="False"/>
-      <Setter Property="Cursor" Value="SizeWE"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="GridSplitter">
@@ -776,51 +774,87 @@
       </Grid.ColumnDefinitions>
 
       <Border x:Name="LeftPanel" Grid.Column="0" Background="{DynamicResource PanelLeft}">
-        <DockPanel>
-          <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="20,16,24,4" Text=""
-                     Foreground="{DynamicResource TextMuted}" FontSize="11" TextTrimming="CharacterEllipsis"/>
-          <TextBlock x:Name="FilterHint" DockPanel.Dock="Top" Margin="20,0,24,6" FontSize="11"
-                     Foreground="{DynamicResource Accent}" Visibility="Collapsed"/>
-          <Grid x:Name="TreeHeader" DockPanel.Dock="Top" Margin="16,0,0,8">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="16"/>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="140"/>
-              <ColumnDefinition Width="80"/>
-              <ColumnDefinition Width="80"/>
-              <ColumnDefinition Width="80"/>
-              <ColumnDefinition Width="72"/>
-              <ColumnDefinition Width="{x:Static SystemParameters.VerticalScrollBarWidth}"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock x:Name="NameHeader" Grid.Column="1" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11" Cursor="Hand" MouseLeftButtonDown="SortName_Click"/>
-            <TextBlock x:Name="PctHeader" Grid.Column="2" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
-            <TextBlock x:Name="SizeHeader" Grid.Column="3" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
-            <TextBlock x:Name="AllocHeader" Grid.Column="4" Text="分配" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortAlloc_Click"/>
-            <TextBlock x:Name="FilesHeader" Grid.Column="5" Text="文件" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortFiles_Click"/>
-            <TextBlock x:Name="FoldersHeader" Grid.Column="6" Text="文件夹" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortFolders_Click"/>
-          </Grid>
-          <TreeView x:Name="DirTree" Padding="16,0,0,16"
-                    Background="Transparent"
-                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                    ScrollViewer.VerticalScrollBarVisibility="Visible"
-                    SelectedItemChanged="DirTree_SelectedItemChanged"
-                    PreviewMouseRightButtonDown="DirTree_PreviewRightDown">
-            <TreeView.ContextMenu>
-              <ContextMenu Opened="TreeMenu_Opened">
-                <MenuItem x:Name="CtxOpen" Header="在资源管理器中打开" Click="CtxOpen_Click"/>
-                <MenuItem x:Name="CtxCopyPath" Header="复制路径" Click="CtxCopyPath_Click"/>
-                <MenuItem x:Name="CtxCopyName" Header="复制名称" Click="CtxCopyName_Click"/>
-                <MenuItem Style="{StaticResource MenuLine}"/>
-                <MenuItem x:Name="CtxDelete" Header="删除到回收站" Click="CtxDelete_Click"/>
-                <MenuItem Style="{StaticResource MenuLine}"/>
-                <MenuItem x:Name="CtxProps" Header="属性" Click="CtxProps_Click"/>
-              </ContextMenu>
-            </TreeView.ContextMenu>
-          </TreeView>
-        </DockPanel>
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="*" MinHeight="180"/>
+            <RowDefinition Height="8"/>
+            <RowDefinition Height="220" MinHeight="140"/>
+          </Grid.RowDefinitions>
+          <DockPanel>
+            <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="20,16,24,4" Text=""
+                       Foreground="{DynamicResource TextMuted}" FontSize="11" TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="FilterHint" DockPanel.Dock="Top" Margin="20,0,24,6" FontSize="11"
+                       Foreground="{DynamicResource Accent}" Visibility="Collapsed"/>
+            <Grid x:Name="TreeHeader" DockPanel.Dock="Top" Margin="16,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="140"/>
+                <ColumnDefinition Width="80"/>
+                <ColumnDefinition Width="80"/>
+                <ColumnDefinition Width="80"/>
+                <ColumnDefinition Width="72"/>
+                <ColumnDefinition Width="{x:Static SystemParameters.VerticalScrollBarWidth}"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock x:Name="NameHeader" Grid.Column="1" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11" Cursor="Hand" MouseLeftButtonDown="SortName_Click"/>
+              <TextBlock x:Name="PctHeader" Grid.Column="2" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
+              <TextBlock x:Name="SizeHeader" Grid.Column="3" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
+              <TextBlock x:Name="AllocHeader" Grid.Column="4" Text="分配" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortAlloc_Click"/>
+              <TextBlock x:Name="FilesHeader" Grid.Column="5" Text="文件" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortFiles_Click"/>
+              <TextBlock x:Name="FoldersHeader" Grid.Column="6" Text="文件夹" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortFolders_Click"/>
+            </Grid>
+            <TreeView x:Name="DirTree" Padding="16,0,0,16"
+                      Background="Transparent"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                      ScrollViewer.VerticalScrollBarVisibility="Visible"
+                      SelectedItemChanged="DirTree_SelectedItemChanged"
+                      PreviewMouseRightButtonDown="DirTree_PreviewRightDown">
+              <TreeView.ContextMenu>
+                <ContextMenu Opened="TreeMenu_Opened">
+                  <MenuItem x:Name="CtxOpen" Header="在资源管理器中打开" Click="CtxOpen_Click"/>
+                  <MenuItem x:Name="CtxCopyPath" Header="复制路径" Click="CtxCopyPath_Click"/>
+                  <MenuItem x:Name="CtxCopyName" Header="复制名称" Click="CtxCopyName_Click"/>
+                  <MenuItem Style="{StaticResource MenuLine}"/>
+                  <MenuItem x:Name="CtxDelete" Header="删除到回收站" Click="CtxDelete_Click"/>
+                  <MenuItem Style="{StaticResource MenuLine}"/>
+                  <MenuItem x:Name="CtxProps" Header="属性" Click="CtxProps_Click"/>
+                </ContextMenu>
+              </TreeView.ContextMenu>
+            </TreeView>
+          </DockPanel>
+          <GridSplitter Grid.Row="1" Height="8" HorizontalAlignment="Stretch" Cursor="SizeNS"/>
+          <Border Grid.Row="2" Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <DockPanel>
+              <Grid DockPanel.Dock="Top" Margin="16,8,16,6">
+                <TextBlock x:Name="AiChatTitle" Foreground="{DynamicResource TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                <Button x:Name="AiChatClearBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Right"
+                        Padding="10,3" FontSize="11" Click="AiChatClear_Click"/>
+              </Grid>
+              <DockPanel DockPanel.Dock="Bottom" Margin="12,0,12,10">
+                <Button x:Name="AiChatSendBtn" DockPanel.Dock="Right" Style="{StaticResource GhostButton}"
+                        Margin="8,0,0,0" Click="AiChatSend_Click"/>
+                <TextBox x:Name="AiChatInput" Style="{StaticResource TermTextBox}" Height="28"
+                         Tag="问这张盘…" KeyDown="AiChatInput_KeyDown"/>
+              </DockPanel>
+              <ScrollViewer x:Name="AiChatScroll" Margin="12,0,12,8" VerticalScrollBarVisibility="Auto"
+                            HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl x:Name="AiChatList">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Margin="0,0,0,10">
+                        <TextBlock Text="{Binding Who}" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,2"/>
+                        <TextBlock Text="{Binding Text}" Foreground="{DynamicResource Text}" FontSize="12" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </DockPanel>
+          </Border>
+        </Grid>
       </Border>
 
-      <GridSplitter Grid.Column="1"/>
+      <GridSplitter Grid.Column="1" Width="12" Cursor="SizeWE"/>
 
       <Border x:Name="RightPanel" Grid.Column="2" Background="{DynamicResource PanelRight}">
         <DockPanel>
@@ -1124,6 +1158,10 @@
             <TextBox x:Name="AiModelBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,6" Height="28" Tag="模型 ID"/>
             <TextBlock x:Name="AiModelHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
                        TextWrapping="Wrap" Margin="0,0,0,12"/>
+            <TextBlock x:Name="AiExtraLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="AiExtraBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,12"
+                     Height="72" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top"
+                     Tag="例如：先问我想清什么，再给建议。"/>
             <StackPanel Orientation="Horizontal">
               <Button x:Name="AiTestBtn" Style="{StaticResource GhostButton}" Click="AiTest_Click"/>
               <TextBlock x:Name="AiTestHint" Margin="12,0,0,0" VerticalAlignment="Center"

@@ -15,6 +15,7 @@ public sealed class AppSettings
     public string AiModel { get; set; } = "";
     public List<string> AiModels { get; set; } = new();
     public string AiApiKey { get; set; } = "";
+    public string AiExtraPrompt { get; set; } = "";
 
     private static string Path =>
         System.IO.Path.Combine(

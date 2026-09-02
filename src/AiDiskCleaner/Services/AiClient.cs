@@ -24,7 +24,10 @@ public static class AiClient
         _ => "completions",
     };
 
-    public static async Task<string> ChatAsync(string system, string user, CancellationToken ct)
+    public static Task<string> ChatAsync(string system, string user, CancellationToken ct)
+        => ChatAsync(system, new[] { ("user", user) }, ct);
+
+    public static async Task<string> ChatAsync(string system, IReadOnlyList<(string Role, string Text)> turns, CancellationToken ct)
     {
         var s = App.Settings;
         string baseUrl = (s.AiBaseUrl ?? "").Trim().TrimEnd('/');
@@ -35,9 +38,9 @@ public static class AiClient
         var proto = ParseProtocol(s.AiProtocol);
         return proto switch
         {
-            AiProtocol.Anthropic => await Anthropic(baseUrl, model, key, system, user, ct),
-            AiProtocol.Responses => await Responses(baseUrl, model, key, system, user, ct),
-            _ => await Completions(baseUrl, model, key, system, user, ct),
+            AiProtocol.Anthropic => await Anthropic(baseUrl, model, key, system, turns, ct),
+            AiProtocol.Responses => await Responses(baseUrl, model, key, system, turns, ct),
+            _ => await Completions(baseUrl, model, key, system, turns, ct),
         };
     }
 
@@ -60,19 +63,18 @@ public static class AiClient
         return ParseModelIds(body);
     }
 
-    static async Task<string> Completions(string baseUrl, string model, string key, string system, string user, CancellationToken ct)
+    static async Task<string> Completions(string baseUrl, string model, string key, string system, IReadOnlyList<(string Role, string Text)> turns, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "chat/completions"));
         Auth(req, AiProtocol.Completions, key);
+        var messages = new List<object> { new { role = "system", content = system } };
+        foreach (var t in turns)
+            messages.Add(new { role = t.Role, content = t.Text });
         req.Content = JsonBody(new
         {
             model,
             temperature = 0.2,
-            messages = new[]
-            {
-                new { role = "system", content = system },
-                new { role = "user", content = user },
-            },
+            messages,
         });
         using var res = await Http.SendAsync(req, ct);
         string body = await res.Content.ReadAsStringAsync(ct);
@@ -87,15 +89,16 @@ public static class AiClient
         throw Fail(body, "empty");
     }
 
-    static async Task<string> Responses(string baseUrl, string model, string key, string system, string user, CancellationToken ct)
+    static async Task<string> Responses(string baseUrl, string model, string key, string system, IReadOnlyList<(string Role, string Text)> turns, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "responses"));
         Auth(req, AiProtocol.Responses, key);
+        var input = turns.Select(t => new { role = t.Role, content = t.Text }).ToArray();
         req.Content = JsonBody(new
         {
             model,
             instructions = system,
-            input = user,
+            input,
             temperature = 0.2,
         });
         using var res = await Http.SendAsync(req, ct);
@@ -125,16 +128,17 @@ public static class AiClient
         throw Fail(body, "empty");
     }
 
-    static async Task<string> Anthropic(string baseUrl, string model, string key, string system, string user, CancellationToken ct)
+    static async Task<string> Anthropic(string baseUrl, string model, string key, string system, IReadOnlyList<(string Role, string Text)> turns, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "messages"));
         Auth(req, AiProtocol.Anthropic, key);
+        var messages = turns.Select(t => new { role = t.Role, content = t.Text }).ToArray();
         req.Content = JsonBody(new
         {
             model,
             max_tokens = 800,
             system,
-            messages = new[] { new { role = "user", content = user } },
+            messages,
         });
         using var res = await Http.SendAsync(req, ct);
         string body = await res.Content.ReadAsStringAsync(ct);

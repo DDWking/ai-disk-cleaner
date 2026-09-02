@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Collections.ObjectModel;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -103,6 +104,8 @@ public partial class MainWindow : Window
     private long _volumeUsed;
     private bool _aiModelLock;
     private bool _aiBusy;
+    private readonly ObservableCollection<ChatLine> _chat = new();
+    private readonly List<(string Role, string Text)> _turns = new();
     private static readonly AiProtocol[] AiProtos =
         { AiProtocol.Completions, AiProtocol.Responses, AiProtocol.Anthropic };
 
@@ -130,6 +133,7 @@ public partial class MainWindow : Window
         };
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
+        AiChatList.ItemsSource = _chat;
         ApplyUi();
         ShowRightTab(0);
     }
@@ -203,8 +207,14 @@ public partial class MainWindow : Window
         AiNameBox.Tag = Loc.AiNameHint;
         AiUrlBox.Tag = Loc.AiUrlHint;
         AiModelBox.Tag = Loc.AiModelHintBox;
+        AiExtraLabel.Text = Loc.AiExtraPrompt;
+        AiExtraBox.Tag = Loc.AiExtraHint;
         AiModelHint.Text = Loc.AiModelsEmpty;
         AiExplainBtn.Content = Loc.AiExplain;
+        AiChatTitle.Text = Loc.AiChatTitle;
+        AiChatSendBtn.Content = Loc.AiSend;
+        AiChatClearBtn.Content = Loc.AiClear;
+        AiChatInput.Tag = Loc.AiChatHint;
         FillAiProtoBox();
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
@@ -361,6 +371,7 @@ public partial class MainWindow : Window
             ? Loc.CleanHintReady(report.Cleanable.Count, FileEntry.FormatSize(report.CleanableBytes))
             : Loc.HintClean;
         UiLog($"分析完成: cleanable={report.Cleanable.Count} dup={report.Duplicates.Count}");
+        _ = AutoAnalyze(root, report);
     }
 
     private void SetCleanProgress(double value, string text, bool determinate)
@@ -1163,6 +1174,7 @@ public partial class MainWindow : Window
         AiProtoBox.SelectedIndex = i < 0 ? 0 : i;
         AiModelBox.Text = App.Settings.AiModel ?? "";
         AiKeyBox.Password = App.Settings.AiApiKey ?? "";
+        AiExtraBox.Text = App.Settings.AiExtraPrompt ?? "";
         AiTestHint.Text = "";
         FillModelPick(App.Settings.AiModels, App.Settings.AiModel);
         AiModelHint.Text = AiModelPick.Items.Count == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(AiModelPick.Items.Count);
@@ -1179,6 +1191,7 @@ public partial class MainWindow : Window
         App.Settings.AiModel = AiModelBox.Text?.Trim() ?? "";
         App.Settings.AiModels = AiModelPick.Items.OfType<string>().ToList();
         App.Settings.AiApiKey = AiKeyBox.Password ?? "";
+        App.Settings.AiExtraPrompt = AiExtraBox.Text ?? "";
         App.Settings.Save();
     }
 
@@ -1268,28 +1281,111 @@ public partial class MainWindow : Window
             ShowAlert(Loc.AiTitle, Loc.AiNeedItems);
             return;
         }
-        _aiBusy = true;
-        AiExplainBtn.IsEnabled = false;
         SetCleanProgress(0, Loc.AiWorking, determinate: false);
         try
         {
             var lines = picked.Select(x =>
                 $"- {x.Name}  {x.SizeText}  {x.Reason}  {(x.CanDelete ? "" : "[protected]")}  {x.FullPath}");
             string user = Loc.AiPromptHeader + Environment.NewLine + string.Join(Environment.NewLine, lines);
-            string reply = await AiClient.ChatAsync(Loc.AiSystem, user, CancellationToken.None);
+            AddChat(Loc.AiYou, Loc.AiExplain);
+            await AskAnalyst(user);
+        }
+        catch
+        {
+        }
+        finally
+        {
             HideCleanProgress();
-            ShowAlert(Loc.AiTitle, string.IsNullOrWhiteSpace(reply) ? Loc.AiOk : reply.Trim());
+        }
+    }
+
+    bool AiConfigured()
+        => !string.IsNullOrWhiteSpace(App.Settings.AiBaseUrl) && !string.IsNullOrWhiteSpace(App.Settings.AiModel);
+
+    async Task AutoAnalyze(FileEntry root, CleanReport report)
+    {
+        if (!AiConfigured())
+        {
+            if (_chat.Count == 0)
+                AddChat(Loc.AiBot, Loc.AiScanSkip);
+            return;
+        }
+        await AskAnalyst(DiskAnalyst.ScanSummary(root, report, _volumeUsed, _volumeTotal));
+    }
+
+    void AddChat(string who, string text)
+    {
+        _chat.Add(new ChatLine { Who = who, Text = text });
+        Dispatcher.BeginInvoke(() => AiChatScroll.ScrollToEnd(), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    IReadOnlyList<(string Role, string Text)> PackedTurns()
+    {
+        if (_turns.Count <= 12) return _turns.ToList();
+        return _turns.Skip(_turns.Count - 12).ToList();
+    }
+
+    async Task<string> AskAnalyst(string user)
+    {
+        if (_aiBusy) return "";
+        _aiBusy = true;
+        AiChatSendBtn.IsEnabled = false;
+        AiExplainBtn.IsEnabled = false;
+        try
+        {
+            _turns.Add(("user", user));
+            string reply = await AiClient.ChatAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), CancellationToken.None);
+            reply = (reply ?? "").Trim();
+            if (string.IsNullOrEmpty(reply)) reply = Loc.AiOk;
+            _turns.Add(("assistant", reply));
+            AddChat(Loc.AiBot, reply);
+            return reply;
         }
         catch (Exception ex)
         {
-            HideCleanProgress();
-            ShowAlert(Loc.AiTitle, ex.Message);
+            if (_turns.Count > 0 && _turns[^1].Role == "user")
+                _turns.RemoveAt(_turns.Count - 1);
+            AddChat(Loc.AiBot, ex.Message);
+            return "";
         }
         finally
         {
             _aiBusy = false;
+            AiChatSendBtn.IsEnabled = true;
             AiExplainBtn.IsEnabled = true;
         }
+    }
+
+    private async void AiChatSend_Click(object sender, RoutedEventArgs e)
+        => await SendChat();
+
+    private async void AiChatInput_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        await SendChat();
+    }
+
+    async Task SendChat()
+    {
+        string text = AiChatInput.Text?.Trim() ?? "";
+        if (string.IsNullOrEmpty(text) || _aiBusy) return;
+        if (_report == null)
+        {
+            AddChat(Loc.AiBot, Loc.AiNeedScan);
+            return;
+        }
+        AiChatInput.Text = "";
+        AddChat(Loc.AiYou, text);
+        try { await AskAnalyst(text); }
+        catch { }
+    }
+
+    private void AiChatClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
+        _chat.Clear();
+        _turns.Clear();
     }
 
     private void RepoLink_Click(object sender, MouseButtonEventArgs e)
