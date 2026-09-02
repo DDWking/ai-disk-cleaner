@@ -6,9 +6,33 @@ namespace AiDiskCleaner.Services;
 
 public enum AiProtocol { Completions, Responses, Anthropic }
 
+public sealed class AiToolCall
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Arguments { get; set; } = "{}";
+}
+
+public sealed class AiMsg
+{
+    public string Role { get; set; } = "";
+    public string Text { get; set; } = "";
+    public List<AiToolCall>? Calls { get; set; }
+    public string? CallId { get; set; }
+    public string? ToolName { get; set; }
+}
+
+public sealed class AiReply
+{
+    public string Text { get; set; } = "";
+    public List<AiToolCall> Calls { get; set; } = new();
+    public bool HasTools => Calls.Count > 0;
+}
+
 public static class AiClient
 {
-    static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
+    static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(90) };
+    static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public static AiProtocol ParseProtocol(string? s) => s switch
     {
@@ -25,9 +49,15 @@ public static class AiClient
     };
 
     public static Task<string> ChatAsync(string system, string user, CancellationToken ct)
-        => ChatAsync(system, new[] { ("user", user) }, ct);
+        => ChatAsync(system, new[] { new AiMsg { Role = "user", Text = user } }, ct);
 
-    public static async Task<string> ChatAsync(string system, IReadOnlyList<(string Role, string Text)> turns, CancellationToken ct)
+    public static async Task<string> ChatAsync(string system, IReadOnlyList<AiMsg> turns, CancellationToken ct)
+    {
+        var reply = await TurnAsync(system, turns, tools: null, ct);
+        return reply.Text;
+    }
+
+    public static async Task<AiReply> TurnAsync(string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
     {
         var s = App.Settings;
         string baseUrl = (s.AiBaseUrl ?? "").Trim().TrimEnd('/');
@@ -36,12 +66,24 @@ public static class AiClient
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(model))
             throw new InvalidOperationException(Loc.AiNeedConfig);
         var proto = ParseProtocol(s.AiProtocol);
-        return proto switch
+        try
         {
-            AiProtocol.Anthropic => await Anthropic(baseUrl, model, key, system, turns, ct),
-            AiProtocol.Responses => await Responses(baseUrl, model, key, system, turns, ct),
-            _ => await Completions(baseUrl, model, key, system, turns, ct),
-        };
+            return proto switch
+            {
+                AiProtocol.Anthropic => await Anthropic(baseUrl, model, key, system, turns, tools, ct),
+                AiProtocol.Responses => await Responses(baseUrl, model, key, system, turns, tools, ct),
+                _ => await Completions(baseUrl, model, key, system, turns, tools, ct),
+            };
+        }
+        catch (Exception ex) when (tools != null && LooksLikeNoTools(ex))
+        {
+            return proto switch
+            {
+                AiProtocol.Anthropic => await Anthropic(baseUrl, model, key, system, turns, null, ct),
+                AiProtocol.Responses => await Responses(baseUrl, model, key, system, turns, null, ct),
+                _ => await Completions(baseUrl, model, key, system, turns, null, ct),
+            };
+        }
     }
 
     public static Task<string> TestAsync(CancellationToken ct)
@@ -63,93 +105,220 @@ public static class AiClient
         return ParseModelIds(body);
     }
 
-    static async Task<string> Completions(string baseUrl, string model, string key, string system, IReadOnlyList<(string Role, string Text)> turns, CancellationToken ct)
+    static bool LooksLikeNoTools(Exception ex)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "chat/completions"));
-        Auth(req, AiProtocol.Completions, key);
-        var messages = new List<object> { new { role = "system", content = system } };
-        foreach (var t in turns)
-            messages.Add(new { role = t.Role, content = t.Text });
-        req.Content = JsonBody(new
-        {
-            model,
-            temperature = 0.2,
-            messages,
-        });
-        using var res = await Http.SendAsync(req, ct);
-        string body = await res.Content.ReadAsStringAsync(ct);
-        if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
-        using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
-        {
-            var msg = choices[0].GetProperty("message");
-            if (msg.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String)
-                return c.GetString() ?? "";
-        }
-        throw Fail(body, "empty");
+        string m = ex.Message.ToLowerInvariant();
+        return m.Contains("tool") || m.Contains("function") || m.Contains("unknown")
+               || m.Contains("unrecognized") || m.Contains("extra input") || m.Contains("unsupported");
     }
 
-    static async Task<string> Responses(string baseUrl, string model, string key, string system, IReadOnlyList<(string Role, string Text)> turns, CancellationToken ct)
+    static async Task<AiReply> Completions(string baseUrl, string model, string key, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "responses"));
-        Auth(req, AiProtocol.Responses, key);
-        var input = turns.Select(t => new { role = t.Role, content = t.Text }).ToArray();
-        req.Content = JsonBody(new
+        var messages = new List<object> { new { role = "system", content = system } };
+        foreach (var t in turns)
         {
-            model,
-            instructions = system,
-            input,
-            temperature = 0.2,
-        });
+            if (t.Role == "tool")
+                messages.Add(new { role = "tool", tool_call_id = t.CallId ?? "", content = t.Text });
+            else if (t.Role == "assistant" && t.Calls is { Count: > 0 })
+            {
+                messages.Add(new
+                {
+                    role = "assistant",
+                    content = string.IsNullOrEmpty(t.Text) ? null : t.Text,
+                    tool_calls = t.Calls.Select(c => new
+                    {
+                        id = c.Id,
+                        type = "function",
+                        function = new { name = c.Name, arguments = c.Arguments },
+                    }).ToArray(),
+                });
+            }
+            else
+                messages.Add(new { role = t.Role, content = t.Text });
+        }
+        var payload = new Dictionary<string, object?>
+        {
+            ["model"] = model,
+            ["temperature"] = 0.2,
+            ["messages"] = messages,
+        };
+        if (tools != null)
+        {
+            payload["tools"] = tools;
+            payload["tool_choice"] = "auto";
+        }
+        using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "chat/completions"));
+        Auth(req, AiProtocol.Completions, key);
+        req.Content = JsonBody(payload);
         using var res = await Http.SendAsync(req, ct);
         string body = await res.Content.ReadAsStringAsync(ct);
         if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
         using var doc = JsonDocument.Parse(body);
+        var msg = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
+        var reply = new AiReply { Text = Str(msg, "content") };
+        if (msg.TryGetProperty("tool_calls", out var calls) && calls.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var c in calls.EnumerateArray())
+            {
+                var fn = c.GetProperty("function");
+                reply.Calls.Add(new AiToolCall
+                {
+                    Id = Str(c, "id"),
+                    Name = Str(fn, "name"),
+                    Arguments = Str(fn, "arguments") is { Length: > 0 } a ? a : "{}",
+                });
+            }
+        }
+        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools) throw Fail(body, "empty");
+        return reply;
+    }
+
+    static async Task<AiReply> Responses(string baseUrl, string model, string key, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
+    {
+        var input = new List<object>();
+        foreach (var t in turns)
+        {
+            if (t.Role == "tool")
+                input.Add(new { type = "function_call_output", call_id = t.CallId ?? "", output = t.Text });
+            else if (t.Role == "assistant" && t.Calls is { Count: > 0 })
+            {
+                if (!string.IsNullOrEmpty(t.Text))
+                    input.Add(new { role = "assistant", content = t.Text });
+                foreach (var c in t.Calls)
+                    input.Add(new { type = "function_call", call_id = c.Id, name = c.Name, arguments = c.Arguments });
+            }
+            else
+                input.Add(new { role = t.Role, content = t.Text });
+        }
+        var payload = new Dictionary<string, object?>
+        {
+            ["model"] = model,
+            ["instructions"] = system,
+            ["input"] = input,
+            ["temperature"] = 0.2,
+        };
+        if (tools != null) payload["tools"] = tools;
+        using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "responses"));
+        Auth(req, AiProtocol.Responses, key);
+        req.Content = JsonBody(payload);
+        using var res = await Http.SendAsync(req, ct);
+        string body = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
+        using var doc = JsonDocument.Parse(body);
+        var reply = new AiReply();
         var root = doc.RootElement;
         if (root.TryGetProperty("output_text", out var ot) && ot.ValueKind == JsonValueKind.String)
-            return ot.GetString() ?? "";
+            reply.Text = ot.GetString() ?? "";
         if (root.TryGetProperty("output", out var output) && output.ValueKind == JsonValueKind.Array)
         {
             var texts = new List<string>();
             foreach (var item in output.EnumerateArray())
             {
-                if (!item.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
-                    continue;
-                foreach (var part in content.EnumerateArray())
+                string type = Str(item, "type");
+                if (type is "function_call" or "tool_call")
                 {
-                    if (part.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String)
-                        texts.Add(t.GetString() ?? "");
-                    else if (part.TryGetProperty("output_text", out var t2) && t2.ValueKind == JsonValueKind.String)
-                        texts.Add(t2.GetString() ?? "");
+                    reply.Calls.Add(new AiToolCall
+                    {
+                        Id = FirstStr(item, "call_id", "id"),
+                        Name = Str(item, "name"),
+                        Arguments = Str(item, "arguments") is { Length: > 0 } a ? a : "{}",
+                    });
+                }
+                if (item.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var part in content.EnumerateArray())
+                    {
+                        if (Str(part, "type") is "output_text" or "text")
+                            texts.Add(FirstStr(part, "text", "output_text"));
+                    }
                 }
             }
-            if (texts.Count > 0) return string.Join("", texts);
+            if (string.IsNullOrEmpty(reply.Text) && texts.Count > 0)
+                reply.Text = string.Join("", texts);
         }
-        throw Fail(body, "empty");
+        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools) throw Fail(body, "empty");
+        return reply;
     }
 
-    static async Task<string> Anthropic(string baseUrl, string model, string key, string system, IReadOnlyList<(string Role, string Text)> turns, CancellationToken ct)
+    static async Task<AiReply> Anthropic(string baseUrl, string model, string key, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
     {
+        var messages = new List<object>();
+        int i = 0;
+        while (i < turns.Count)
+        {
+            var t = turns[i];
+            if (t.Role == "tool")
+            {
+                var results = new List<object>();
+                while (i < turns.Count && turns[i].Role == "tool")
+                {
+                    results.Add(new { type = "tool_result", tool_use_id = turns[i].CallId ?? "", content = turns[i].Text });
+                    i++;
+                }
+                messages.Add(new { role = "user", content = results });
+                continue;
+            }
+            if (t.Role == "assistant" && t.Calls is { Count: > 0 })
+            {
+                var parts = new List<object>();
+                if (!string.IsNullOrEmpty(t.Text))
+                    parts.Add(new { type = "text", text = t.Text });
+                foreach (var c in t.Calls)
+                {
+                    object input = new Dictionary<string, object>();
+                    try { input = JsonSerializer.Deserialize<Dictionary<string, object>>(c.Arguments) ?? input; }
+                    catch { }
+                    parts.Add(new { type = "tool_use", id = c.Id, name = c.Name, input });
+                }
+                messages.Add(new { role = "assistant", content = parts });
+            }
+            else
+                messages.Add(new { role = t.Role == "assistant" ? "assistant" : "user", content = t.Text });
+            i++;
+        }
+        var payload = new Dictionary<string, object?>
+        {
+            ["model"] = model,
+            ["max_tokens"] = 2048,
+            ["system"] = system,
+            ["messages"] = messages,
+        };
+        if (tools != null)
+        {
+            payload["tools"] = tools;
+            payload["tool_choice"] = new { type = "auto" };
+        }
         using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "messages"));
         Auth(req, AiProtocol.Anthropic, key);
-        var messages = turns.Select(t => new { role = t.Role, content = t.Text }).ToArray();
-        req.Content = JsonBody(new
-        {
-            model,
-            max_tokens = 800,
-            system,
-            messages,
-        });
+        req.Content = JsonBody(payload);
         using var res = await Http.SendAsync(req, ct);
         string body = await res.Content.ReadAsStringAsync(ct);
         if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
         using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.TryGetProperty("content", out var content) && content.GetArrayLength() > 0)
+        var reply = new AiReply();
+        if (doc.RootElement.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array)
         {
-            var part = content[0];
-            if (part.TryGetProperty("text", out var t)) return t.GetString() ?? "";
+            var texts = new List<string>();
+            foreach (var part in content.EnumerateArray())
+            {
+                string type = Str(part, "type");
+                if (type == "text") texts.Add(Str(part, "text"));
+                if (type == "tool_use")
+                {
+                    reply.Calls.Add(new AiToolCall
+                    {
+                        Id = Str(part, "id"),
+                        Name = Str(part, "name"),
+                        Arguments = part.TryGetProperty("input", out var input)
+                            ? input.GetRawText()
+                            : "{}",
+                    });
+                }
+            }
+            reply.Text = string.Join("", texts);
         }
-        throw Fail(body, "empty");
+        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools) throw Fail(body, "empty");
+        return reply;
     }
 
     static void Auth(HttpRequestMessage req, AiProtocol proto, string key)
@@ -199,8 +368,21 @@ public static class AiClient
         return ids.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    static string Str(JsonElement e, string name)
+        => e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() ?? "" : "";
+
+    static string FirstStr(JsonElement e, params string[] names)
+    {
+        foreach (var n in names)
+        {
+            string v = Str(e, n);
+            if (!string.IsNullOrEmpty(v)) return v;
+        }
+        return "";
+    }
+
     static StringContent JsonBody(object obj)
-        => new(JsonSerializer.Serialize(obj), Encoding.UTF8, "application/json");
+        => new(JsonSerializer.Serialize(obj, Json), Encoding.UTF8, "application/json");
 
     static InvalidOperationException Fail(string body, string code)
     {

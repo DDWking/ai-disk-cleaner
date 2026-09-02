@@ -1,37 +1,265 @@
+using System.Text.Json;
 using AiDiskCleaner.Models;
 
 namespace AiDiskCleaner.Services;
 
+public interface IAnalystHost
+{
+    FileEntry? Root { get; }
+    CleanReport? Report { get; }
+    void OnChecksChanged(bool showLarge);
+}
+
 public static class DiskAnalyst
 {
+    public const int MaxRounds = 6;
+
     public static string SystemPrompt()
     {
         string extra = (App.Settings.AiExtraPrompt ?? "").Trim();
         return string.IsNullOrEmpty(extra) ? Loc.AiAnalystSystem : Loc.AiAnalystSystem + "\n\n" + extra;
     }
 
-    public static string ScanSummary(FileEntry root, CleanReport report, long used, long total)
+    public static string Opening(FileEntry root, CleanReport report, long used, long total)
     {
         var lines = new List<string>
         {
             Loc.AiScanHeader,
             $"volume: {root.FullPath}  used {FileEntry.FormatSize(used)} / {FileEntry.FormatSize(total)}",
             $"tree: {root.FileCount:N0} files, {root.FolderCount:N0} folders, {FileEntry.FormatSize(root.Size)}",
-            $"cleanable: {report.Cleanable.Count:N0} items, {FileEntry.FormatSize(report.CleanableBytes)}",
+            "",
+            "largest folders (root, top 20):",
         };
+        foreach (var d in RootFolders(root).Take(20))
+            lines.Add($"  {Line(d)}");
+        lines.Add("");
+        lines.Add("largest files (top 40):");
+        foreach (var f in report.LargeFiles.Take(40))
+            lines.Add($"  {f.SizeText}  {f.FullPath}");
+        lines.Add("");
+        lines.Add($"cleanable: {report.Cleanable.Count:N0} items, {FileEntry.FormatSize(report.CleanableBytes)}");
         foreach (var g in report.Cleanable.GroupBy(x => string.IsNullOrEmpty(x.Group) ? "-" : x.Group)
                      .OrderByDescending(x => x.Sum(i => i.Size)))
             lines.Add($"  {g.Key}: {g.Count():N0}, {FileEntry.FormatSize(g.Sum(i => i.Size))}");
-        lines.Add($"large: {report.LargeFiles.Count:N0}, {Sum(report.LargeFiles)}");
         lines.Add($"old: {report.OldFiles.Count:N0}, {Sum(report.OldFiles)}");
         lines.Add($"duplicates: {report.Duplicates.Count:N0} in {report.DupGroupCount:N0} groups, {Sum(report.Duplicates)}");
-        lines.Add($"empty folders: {report.EmptyFolders.Count:N0}");
-        lines.Add($"broken shortcuts: {report.BrokenShortcuts.Count:N0}");
-        lines.Add($"long paths: {report.LongPaths.Count:N0}");
         if (!string.IsNullOrWhiteSpace(report.CompareNote))
             lines.Add("compare: " + report.CompareNote);
         return string.Join(Environment.NewLine, lines);
     }
+
+    public static IReadOnlyList<object> Tools(AiProtocol proto)
+    {
+        var list = new (string Name, string Desc, object Schema)[]
+        {
+            ("list_folder",
+                "List the largest direct children of a folder from the scan tree. Max 40. Use to explain what a large folder is.",
+                Props(("path", "Folder path, e.g. C:\\\\Users"))),
+            ("search_clean",
+                "Search the cleanable and largest-file lists by name, path, reason, or group. Returns up to 30 items.",
+                Props(("query", "Text to search"))),
+            ("set_checked",
+                "Check or uncheck items on the clean list. Cannot delete. Only safe cleanable items (temp/cache, dumps, recycle) and large files outside Windows/Program Files/system. Pass full paths.",
+                new Dictionary<string, object>
+                {
+                    ["type"] = "object",
+                    ["properties"] = new Dictionary<string, object>
+                    {
+                        ["paths"] = new Dictionary<string, object>
+                        {
+                            ["type"] = "array",
+                            ["items"] = new Dictionary<string, object> { ["type"] = "string" },
+                            ["description"] = "Full paths",
+                        },
+                        ["checked"] = new Dictionary<string, object>
+                        {
+                            ["type"] = "boolean",
+                            ["description"] = "true to check, false to uncheck",
+                        },
+                    },
+                    ["required"] = new[] { "paths", "checked" },
+                }),
+            ("ask_user",
+                "Ask the user a short question when the goal is unclear. Stop after this.",
+                Props(("question", "Question to show the user"))),
+        };
+        if (proto == AiProtocol.Anthropic)
+            return list.Select(t => (object)new { name = t.Name, description = t.Desc, input_schema = t.Schema }).ToList();
+        if (proto == AiProtocol.Responses)
+            return list.Select(t => (object)new { type = "function", name = t.Name, description = t.Desc, parameters = t.Schema }).ToList();
+        return list.Select(t => (object)new
+        {
+            type = "function",
+            function = new { name = t.Name, description = t.Desc, parameters = t.Schema },
+        }).ToList();
+    }
+
+    public static string Run(string name, string argsJson, IAnalystHost host)
+    {
+        JsonElement args = default;
+        try { args = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson).RootElement; }
+        catch { return "bad json"; }
+        return name switch
+        {
+            "list_folder" => ListFolder(Str(args, "path"), host),
+            "search_clean" => Search(Str(args, "query"), host),
+            "set_checked" => SetChecked(args, host),
+            "ask_user" => "shown",
+            _ => "unknown tool",
+        };
+    }
+
+    public static string AskQuestion(string argsJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            return Str(doc.RootElement, "question");
+        }
+        catch { return ""; }
+    }
+
+    public static bool CanAiCheck(CleanItem x)
+    {
+        if (!x.CanDelete) return false;
+        if (x.Group == Loc.GroupTemp || x.Group == Loc.GroupDump || x.Group == Loc.GroupRecycle)
+            return true;
+        if (x.Group == Loc.GroupLarge)
+            return !IsSystemPath(x.FullPath);
+        return false;
+    }
+
+    static string ListFolder(string path, IAnalystHost host)
+    {
+        var root = host.Root;
+        if (root == null) return "no scan";
+        var dir = Find(root, path);
+        if (dir == null) return "folder not in scan tree: " + path;
+        var kids = dir.Children
+            .Where(c => !c.IsFilesGroup && !string.IsNullOrEmpty(c.FullPath))
+            .OrderByDescending(c => c.Size)
+            .Take(40)
+            .Select(Line)
+            .ToList();
+        if (kids.Count == 0) return "empty";
+        return string.Join(Environment.NewLine, kids);
+    }
+
+    static string Search(string query, IAnalystHost host)
+    {
+        var report = host.Report;
+        if (report == null) return "no scan";
+        string q = (query ?? "").Trim();
+        if (q.Length == 0) return "empty query";
+        var hits = AllItems(report)
+            .Where(x => Hit(x, q))
+            .Take(30)
+            .Select(ItemLine)
+            .ToList();
+        return hits.Count == 0 ? "no matches" : string.Join(Environment.NewLine, hits);
+    }
+
+    static string SetChecked(JsonElement args, IAnalystHost host)
+    {
+        var report = host.Report;
+        if (report == null) return "no scan";
+        bool on = args.TryGetProperty("checked", out var c) && c.ValueKind is JsonValueKind.True;
+        var paths = new List<string>();
+        if (args.TryGetProperty("paths", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var p in arr.EnumerateArray())
+                if (p.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(p.GetString()))
+                    paths.Add(p.GetString()!);
+        }
+        if (paths.Count == 0) return "no paths";
+        int ok = 0, blocked = 0, missing = 0;
+        bool large = false;
+        var items = AllItems(report).ToList();
+        foreach (var path in paths.Take(80))
+        {
+            var item = items.FirstOrDefault(x => PathEq(x.FullPath, path))
+                       ?? items.FirstOrDefault(x => x.Name.Equals(path, StringComparison.OrdinalIgnoreCase));
+            if (item == null) { missing++; continue; }
+            if (!CanAiCheck(item)) { blocked++; continue; }
+            item.Selected = on;
+            ok++;
+            if (item.Group == Loc.GroupLarge) large = true;
+        }
+        if (ok > 0) host.OnChecksChanged(large);
+        return $"checked={on} ok={ok} blocked={blocked} missing={missing}";
+    }
+
+    static IEnumerable<CleanItem> AllItems(CleanReport r)
+        => r.Cleanable.Concat(r.LargeFiles);
+
+    static bool Hit(CleanItem x, string q)
+        => (x.Name ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+           || (x.FullPath ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+           || (x.Reason ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+           || (x.Group ?? "").Contains(q, StringComparison.OrdinalIgnoreCase);
+
+    static IEnumerable<FileEntry> RootFolders(FileEntry root)
+        => root.Children
+            .Where(c => c.IsDirectory && !c.IsFilesGroup && !string.IsNullOrEmpty(c.FullPath))
+            .OrderByDescending(c => c.Size);
+
+    static FileEntry? Find(FileEntry root, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return root;
+        if (PathEq(root.FullPath, path)) return root;
+        var stack = new Stack<FileEntry>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var n = stack.Pop();
+            foreach (var c in n.Children)
+            {
+                if (PathEq(c.FullPath, path)) return c;
+                if (c.IsDirectory) stack.Push(c);
+            }
+        }
+        return null;
+    }
+
+    static bool PathEq(string? a, string? b)
+    {
+        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+        return string.Equals(Norm(a), Norm(b), StringComparison.OrdinalIgnoreCase);
+    }
+
+    static string Norm(string p) => p.Replace('/', '\\').TrimEnd('\\');
+
+    static bool IsSystemPath(string? path)
+    {
+        string p = Norm(path ?? "").ToLowerInvariant();
+        if (p.Contains(@"\$recycle.bin")) return false;
+        return p.Contains(@"\windows\") || p.EndsWith(@"\windows")
+               || p.Contains(@"\program files")
+               || p.Contains(@"\system volume information")
+               || p.Contains(@"\$");
+    }
+
+    static string Line(FileEntry e)
+        => $"{e.SizeText}  {(e.IsDirectory ? "dir" : "file")}  {e.FileCount:N0} files  {e.FullPath}";
+
+    static string ItemLine(CleanItem x)
+        => $"{x.SizeText}  [{x.Group}]  {(x.CanDelete ? "" : "protected ")}{(CanAiCheck(x) ? "checkable " : "")}{x.Reason}  {x.FullPath}";
+
+    static object Props(params (string Name, string Desc)[] fields)
+    {
+        var props = new Dictionary<string, object>();
+        foreach (var f in fields)
+            props[f.Name] = new Dictionary<string, object> { ["type"] = "string", ["description"] = f.Desc };
+        return new Dictionary<string, object>
+        {
+            ["type"] = "object",
+            ["properties"] = props,
+            ["required"] = fields.Select(f => f.Name).ToArray(),
+        };
+    }
+
+    static string Str(JsonElement e, string name)
+        => e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() ?? "" : "";
 
     static string Sum(List<CleanItem> items)
         => FileEntry.FormatSize(items.Sum(x => x.Size));

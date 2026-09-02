@@ -74,7 +74,7 @@ public sealed class ShareWidthConverter : IValueConverter
         => Binding.DoNothing;
 }
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IAnalystHost
 {
     private const int MaxDisplayRows = 50000; // 文件列表最多渲染的行数，超出只显示前 N 行
 
@@ -105,7 +105,9 @@ public partial class MainWindow : Window
     private bool _aiModelLock;
     private bool _aiBusy;
     private readonly ObservableCollection<ChatLine> _chat = new();
-    private readonly List<(string Role, string Text)> _turns = new();
+    private readonly List<AiMsg> _turns = new();
+    FileEntry? IAnalystHost.Root => _root;
+    CleanReport? IAnalystHost.Report => _report;
     private static readonly AiProtocol[] AiProtos =
         { AiProtocol.Completions, AiProtocol.Responses, AiProtocol.Anthropic };
 
@@ -1310,7 +1312,7 @@ public partial class MainWindow : Window
                 AddChat(Loc.AiBot, Loc.AiScanSkip);
             return;
         }
-        await AskAnalyst(DiskAnalyst.ScanSummary(root, report, _volumeUsed, _volumeTotal));
+        await AskAnalyst(DiskAnalyst.Opening(root, report, _volumeUsed, _volumeTotal));
     }
 
     void AddChat(string who, string text)
@@ -1319,10 +1321,10 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(() => AiChatScroll.ScrollToEnd(), System.Windows.Threading.DispatcherPriority.Background);
     }
 
-    IReadOnlyList<(string Role, string Text)> PackedTurns()
+    List<AiMsg> PackedTurns()
     {
-        if (_turns.Count <= 12) return _turns.ToList();
-        return _turns.Skip(_turns.Count - 12).ToList();
+        if (_turns.Count <= 24) return _turns.ToList();
+        return _turns.Skip(_turns.Count - 24).ToList();
     }
 
     async Task<string> AskAnalyst(string user)
@@ -1333,13 +1335,43 @@ public partial class MainWindow : Window
         AiExplainBtn.IsEnabled = false;
         try
         {
-            _turns.Add(("user", user));
-            string reply = await AiClient.ChatAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), CancellationToken.None);
-            reply = (reply ?? "").Trim();
-            if (string.IsNullOrEmpty(reply)) reply = Loc.AiOk;
-            _turns.Add(("assistant", reply));
-            AddChat(Loc.AiBot, reply);
-            return reply;
+            _turns.Add(new AiMsg { Role = "user", Text = user });
+            var tools = DiskAnalyst.Tools(AiClient.ParseProtocol(App.Settings.AiProtocol));
+            string last = "";
+            for (int round = 0; round < DiskAnalyst.MaxRounds; round++)
+            {
+                var reply = await AiClient.TurnAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), tools, CancellationToken.None);
+                last = (reply.Text ?? "").Trim();
+                if (!reply.HasTools)
+                {
+                    if (string.IsNullOrEmpty(last)) last = Loc.AiOk;
+                    _turns.Add(new AiMsg { Role = "assistant", Text = last });
+                    AddChat(Loc.AiBot, last);
+                    return last;
+                }
+                _turns.Add(new AiMsg { Role = "assistant", Text = last, Calls = reply.Calls });
+                if (!string.IsNullOrEmpty(last)) AddChat(Loc.AiBot, last);
+                bool stop = false;
+                foreach (var call in reply.Calls)
+                {
+                    AddChat(Loc.AiBot, Loc.AiTool(call.Name));
+                    string result = DiskAnalyst.Run(call.Name, call.Arguments, this);
+                    _turns.Add(new AiMsg { Role = "tool", Text = result, CallId = call.Id, ToolName = call.Name });
+                    if (call.Name == "ask_user")
+                    {
+                        string q = DiskAnalyst.AskQuestion(call.Arguments);
+                        if (!string.IsNullOrWhiteSpace(q)) AddChat(Loc.AiBot, q);
+                        stop = true;
+                    }
+                }
+                if (stop) return last;
+            }
+            if (!string.IsNullOrEmpty(last))
+            {
+                _turns.Add(new AiMsg { Role = "assistant", Text = last });
+                AddChat(Loc.AiBot, last);
+            }
+            return last;
         }
         catch (Exception ex)
         {
@@ -1354,6 +1386,14 @@ public partial class MainWindow : Window
             AiChatSendBtn.IsEnabled = true;
             AiExplainBtn.IsEnabled = true;
         }
+    }
+
+    void IAnalystHost.OnChecksChanged(bool showLarge)
+    {
+        ShowRightTab(0);
+        if (showLarge && CleanCatBox.Items.Count > 1)
+            CleanCatBox.SelectedIndex = 1;
+        RefreshCleanUi();
     }
 
     private async void AiChatSend_Click(object sender, RoutedEventArgs e)
