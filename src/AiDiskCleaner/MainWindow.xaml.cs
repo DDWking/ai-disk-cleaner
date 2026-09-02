@@ -1164,7 +1164,8 @@ public partial class MainWindow : Window
         AiModelBox.Text = App.Settings.AiModel ?? "";
         AiKeyBox.Password = App.Settings.AiApiKey ?? "";
         AiTestHint.Text = "";
-        if (AiModelPick.Items.Count == 0) AiModelHint.Text = Loc.AiModelsEmpty;
+        FillModelPick(App.Settings.AiModels, App.Settings.AiModel);
+        AiModelHint.Text = AiModelPick.Items.Count == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(AiModelPick.Items.Count);
         _aiModelLock = false;
     }
 
@@ -1176,8 +1177,25 @@ public partial class MainWindow : Window
         App.Settings.AiBaseUrl = AiUrlBox.Text?.Trim() ?? "";
         App.Settings.AiProtocol = AiClient.ProtocolId(i >= 0 && i < AiProtos.Length ? AiProtos[i] : AiProtocol.Completions);
         App.Settings.AiModel = AiModelBox.Text?.Trim() ?? "";
+        App.Settings.AiModels = AiModelPick.Items.OfType<string>().ToList();
         App.Settings.AiApiKey = AiKeyBox.Password ?? "";
         App.Settings.Save();
+    }
+
+    void FillModelPick(IEnumerable<string>? ids, string? current)
+    {
+        AiModelPick.ItemsSource = null;
+        AiModelPick.Items.Clear();
+        var list = (ids ?? Array.Empty<string>())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var id in list)
+            AiModelPick.Items.Add(id);
+        if (list.Count == 0) return;
+        string pick = current ?? "";
+        var match = list.FirstOrDefault(x => x.Equals(pick, StringComparison.OrdinalIgnoreCase));
+        AiModelPick.SelectedItem = match ?? list[0];
     }
 
     private void AiModelPick_Changed(object sender, SelectionChangedEventArgs e)
@@ -1198,16 +1216,13 @@ public partial class MainWindow : Window
         {
             var ids = await AiClient.ListModelsAsync(CancellationToken.None);
             _aiModelLock = true;
-            AiModelPick.ItemsSource = ids;
             string current = AiModelBox.Text?.Trim() ?? "";
-            if (!string.IsNullOrEmpty(current) && ids.Contains(current, StringComparer.OrdinalIgnoreCase))
-                AiModelPick.SelectedItem = ids.First(x => x.Equals(current, StringComparison.OrdinalIgnoreCase));
-            else if (ids.Count > 0 && string.IsNullOrEmpty(current))
-            {
-                AiModelPick.SelectedIndex = 0;
+            FillModelPick(ids, current);
+            if (string.IsNullOrEmpty(current) && ids.Count > 0)
                 AiModelBox.Text = ids[0];
-            }
             _aiModelLock = false;
+            App.Settings.AiModels = ids;
+            App.Settings.Save();
             AiModelHint.Text = ids.Count == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(ids.Count);
         }
         catch (Exception ex)

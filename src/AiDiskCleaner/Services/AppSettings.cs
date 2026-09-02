@@ -13,6 +13,7 @@ public sealed class AppSettings
     public string AiBaseUrl { get; set; } = "";
     public string AiProtocol { get; set; } = "completions";
     public string AiModel { get; set; } = "";
+    public List<string> AiModels { get; set; } = new();
     public string AiApiKey { get; set; } = "";
 
     private static string Path =>
