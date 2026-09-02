@@ -13,6 +13,12 @@ public sealed class AiProviderCfg
     public string Protocol { get; set; } = "completions";
     public string ApiKey { get; set; } = "";
     public List<string> Models { get; set; } = new();
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EditLabel => Loc.AiEdit;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DeleteLabel => Loc.AiDelProvider;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string CustomLabel => Loc.AiCustomTag;
 }
 
 public sealed class AppSettings

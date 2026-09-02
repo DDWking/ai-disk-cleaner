@@ -1174,13 +1174,41 @@
               <Button x:Name="LangEnBtn" Style="{StaticResource GhostButton}" Click="Lang_Click" Tag="En"/>
             </StackPanel>
             <TextBlock x:Name="AiSectionLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
-            <DockPanel Margin="0,0,0,8">
-              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0">
-                <Button x:Name="AiAddProvBtn" Style="{StaticResource GhostButton}" Padding="10,3" FontSize="11" Margin="0,0,6,0" Click="AiAddProv_Click"/>
-                <Button x:Name="AiDelProvBtn" Style="{StaticResource GhostButton}" Padding="10,3" FontSize="11" Click="AiDelProv_Click"/>
-              </StackPanel>
-              <ComboBox x:Name="AiProvList" DisplayMemberPath="Name" SelectionChanged="AiProvList_Changed"/>
-            </DockPanel>
+            <TextBlock x:Name="AiSectionHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                       TextWrapping="Wrap" Margin="0,0,0,10"/>
+            <ItemsControl x:Name="AiProvCards" Margin="0,0,0,10">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border BorderBrush="{DynamicResource Border}" BorderThickness="1" Padding="12,10" Margin="0,0,0,8">
+                    <DockPanel>
+                      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="{Binding EditLabel}" Style="{StaticResource GhostButton}" Padding="10,3" FontSize="11" Margin="0,0,6,0"
+                                Click="AiEditProv_Click" Tag="{Binding}"/>
+                        <Button Content="{Binding DeleteLabel}" Style="{StaticResource GhostButton}" Padding="10,3" FontSize="11" Foreground="#E07070"
+                                Click="AiDelProvCard_Click" Tag="{Binding}"/>
+                      </StackPanel>
+                      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Accent}" FontSize="13"
+                                   VerticalAlignment="Center"/>
+                        <Border Margin="8,0,0,0" Padding="6,1" BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                                VerticalAlignment="Center">
+                          <TextBlock Text="{Binding CustomLabel}" Foreground="{DynamicResource TextMuted}" FontSize="10"/>
+                        </Border>
+                        <Ellipse Width="7" Height="7" Margin="8,0,0,0" VerticalAlignment="Center"
+                                 Fill="#3ECF6A"/>
+                      </StackPanel>
+                    </DockPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button x:Name="AiAddProvBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Stretch"
+                    Padding="10,8" Click="AiAddProv_Click"/>
+          </StackPanel>
+        </ScrollViewer>
+        <ScrollViewer x:Name="ProvEditBody" MaxHeight="520" Visibility="Collapsed"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
             <TextBlock x:Name="AiNameLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
             <TextBox x:Name="AiNameBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28" Tag="显示名称"/>
             <TextBlock x:Name="AiUrlLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
@@ -1196,15 +1224,15 @@
               <Button x:Name="AiFetchBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Right"
                       Padding="10,4" FontSize="11" Click="AiFetch_Click"/>
             </Grid>
-            <ComboBox x:Name="AiModelPick" Margin="0,0,0,6" MaxDropDownHeight="280"
-                      SelectionChanged="AiModelPick_Changed"/>
+            <ListBox x:Name="AiModelPick" Margin="0,0,0,6" MaxHeight="180"
+                     Background="{DynamicResource PanelRight}" Foreground="{DynamicResource Accent}"
+                     BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                     SelectionChanged="AiModelPick_Changed"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
             <TextBox x:Name="AiModelBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,6" Height="28" Tag="模型 ID"/>
             <TextBlock x:Name="AiModelHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
                        TextWrapping="Wrap" Margin="0,0,0,12"/>
-            <TextBlock x:Name="AiExtraLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
-            <TextBox x:Name="AiExtraBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,12"
-                     Height="72" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top"
-                     Tag="例如：先问我想清什么，再给建议。"/>
             <StackPanel Orientation="Horizontal">
               <Button x:Name="AiTestBtn" Style="{StaticResource GhostButton}" Click="AiTest_Click"/>
               <TextBlock x:Name="AiTestHint" Margin="12,0,0,0" VerticalAlignment="Center"

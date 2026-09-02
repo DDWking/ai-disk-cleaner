@@ -107,7 +107,6 @@ public partial class MainWindow : Window, IAnalystHost
     private bool _aiOk;
     private bool _aiTried;
     private readonly Dictionary<string, string> _aiNotes = new(StringComparer.OrdinalIgnoreCase);
-    private bool _provLock;
     private readonly ObservableCollection<ChatLine> _chat = new();
     private readonly List<AiMsg> _turns = new();
     FileEntry? IAnalystHost.Root => _root;
@@ -204,6 +203,7 @@ public partial class MainWindow : Window, IAnalystHost
         LangZhBtn.Content = Loc.LangZh;
         LangEnBtn.Content = Loc.LangEn;
         AiSectionLabel.Text = Loc.AiSection;
+        AiSectionHint.Text = Loc.AiSectionHint;
         AiNameLabel.Text = Loc.AiName;
         AiUrlLabel.Text = Loc.AiBaseUrl;
         AiProtoLabel.Text = Loc.AiProtocolTitle;
@@ -214,8 +214,6 @@ public partial class MainWindow : Window, IAnalystHost
         AiNameBox.Tag = Loc.AiNameHint;
         AiUrlBox.Tag = Loc.AiUrlHint;
         AiModelBox.Tag = Loc.AiModelHintBox;
-        AiExtraLabel.Text = Loc.AiExtraPrompt;
-        AiExtraBox.Tag = Loc.AiExtraHint;
         AiModelHint.Text = Loc.AiModelsEmpty;
         AiExplainBtn.Content = Loc.AiExplain;
         RefreshAiLamp();
@@ -223,8 +221,7 @@ public partial class MainWindow : Window, IAnalystHost
         AiChatClearBtn.Content = Loc.AiClear;
         AiChatInput.Tag = Loc.AiChatHint;
         AiRunBtn.Content = Loc.AiAnalyze;
-        AiAddProvBtn.Content = Loc.AiAddProvider;
-        AiDelProvBtn.Content = Loc.AiDelProvider;
+        AiAddProvBtn.Content = Loc.AiAddCustom;
         FillAiProtoBox();
         FillRunModels();
         AboutText.Text = Loc.AboutBody;
@@ -1085,6 +1082,7 @@ public partial class MainWindow : Window, IAnalystHost
     {
         DialogTitle.Text = title;
         SettingsBody.Visibility = settings ? Visibility.Visible : Visibility.Collapsed;
+        ProvEditBody.Visibility = Visibility.Collapsed;
         AboutBody.Visibility = about ? Visibility.Visible : Visibility.Collapsed;
         AlertBody.Visibility = alert || confirm ? Visibility.Visible : Visibility.Collapsed;
         ConfirmButtons.Visibility = confirm ? Visibility.Visible : Visibility.Collapsed;
@@ -1116,6 +1114,14 @@ public partial class MainWindow : Window, IAnalystHost
     void HideOverlay()
     {
         SaveAiFields();
+        if (ProvEditBody.Visibility == Visibility.Visible && Overlay.Visibility == Visibility.Visible)
+        {
+            ProvEditBody.Visibility = Visibility.Collapsed;
+            SettingsBody.Visibility = Visibility.Visible;
+            DialogTitle.Text = Loc.SettingsTitle;
+            LoadAiFields();
+            return;
+        }
         Overlay.BeginAnimation(OpacityProperty, null);
         var fade = new DoubleAnimation(Overlay.Opacity, 0, TimeSpan.FromMilliseconds(110));
         fade.Completed += (_, _) =>
@@ -1185,17 +1191,27 @@ public partial class MainWindow : Window, IAnalystHost
 
     void LoadAiFields()
     {
-        _aiModelLock = true;
-        _provLock = true;
         App.Settings.Migrate();
-        AiProvList.ItemsSource = null;
-        AiProvList.ItemsSource = App.Settings.AiProviders;
-        var cur = App.Settings.CurrentProvider();
-        if (cur != null) AiProvList.SelectedItem = cur;
-        ShowProv(cur);
-        AiExtraBox.Text = App.Settings.AiExtraPrompt ?? "";
+        AiProvCards.ItemsSource = null;
+        AiProvCards.ItemsSource = App.Settings.AiProviders.ToList();
+        FillRunModels();
+        RefreshAiLamp();
+    }
+
+    void OpenProvEdit(AiProviderCfg p)
+    {
+        App.Settings.AiActiveId = p.Id;
+        App.Settings.Save();
+        SettingsBody.Visibility = Visibility.Collapsed;
+        ProvEditBody.Visibility = Visibility.Visible;
+        AboutBody.Visibility = Visibility.Collapsed;
+        AlertBody.Visibility = Visibility.Collapsed;
+        ConfirmButtons.Visibility = Visibility.Collapsed;
+        DialogClose.Visibility = Visibility.Visible;
+        DialogTitle.Text = Loc.AiEditTitle;
+        _aiModelLock = true;
+        ShowProv(p);
         AiTestHint.Text = "";
-        _provLock = false;
         _aiModelLock = false;
         FillRunModels();
         RefreshAiLamp();
@@ -1219,15 +1235,10 @@ public partial class MainWindow : Window, IAnalystHost
 
     void SaveAiFields()
     {
-        if (AiUrlBox == null) return;
+        if (AiUrlBox == null || ProvEditBody.Visibility != Visibility.Visible) return;
         App.Settings.Migrate();
         var p = App.Settings.CurrentProvider();
-        if (p == null)
-        {
-            p = NewProv();
-            App.Settings.AiProviders.Add(p);
-            App.Settings.AiActiveId = p.Id;
-        }
+        if (p == null) return;
         WriteProv(p);
         App.Settings.Save();
         FillRunModels();
@@ -1242,25 +1253,6 @@ public partial class MainWindow : Window, IAnalystHost
             Protocol = "completions",
         };
 
-    private void AiProvList_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_provLock) return;
-        if (e.RemovedItems.Count > 0 && e.RemovedItems[0] is AiProviderCfg old)
-            WriteProv(old);
-        if (AiProvList.SelectedItem is AiProviderCfg p)
-        {
-            App.Settings.AiActiveId = p.Id;
-            if (p.Models.Count > 0 && (string.IsNullOrEmpty(App.Settings.AiModel) || !p.Models.Contains(App.Settings.AiModel, StringComparer.OrdinalIgnoreCase)))
-                App.Settings.AiModel = p.Models[0];
-            App.Settings.Save();
-            _aiModelLock = true;
-            ShowProv(p);
-            _aiModelLock = false;
-            FillRunModels();
-            RefreshAiLamp();
-        }
-    }
-
     void WriteProv(AiProviderCfg p)
     {
         int i = AiProtoBox.SelectedIndex;
@@ -1269,44 +1261,46 @@ public partial class MainWindow : Window, IAnalystHost
         p.BaseUrl = AiUrlBox.Text?.Trim() ?? "";
         p.Protocol = AiClient.ProtocolId(i >= 0 && i < AiProtos.Length ? AiProtos[i] : AiProtocol.Completions);
         p.ApiKey = AiKeyBox.Password ?? "";
-        p.Models = AiModelPick.Items.OfType<string>().ToList();
+        p.Models = (AiModelPick.ItemsSource as IEnumerable<string>)?.ToList()
+                   ?? AiModelPick.Items.OfType<string>().ToList();
         string model = AiModelBox.Text?.Trim() ?? "";
         if (!string.IsNullOrEmpty(model) && !p.Models.Contains(model, StringComparer.OrdinalIgnoreCase))
             p.Models.Add(model);
         App.Settings.AiModel = model;
-        App.Settings.AiExtraPrompt = AiExtraBox.Text ?? "";
     }
 
     private void AiAddProv_Click(object sender, RoutedEventArgs e)
     {
-        SaveAiFields();
         var p = NewProv();
         App.Settings.AiProviders.Add(p);
         App.Settings.AiActiveId = p.Id;
         App.Settings.Save();
-        LoadAiFields();
+        OpenProvEdit(p);
     }
 
-    private void AiDelProv_Click(object sender, RoutedEventArgs e)
+    private void AiEditProv_Click(object sender, RoutedEventArgs e)
     {
-        var p = App.Settings.CurrentProvider();
-        if (p == null) return;
+        if (sender is Button { Tag: AiProviderCfg p })
+            OpenProvEdit(p);
+    }
+
+    private void AiDelProvCard_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: AiProviderCfg p }) return;
         App.Settings.AiProviders.Remove(p);
-        App.Settings.AiActiveId = App.Settings.AiProviders.FirstOrDefault()?.Id ?? "";
+        if (App.Settings.AiActiveId == p.Id)
+            App.Settings.AiActiveId = App.Settings.AiProviders.FirstOrDefault()?.Id ?? "";
         App.Settings.Save();
         LoadAiFields();
     }
 
     void FillModelPick(IEnumerable<string>? ids, string? current)
     {
-        AiModelPick.ItemsSource = null;
-        AiModelPick.Items.Clear();
         var list = (ids ?? Array.Empty<string>())
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        foreach (var id in list)
-            AiModelPick.Items.Add(id);
+        AiModelPick.ItemsSource = list;
         if (list.Count == 0) return;
         string pick = current ?? "";
         var match = list.FirstOrDefault(x => x.Equals(pick, StringComparison.OrdinalIgnoreCase));
@@ -1337,8 +1331,8 @@ public partial class MainWindow : Window, IAnalystHost
                 AiModelBox.Text = ids[0];
             _aiModelLock = false;
             var p = App.Settings.CurrentProvider();
-            if (p != null) p.Models = ids;
-            App.Settings.AiModels = ids;
+            if (p != null) p.Models = ids.ToList();
+            App.Settings.AiModels = ids.ToList();
             App.Settings.Save();
             FillRunModels();
             AiModelHint.Text = ids.Count == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(ids.Count);

@@ -17,11 +17,7 @@ public static class DiskAnalyst
     public const int TokenBudget = 12000;
     static readonly HashSet<string> Listed = new(StringComparer.OrdinalIgnoreCase);
 
-    public static string SystemPrompt()
-    {
-        string extra = (App.Settings.AiExtraPrompt ?? "").Trim();
-        return string.IsNullOrEmpty(extra) ? Loc.AiAnalystSystem : Loc.AiAnalystSystem + "\n\n" + extra;
-    }
+    public static string SystemPrompt() => Loc.AiAnalystSystem;
 
     public static string Opening(FileEntry root, CleanReport report, long used, long total)
     {

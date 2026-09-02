@@ -51,7 +51,14 @@ public static class Loc
         IsEn ? $"Hint: {count} temp/log files, about {size}"
              : $"建议：{count} 个临时/日志文件，约 {size}";
     public static string Language => IsEn ? "Language" : "语言";
-    public static string AiSection => IsEn ? "Custom provider" : "自定义提供方";
+    public static string AiSection => IsEn ? "Providers" : "提供方";
+    public static string AiSectionHint => IsEn
+        ? "Add providers, then pick a model in the chat pane."
+        : "添加提供方后，在分析栏里选模型。";
+    public static string AiEdit => IsEn ? "Edit" : "编辑";
+    public static string AiCustomTag => IsEn ? "custom" : "自定义";
+    public static string AiAddCustom => IsEn ? "+ Add custom provider" : "+ 添加自定义提供方";
+    public static string AiEditTitle => IsEn ? "Edit provider" : "编辑提供方";
     public static string AiName => IsEn ? "Display name" : "显示名称";
     public static string AiNameHint => IsEn ? "My provider" : "显示名称";
     public static string AiUrlHint => "https://api.example.com/v1";
@@ -64,8 +71,8 @@ public static class Loc
     public static string AiFetchModels => IsEn ? "Fetch models" : "获取可用模型";
     public static string AiNeedUrl => IsEn ? "Fill in the API URL first." : "先填 API 地址。";
     public static string AiModelsEmpty => IsEn
-        ? "No models in the selector; you can still type an ID and send it."
-        : "模型选择器中将不显示任何模型；目录外 ID 仍可直接发送。";
+        ? "No models yet. Fetch, or type an ID below."
+        : "还没有模型。点获取，或在下面手填 ID。";
     public static string AiModelsOk(int n) => IsEn ? $"{n:N0} models" : $"已获取 {n:N0} 个模型";
     public static string AiProtoCompletions => "openai-completions";
     public static string AiProtoResponses => "openai-responses";
