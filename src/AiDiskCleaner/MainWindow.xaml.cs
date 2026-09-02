@@ -1458,6 +1458,7 @@ public partial class MainWindow : Window, IAnalystHost
         }
         DiskAnalyst.ResetSession();
         _aiNotes.Clear();
+        ClearAiSuggested();
         AddChat(Loc.AiYou, Loc.AiAnalyze);
         await AskAnalyst(DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal));
     }
@@ -1593,7 +1594,7 @@ public partial class MainWindow : Window, IAnalystHost
 
     void HarvestNotes(string text)
     {
-        if (string.IsNullOrWhiteSpace(text)) return;
+        if (string.IsNullOrWhiteSpace(text) || _report == null) return;
         int n = 0;
         foreach (Match m in Regex.Matches(text, @"[A-Za-z]:\\[^\s|*?""<>]{3,240}"))
         {
@@ -1601,33 +1602,73 @@ public partial class MainWindow : Window, IAnalystHost
             string path = m.Value.TrimEnd('。', '.', ',', '，', '、', ')', '）', ']', '`', '"', '\'');
             string key = NormPath(path);
             if (key.Length < 4 || _aiNotes.ContainsKey(key)) continue;
-            RememberNote(key, Loc.AiMark);
+            ApplySuggest(key, Loc.AiMark, check: AllCleanItems().Any(x => string.Equals(NormPath(x.FullPath), key, StringComparison.OrdinalIgnoreCase)));
         }
-        Dispatcher.BeginInvoke(PaintAiNotes, System.Windows.Threading.DispatcherPriority.Background);
+        Dispatcher.BeginInvoke(() => { PaintAiNotes(); RefreshCleanUi(); }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     void IAnalystHost.OnSuggest(string path, string note)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
-        RememberNote(NormPath(path), string.IsNullOrWhiteSpace(note) ? Loc.AiMark : note.Trim());
-        Dispatcher.BeginInvoke(PaintAiNotes, System.Windows.Threading.DispatcherPriority.Background);
+        ApplySuggest(path, string.IsNullOrWhiteSpace(note) ? Loc.AiMark : note.Trim(), check: true);
+        Dispatcher.BeginInvoke(() => { PaintAiNotes(); RefreshCleanUi(); }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
-    void RememberNote(string path, string note)
+    void ApplySuggest(string path, string note, bool check)
     {
         string key = NormPath(path);
-        if (key.Length == 0) return;
-        _aiNotes[key] = note;
+        if (key.Length == 0 || IsProtectedSuggest(key)) return;
+        _aiNotes[key] = ClipNote(note);
         string? parent = Path.GetDirectoryName(key);
         int depth = 0;
-        while (!string.IsNullOrEmpty(parent) && parent.Length >= 2 && depth++ < 24)
+        while (!string.IsNullOrEmpty(parent) && parent.Length >= 3 && depth++ < 24)
         {
             string p = NormPath(parent);
-            if (p.Length <= 2) break;
-            if (!_aiNotes.ContainsKey(p))
-                _aiNotes[p] = Loc.AiInside;
+            if (p.Length <= 3 || IsProtectedSuggest(p)) break;
+            if (!_aiNotes.ContainsKey(p) || _aiNotes[p] == Loc.AiMark)
+                _aiNotes[p] = Loc.AiInside(ClipNote(note));
             parent = Path.GetDirectoryName(p);
         }
+        if (!check || _report == null) return;
+        var item = AllCleanItems().FirstOrDefault(x => string.Equals(NormPath(x.FullPath), key, StringComparison.OrdinalIgnoreCase));
+        if (item == null)
+        {
+            item = AllCleanItems().FirstOrDefault(x =>
+                !string.IsNullOrEmpty(x.FullPath)
+                && key.StartsWith(NormPath(x.FullPath) + "\\", StringComparison.OrdinalIgnoreCase)
+                && DiskAnalyst.CanAiCheck(x));
+        }
+        if (item == null || !DiskAnalyst.CanAiCheck(item)) return;
+        item.Selected = true;
+        item.AiSuggested = true;
+        if (!string.IsNullOrWhiteSpace(note) && note != Loc.AiMark)
+            item.Reason = ClipNote(note);
+    }
+
+    IEnumerable<CleanItem> AllCleanItems()
+    {
+        if (_report == null) yield break;
+        foreach (var x in _report.Cleanable) yield return x;
+        foreach (var x in _report.LargeFiles) yield return x;
+        foreach (var x in _report.OldFiles) yield return x;
+        foreach (var x in _report.Duplicates) yield return x;
+    }
+
+    static bool IsProtectedSuggest(string path)
+    {
+        string p = path.ToLowerInvariant();
+        if (p is "c:" or "c:\\" or "d:" or "d:\\") return true;
+        if (p is @"c:\windows" or @"c:\users" or @"c:\program files" or @"c:\program files (x86)" or @"c:\programdata")
+            return true;
+        if (p.Contains(@"\windows\winsxs")) return true;
+        return false;
+    }
+
+    static string ClipNote(string note)
+    {
+        string t = (note ?? "").Replace('\n', ' ').Replace('\r', ' ').Trim();
+        if (t.Equals("AI", StringComparison.OrdinalIgnoreCase) || t == Loc.AiMark) return Loc.AiMark;
+        return t.Length > 40 ? t[..37] + "…" : t;
     }
 
     static string NormPath(string? p)
@@ -1689,8 +1730,20 @@ public partial class MainWindow : Window, IAnalystHost
         _chat.Clear();
         _turns.Clear();
         _aiNotes.Clear();
+        ClearAiSuggested();
         DiskAnalyst.ResetSession();
         if (_root != null) PaintAiNotes();
+        RefreshCleanUi();
+    }
+
+    void ClearAiSuggested()
+    {
+        foreach (var x in AllCleanItems())
+        {
+            if (!x.AiSuggested) continue;
+            x.AiSuggested = false;
+            x.Selected = false;
+        }
     }
 
     private async void CtxAskAi_Click(object sender, RoutedEventArgs e)

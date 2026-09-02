@@ -109,6 +109,10 @@
       <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Style.Triggers>
+        <DataTrigger Binding="{Binding AiSuggested}" Value="True">
+          <Setter Property="Background" Value="#1A3A58"/>
+          <Setter Property="Foreground" Value="#5CC8FF"/>
+        </DataTrigger>
         <Trigger Property="IsMouseOver" Value="True">
           <Setter Property="Background" Value="{DynamicResource HoverBg}"/>
         </Trigger>
