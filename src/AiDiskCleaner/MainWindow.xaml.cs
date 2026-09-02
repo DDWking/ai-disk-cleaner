@@ -98,6 +98,8 @@ public partial class MainWindow : Window
     private BulkUninstallTask? _uninstallTask;
     private List<JunkItem> _junk = new();
     private bool _showingJunk;
+    private long _volumeTotal;
+    private long _volumeUsed;
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -425,7 +427,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private static FrameworkElement MakeFolderHeader(FileEntry d, bool isRoot = false)
+    private FrameworkElement MakeFolderHeader(FileEntry d, bool isRoot = false)
     {
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
@@ -441,8 +443,13 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        double share = isRoot ? 1 : d.PercentShare;
-        var pctCell = MakePctBar(share, isRoot ? 100 : d.PercentValue, d.IsDimmed);
+        double pct = isRoot && _volumeTotal > 0
+            ? 100.0 * _volumeUsed / _volumeTotal
+            : d.PercentValue;
+        double share = isRoot && _volumeTotal > 0
+            ? Math.Clamp(_volumeUsed / (double)_volumeTotal, 0, 1)
+            : d.PercentShare;
+        var pctCell = MakePctBar(share, pct, d.IsDimmed);
         var size = ColText(FileEntry.FormatSize(d.Size), d.IsDimmed ? "TextMuted" : "AccentDim");
         var alloc = ColText(FileEntry.FormatSize(d.Allocated), "TextMuted");
         var files = ColText(d.IsDirectory || d.IsFilesGroup ? d.FileCount.ToString("N0") : "", "TextMuted");
@@ -800,7 +807,9 @@ public partial class MainWindow : Window
             if (DriveBox.SelectedItem is not string name) return;
             var d = new DriveInfo(name);
             if (!d.IsReady) return;
-            long used = d.TotalSize - d.TotalFreeSpace;
+            _volumeTotal = d.TotalSize;
+            _volumeUsed = d.TotalSize - d.TotalFreeSpace;
+            long used = _volumeUsed;
             double pct = d.TotalSize > 0 ? 100.0 * used / d.TotalSize : 0;
             VolumeText.Text = Loc.Volume(
                 FileEntry.FormatSize(d.TotalSize),
