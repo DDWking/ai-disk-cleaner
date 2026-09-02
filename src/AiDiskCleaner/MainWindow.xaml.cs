@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -466,8 +467,8 @@ public partial class MainWindow : Window, IAnalystHost
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
-        bool marked = !string.IsNullOrEmpty(d.FullPath) && _aiNotes.ContainsKey(d.FullPath);
-        string note = marked ? _aiNotes[d.FullPath] : "";
+        string note = NoteFor(d.FullPath);
+        bool marked = !string.IsNullOrEmpty(note);
         var name = new TextBlock
         {
             Text = string.IsNullOrEmpty(note) ? d.Name : d.Name + "  ·  " + note,
@@ -1473,7 +1474,6 @@ public partial class MainWindow : Window, IAnalystHost
 
     void RefreshAiLamp()
     {
-        AiChatTitle.Text = Loc.ModelLabel();
         if (_aiBusy)
         {
             AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0xE8, 0xC5, 0x4A));
@@ -1488,6 +1488,11 @@ public partial class MainWindow : Window, IAnalystHost
         {
             AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0xE0, 0x4F, 0x4F));
             AiChatStatus.Text = Loc.AiLampFail;
+        }
+        else if (AiConfigured())
+        {
+            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0x3D, 0xD6, 0x68));
+            AiChatStatus.Text = Loc.AiReady;
         }
         else
         {
@@ -1513,7 +1518,8 @@ public partial class MainWindow : Window, IAnalystHost
         try
         {
             _turns.Add(new AiMsg { Role = "user", Text = user });
-            var tools = DiskAnalyst.Tools(AiClient.ParseProtocol(App.Settings.AiProtocol));
+            var proto = AiClient.ParseProtocol(App.Settings.CurrentProvider()?.Protocol);
+            var tools = DiskAnalyst.Tools(proto);
             string last = "";
             for (int round = 0; round < DiskAnalyst.MaxRounds; round++)
             {
@@ -1525,6 +1531,7 @@ public partial class MainWindow : Window, IAnalystHost
                 {
                     if (string.IsNullOrEmpty(last)) last = Loc.AiOk;
                     _turns.Add(new AiMsg { Role = "assistant", Text = last });
+                    HarvestNotes(last);
                     SetAiLamp(true);
                     AddChat(Loc.AiBot, last);
                     return last;
@@ -1551,6 +1558,7 @@ public partial class MainWindow : Window, IAnalystHost
             if (!string.IsNullOrEmpty(last))
             {
                 _turns.Add(new AiMsg { Role = "assistant", Text = last });
+                HarvestNotes(last);
                 AddChat(Loc.AiBot, last);
             }
             return last;
@@ -1581,11 +1589,108 @@ public partial class MainWindow : Window, IAnalystHost
         PaintAiNotes();
     }
 
+    void HarvestNotes(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || _root == null) return;
+        foreach (Match m in Regex.Matches(text, @"[A-Za-z]:\\[^\s|*?""<>]+"))
+        {
+            string path = m.Value.TrimEnd('。', '.', ',', '，', '、', ')', '）', ']', '`');
+            var hit = FindEntry(path);
+            if (hit == null) continue;
+            string key = NormPath(hit.FullPath);
+            if (_aiNotes.ContainsKey(key)) continue;
+            ((IAnalystHost)this).OnSuggest(hit.FullPath, Loc.AiMark);
+        }
+    }
+
     void IAnalystHost.OnSuggest(string path, string note)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
-        _aiNotes[path] = note.Trim();
-        Dispatcher.BeginInvoke(PaintAiNotes, System.Windows.Threading.DispatcherPriority.Background);
+        string key = NormPath(path);
+        var hit = FindEntry(path);
+        if (hit != null) key = NormPath(hit.FullPath);
+        _aiNotes[key] = note.Trim();
+        Dispatcher.BeginInvoke(() =>
+        {
+            RevealPath(key);
+            PaintAiNotes();
+        }, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    static string NormPath(string? p)
+        => (p ?? "").Replace('/', '\\').Trim().TrimEnd('\\');
+
+    string NoteFor(string? path)
+    {
+        string key = NormPath(path);
+        if (key.Length == 0) return "";
+        if (_aiNotes.TryGetValue(key, out var n)) return n;
+        foreach (var kv in _aiNotes)
+            if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase))
+                return kv.Value;
+        return "";
+    }
+
+    FileEntry? FindEntry(string path)
+    {
+        if (_root == null) return null;
+        string want = NormPath(path);
+        if (want.Length == 0) return null;
+        var stack = new Stack<FileEntry>();
+        stack.Push(_root);
+        FileEntry? best = null;
+        while (stack.Count > 0)
+        {
+            var n = stack.Pop();
+            string cur = NormPath(n.FullPath);
+            if (string.Equals(cur, want, StringComparison.OrdinalIgnoreCase))
+                return n;
+            if (want.StartsWith(cur + "\\", StringComparison.OrdinalIgnoreCase) && (best == null || cur.Length > NormPath(best.FullPath).Length))
+                best = n;
+            if (n.IsDirectory)
+                foreach (var c in n.Children)
+                    stack.Push(c);
+        }
+        return best;
+    }
+
+    void RevealPath(string path)
+    {
+        if (DirTree.Items.Count == 0 || DirTree.Items[0] is not TreeViewItem rootItem) return;
+        string want = NormPath(path);
+        var item = rootItem;
+        EnsureChildren(item);
+        string acc = NormPath((item.Tag as FileEntry)?.FullPath);
+        while (true)
+        {
+            TreeViewItem? next = null;
+            foreach (var obj in item.Items)
+            {
+                if (obj is not TreeViewItem child || child.Tag is not FileEntry e) continue;
+                string cur = NormPath(e.FullPath);
+                if (string.Equals(cur, want, StringComparison.OrdinalIgnoreCase)
+                    || want.StartsWith(cur + "\\", StringComparison.OrdinalIgnoreCase))
+                {
+                    next = child;
+                    acc = cur;
+                    break;
+                }
+            }
+            if (next == null) break;
+            item = next;
+            if (string.Equals(acc, want, StringComparison.OrdinalIgnoreCase)) break;
+            item.IsExpanded = true;
+            EnsureChildren(item);
+        }
+        PaintItem(item);
+    }
+
+    void EnsureChildren(TreeViewItem item)
+    {
+        if (item.Tag is not FileEntry e || !e.IsDirectory) return;
+        bool stub = item.Items.Count == 1 && (item.Items[0] as TreeViewItem)?.Tag == Placeholder;
+        if (stub || item.Items.Count == 0)
+            PopulateDirChildren(item);
     }
 
     void PaintAiNotes()

@@ -112,7 +112,9 @@ public static class Loc
         string name = (App.Settings.AiModel ?? "").Trim();
         return string.IsNullOrEmpty(name) ? (IsEn ? "AI" : "AI") : name;
     }
-    public static string AiLampOff => IsEn ? "not connected" : "未连接";
+    public static string AiLampOff => IsEn ? "not configured" : "未配置";
+    public static string AiReady => IsEn ? "ready" : "已配置";
+    public static string AiMark => IsEn ? "AI suggested" : "AI 建议";
     public static string AiLampOn => IsEn ? "connected" : "已连接";
     public static string AiLampBusy => IsEn ? "reading…" : "正在分析…";
     public static string AiLampFail => IsEn ? "failed" : "失败";
@@ -129,7 +131,7 @@ public static class Loc
           Never delete, never run OS commands, never claim you already cleaned anything. The user presses the Recycle button.
           Explain large folders by path name; call list_folder to see their children. For large files, say which look safe to remove (old ISOs/installers in Downloads) and which must stay (Windows, Program Files, system).
           You may set_checked only: temp/cache, crash dumps, Recycle Bin, and large files outside Windows/Program Files/system. Never check a whole folder. If blocked, say so.
-          Call suggest for every path you think the user might delete, with a one-line note for the tree.
+          Call suggest for EVERY path you recommend deleting. Copy the exact full path from the scan/tool output. One-line note. Missing paths will not highlight.
           If the goal is unclear, call ask_user. Reply in the user's language.
           """
         : """
@@ -137,7 +139,7 @@ public static class Loc
           不要删除、不要执行系统命令、不要声称已经清理过。删除要用户自己点按钮。
           大文件夹先看路径名，需要时用 list_folder 看子项。大文件要说清哪些可能能删（如下载里的旧 ISO/安装包），哪些不能动（Windows、Program Files、系统）。
           set_checked 只能勾：临时/缓存、崩溃转储、回收站，以及不在 Windows/Program Files/系统目录下的大文件。禁止整夹勾选。被拦截要说明。
-          建议删除的路径必须用 suggest 标出来，note 用一句中文写在树上。
+          建议删除的路径必须全部用 suggest 标出来，path 必须从扫描/工具结果里原样复制完整路径，note 一句中文。漏掉就不会高亮。
           需求不清时用 ask_user。用用户的语言回答。
           """;
     public static string AiTool(string name) => IsEn ? $"tool: {name}" : $"工具：{name}";

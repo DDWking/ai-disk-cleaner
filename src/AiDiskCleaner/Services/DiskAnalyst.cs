@@ -103,7 +103,7 @@ public static class DiskAnalyst
                     ["required"] = new[] { "paths", "checked" },
                 }),
             ("suggest",
-                "Mark files/folders the user might delete. This only highlights them in the tree with your short note. It does not delete. Use full paths from the scan.",
+                "Mark files/folders the user might delete. Highlights them in the tree. Does not delete. Call this for every recommended path. Copy the exact full path from scan/tool output, including drive letter.",
                 new Dictionary<string, object>
                 {
                     ["type"] = "object",
