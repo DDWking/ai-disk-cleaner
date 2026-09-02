@@ -68,6 +68,8 @@ public static class KnownPaths
 
     public static string? Describe(string? path)
     {
+        string? sig = AppSignatures.Describe(path);
+        if (!string.IsNullOrEmpty(sig)) return sig;
         string p = Norm(path);
         if (p.Length == 0) return null;
         foreach (var (needle, label) in Rules)

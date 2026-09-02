@@ -44,6 +44,26 @@ public static class DiskAnalyst
         lines.Add($"duplicates: {report.Duplicates.Count:N0} in {report.DupGroupCount:N0} groups, {Sum(report.Duplicates)}");
         if (!string.IsNullOrWhiteSpace(report.CompareNote))
             lines.Add("compare: " + report.CompareNote);
+        var known = AppSignatures.HitsIn(RootFolders(root).Concat(root.Children)).Take(12).ToList();
+        if (known.Count > 0)
+        {
+            lines.Add("");
+            lines.Add("known apps (do not invent; copy these labels):");
+            foreach (var (sig, sample, size) in known)
+            {
+                string risk = sig.Risk switch
+                {
+                    SigRisk.Safe => "safe cache",
+                    SigRisk.Cautious => "confirm",
+                    SigRisk.Keep => "keep / migrate",
+                    SigRisk.Bloat => "bloatware, suggest uninstall",
+                    _ => "",
+                };
+                string extra = string.IsNullOrEmpty(sig.Note) ? "" : "  " + sig.Note;
+                if (!string.IsNullOrEmpty(sig.Migrate)) extra += "  migrate:" + sig.Migrate;
+                lines.Add($"  {FileEntry.FormatSize(size)}  {sig.Name}  [{risk}]{extra}  {sample}");
+            }
+        }
         return string.Join(Environment.NewLine, lines);
     }
 
