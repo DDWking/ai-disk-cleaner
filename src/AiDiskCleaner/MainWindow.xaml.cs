@@ -101,10 +101,10 @@ public partial class MainWindow : Window
     private bool _showingJunk;
     private long _volumeTotal;
     private long _volumeUsed;
-    private bool _aiKindLock;
+    private bool _aiModelLock;
     private bool _aiBusy;
-    private static readonly AiKind[] AiKinds =
-        { AiKind.OpenAI, AiKind.DeepSeek, AiKind.Anthropic, AiKind.Gemini, AiKind.Ollama, AiKind.Custom };
+    private static readonly AiProtocol[] AiProtos =
+        { AiProtocol.Completions, AiProtocol.Responses, AiProtocol.Anthropic };
 
     private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
 
@@ -193,13 +193,16 @@ public partial class MainWindow : Window
         LangZhBtn.Content = Loc.LangZh;
         LangEnBtn.Content = Loc.LangEn;
         AiSectionLabel.Text = Loc.AiSection;
-        AiProviderLabel.Text = Loc.AiProvider;
+        AiNameLabel.Text = Loc.AiName;
         AiUrlLabel.Text = Loc.AiBaseUrl;
+        AiProtoLabel.Text = Loc.AiProtocolTitle;
         AiModelLabel.Text = Loc.AiModel;
         AiKeyLabel.Text = Loc.AiApiKey;
         AiTestBtn.Content = Loc.AiTest;
+        AiFetchBtn.Content = Loc.AiFetchModels;
+        AiModelHint.Text = Loc.AiModelsEmpty;
         AiExplainBtn.Content = Loc.AiExplain;
-        FillAiKindBox();
+        FillAiProtoBox();
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_current == null)
@@ -1142,51 +1145,77 @@ public partial class MainWindow : Window
         LoadAiFields();
     }
 
-    void FillAiKindBox()
+    void FillAiProtoBox()
     {
-        _aiKindLock = true;
-        AiKindBox.ItemsSource = AiKinds.Select(Loc.AiKindName).ToList();
-        _aiKindLock = false;
+        AiProtoBox.ItemsSource = AiProtos.Select(Loc.AiKindName).ToList();
     }
 
     void LoadAiFields()
     {
-        _aiKindLock = true;
-        var kind = Enum.TryParse<AiKind>(App.Settings.AiProvider, true, out var k) ? k : AiKind.OpenAI;
-        int i = Array.IndexOf(AiKinds, kind);
-        AiKindBox.SelectedIndex = i < 0 ? 0 : i;
+        _aiModelLock = true;
+        AiNameBox.Text = App.Settings.AiName ?? "";
         AiUrlBox.Text = App.Settings.AiBaseUrl ?? "";
+        var proto = AiClient.ParseProtocol(App.Settings.AiProtocol);
+        int i = Array.IndexOf(AiProtos, proto);
+        AiProtoBox.SelectedIndex = i < 0 ? 0 : i;
         AiModelBox.Text = App.Settings.AiModel ?? "";
         AiKeyBox.Password = App.Settings.AiApiKey ?? "";
         AiTestHint.Text = "";
-        _aiKindLock = false;
+        if (AiModelPick.Items.Count == 0) AiModelHint.Text = Loc.AiModelsEmpty;
+        _aiModelLock = false;
     }
 
     void SaveAiFields()
     {
-        if (AiKindBox == null) return;
-        int i = AiKindBox.SelectedIndex;
-        App.Settings.AiProvider = (i >= 0 && i < AiKinds.Length ? AiKinds[i] : AiKind.OpenAI).ToString();
+        if (AiUrlBox == null) return;
+        int i = AiProtoBox.SelectedIndex;
+        App.Settings.AiName = AiNameBox.Text?.Trim() ?? "";
         App.Settings.AiBaseUrl = AiUrlBox.Text?.Trim() ?? "";
+        App.Settings.AiProtocol = AiClient.ProtocolId(i >= 0 && i < AiProtos.Length ? AiProtos[i] : AiProtocol.Completions);
         App.Settings.AiModel = AiModelBox.Text?.Trim() ?? "";
         App.Settings.AiApiKey = AiKeyBox.Password ?? "";
         App.Settings.Save();
     }
 
-    private void AiKind_Changed(object sender, SelectionChangedEventArgs e)
+    private void AiModelPick_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (_aiKindLock) return;
-        int i = AiKindBox.SelectedIndex;
-        if (i < 0 || i >= AiKinds.Length) return;
-        var kind = AiKinds[i];
-        var preset = AiClient.Preset(kind);
-        App.Settings.AiProvider = kind.ToString();
-        if (kind != AiKind.Custom)
-        {
-            AiUrlBox.Text = preset.Url;
-            AiModelBox.Text = preset.Model;
-        }
+        if (_aiModelLock) return;
+        if (AiModelPick.SelectedItem is string id && !string.IsNullOrWhiteSpace(id))
+            AiModelBox.Text = id;
+    }
+
+    private async void AiFetch_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy) return;
         SaveAiFields();
+        _aiBusy = true;
+        AiFetchBtn.IsEnabled = false;
+        AiModelHint.Text = Loc.AiWorking;
+        try
+        {
+            var ids = await AiClient.ListModelsAsync(CancellationToken.None);
+            _aiModelLock = true;
+            AiModelPick.ItemsSource = ids;
+            string current = AiModelBox.Text?.Trim() ?? "";
+            if (!string.IsNullOrEmpty(current) && ids.Contains(current, StringComparer.OrdinalIgnoreCase))
+                AiModelPick.SelectedItem = ids.First(x => x.Equals(current, StringComparison.OrdinalIgnoreCase));
+            else if (ids.Count > 0 && string.IsNullOrEmpty(current))
+            {
+                AiModelPick.SelectedIndex = 0;
+                AiModelBox.Text = ids[0];
+            }
+            _aiModelLock = false;
+            AiModelHint.Text = ids.Count == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(ids.Count);
+        }
+        catch (Exception ex)
+        {
+            AiModelHint.Text = ex.Message;
+        }
+        finally
+        {
+            _aiBusy = false;
+            AiFetchBtn.IsEnabled = true;
+        }
     }
 
     private async void AiTest_Click(object sender, RoutedEventArgs e)

@@ -51,12 +51,22 @@ public static class Loc
         IsEn ? $"Hint: {count} temp/log files, about {size}"
              : $"建议：{count} 个临时/日志文件，约 {size}";
     public static string Language => IsEn ? "Language" : "语言";
-    public static string AiSection => IsEn ? "AI (explains checked items only)" : "AI（只解释已勾选项）";
-    public static string AiProvider => IsEn ? "Provider" : "供应商";
-    public static string AiBaseUrl => IsEn ? "Base URL" : "接口地址";
-    public static string AiModel => IsEn ? "Model" : "模型";
+    public static string AiSection => IsEn ? "Custom provider" : "自定义提供方";
+    public static string AiName => IsEn ? "Display name" : "显示名称";
+    public static string AiBaseUrl => IsEn ? "API URL" : "API 地址";
+    public static string AiProtocolTitle => IsEn ? "API protocol" : "API 协议";
+    public static string AiModel => IsEn ? "Model catalog" : "模型目录";
     public static string AiApiKey => IsEn ? "API key" : "API 密钥";
     public static string AiTest => IsEn ? "Test" : "测试连接";
+    public static string AiFetchModels => IsEn ? "Fetch models" : "获取可用模型";
+    public static string AiNeedUrl => IsEn ? "Fill in the API URL first." : "先填 API 地址。";
+    public static string AiModelsEmpty => IsEn
+        ? "No models in the selector; you can still type an ID and send it."
+        : "模型选择器中将不显示任何模型；目录外 ID 仍可直接发送。";
+    public static string AiModelsOk(int n) => IsEn ? $"{n:N0} models" : $"已获取 {n:N0} 个模型";
+    public static string AiProtoCompletions => "openai-completions";
+    public static string AiProtoResponses => "openai-responses";
+    public static string AiProtoAnthropic => "anthropic-messages";
     public static string AiExplain => IsEn ? "AI explain" : "AI 解释勾选项";
     public static string AiNeedConfig => IsEn ? "Set base URL and model first." : "先填接口地址和模型。";
     public static string AiNeedKey => IsEn ? "API key is empty." : "还没填 API 密钥。";
@@ -70,14 +80,11 @@ public static class Loc
     public static string AiPromptHeader => IsEn
         ? "Explain these checked items. Should I delete them? Any risk?"
         : "解释这些已勾选项：能不能删、有没有风险？";
-    public static string AiKindName(AiKind k) => k switch
+    public static string AiKindName(AiProtocol p) => p switch
     {
-        AiKind.DeepSeek => "DeepSeek",
-        AiKind.Anthropic => "Anthropic / Claude",
-        AiKind.Gemini => "Google Gemini",
-        AiKind.Ollama => IsEn ? "Ollama (local)" : "Ollama（本地）",
-        AiKind.Custom => IsEn ? "Custom (OpenAI-compatible)" : "自定义（OpenAI 兼容）",
-        _ => "OpenAI",
+        AiProtocol.Responses => AiProtoResponses,
+        AiProtocol.Anthropic => AiProtoAnthropic,
+        _ => AiProtoCompletions,
     };
     public static string LangZh => "中文";
     public static string LangEn => "English";

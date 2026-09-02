@@ -1100,16 +1100,25 @@
               <Button x:Name="LangEnBtn" Style="{StaticResource GhostButton}" Click="Lang_Click" Tag="En"/>
             </StackPanel>
             <TextBlock x:Name="AiSectionLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
-            <TextBlock x:Name="AiProviderLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
-            <ComboBox x:Name="AiKindBox" Margin="0,0,0,10" SelectionChanged="AiKind_Changed"/>
+            <TextBlock x:Name="AiNameLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="AiNameBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28"/>
             <TextBlock x:Name="AiUrlLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
             <TextBox x:Name="AiUrlBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28"/>
-            <TextBlock x:Name="AiModelLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
-            <TextBox x:Name="AiModelBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28"/>
+            <TextBlock x:Name="AiProtoLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
+            <ComboBox x:Name="AiProtoBox" Margin="0,0,0,10"/>
             <TextBlock x:Name="AiKeyLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
             <PasswordBox x:Name="AiKeyBox" Margin="0,0,0,12" Height="28" Padding="8,0"
                          Background="{DynamicResource PanelRight}" Foreground="{DynamicResource Accent}"
                          BorderBrush="{DynamicResource Border}" BorderThickness="1" CaretBrush="{DynamicResource Accent}"/>
+            <Grid Margin="0,0,0,4">
+              <TextBlock x:Name="AiModelLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" VerticalAlignment="Center"/>
+              <Button x:Name="AiFetchBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Right"
+                      Padding="10,4" FontSize="11" Click="AiFetch_Click"/>
+            </Grid>
+            <ComboBox x:Name="AiModelPick" Margin="0,0,0,6" SelectionChanged="AiModelPick_Changed"/>
+            <TextBox x:Name="AiModelBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,6" Height="28"/>
+            <TextBlock x:Name="AiModelHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                       TextWrapping="Wrap" Margin="0,0,0,12"/>
             <StackPanel Orientation="Horizontal">
               <Button x:Name="AiTestBtn" Style="{StaticResource GhostButton}" Click="AiTest_Click"/>
               <TextBlock x:Name="AiTestHint" Margin="12,0,0,0" VerticalAlignment="Center"

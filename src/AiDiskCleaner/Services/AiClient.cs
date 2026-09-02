@@ -4,56 +4,66 @@ using System.Text.Json;
 
 namespace AiDiskCleaner.Services;
 
-public enum AiKind { OpenAI, DeepSeek, Anthropic, Gemini, Ollama, Custom }
+public enum AiProtocol { Completions, Responses, Anthropic }
 
 public static class AiClient
 {
     static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
-    public static (string Url, string Model, AiKind Kind) Preset(AiKind kind) => kind switch
+
+    public static AiProtocol ParseProtocol(string? s) => s switch
     {
-        AiKind.DeepSeek => ("https://api.deepseek.com/v1", "deepseek-chat", kind),
-        AiKind.Anthropic => ("https://api.anthropic.com", "claude-3-5-haiku-latest", kind),
-        AiKind.Gemini => ("https://generativelanguage.googleapis.com/v1beta", "gemini-2.0-flash", kind),
-        AiKind.Ollama => ("http://127.0.0.1:11434", "llama3.2", kind),
-        AiKind.Custom => ("", "", kind),
-        _ => ("https://api.openai.com/v1", "gpt-4o-mini", AiKind.OpenAI),
+        "responses" or "openai-responses" => AiProtocol.Responses,
+        "anthropic" or "anthropic-messages" => AiProtocol.Anthropic,
+        _ => AiProtocol.Completions,
+    };
+
+    public static string ProtocolId(AiProtocol p) => p switch
+    {
+        AiProtocol.Responses => "responses",
+        AiProtocol.Anthropic => "anthropic",
+        _ => "completions",
     };
 
     public static async Task<string> ChatAsync(string system, string user, CancellationToken ct)
     {
         var s = App.Settings;
-        var kind = ParseKind(s.AiProvider);
         string baseUrl = (s.AiBaseUrl ?? "").Trim().TrimEnd('/');
         string model = (s.AiModel ?? "").Trim();
         string key = s.AiApiKey ?? "";
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(model))
             throw new InvalidOperationException(Loc.AiNeedConfig);
-        if (kind is not (AiKind.Ollama or AiKind.Custom) && string.IsNullOrWhiteSpace(key))
-            throw new InvalidOperationException(Loc.AiNeedKey);
-
-        return kind switch
+        var proto = ParseProtocol(s.AiProtocol);
+        return proto switch
         {
-            AiKind.Anthropic => await Anthropic(baseUrl, model, key, system, user, ct),
-            AiKind.Gemini => await Gemini(baseUrl, model, key, system, user, ct),
-            AiKind.Ollama => await Ollama(baseUrl, model, system, user, ct),
-            _ => await OpenAi(baseUrl, model, key, system, user, ct),
+            AiProtocol.Anthropic => await Anthropic(baseUrl, model, key, system, user, ct),
+            AiProtocol.Responses => await Responses(baseUrl, model, key, system, user, ct),
+            _ => await Completions(baseUrl, model, key, system, user, ct),
         };
     }
 
     public static Task<string> TestAsync(CancellationToken ct)
         => ChatAsync(Loc.AiSystem, Loc.IsEn ? "Reply with one short word: ok" : "只回复一个字：好", ct);
 
-    static AiKind ParseKind(string? name)
-        => Enum.TryParse<AiKind>(name, true, out var k) ? k : AiKind.OpenAI;
-
-    static async Task<string> OpenAi(string baseUrl, string model, string key, string system, string user, CancellationToken ct)
+    public static async Task<List<string>> ListModelsAsync(CancellationToken ct)
     {
-        string url = baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
-            ? baseUrl + "/chat/completions"
-            : baseUrl + "/v1/chat/completions";
-        using var req = new HttpRequestMessage(HttpMethod.Post, url);
-        if (!string.IsNullOrWhiteSpace(key))
-            req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + key);
+        var s = App.Settings;
+        string baseUrl = (s.AiBaseUrl ?? "").Trim().TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(baseUrl))
+            throw new InvalidOperationException(Loc.AiNeedUrl);
+        var proto = ParseProtocol(s.AiProtocol);
+        string key = s.AiApiKey ?? "";
+        using var req = new HttpRequestMessage(HttpMethod.Get, Join(baseUrl, "models"));
+        Auth(req, proto, key);
+        using var res = await Http.SendAsync(req, ct);
+        string body = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
+        return ParseModelIds(body);
+    }
+
+    static async Task<string> Completions(string baseUrl, string model, string key, string system, string user, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "chat/completions"));
+        Auth(req, AiProtocol.Completions, key);
         req.Content = JsonBody(new
         {
             model,
@@ -77,14 +87,48 @@ public static class AiClient
         throw Fail(body, "empty");
     }
 
+    static async Task<string> Responses(string baseUrl, string model, string key, string system, string user, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "responses"));
+        Auth(req, AiProtocol.Responses, key);
+        req.Content = JsonBody(new
+        {
+            model,
+            instructions = system,
+            input = user,
+            temperature = 0.2,
+        });
+        using var res = await Http.SendAsync(req, ct);
+        string body = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("output_text", out var ot) && ot.ValueKind == JsonValueKind.String)
+            return ot.GetString() ?? "";
+        if (root.TryGetProperty("output", out var output) && output.ValueKind == JsonValueKind.Array)
+        {
+            var texts = new List<string>();
+            foreach (var item in output.EnumerateArray())
+            {
+                if (!item.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+                    continue;
+                foreach (var part in content.EnumerateArray())
+                {
+                    if (part.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String)
+                        texts.Add(t.GetString() ?? "");
+                    else if (part.TryGetProperty("output_text", out var t2) && t2.ValueKind == JsonValueKind.String)
+                        texts.Add(t2.GetString() ?? "");
+                }
+            }
+            if (texts.Count > 0) return string.Join("", texts);
+        }
+        throw Fail(body, "empty");
+    }
+
     static async Task<string> Anthropic(string baseUrl, string model, string key, string system, string user, CancellationToken ct)
     {
-        string url = baseUrl.Contains("/v1", StringComparison.OrdinalIgnoreCase)
-            ? baseUrl.TrimEnd('/') + "/messages"
-            : baseUrl + "/v1/messages";
-        using var req = new HttpRequestMessage(HttpMethod.Post, url);
-        req.Headers.TryAddWithoutValidation("x-api-key", key);
-        req.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
+        using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "messages"));
+        Auth(req, AiProtocol.Anthropic, key);
         req.Content = JsonBody(new
         {
             model,
@@ -104,53 +148,51 @@ public static class AiClient
         throw Fail(body, "empty");
     }
 
-    static async Task<string> Gemini(string baseUrl, string model, string key, string system, string user, CancellationToken ct)
+    static void Auth(HttpRequestMessage req, AiProtocol proto, string key)
     {
-        string root = baseUrl.Contains("/v1", StringComparison.OrdinalIgnoreCase) ? baseUrl : baseUrl + "/v1beta";
-        string url = $"{root}/models/{Uri.EscapeDataString(model)}:generateContent?key={Uri.EscapeDataString(key)}";
-        using var req = new HttpRequestMessage(HttpMethod.Post, url);
-        req.Content = JsonBody(new
+        if (string.IsNullOrWhiteSpace(key)) return;
+        if (proto == AiProtocol.Anthropic)
         {
-            systemInstruction = new { parts = new[] { new { text = system } } },
-            contents = new[] { new { role = "user", parts = new[] { new { text = user } } } },
-            generationConfig = new { temperature = 0.2, maxOutputTokens = 800 },
-        });
-        using var res = await Http.SendAsync(req, ct);
-        string body = await res.Content.ReadAsStringAsync(ct);
-        if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
-        using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.TryGetProperty("candidates", out var cand) && cand.GetArrayLength() > 0)
-        {
-            var parts = cand[0].GetProperty("content").GetProperty("parts");
-            if (parts.GetArrayLength() > 0 && parts[0].TryGetProperty("text", out var t))
-                return t.GetString() ?? "";
+            req.Headers.TryAddWithoutValidation("x-api-key", key);
+            req.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
         }
-        throw Fail(body, "empty");
+        else
+            req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + key);
     }
 
-    static async Task<string> Ollama(string baseUrl, string model, string system, string user, CancellationToken ct)
+    static string Join(string baseUrl, string endpoint)
     {
-        // native /api/chat; if user pasted an OpenAI-compat /v1 URL, reuse OpenAI path
-        if (baseUrl.Contains("/v1", StringComparison.OrdinalIgnoreCase))
-            return await OpenAi(baseUrl, model, "", system, user, ct);
-        using var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/chat");
-        req.Content = JsonBody(new
-        {
-            model,
-            stream = false,
-            messages = new[]
-            {
-                new { role = "system", content = system },
-                new { role = "user", content = user },
-            },
-        });
-        using var res = await Http.SendAsync(req, ct);
-        string body = await res.Content.ReadAsStringAsync(ct);
-        if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
+        string root = baseUrl.Trim().TrimEnd('/');
+        bool hasV1 = root.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
+                     || root.Contains("/v1/", StringComparison.OrdinalIgnoreCase)
+                     || root.Contains("/v1beta", StringComparison.OrdinalIgnoreCase);
+        if (!hasV1) root += "/v1";
+        return root + "/" + endpoint.TrimStart('/');
+    }
+
+    static List<string> ParseModelIds(string body)
+    {
         using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.TryGetProperty("message", out var msg) && msg.TryGetProperty("content", out var c))
-            return c.GetString() ?? "";
-        throw Fail(body, "empty");
+        var root = doc.RootElement;
+        var ids = new List<string>();
+        JsonElement list = default;
+        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+            list = data;
+        else if (root.TryGetProperty("models", out var models) && models.ValueKind == JsonValueKind.Array)
+            list = models;
+        else if (root.ValueKind == JsonValueKind.Array)
+            list = root;
+        if (list.ValueKind != JsonValueKind.Array) return ids;
+        foreach (var item in list.EnumerateArray())
+        {
+            string? id = null;
+            if (item.ValueKind == JsonValueKind.String) id = item.GetString();
+            else if (item.TryGetProperty("id", out var p)) id = p.GetString();
+            else if (item.TryGetProperty("name", out var n)) id = n.GetString();
+            if (!string.IsNullOrWhiteSpace(id)) ids.Add(id);
+        }
+        ids.Sort(StringComparer.OrdinalIgnoreCase);
+        return ids.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     static StringContent JsonBody(object obj)
