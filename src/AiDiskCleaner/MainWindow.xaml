@@ -868,7 +868,8 @@
                             </Style>
                           </TextBlock.Style>
                         </TextBlock>
-                        <ctrl:MarkdownText Markdown="{Binding Text}" FontSize="13" TextWrapping="Wrap">
+                        <ctrl:MarkdownText Markdown="{Binding Text}" FontSize="13" TextWrapping="Wrap"
+                                           PathClick="ChatPath_Click">
                           <ctrl:MarkdownText.Style>
                             <Style TargetType="ctrl:MarkdownText">
                               <Setter Property="Foreground" Value="#F2F2F2"/>

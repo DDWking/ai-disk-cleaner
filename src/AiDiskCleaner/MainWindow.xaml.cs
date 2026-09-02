@@ -10,6 +10,7 @@ using System.Collections.ObjectModel;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using AiDiskCleaner.Controls;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 using UninstallTools;
@@ -1697,6 +1698,78 @@ public partial class MainWindow : Window, IAnalystHost
         foreach (var child in item.Items)
             if (child is TreeViewItem t && t.Tag is FileEntry)
                 PaintItem(t);
+    }
+
+    private void ChatPath_Click(object sender, RoutedEventArgs e)
+    {
+        if (e is not PathClickEventArgs { Path: string path } || string.IsNullOrWhiteSpace(path)) return;
+        JumpToPath(path);
+    }
+
+    void JumpToPath(string path)
+    {
+        string key = NormPath(path);
+        if (key.Length < 3 || _root == null) return;
+        if (!_aiNotes.ContainsKey(key))
+            ApplySuggest(key, NearbyNote(key) ?? Loc.AiMark, check: false);
+        var item = RevealInTree(key);
+        if (item == null) return;
+        item.IsSelected = true;
+        item.BringIntoView();
+        if (item.Tag is FileEntry e)
+            ShowDirectory(e.IsDirectory ? e : e.Parent ?? e);
+        PaintAiNotes();
+    }
+
+    string? NearbyNote(string key)
+    {
+        if (_aiNotes.TryGetValue(key, out var n) && n != Loc.AiMark) return n;
+        string? parent = Path.GetDirectoryName(key);
+        while (!string.IsNullOrEmpty(parent) && parent.Length >= 3)
+        {
+            string p = NormPath(parent);
+            if (_aiNotes.TryGetValue(p, out var note) && note != Loc.AiMark && !note.StartsWith("内有") && !note.StartsWith("inside:"))
+                return note;
+            parent = Path.GetDirectoryName(p);
+        }
+        return null;
+    }
+
+    TreeViewItem? RevealInTree(string path)
+    {
+        if (DirTree.Items.Count == 0 || DirTree.Items[0] is not TreeViewItem rootItem) return null;
+        string want = NormPath(path);
+        var item = rootItem;
+        EnsureTreeChildren(item);
+        while (true)
+        {
+            TreeViewItem? next = null;
+            foreach (var obj in item.Items)
+            {
+                if (obj is not TreeViewItem child || child.Tag is not FileEntry e) continue;
+                string cur = NormPath(e.FullPath);
+                if (string.Equals(cur, want, StringComparison.OrdinalIgnoreCase)
+                    || want.StartsWith(cur + "\\", StringComparison.OrdinalIgnoreCase))
+                {
+                    next = child;
+                    break;
+                }
+            }
+            if (next == null) return item;
+            item = next;
+            string here = NormPath((item.Tag as FileEntry)?.FullPath);
+            if (string.Equals(here, want, StringComparison.OrdinalIgnoreCase)) return item;
+            item.IsExpanded = true;
+            EnsureTreeChildren(item);
+        }
+    }
+
+    void EnsureTreeChildren(TreeViewItem item)
+    {
+        if (item.Tag is not FileEntry e || !e.IsDirectory) return;
+        bool stub = item.Items.Count == 1 && (item.Items[0] as TreeViewItem)?.Tag == Placeholder;
+        if (stub || (item.Items.Count == 0 && e.Children.Count > 0))
+            PopulateDirChildren(item);
     }
 
     private async void AiChatSend_Click(object sender, RoutedEventArgs e)
