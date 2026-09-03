@@ -27,13 +27,13 @@ public static class DiskAnalyst
             $"volume: {root.FullPath}  used {FileEntry.FormatSize(used)} / {FileEntry.FormatSize(total)}",
             $"tree: {root.FileCount:N0} files, {root.FolderCount:N0} folders, {FileEntry.FormatSize(root.Size)}",
             "",
-            "largest folders (root, top 20):",
+            "largest folders (root, top 12):",
         };
-        foreach (var d in RootFolders(root).Take(20))
+        foreach (var d in RootFolders(root).Take(12))
             lines.Add($"  {Line(d)}");
         lines.Add("");
-        lines.Add("largest files (top 40):");
-        foreach (var f in report.LargeFiles.Take(40))
+        lines.Add("largest files (top 16):");
+        foreach (var f in report.LargeFiles.Take(16))
             lines.Add($"  {ItemLine(f)}");
         lines.Add("");
         lines.Add($"cleanable: {report.Cleanable.Count:N0} items, {FileEntry.FormatSize(report.CleanableBytes)}");

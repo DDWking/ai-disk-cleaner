@@ -281,6 +281,7 @@ public static class AiClient
             ["model"] = model,
             ["temperature"] = 0.2,
             ["messages"] = messages,
+            ["max_tokens"] = tools == null ? 1800 : 1200,
         };
         if (tools != null)
         {
@@ -290,7 +291,7 @@ public static class AiClient
         using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "chat/completions"));
         Auth(req, AiProtocol.Completions, key);
         req.Content = JsonBody(payload);
-        using var res = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var res = await Http.SendAsync(req, ct);
         string body = await res.Content.ReadAsStringAsync(ct);
         if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
         using var doc = JsonDocument.Parse(body);

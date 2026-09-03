@@ -2127,29 +2127,12 @@ public partial class MainWindow : Window, IAnalystHost
     async Task<(JurySeat Seat, string Text)> RunSeat(JurySeat seat, JuryPane pane, string user)
     {
         Dispatcher.Invoke(() => pane.LiveText = Loc.JuryThinking + "\n" + (seat.Provider.BaseUrl ?? ""));
-        var buf = new System.Text.StringBuilder();
-        void Push(string delta)
-        {
-            if (delta.StartsWith(Loc.JuryRetry(""), StringComparison.Ordinal) || delta.StartsWith("流式失败", StringComparison.Ordinal))
-            {
-                buf.Clear();
-                Dispatcher.BeginInvoke(() => pane.LiveText = delta, System.Windows.Threading.DispatcherPriority.Background);
-                return;
-            }
-            buf.Append(delta);
-            string snap = buf.ToString();
-            Dispatcher.BeginInvoke(() => pane.LiveText = snap, System.Windows.Threading.DispatcherPriority.Background);
-        }
         try
         {
-            var reply = await AiClient.StreamAsync(seat.Provider, seat.Model, Loc.JurySystem,
-                new[] { new AiMsg { Role = "user", Text = user } }, Push, CancellationToken.None);
-            string text = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
-            if (LooksLikeFailText(text))
-            {
-                Dispatcher.Invoke(() => pane.LiveText = Loc.JurySeatFail(seat.Label, text));
-                return (seat, "");
-            }
+            Dispatcher.Invoke(() => pane.LiveText = Loc.JuryWaiting + "\n" + (seat.Provider.BaseUrl ?? "") + "\n" + seat.Model);
+            var reply = await AiClient.TurnAsync(seat.Provider, seat.Model, Loc.JurySystem,
+                new[] { new AiMsg { Role = "user", Text = user } }, null, CancellationToken.None);
+            string text = (reply.Text ?? "").Trim();
             Dispatcher.Invoke(() => pane.LiveText = string.IsNullOrEmpty(text) ? Loc.JurySeatEmpty(seat.Model) : text);
             return (seat, text);
         }
@@ -2158,17 +2141,6 @@ public partial class MainWindow : Window, IAnalystHost
             Dispatcher.Invoke(() => pane.LiveText = Loc.JurySeatFail(seat.Label, AiClient.Pretty(ex)));
             return (seat, "");
         }
-    }
-
-    static bool LooksLikeFailText(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return true;
-        if (text.StartsWith("GOTO ", StringComparison.OrdinalIgnoreCase)) return false;
-        if (text.Contains(Loc.SecSummary, StringComparison.OrdinalIgnoreCase)) return false;
-        if (text.Contains("DELETABLE", StringComparison.OrdinalIgnoreCase)) return false;
-        return text.Contains("失败") || text.Contains("failed", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("Timeout", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("不知道这样的主机");
     }
 
     void ApplyJuryChecks()

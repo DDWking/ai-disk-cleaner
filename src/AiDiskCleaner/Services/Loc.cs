@@ -149,6 +149,7 @@ public static class Loc
         : "能清的都清：临时、缓存、转储、装完的安装包、开发缓存。Windows / Program Files / Users 整夹别动。";
     public static string JuryWorking(int n) => IsEn ? $"jury: {n} models…" : $"评审：{n} 个模型并行…";
     public static string JuryThinking => IsEn ? "connecting…" : "正在连接…";
+    public static string JuryWaiting => IsEn ? "request sent, waiting for reply…" : "请求已发出，等回复…";
     public static string JuryRetry(string err) => IsEn ? "stream failed, retrying: " + err : "流式失败，改整段请求：" + err;
     public static string AiTimeout => IsEn
         ? "Timed out. Check URL / key, or the model is too slow."
