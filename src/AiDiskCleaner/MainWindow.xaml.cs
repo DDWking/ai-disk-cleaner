@@ -146,6 +146,20 @@ public partial class MainWindow : Window, IAnalystHost
         AiChatList.ItemsSource = _chat;
         ApplyUi();
         ShowRightTab(0);
+        PickDrive("C:\\");
+    }
+
+    void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (!_scanning && _root == null)
+            RunScan();
+    }
+
+    void PickDrive(string name)
+    {
+        if (DriveBox.ItemsSource is not IEnumerable<string> drives) return;
+        var hit = drives.FirstOrDefault(d => d.StartsWith(name, StringComparison.OrdinalIgnoreCase));
+        if (hit != null) DriveBox.SelectedItem = hit;
     }
 
     public void ApplyUi()
@@ -1461,7 +1475,10 @@ public partial class MainWindow : Window, IAnalystHost
         var groups = new List<JuryGroup>();
         foreach (var p in App.Settings.AiProviders)
         {
-            var models = p.Models.Where(m => !string.IsNullOrWhiteSpace(m)).ToList();
+            var models = p.Models.Where(m => !string.IsNullOrWhiteSpace(m))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
+                .ToList();
             if (models.Count == 0 && p.Id == App.Settings.AiActiveId && !string.IsNullOrWhiteSpace(App.Settings.AiModel))
                 models.Add(App.Settings.AiModel);
             if (models.Count == 0) continue;

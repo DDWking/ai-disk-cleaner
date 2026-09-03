@@ -10,7 +10,8 @@
         Icon="Assets/app.ico"
         Background="{DynamicResource Bg}"
         Foreground="{DynamicResource Text}"
-        FontFamily="{DynamicResource AppFont}">
+        FontFamily="{DynamicResource AppFont}"
+        Loaded="Window_Loaded">
   <WindowChrome.WindowChrome>
     <WindowChrome CaptionHeight="56" ResizeBorderThickness="6" GlassFrameThickness="0"
                   CornerRadius="0" UseAeroCaptionButtons="False"/>
@@ -1200,19 +1201,20 @@
               <ItemsControl x:Name="JuryPickList">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate>
-                    <StackPanel Margin="0,0,0,12">
-                      <Button Content="{Binding Name}" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="11"
-                              HorizontalAlignment="Left" Margin="0,0,0,8" IsHitTestVisible="False"/>
+                    <StackPanel Margin="0,0,0,14">
+                      <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                                 Margin="0,0,0,8"/>
                       <ItemsControl ItemsSource="{Binding Models}">
                         <ItemsControl.ItemsPanel>
                           <ItemsPanelTemplate>
-                            <WrapPanel/>
+                            <UniformGrid Columns="2"/>
                           </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                           <DataTemplate>
                             <Button Content="{Binding Label}" Tag="{Binding}" Style="{StaticResource GhostButton}"
-                                    Padding="10,5" FontSize="11" Margin="0,0,8,8" Click="JuryPick_Click"/>
+                                    HorizontalAlignment="Stretch" Padding="10,6" FontSize="11" Margin="0,0,8,8"
+                                    Click="JuryPick_Click"/>
                           </DataTemplate>
                         </ItemsControl.ItemTemplate>
                       </ItemsControl>
