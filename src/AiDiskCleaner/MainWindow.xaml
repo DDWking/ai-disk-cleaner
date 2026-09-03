@@ -1102,7 +1102,23 @@
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
               <Ellipse x:Name="AiLamp" Width="9" Height="9" Fill="#3A3A3A" Margin="0,0,8,0"/>
               <ComboBox x:Name="AiRunModelBox" Width="180" Height="26"
-                        SelectionChanged="AiRunModel_Changed"/>
+                        SelectionChanged="AiRunModel_Changed">
+                <ComboBox.GroupStyle>
+                  <GroupStyle>
+                    <GroupStyle.HeaderTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding Name}" Foreground="#8A8A8A" FontSize="11"
+                                   Margin="2,4,0,2"/>
+                      </DataTemplate>
+                    </GroupStyle.HeaderTemplate>
+                  </GroupStyle>
+                </ComboBox.GroupStyle>
+                <ComboBox.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Model}" TextTrimming="CharacterEllipsis"/>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
               <ItemsControl x:Name="JuryChipList" Visibility="Collapsed" Margin="0,0,4,0">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>

@@ -147,6 +147,7 @@ public static class Loc
     public static string JuryWorking(int n) => IsEn ? $"jury: {n} models…" : $"评审：{n} 个模型并行…";
     public static string JuryThinking => IsEn ? "connecting…" : "正在连接…";
     public static string JuryWaiting => IsEn ? "request sent, waiting for reply…" : "请求已发出，等回复…";
+    public static string AiWaiting(int s) => IsEn ? $"waiting… {s}s" : $"等回复中… {s} 秒";
     public static string JuryRetry(string err) => IsEn ? "retrying: " + err : "改整段请求：" + err;
     public static string AiPartial(string err) => IsEn ? "Stopped: " + err + " Using what we already have." : "中断：" + err + " 先用已经找到的项。";
     public static string AiHttp520 => IsEn

@@ -25,6 +25,13 @@ public sealed class JuryGroup
     public List<JuryPick> Models { get; set; } = new();
 }
 
+public sealed class RunModelPick
+{
+    public string ProviderId { get; set; } = "";
+    public string Provider { get; set; } = "";
+    public string Model { get; set; } = "";
+}
+
 public sealed class JuryPane : INotifyPropertyChanged
 {
     string _live = "";

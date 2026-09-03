@@ -1468,14 +1468,27 @@ public partial class MainWindow : Window, IAnalystHost
     {
         if (AiRunModelBox == null) return;
         _aiModelLock = true;
-        var p = App.Settings.CurrentProvider();
-        var models = p?.Models ?? new List<string>();
-        AiRunModelBox.ItemsSource = models;
+        var picks = new List<RunModelPick>();
+        foreach (var p in App.Settings.AiProviders)
+        {
+            var models = p.Models.Where(m => !string.IsNullOrWhiteSpace(m))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (models.Count == 0 && p.Id == App.Settings.AiActiveId && !string.IsNullOrWhiteSpace(App.Settings.AiModel))
+                models.Add(App.Settings.AiModel);
+            string name = string.IsNullOrWhiteSpace(p.Name) ? p.Id : p.Name;
+            picks.AddRange(models.Select(m => new RunModelPick { ProviderId = p.Id, Provider = name, Model = m }));
+        }
+        var view = new System.Windows.Data.CollectionViewSource { Source = picks };
+        view.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(RunModelPick.Provider)));
+        AiRunModelBox.ItemsSource = view.View;
         string cur = App.Settings.AiModel ?? "";
-        if (!string.IsNullOrEmpty(cur) && models.Contains(cur, StringComparer.OrdinalIgnoreCase))
-            AiRunModelBox.SelectedItem = models.First(x => x.Equals(cur, StringComparison.OrdinalIgnoreCase));
-        else if (models.Count > 0)
-            AiRunModelBox.SelectedIndex = 0;
+        var sel = picks.FirstOrDefault(x => string.Equals(x.Model, cur, StringComparison.OrdinalIgnoreCase)
+                && x.ProviderId == App.Settings.AiActiveId)
+            ?? picks.FirstOrDefault(x => string.Equals(x.Model, cur, StringComparison.OrdinalIgnoreCase))
+            ?? picks.FirstOrDefault();
+        AiRunModelBox.SelectedItem = sel;
         _aiModelLock = false;
         FillJuryPicks();
     }
@@ -1483,9 +1496,10 @@ public partial class MainWindow : Window, IAnalystHost
     private void AiRunModel_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (_aiModelLock) return;
-        if (AiRunModelBox.SelectedItem is string id && !string.IsNullOrWhiteSpace(id))
+        if (AiRunModelBox.SelectedItem is RunModelPick pick && !string.IsNullOrWhiteSpace(pick.Model))
         {
-            App.Settings.AiModel = id;
+            App.Settings.AiActiveId = pick.ProviderId;
+            App.Settings.AiModel = pick.Model;
             App.Settings.Save();
             FillJuryPicks();
             RefreshAiLamp();
@@ -1735,16 +1749,31 @@ public partial class MainWindow : Window, IAnalystHost
             _turns.Add(new AiMsg { Role = "user", Text = user });
             var live = AddChat(Loc.AiBot, Loc.JuryWaiting, log: true);
             var buf = new System.Text.StringBuilder();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var tick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            tick.Tick += (_, _) =>
+            {
+                if (buf.Length == 0)
+                    live.Text = Loc.AiWaiting(sw.Elapsed.Seconds);
+            };
+            tick.Start();
             void Push(string delta)
             {
                 buf.Append(delta);
                 string snap = buf.ToString();
                 Dispatcher.BeginInvoke(() => live.Text = snap, System.Windows.Threading.DispatcherPriority.Background);
             }
-            var reply = await AiClient.StreamAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, DiskAnalyst.SystemPrompt(), PackedTurns(), Push, CancellationToken.None);
-            string last = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
-            FinishAnalyst(live, last);
-            return last;
+            try
+            {
+                var reply = await AiClient.StreamAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, DiskAnalyst.SystemPrompt(), PackedTurns(), Push, CancellationToken.None);
+                string last = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
+                FinishAnalyst(live, last);
+                return last;
+            }
+            finally
+            {
+                tick.Stop();
+            }
         }
         catch (Exception ex)
         {
