@@ -1,3 +1,6 @@
+using System.Collections.ObjectModel;
+using AiDiskCleaner.Models;
+
 namespace AiDiskCleaner.Services;
 
 public sealed class JurySeat
@@ -19,6 +22,12 @@ public sealed class JuryGroup
 {
     public string Name { get; set; } = "";
     public List<JuryPick> Models { get; set; } = new();
+}
+
+public sealed class JuryPane
+{
+    public string Title { get; set; } = "";
+    public ObservableCollection<ChatLine> Lines { get; } = new();
 }
 
 public sealed class VoteItem

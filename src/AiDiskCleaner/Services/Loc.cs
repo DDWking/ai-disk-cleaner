@@ -107,10 +107,17 @@ public static class Loc
         IsEn ? $"{name} → {preview}" : $"{name} → {preview}";
     public static string AiYou => IsEn ? "You" : "你";
     public static string AiBot => ModelLabel();
+    public static string AiJuryName => IsEn ? "Jury" : "评审";
     public static string ModelLabel()
     {
+        if (App.Settings.AiJuryOn)
+        {
+            var seats = Jury.Seats();
+            if (seats.Count > 1) return AiJuryName;
+            if (seats.Count == 1) return seats[0].Model;
+        }
         string name = (App.Settings.AiModel ?? "").Trim();
-        return string.IsNullOrEmpty(name) ? (IsEn ? "AI" : "AI") : name;
+        return string.IsNullOrEmpty(name) ? "AI" : name;
     }
     public static string AiLampOff => IsEn ? "not configured" : "未配置";
     public static string AiReady => IsEn ? "ready" : "已配置";
@@ -139,6 +146,8 @@ public static class Loc
         ? "Clean everything that is safe: temp, caches, dumps, leftover installers, dev caches. Do not touch Windows / Program Files / Users as a whole."
         : "能清的都清：临时、缓存、转储、装完的安装包、开发缓存。Windows / Program Files / Users 整夹别动。";
     public static string JuryWorking(int n) => IsEn ? $"jury: {n} models…" : $"评审：{n} 个模型并行…";
+    public static string JuryThinking => IsEn ? "thinking…" : "正在分析…";
+    public static string JuryMerge => IsEn ? "Merged score" : "汇总";
     public static string JurySeatOk(string name, int n) => IsEn ? $"{name} · {n} items" : $"{name} · {n} 条";
     public static string JurySeatFail(string name, string err) => IsEn ? $"{name} failed: {err}" : $"{name} 失败：{err}";
     public static string JurySummary(int models, int high) => IsEn

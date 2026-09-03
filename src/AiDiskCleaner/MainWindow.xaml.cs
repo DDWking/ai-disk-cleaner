@@ -114,6 +114,7 @@ public partial class MainWindow : Window, IAnalystHost
     private string? _need;
     private List<VoteItem> _votes = new();
     private bool _awaitConfirm;
+    private readonly ObservableCollection<JuryPane> _juryPanes = new();
     FileEntry? IAnalystHost.Root => _root;
     CleanReport? IAnalystHost.Report => _report;
     private static readonly AiProtocol[] AiProtos =
@@ -144,6 +145,7 @@ public partial class MainWindow : Window, IAnalystHost
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
         AiChatList.ItemsSource = _chat;
+        JuryPaneList.ItemsSource = _juryPanes;
         ApplyUi();
         ShowRightTab(0);
         PickDrive("C:\\");
@@ -280,6 +282,7 @@ public partial class MainWindow : Window, IAnalystHost
         _scanning = true;
         ScanButton.IsEnabled = false;
         StopButton.IsEnabled = true;
+        if (AiRunBtn != null) AiRunBtn.IsEnabled = false;
         _scanStart = DateTime.Now;
         _cts = new CancellationTokenSource();
         HeaderStats.Text = Loc.Scanning;
@@ -345,6 +348,7 @@ public partial class MainWindow : Window, IAnalystHost
             _scanning = false;
             ScanButton.IsEnabled = true;
             StopButton.IsEnabled = false;
+            if (AiRunBtn != null) AiRunBtn.IsEnabled = true;
             ScanProgressPanel.Visibility = Visibility.Collapsed;
             ScanProgressBar.IsIndeterminate = false;
         }
@@ -1427,6 +1431,8 @@ public partial class MainWindow : Window, IAnalystHost
 
     bool AiConfigured()
     {
+        if (App.Settings.AiJuryOn)
+            return Jury.Seats().Any(s => !string.IsNullOrWhiteSpace(s.Provider.BaseUrl) && !string.IsNullOrWhiteSpace(s.Model));
         var p = App.Settings.CurrentProvider();
         return p != null && !string.IsNullOrWhiteSpace(p.BaseUrl) && !string.IsNullOrWhiteSpace(App.Settings.AiModel);
     }
@@ -1596,6 +1602,7 @@ public partial class MainWindow : Window, IAnalystHost
         DiskAnalyst.ResetSession();
         _aiNotes.Clear();
         ClearAiSuggested();
+        ResetJuryPanes();
         _need = Loc.JuryDefaultNeed;
         _votes.Clear();
         _awaitConfirm = false;
@@ -1606,7 +1613,7 @@ public partial class MainWindow : Window, IAnalystHost
             await AskAnalyst(DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal));
     }
 
-    void AddChat(string who, string text, bool log = false)
+    ChatLine AddChat(string who, string text, bool log = false)
     {
         var line = new ChatLine
         {
@@ -1617,6 +1624,40 @@ public partial class MainWindow : Window, IAnalystHost
         };
         _chat.Add(line);
         Dispatcher.BeginInvoke(() => AiChatScroll.ScrollToEnd(), System.Windows.Threading.DispatcherPriority.Background);
+        return line;
+    }
+
+    ChatLine AddPane(JuryPane pane, string who, string text, bool log = false)
+    {
+        if (!Dispatcher.CheckAccess())
+            return Dispatcher.Invoke(() => AddPane(pane, who, text, log));
+        var line = new ChatLine
+        {
+            Who = who,
+            Text = text,
+            Log = log,
+            Parts = log ? new() : ChatFormat.Parse(text),
+        };
+        pane.Lines.Add(line);
+        return line;
+    }
+
+    void ShowJuryPanes(bool on)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => ShowJuryPanes(on));
+            return;
+        }
+        if (JuryPaneList == null || AiChatScroll == null) return;
+        JuryPaneList.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        AiChatScroll.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    void ResetJuryPanes()
+    {
+        _juryPanes.Clear();
+        ShowJuryPanes(false);
     }
 
     List<AiMsg> PackedTurns()
@@ -1978,33 +2019,18 @@ public partial class MainWindow : Window, IAnalystHost
         AiExplainBtn.IsEnabled = false;
         try
         {
-            AddChat(Loc.AiBot, Loc.JuryWorking(seats.Count), log: true);
+            _juryPanes.Clear();
+            var panes = seats.Select(s => new JuryPane { Title = s.Model }).ToList();
+            foreach (var pane in panes) _juryPanes.Add(pane);
+            ShowJuryPanes(true);
             string opening = DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal);
             string user = Loc.SecNeed + "\n" + (_need ?? "") + "\n\n" + opening;
-            var tasks = seats.Select(async seat =>
-            {
-                try
-                {
-                    var reply = await AiClient.TurnAsync(seat.Provider, seat.Model, Loc.JurySystem,
-                        new[] { new AiMsg { Role = "user", Text = user } }, null, CancellationToken.None);
-                    return (Seat: seat, Text: (reply.Text ?? "").Trim(), Error: (string?)null);
-                }
-                catch (Exception ex)
-                {
-                    return (Seat: seat, Text: "", Error: ex.Message);
-                }
-            }).ToList();
+            var tasks = seats.Select((seat, i) => RunSeat(seat, panes[i], user)).ToList();
             var results = await Task.WhenAll(tasks);
             var ok = new List<(JurySeat Seat, string Text)>();
             foreach (var r in results)
             {
-                if (!string.IsNullOrEmpty(r.Error))
-                {
-                    AddChat(Loc.AiBot, Loc.JurySeatFail(r.Seat.Label, r.Error), log: true);
-                    continue;
-                }
-                int n = ChatFormat.Parse(r.Text).Count(p => p.Kind == ChatPartKind.Path);
-                AddChat(Loc.AiBot, Loc.JurySeatOk(r.Seat.Label, n), log: true);
+                if (string.IsNullOrEmpty(r.Text)) continue;
                 ok.Add((r.Seat, r.Text));
             }
             _votes = Jury.Tally(ok);
@@ -2016,7 +2042,8 @@ public partial class MainWindow : Window, IAnalystHost
             ApplyJuryChecks();
             _awaitConfirm = false;
             SetAiLamp(ok.Count > 0);
-            AddChat(Loc.AiBot, string.IsNullOrEmpty(board) ? Loc.JuryNone : board);
+            ShowJuryPanes(false);
+            AddChat(Loc.AiJuryName, string.IsNullOrEmpty(board) ? Loc.JuryNone : board);
             _turns.Clear();
             _turns.Add(new AiMsg { Role = "user", Text = user });
             _turns.Add(new AiMsg { Role = "assistant", Text = board });
@@ -2035,6 +2062,35 @@ public partial class MainWindow : Window, IAnalystHost
         }
     }
 
+    async Task<(JurySeat Seat, string Text)> RunSeat(JurySeat seat, JuryPane pane, string user)
+    {
+        var wait = AddPane(pane, seat.Model, Loc.JuryThinking, log: true);
+        try
+        {
+            var reply = await AiClient.TurnAsync(seat.Provider, seat.Model, Loc.JurySystem,
+                new[] { new AiMsg { Role = "user", Text = user } }, null, CancellationToken.None);
+            string text = (reply.Text ?? "").Trim();
+            Dispatcher.Invoke(() =>
+            {
+                pane.Lines.Remove(wait);
+                if (string.IsNullOrEmpty(text))
+                    AddPane(pane, seat.Model, Loc.JuryNone, log: true);
+                else
+                    AddPane(pane, seat.Model, text);
+            });
+            return (seat, text);
+        }
+        catch (Exception ex)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                pane.Lines.Remove(wait);
+                AddPane(pane, seat.Model, Loc.JurySeatFail(seat.Label, ex.Message), log: true);
+            });
+            return (seat, "");
+        }
+    }
+
     void ApplyJuryChecks()
     {
         foreach (var v in _votes.Where(x => x.Grade == Loc.GradeHigh || (x.Grade == Loc.GradeMid && _votes.Count(y => y.Grade == Loc.GradeHigh) == 0)))
@@ -2050,6 +2106,7 @@ public partial class MainWindow : Window, IAnalystHost
         _turns.Clear();
         _aiNotes.Clear();
         ClearAiSuggested();
+        ResetJuryPanes();
         _need = null;
         _votes.Clear();
         _awaitConfirm = false;

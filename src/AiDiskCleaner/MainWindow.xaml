@@ -866,16 +866,44 @@
                 <TextBox x:Name="AiChatInput" Style="{StaticResource TermTextBox}" Height="28"
                          Tag="问这张盘…" KeyDown="AiChatInput_KeyDown"/>
               </DockPanel>
-              <ScrollViewer x:Name="AiChatScroll" Margin="12,0,12,8" VerticalScrollBarVisibility="Auto"
-                            HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl x:Name="AiChatList">
+              <Grid x:Name="AiChatHost" Margin="12,0,12,8">
+                <ScrollViewer x:Name="AiChatScroll" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                  <ItemsControl x:Name="AiChatList">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <ctrl:ChatBubble Line="{Binding}" PathClick="ChatPath_Click" Margin="0,0,0,10"/>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+                <ItemsControl x:Name="JuryPaneList" Visibility="Collapsed">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <UniformGrid Rows="1"/>
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                      <ctrl:ChatBubble Line="{Binding}" PathClick="ChatPath_Click" Margin="0,0,0,10"/>
+                      <Border BorderBrush="#3A3A3A" BorderThickness="0,0,1,0" Margin="0,0,8,0" Padding="0,0,8,0">
+                        <DockPanel>
+                          <TextBlock DockPanel.Dock="Top" Text="{Binding Title}" Foreground="#5CC8FF"
+                                     FontSize="11" Margin="0,0,0,8"/>
+                          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl ItemsSource="{Binding Lines}">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                  <ctrl:ChatBubble Line="{Binding}" PathClick="ChatPath_Click" Margin="0,0,0,8"/>
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                          </ScrollViewer>
+                        </DockPanel>
+                      </Border>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
-              </ScrollViewer>
+              </Grid>
             </DockPanel>
           </Border>
         </Grid>
