@@ -126,20 +126,27 @@ public static class Jury
         return map.Values.OrderByDescending(x => x.Votes).ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    public static string Render(string? need, IReadOnlyList<(JurySeat Seat, string Text)> replies, IReadOnlyList<VoteItem> votes)
+    public static string Render(IReadOnlyList<JurySeat> seats, IReadOnlyList<(JurySeat Seat, string Text)> replies, IReadOnlyList<VoteItem> votes)
     {
+        var ok = replies.Where(r => !string.IsNullOrWhiteSpace(r.Text)).Select(r => r.Seat.Label).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var lines = new List<string>
         {
             Loc.SecSummary,
-            Loc.JurySummary(replies.Count, votes.Count(v => v.Grade == Loc.GradeHigh)),
+            Loc.JurySummary(ok.Count, votes.Count(v => v.Grade == Loc.GradeHigh)),
         };
+        foreach (var seat in seats)
+        {
+            var hit = replies.FirstOrDefault(r => r.Seat.Id == seat.Id);
+            int n = string.IsNullOrEmpty(hit.Text) ? 0 : ChatFormat.Parse(hit.Text).Count(p => p.Kind == ChatPartKind.Path && p.Section != Loc.SecKeep);
+            lines.Add(n > 0 ? Loc.JurySeatOk(seat.Model, n) : Loc.JurySeatEmpty(seat.Model));
+        }
         void Dump(string heading, IEnumerable<VoteItem> items)
         {
             var list = items.ToList();
             if (list.Count == 0) return;
             lines.Add(heading);
             foreach (var v in list.Take(12))
-                lines.Add($"GOTO {v.Path}\t{v.Size}\t{v.Grade} · {v.Votes}/{replies.Count} · {v.Note}");
+                lines.Add($"GOTO {v.Path}\t{v.Size}\t{v.Grade} · {VoteLine(v, seats)} · {v.Note}");
         }
         Dump(Loc.GradeHigh, votes.Where(v => v.Grade == Loc.GradeHigh));
         Dump(Loc.GradeMid, votes.Where(v => v.Grade == Loc.GradeMid));
@@ -147,6 +154,22 @@ public static class Jury
         lines.Add(Loc.SecQuestion);
         lines.Add(Loc.JuryAsk);
         return string.Join(Environment.NewLine, lines);
+    }
+
+    static string VoteLine(VoteItem v, IReadOnlyList<JurySeat> seats)
+    {
+        var yes = v.Voters;
+        var no = seats.Select(s => s.Model).Where(m => yes.All(x => !x.Contains(m, StringComparison.OrdinalIgnoreCase))).ToList();
+        var bits = new List<string> { $"{v.Votes}/{seats.Count}" };
+        if (yes.Count > 0) bits.Add(Loc.JuryVotedYes(yes.Select(ShortVoter)));
+        if (no.Count > 0) bits.Add(Loc.JuryVotedNo(no));
+        return string.Join(" · ", bits);
+    }
+
+    static string ShortVoter(string label)
+    {
+        int i = label.LastIndexOf('/');
+        return i < 0 ? label : label[(i + 1)..].Trim();
     }
 
     static string Grade(int votes, int n)

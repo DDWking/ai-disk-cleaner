@@ -2034,7 +2034,7 @@ public partial class MainWindow : Window, IAnalystHost
                 ok.Add((r.Seat, r.Text));
             }
             _votes = Jury.Tally(ok);
-            string board = Jury.Render(_need, ok, _votes);
+            string board = Jury.Render(seats, ok, _votes);
             foreach (var v in _votes)
                 ApplySuggest(v.Path, $"{v.Grade} · {v.Note}", check: false);
             PaintAiNotes();
@@ -2064,19 +2064,30 @@ public partial class MainWindow : Window, IAnalystHost
 
     async Task<(JurySeat Seat, string Text)> RunSeat(JurySeat seat, JuryPane pane, string user)
     {
-        var wait = AddPane(pane, seat.Model, Loc.JuryThinking, log: true);
+        var live = AddPane(pane, seat.Model, "", log: true);
+        var buf = new System.Text.StringBuilder();
+        var lastUi = DateTime.MinValue;
+        void Push(string delta)
+        {
+            buf.Append(delta);
+            var now = DateTime.UtcNow;
+            if ((now - lastUi).TotalMilliseconds < 80 && delta.Length < 80) return;
+            lastUi = now;
+            string snap = buf.ToString();
+            Dispatcher.BeginInvoke(() => { live.Text = snap; });
+        }
         try
         {
-            var reply = await AiClient.TurnAsync(seat.Provider, seat.Model, Loc.JurySystem,
-                new[] { new AiMsg { Role = "user", Text = user } }, null, CancellationToken.None);
-            string text = (reply.Text ?? "").Trim();
+            var reply = await AiClient.StreamAsync(seat.Provider, seat.Model, Loc.JurySystem,
+                new[] { new AiMsg { Role = "user", Text = user } }, Push, CancellationToken.None);
+            string text = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
             Dispatcher.Invoke(() =>
             {
-                pane.Lines.Remove(wait);
+                live.Log = false;
+                live.Text = text;
+                live.Parts = string.IsNullOrEmpty(text) ? new() : ChatFormat.Parse(text);
                 if (string.IsNullOrEmpty(text))
-                    AddPane(pane, seat.Model, Loc.JuryNone, log: true);
-                else
-                    AddPane(pane, seat.Model, text);
+                    live.Text = Loc.JurySeatEmpty(seat.Model);
             });
             return (seat, text);
         }
@@ -2084,8 +2095,9 @@ public partial class MainWindow : Window, IAnalystHost
         {
             Dispatcher.Invoke(() =>
             {
-                pane.Lines.Remove(wait);
-                AddPane(pane, seat.Model, Loc.JurySeatFail(seat.Label, ex.Message), log: true);
+                live.Log = true;
+                live.Text = Loc.JurySeatFail(seat.Label, ex.Message);
+                live.Parts = new();
             });
             return (seat, "");
         }

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -26,8 +27,21 @@ public sealed class ChatBubble : StackPanel
         set => SetValue(LineProperty, value);
     }
 
+    ChatLine? _bound;
+
     static void OnLine(DependencyObject d, DependencyPropertyChangedEventArgs e)
-        => ((ChatBubble)d).Rebuild(e.NewValue as ChatLine);
+        => ((ChatBubble)d).Bind(e.NewValue as ChatLine);
+
+    void Bind(ChatLine? line)
+    {
+        if (_bound != null) _bound.PropertyChanged -= OnProp;
+        _bound = line;
+        if (_bound != null) _bound.PropertyChanged += OnProp;
+        Rebuild(_bound);
+    }
+
+    void OnProp(object? sender, PropertyChangedEventArgs e)
+        => Rebuild(_bound);
 
     void Rebuild(ChatLine? line)
     {

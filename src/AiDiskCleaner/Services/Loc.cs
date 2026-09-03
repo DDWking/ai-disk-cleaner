@@ -148,8 +148,11 @@ public static class Loc
     public static string JuryWorking(int n) => IsEn ? $"jury: {n} models…" : $"评审：{n} 个模型并行…";
     public static string JuryThinking => IsEn ? "thinking…" : "正在分析…";
     public static string JuryMerge => IsEn ? "Merged score" : "汇总";
-    public static string JurySeatOk(string name, int n) => IsEn ? $"{name} · {n} items" : $"{name} · {n} 条";
-    public static string JurySeatFail(string name, string err) => IsEn ? $"{name} failed: {err}" : $"{name} 失败：{err}";
+    public static string JurySeatOk(string name, int n) => IsEn ? $"{name} voted {n} items" : $"{name} 投了 {n} 条";
+    public static string JurySeatFail(string name, string err) => IsEn ? $"{name} failed, no vote: {err}" : $"{name} 失败没投：{err}";
+    public static string JurySeatEmpty(string name) => IsEn ? $"{name} returned nothing, no vote" : $"{name} 没有给出条目，没投";
+    public static string JuryVotedYes(IEnumerable<string> names) => IsEn ? "yes: " + string.Join(", ", names) : "投了：" + string.Join("、", names);
+    public static string JuryVotedNo(IEnumerable<string> names) => IsEn ? "no: " + string.Join(", ", names) : "没投：" + string.Join("、", names);
     public static string JurySummary(int models, int high) => IsEn
         ? $"{models} models voted. {high} high-confidence items are checked on the right."
         : $"{models} 个模型已投票。高把握 {high} 项已在右边勾上。";

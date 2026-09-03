@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -60,6 +61,20 @@ public static class AiClient
     public static Task<AiReply> TurnAsync(string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
         => TurnAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, system, turns, tools, ct);
 
+    public static async Task<AiReply> StreamAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, Action<string> onDelta, CancellationToken ct)
+    {
+        try
+        {
+            return await StreamCompletions(p, modelId, system, turns, onDelta, ct);
+        }
+        catch
+        {
+            var reply = await TurnAsync(p, modelId, system, turns, null, ct);
+            if (!string.IsNullOrEmpty(reply.Text)) onDelta(reply.Text);
+            return reply;
+        }
+    }
+
     public static async Task<AiReply> TurnAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
     {
         string baseUrl = (p?.BaseUrl ?? "").Trim().TrimEnd('/');
@@ -107,6 +122,70 @@ public static class AiClient
         return ParseModelIds(body);
     }
 
+    static async Task<AiReply> StreamCompletions(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, Action<string> onDelta, CancellationToken ct)
+    {
+        string baseUrl = (p?.BaseUrl ?? "").Trim().TrimEnd('/');
+        string model = (modelId ?? "").Trim();
+        string key = p?.ApiKey ?? "";
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(model))
+            throw new InvalidOperationException(Loc.AiNeedConfig);
+        var messages = new List<object> { new { role = "system", content = system } };
+        foreach (var t in turns)
+            messages.Add(new { role = t.Role, content = t.Text });
+        var payload = new Dictionary<string, object?>
+        {
+            ["model"] = model,
+            ["temperature"] = 0.2,
+            ["messages"] = messages,
+            ["stream"] = true,
+        };
+        using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "chat/completions"));
+        Auth(req, ParseProtocol(p?.Protocol), key);
+        req.Content = JsonBody(payload);
+        using var res = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!res.IsSuccessStatusCode)
+        {
+            string err = await res.Content.ReadAsStringAsync(ct);
+            throw Fail(err, res.StatusCode.ToString());
+        }
+        var reply = new AiReply();
+        var sb = new StringBuilder();
+        using var stream = await res.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+        while (!reader.EndOfStream)
+        {
+            ct.ThrowIfCancellationRequested();
+            string? line = await reader.ReadLineAsync(ct);
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) continue;
+            string data = line[5..].Trim();
+            if (data == "[DONE]") break;
+            try
+            {
+                using var doc = JsonDocument.Parse(data);
+                var root = doc.RootElement;
+                string delta = "";
+                if (root.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+                {
+                    var c0 = choices[0];
+                    if (c0.TryGetProperty("delta", out var d))
+                        delta = Str(d, "content");
+                    else if (c0.TryGetProperty("message", out var m))
+                        delta = Str(m, "content");
+                }
+                if (string.IsNullOrEmpty(delta) && root.TryGetProperty("delta", out var d2))
+                    delta = Str(d2, "text");
+                if (string.IsNullOrEmpty(delta)) continue;
+                sb.Append(delta);
+                onDelta(delta);
+            }
+            catch { }
+        }
+        reply.Text = sb.ToString();
+        if (string.IsNullOrWhiteSpace(reply.Text)) throw new InvalidOperationException("empty");
+        return reply;
+    }
+
     static bool LooksLikeNoTools(Exception ex)
     {
         string m = ex.Message.ToLowerInvariant();
@@ -152,7 +231,7 @@ public static class AiClient
         using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "chat/completions"));
         Auth(req, AiProtocol.Completions, key);
         req.Content = JsonBody(payload);
-        using var res = await Http.SendAsync(req, ct);
+        using var res = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
         string body = await res.Content.ReadAsStringAsync(ct);
         if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
         using var doc = JsonDocument.Parse(body);
