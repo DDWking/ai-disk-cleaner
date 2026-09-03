@@ -113,6 +113,7 @@ public partial class MainWindow : Window, IAnalystHost
     private readonly List<AiMsg> _turns = new();
     private string? _need;
     private List<VoteItem> _votes = new();
+    private List<CleanItem> _aiItems = new();
     private bool _awaitConfirm;
     private readonly ObservableCollection<JuryPane> _juryPanes = new();
     FileEntry? IAnalystHost.Root => _root;
@@ -1605,7 +1606,10 @@ public partial class MainWindow : Window, IAnalystHost
         ResetJuryPanes();
         _need = Loc.JuryDefaultNeed;
         _votes.Clear();
+        _aiItems.Clear();
         _awaitConfirm = false;
+        ShowRightTab(0);
+        ShowAiCat();
         AddChat(Loc.AiYou, Loc.AiAnalyze);
         if (App.Settings.AiJuryOn)
             await RunJury();
@@ -1726,8 +1730,10 @@ public partial class MainWindow : Window, IAnalystHost
                     if (string.IsNullOrEmpty(last)) last = Loc.AiOk;
                     _turns.Add(new AiMsg { Role = "assistant", Text = last });
                     HarvestNotes(last, check: false);
+                    CollectAiFromNotes();
                     SetAiLamp(true);
                     AddChat(Loc.AiBot, last);
+                    ShowAiCat();
                     return last;
                 }
                 _turns.Add(new AiMsg { Role = "assistant", Text = last, Calls = reply.Calls });
@@ -1753,7 +1759,9 @@ public partial class MainWindow : Window, IAnalystHost
             {
                 _turns.Add(new AiMsg { Role = "assistant", Text = last });
                 HarvestNotes(last, check: false);
+                CollectAiFromNotes();
                 AddChat(Loc.AiBot, last);
+                ShowAiCat();
             }
             return last;
         }
@@ -1777,10 +1785,43 @@ public partial class MainWindow : Window, IAnalystHost
     void IAnalystHost.OnChecksChanged(bool showLarge)
     {
         ShowRightTab(0);
-        if (showLarge && CleanCatBox.Items.Count > 1)
-            CleanCatBox.SelectedIndex = 1;
+        if (showLarge && CleanCatBox.Items.Count > 2)
+            CleanCatBox.SelectedIndex = 2;
         RefreshCleanUi();
         PaintAiNotes();
+    }
+
+    void CollectAiFromNotes()
+    {
+        var list = new List<CleanItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in AllCleanItems().Where(x => x.AiSuggested))
+        {
+            if (!seen.Add(NormPath(item.FullPath))) continue;
+            list.Add(item);
+        }
+        foreach (var (path, note) in _aiNotes)
+        {
+            if (!seen.Add(path) || IsProtectedSuggest(path)) continue;
+            var hit = AllCleanItems().FirstOrDefault(x => string.Equals(NormPath(x.FullPath), path, StringComparison.OrdinalIgnoreCase));
+            if (hit != null)
+            {
+                hit.AiSuggested = true;
+                if (!string.IsNullOrWhiteSpace(note)) hit.Reason = note;
+                list.Add(hit);
+                continue;
+            }
+            list.Add(new CleanItem
+            {
+                Name = Path.GetFileName(path),
+                FullPath = path,
+                Reason = note,
+                Group = Loc.CatAi,
+                AiSuggested = true,
+                CanDelete = true,
+            });
+        }
+        _aiItems = list;
     }
 
     void HarvestNotes(string text, bool check)
@@ -1796,14 +1837,14 @@ public partial class MainWindow : Window, IAnalystHost
             bool hit = check && AllCleanItems().Any(x => string.Equals(NormPath(x.FullPath), key, StringComparison.OrdinalIgnoreCase));
             ApplySuggest(key, Loc.AiMark, check: hit);
         }
-        Dispatcher.BeginInvoke(() => { PaintAiNotes(); RefreshCleanUi(); }, System.Windows.Threading.DispatcherPriority.Background);
+        Dispatcher.BeginInvoke(() => { PaintAiNotes(); CollectAiFromNotes(); ShowAiCat(); }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     void IAnalystHost.OnSuggest(string path, string note)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
         ApplySuggest(path, string.IsNullOrWhiteSpace(note) ? Loc.AiMark : note.Trim(), check: false);
-        Dispatcher.BeginInvoke(() => { PaintAiNotes(); RefreshCleanUi(); }, System.Windows.Threading.DispatcherPriority.Background);
+        Dispatcher.BeginInvoke(() => { PaintAiNotes(); CollectAiFromNotes(); ShowAiCat(); }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     void ApplySuggest(string path, string note, bool check)
@@ -2037,9 +2078,10 @@ public partial class MainWindow : Window, IAnalystHost
             string board = Jury.Render(seats, ok, _votes);
             foreach (var v in _votes)
                 ApplySuggest(v.Path, $"{v.Grade} · {v.Note}", check: false);
-            PaintAiNotes();
-            RefreshCleanUi();
+            RebuildAiItems(seats);
             ApplyJuryChecks();
+            PaintAiNotes();
+            ShowAiCat();
             _awaitConfirm = false;
             SetAiLamp(ok.Count > 0);
             ShowJuryPanes(false);
@@ -2071,10 +2113,10 @@ public partial class MainWindow : Window, IAnalystHost
         {
             buf.Append(delta);
             var now = DateTime.UtcNow;
-            if ((now - lastUi).TotalMilliseconds < 80 && delta.Length < 80) return;
+            if ((now - lastUi).TotalMilliseconds < 160) return;
             lastUi = now;
             string snap = buf.ToString();
-            Dispatcher.BeginInvoke(() => { live.Text = snap; });
+            Dispatcher.BeginInvoke(() => { if (live.Text != snap) live.Text = snap; }, System.Windows.Threading.DispatcherPriority.Background);
         }
         try
         {
@@ -2107,8 +2149,57 @@ public partial class MainWindow : Window, IAnalystHost
     {
         foreach (var v in _votes.Where(x => x.Grade == Loc.GradeHigh || (x.Grade == Loc.GradeMid && _votes.Count(y => y.Grade == Loc.GradeHigh) == 0)))
             ApplySuggest(v.Path, $"{v.Grade} · {v.Note}", check: true);
+        foreach (var item in _aiItems)
+            item.Selected = _votes.Any(v => string.Equals(NormPath(v.Path), NormPath(item.FullPath), StringComparison.OrdinalIgnoreCase)
+                && (v.Grade == Loc.GradeHigh || (v.Grade == Loc.GradeMid && _votes.Count(y => y.Grade == Loc.GradeHigh) == 0)));
         PaintAiNotes();
+        ShowAiCat();
+    }
+
+    void RebuildAiItems(IReadOnlyList<JurySeat> seats)
+    {
+        var list = new List<CleanItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var v in _votes)
+        {
+            if (!seen.Add(v.Path)) continue;
+            string why = $"{v.Grade} · {v.Votes}/{seats.Count} · {Loc.JuryVotedYes(v.Voters.Select(s => s.Contains('/') ? s[(s.LastIndexOf('/') + 1)..].Trim() : s))}";
+            if (!string.IsNullOrWhiteSpace(v.Note)) why += " · " + v.Note;
+            var hit = AllCleanItems().FirstOrDefault(x => string.Equals(NormPath(x.FullPath), v.Path, StringComparison.OrdinalIgnoreCase));
+            if (hit != null)
+            {
+                hit.AiSuggested = true;
+                hit.Reason = why;
+                list.Add(hit);
+                continue;
+            }
+            list.Add(new CleanItem
+            {
+                Name = v.Name,
+                FullPath = v.Path,
+                Size = LookupSize(v.Path),
+                Reason = why,
+                Group = Loc.CatAi,
+                AiSuggested = true,
+                CanDelete = true,
+            });
+        }
+        _aiItems = list;
+    }
+
+    long LookupSize(string path)
+    {
+        var hit = AllCleanItems().FirstOrDefault(x => string.Equals(NormPath(x.FullPath), path, StringComparison.OrdinalIgnoreCase));
+        return hit?.Size ?? 0;
+    }
+
+    void ShowAiCat()
+    {
+        ShowRightTab(0);
         RefreshCleanUi();
+        if (CleanCatBox.Items.Count > 0)
+            CleanCatBox.SelectedIndex = 0;
+        ShowCleanCat();
     }
 
     private void AiChatClear_Click(object sender, RoutedEventArgs e)
@@ -2121,6 +2212,7 @@ public partial class MainWindow : Window, IAnalystHost
         ResetJuryPanes();
         _need = null;
         _votes.Clear();
+        _aiItems.Clear();
         _awaitConfirm = false;
         DiskAnalyst.ResetSession();
         if (_root != null) PaintAiNotes();
@@ -2190,6 +2282,7 @@ public partial class MainWindow : Window, IAnalystHost
         int keep = CleanCatBox.SelectedIndex;
         var cats = new List<string>
         {
+            Label(Loc.CatAi, _aiItems),
             Label(Loc.CatCleanable, _report?.Cleanable),
             Label(Loc.CatLarge, _report?.LargeFiles),
             Label(Loc.CatOld, _report?.OldFiles),
@@ -2204,7 +2297,9 @@ public partial class MainWindow : Window, IAnalystHost
         ShowCleanCat();
         if (_report == null)
             CleanSummary.Text = Loc.AnalyzeAfterScan;
-        else if (CleanCatBox.SelectedIndex == 7)
+        else if (CleanCatBox.SelectedIndex == 0)
+            CleanSummary.Text = Label(Loc.CatAi, _aiItems);
+        else if (CleanCatBox.SelectedIndex == 8)
             CleanSummary.Text = _report.CompareNote;
         else
             CleanSummary.Text = Loc.CleanHintReady(_report.Cleanable.Count, FileEntry.FormatSize(_report.CleanableBytes));
@@ -2228,7 +2323,9 @@ public partial class MainWindow : Window, IAnalystHost
             return;
         }
         CleanGrid.ItemsSource = CurrentCleanList();
-        if (CleanCatBox.SelectedIndex == 7)
+        if (CleanCatBox.SelectedIndex == 0)
+            CleanSummary.Text = Label(Loc.CatAi, _aiItems);
+        else if (CleanCatBox.SelectedIndex == 8)
             CleanSummary.Text = _report.CompareNote;
         UpdateCleanSelHint();
     }
@@ -2236,13 +2333,14 @@ public partial class MainWindow : Window, IAnalystHost
     private List<CleanItem> CurrentCleanList()
         => CleanCatBox.SelectedIndex switch
         {
-            1 => _report?.LargeFiles ?? new(),
-            2 => _report?.OldFiles ?? new(),
-            3 => _report?.Duplicates ?? new(),
-            4 => _report?.EmptyFolders ?? new(),
-            5 => _report?.BrokenShortcuts ?? new(),
-            6 => _report?.LongPaths ?? new(),
-            7 => _report?.Compare ?? new(),
+            0 => _aiItems,
+            2 => _report?.LargeFiles ?? new(),
+            3 => _report?.OldFiles ?? new(),
+            4 => _report?.Duplicates ?? new(),
+            5 => _report?.EmptyFolders ?? new(),
+            6 => _report?.BrokenShortcuts ?? new(),
+            7 => _report?.LongPaths ?? new(),
+            8 => _report?.Compare ?? new(),
             _ => _report?.Cleanable ?? new(),
         };
 

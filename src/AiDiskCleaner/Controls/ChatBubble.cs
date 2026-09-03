@@ -28,6 +28,7 @@ public sealed class ChatBubble : StackPanel
     }
 
     ChatLine? _bound;
+    TextBlock? _live;
 
     static void OnLine(DependencyObject d, DependencyPropertyChangedEventArgs e)
         => ((ChatBubble)d).Bind(e.NewValue as ChatLine);
@@ -41,7 +42,14 @@ public sealed class ChatBubble : StackPanel
     }
 
     void OnProp(object? sender, PropertyChangedEventArgs e)
-        => Rebuild(_bound);
+    {
+        if (_live != null && e.PropertyName == nameof(ChatLine.Text) && (_bound?.Parts.Count ?? 0) == 0)
+        {
+            _live.Text = _bound?.Text ?? "";
+            return;
+        }
+        Rebuild(_bound);
+    }
 
     void Rebuild(ChatLine? line)
     {
@@ -57,9 +65,11 @@ public sealed class ChatBubble : StackPanel
         });
         if (log || line.Parts.Count == 0)
         {
-            Children.Add(Plain(line.Text, log, wrap: true));
+            _live = Plain(line.Text, log, wrap: true);
+            Children.Add(_live);
             return;
         }
+        _live = null;
         foreach (var p in line.Parts)
         {
             if (p.Kind == ChatPartKind.Break) continue;

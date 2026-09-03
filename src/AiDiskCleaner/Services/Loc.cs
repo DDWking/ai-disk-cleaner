@@ -465,6 +465,7 @@ public static class Loc
     public static string ColReason => IsEn ? "Why" : "原因";
     public static string ColName => IsEn ? "Name" : "名称";
 
+    public static string CatAi => IsEn ? "AI suggested" : "AI 建议";
     public static string CatCleanable => IsEn ? "Safe to clean" : "可清理";
     public static string CatLarge => IsEn ? "Largest files" : "大文件";
     public static string CatOld => IsEn ? "Old files" : "老文件";

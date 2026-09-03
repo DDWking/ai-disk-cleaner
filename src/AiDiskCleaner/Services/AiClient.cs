@@ -63,16 +63,20 @@ public static class AiClient
 
     public static async Task<AiReply> StreamAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, Action<string> onDelta, CancellationToken ct)
     {
-        try
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(45));
+        if (ParseProtocol(p?.Protocol) == AiProtocol.Completions)
         {
-            return await StreamCompletions(p, modelId, system, turns, onDelta, ct);
+            try
+            {
+                return await StreamCompletions(p, modelId, system, turns, onDelta, timeout.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+            catch { }
         }
-        catch
-        {
-            var reply = await TurnAsync(p, modelId, system, turns, null, ct);
-            if (!string.IsNullOrEmpty(reply.Text)) onDelta(reply.Text);
-            return reply;
-        }
+        var reply = await TurnAsync(p, modelId, system, turns, null, ct);
+        if (!string.IsNullOrEmpty(reply.Text)) onDelta(reply.Text);
+        return reply;
     }
 
     public static async Task<AiReply> TurnAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
@@ -152,10 +156,11 @@ public static class AiClient
         var sb = new StringBuilder();
         using var stream = await res.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream);
-        while (!reader.EndOfStream)
+        while (true)
         {
             ct.ThrowIfCancellationRequested();
             string? line = await reader.ReadLineAsync(ct);
+            if (line == null) break;
             if (string.IsNullOrWhiteSpace(line)) continue;
             if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) continue;
             string data = line[5..].Trim();
