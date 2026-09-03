@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using AiDiskCleaner.Models;
 
 namespace AiDiskCleaner.Services;
@@ -24,10 +25,22 @@ public sealed class JuryGroup
     public List<JuryPick> Models { get; set; } = new();
 }
 
-public sealed class JuryPane
+public sealed class JuryPane : INotifyPropertyChanged
 {
+    string _live = "";
     public string Title { get; set; } = "";
     public ObservableCollection<ChatLine> Lines { get; } = new();
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public string LiveText
+    {
+        get => _live;
+        set
+        {
+            if (_live == value) return;
+            _live = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LiveText)));
+        }
+    }
 }
 
 public sealed class VoteItem

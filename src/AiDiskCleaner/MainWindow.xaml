@@ -889,15 +889,11 @@
                         <DockPanel>
                           <TextBlock DockPanel.Dock="Top" Text="{Binding Title}" Foreground="#5CC8FF"
                                      FontSize="11" Margin="0,0,0,8"/>
-                          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                            <ItemsControl ItemsSource="{Binding Lines}">
-                              <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                  <ctrl:ChatBubble Line="{Binding}" PathClick="ChatPath_Click" Margin="0,0,0,8"/>
-                                </DataTemplate>
-                              </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                          </ScrollViewer>
+                          <TextBox Text="{Binding LiveText, Mode=OneWay}" IsReadOnly="True"
+                                   TextWrapping="Wrap" AcceptsReturn="True" BorderThickness="0"
+                                   Background="Transparent" Foreground="#E8E8E8" FontSize="12"
+                                   VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                   CaretBrush="#E8E8E8"/>
                         </DockPanel>
                       </Border>
                     </DataTemplate>
@@ -1016,6 +1012,11 @@
                       VerticalContentAlignment="Center"
                       MouseDoubleClick="CleanGrid_MouseDoubleClick"
                       MouseLeftButtonUp="CleanGrid_Click">
+              <DataGrid.ContextMenu>
+                <ContextMenu>
+                  <MenuItem x:Name="CleanOpenItem" Header="在资源管理器中打开" Click="CleanOpen_Click"/>
+                </ContextMenu>
+              </DataGrid.ContextMenu>
               <DataGrid.Columns>
                 <DataGridCheckBoxColumn x:Name="ColPick" Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
                 <DataGridTextColumn x:Name="ColCleanName" Header="名称" Binding="{Binding Name}" Width="120" IsReadOnly="True"/>
