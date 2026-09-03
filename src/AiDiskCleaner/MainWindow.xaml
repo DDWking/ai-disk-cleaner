@@ -1197,20 +1197,22 @@
             <Button x:Name="JuryToggleBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Stretch"
                     Padding="10,8" Margin="0,12,0,0" Click="JuryToggle_Click"/>
             <StackPanel x:Name="JuryPanel" Visibility="Collapsed" Margin="0,10,0,0">
-              <TextBlock x:Name="JuryLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,6"/>
-              <TextBlock x:Name="JuryHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
-                         TextWrapping="Wrap" Margin="0,0,0,8"/>
               <ItemsControl x:Name="JuryPickList">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate>
-                    <StackPanel Margin="0,0,0,10">
-                      <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Accent}" FontSize="12" Margin="0,0,0,4"/>
+                    <StackPanel Margin="0,0,0,12">
+                      <Button Content="{Binding Name}" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="11"
+                              HorizontalAlignment="Left" Margin="0,0,0,8" IsHitTestVisible="False"/>
                       <ItemsControl ItemsSource="{Binding Models}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <WrapPanel/>
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                           <DataTemplate>
-                            <CheckBox Content="{Binding Label}" IsChecked="{Binding On, Mode=TwoWay}"
-                                      Foreground="{DynamicResource Text}" FontSize="12" Margin="12,0,0,4"
-                                      Click="JuryPick_Click"/>
+                            <Button Content="{Binding Label}" Tag="{Binding}" Style="{StaticResource GhostButton}"
+                                    Padding="10,5" FontSize="11" Margin="0,0,8,8" Click="JuryPick_Click"/>
                           </DataTemplate>
                         </ItemsControl.ItemTemplate>
                       </ItemsControl>

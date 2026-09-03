@@ -124,11 +124,6 @@ public static class Jury
             Loc.SecSummary,
             Loc.JurySummary(replies.Count, votes.Count(v => v.Grade == Loc.GradeHigh)),
         };
-        if (!string.IsNullOrWhiteSpace(need))
-        {
-            lines.Add(Loc.SecNeed);
-            lines.Add(need.Trim());
-        }
         void Dump(string heading, IEnumerable<VoteItem> items)
         {
             var list = items.ToList();

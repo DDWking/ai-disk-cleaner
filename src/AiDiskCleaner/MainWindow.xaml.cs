@@ -113,7 +113,6 @@ public partial class MainWindow : Window, IAnalystHost
     private readonly List<AiMsg> _turns = new();
     private string? _need;
     private List<VoteItem> _votes = new();
-    private bool _awaitNeed;
     private bool _awaitConfirm;
     FileEntry? IAnalystHost.Root => _root;
     CleanReport? IAnalystHost.Report => _report;
@@ -228,8 +227,6 @@ public partial class MainWindow : Window, IAnalystHost
         AiChatInput.Tag = Loc.AiChatHint;
         AiRunBtn.Content = Loc.AiAnalyze;
         AiAddProvBtn.Content = Loc.AiAddCustom;
-        JuryLabel.Text = Loc.JuryLabel;
-        JuryHint.Text = Loc.JuryHint;
         FillAiProtoBox();
         FillRunModels();
         FillJuryPicks();
@@ -1481,6 +1478,7 @@ public partial class MainWindow : Window, IAnalystHost
         }
         JuryPickList.ItemsSource = groups;
         RefreshJuryUi();
+        Dispatcher.BeginInvoke(PaintJuryButtons, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     IEnumerable<JuryPick> AllJuryPicks()
@@ -1493,6 +1491,7 @@ public partial class MainWindow : Window, IAnalystHost
         App.Settings.AiJuryOn = !App.Settings.AiJuryOn;
         App.Settings.Save();
         RefreshJuryUi();
+        PaintJuryButtons();
     }
 
     void RefreshJuryUi()
@@ -1527,20 +1526,44 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void JuryPick_Click(object sender, RoutedEventArgs e)
     {
-        var picked = AllJuryPicks().Where(x => x.On).Select(x => x.Id).ToList();
-        if (picked.Count > 4)
-        {
-            App.Settings.AiJury = picked.Take(4).ToList();
-            App.Settings.Save();
-            FillJuryPicks();
-            return;
-        }
-        App.Settings.AiJury = picked;
+        if (sender is not Button { Tag: JuryPick pick }) return;
+        if (!pick.On && AllJuryPicks().Count(x => x.On) >= 4) return;
+        pick.On = !pick.On;
+        App.Settings.AiJury = AllJuryPicks().Where(x => x.On).Select(x => x.Id).ToList();
         App.Settings.Save();
+        PaintJuryButtons();
         RefreshJuryUi();
     }
 
-    private void AiRun_Click(object sender, RoutedEventArgs e)
+    void PaintJuryButtons()
+    {
+        if (JuryPickList == null) return;
+        foreach (var btn in FindButtons(JuryPickList))
+        {
+            if (btn.Tag is not JuryPick pick) continue;
+            btn.BorderBrush = ThemeService.Brush(pick.On ? "Accent" : "Border");
+            btn.Foreground = ThemeService.Brush(pick.On ? "Accent" : "TextDim");
+        }
+        if (JuryToggleBtn != null)
+        {
+            bool on = App.Settings.AiJuryOn;
+            JuryToggleBtn.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
+            JuryToggleBtn.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
+        }
+    }
+
+    static IEnumerable<Button> FindButtons(DependencyObject root)
+    {
+        int n = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < n; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is Button b) yield return b;
+            foreach (var inner in FindButtons(child)) yield return inner;
+        }
+    }
+
+    private async void AiRun_Click(object sender, RoutedEventArgs e)
     {
         if (_aiBusy) return;
         if (_report == null || _root == null)
@@ -1556,12 +1579,14 @@ public partial class MainWindow : Window, IAnalystHost
         DiskAnalyst.ResetSession();
         _aiNotes.Clear();
         ClearAiSuggested();
-        _need = null;
+        _need = Loc.JuryDefaultNeed;
         _votes.Clear();
         _awaitConfirm = false;
-        _awaitNeed = true;
         AddChat(Loc.AiYou, Loc.AiAnalyze);
-        AddChat(Loc.AiBot, Loc.JuryNeedAsk);
+        if (App.Settings.AiJuryOn)
+            await RunJury();
+        else
+            await AskAnalyst(DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal));
     }
 
     void AddChat(string who, string text, bool log = false)
@@ -1903,13 +1928,6 @@ public partial class MainWindow : Window, IAnalystHost
         AddChat(Loc.AiYou, text);
         try
         {
-            if (_awaitNeed)
-            {
-                _need = text;
-                _awaitNeed = false;
-                await RunJury();
-                return;
-            }
             if (_awaitConfirm && LooksLikeConfirm(text))
             {
                 ApplyJuryChecks();
@@ -1978,7 +1996,8 @@ public partial class MainWindow : Window, IAnalystHost
                 ApplySuggest(v.Path, $"{v.Grade} · {v.Note}", check: false);
             PaintAiNotes();
             RefreshCleanUi();
-            _awaitConfirm = _votes.Any(v => v.Grade == Loc.GradeHigh || v.Grade == Loc.GradeMid);
+            ApplyJuryChecks();
+            _awaitConfirm = false;
             SetAiLamp(ok.Count > 0);
             AddChat(Loc.AiBot, string.IsNullOrEmpty(board) ? Loc.JuryNone : board);
             _turns.Clear();
@@ -2016,7 +2035,6 @@ public partial class MainWindow : Window, IAnalystHost
         ClearAiSuggested();
         _need = null;
         _votes.Clear();
-        _awaitNeed = false;
         _awaitConfirm = false;
         DiskAnalyst.ResetSession();
         if (_root != null) PaintAiNotes();
