@@ -148,7 +148,16 @@ public static class Loc
         ? "Clean everything that is safe: temp, caches, dumps, leftover installers, dev caches. Do not touch Windows / Program Files / Users as a whole."
         : "能清的都清：临时、缓存、转储、装完的安装包、开发缓存。Windows / Program Files / Users 整夹别动。";
     public static string JuryWorking(int n) => IsEn ? $"jury: {n} models…" : $"评审：{n} 个模型并行…";
-    public static string JuryThinking => IsEn ? "thinking…" : "正在分析…";
+    public static string JuryThinking => IsEn ? "connecting…" : "正在连接…";
+    public static string JuryRetry(string err) => IsEn ? "stream failed, retrying: " + err : "流式失败，改整段请求：" + err;
+    public static string AiTimeout => IsEn
+        ? "Timed out. Check URL / key, or the model is too slow."
+        : "连接超时。检查地址和密钥，或模型太慢。";
+    public static string AiHostFail(string err) => IsEn
+        ? "Cannot reach host: " + err
+        : "连不上主机：" + err;
+    public static string AiNetFail(string err) => IsEn ? "Network error: " + err : "网络错误：" + err;
+    public static string AiHttpFail(int code, string err) => IsEn ? $"HTTP {code}: {err}" : $"HTTP {code}：{err}";
     public static string JuryMerge => IsEn ? "Merged score" : "汇总";
     public static string JurySeatOk(string name, int n) => IsEn ? $"{name} voted {n} items" : $"{name} 投了 {n} 条";
     public static string JurySeatFail(string name, string err) => IsEn ? $"{name} failed, no vote: {err}" : $"{name} 失败没投：{err}";

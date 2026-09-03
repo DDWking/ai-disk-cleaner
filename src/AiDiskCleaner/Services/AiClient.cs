@@ -1,5 +1,8 @@
 using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Security;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 
@@ -32,7 +35,21 @@ public sealed class AiReply
 
 public static class AiClient
 {
-    static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(90) };
+    static readonly HttpClient Http = CreateHttp();
+
+    static HttpClient CreateHttp()
+    {
+        var handler = new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            ConnectTimeout = TimeSpan.FromSeconds(15),
+            SslOptions = new SslClientAuthenticationOptions
+            {
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+            },
+        };
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(90) };
+    }
     static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public static AiProtocol ParseProtocol(string? s) => s switch
@@ -63,20 +80,27 @@ public static class AiClient
 
     public static async Task<AiReply> StreamAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, Action<string> onDelta, CancellationToken ct)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(90));
-        if (ParseProtocol(p?.Protocol) == AiProtocol.Completions)
+        var proto = ParseProtocol(p?.Protocol);
+        if (proto == AiProtocol.Completions)
         {
             try
             {
-                return await StreamCompletions(p, modelId, system, turns, onDelta, timeout.Token);
+                return await StreamCompletions(p, modelId, system, turns, onDelta, ct);
             }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
-            catch { }
+            catch (Exception ex) when (LooksLikeNoStream(ex))
+            {
+                onDelta(Loc.JuryRetry(Pretty(ex)));
+            }
         }
         var reply = await TurnAsync(p, modelId, system, turns, null, ct);
         if (!string.IsNullOrEmpty(reply.Text)) onDelta(reply.Text);
         return reply;
+    }
+
+    static bool LooksLikeNoStream(Exception ex)
+    {
+        string t = (ex.Message + " " + (ex.InnerException?.Message ?? "")).ToLowerInvariant();
+        return t.Contains("empty") || t.Contains("stream") || t.Contains("json") || t.Contains("400") || t.Contains("unsupported");
     }
 
     public static async Task<AiReply> TurnAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
@@ -105,6 +129,36 @@ public static class AiClient
                 _ => await Completions(baseUrl, model, key, system, turns, null, ct),
             };
         }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(Pretty(ex), ex);
+        }
+    }
+
+    public static string Pretty(Exception ex)
+    {
+        var inner = ex;
+        while (inner.InnerException != null) inner = inner.InnerException;
+        if (inner is HttpRequestException http)
+        {
+            if (http.StatusCode is { } code) return Loc.AiHttpFail((int)code, http.Message);
+            if (inner.InnerException is SocketException sock)
+                return Loc.AiHostFail(sock.Message);
+            return Loc.AiNetFail(http.Message);
+        }
+        if (inner is SocketException s) return Loc.AiHostFail(s.Message);
+        if (inner is TaskCanceledException or OperationCanceledException or TimeoutException)
+            return Loc.AiTimeout;
+        string m = inner.Message ?? ex.Message;
+        if (m.Contains("No such host", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("不知道这样的主机", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("host not found", StringComparison.OrdinalIgnoreCase))
+            return Loc.AiHostFail(m);
+        if (m.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("Timeout", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("没有正确答复", StringComparison.OrdinalIgnoreCase))
+            return Loc.AiTimeout;
+        return m;
     }
 
     public static Task<string> TestAsync(CancellationToken ct)
