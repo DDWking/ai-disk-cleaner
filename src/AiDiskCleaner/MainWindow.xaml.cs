@@ -1758,7 +1758,7 @@ public partial class MainWindow : Window, IAnalystHost
                 {
                     if (string.IsNullOrEmpty(last)) last = Loc.AiOk;
                     _turns.Add(new AiMsg { Role = "assistant", Text = last });
-                    HarvestNotes(last, check: false);
+                    HarvestNotes(last, check: true);
                     CollectAiFromNotes();
                     SetAiLamp(true);
                     Dispatcher.Invoke(() =>
@@ -1767,7 +1767,7 @@ public partial class MainWindow : Window, IAnalystHost
                         live.Text = last;
                         live.Parts = ChatFormat.Parse(last);
                     });
-                    RefreshCleanUi();
+                    ShowAiSuggested();
                     return last;
                 }
                 Dispatcher.Invoke(() =>
@@ -1776,7 +1776,6 @@ public partial class MainWindow : Window, IAnalystHost
                     live.Text = string.IsNullOrEmpty(last) ? Loc.AiRound(round + 1) : last;
                 });
                 _turns.Add(new AiMsg { Role = "assistant", Text = last, Calls = reply.Calls });
-                bool stop = false;
                 foreach (var call in reply.Calls)
                 {
                     string result = DiskAnalyst.Run(call.Name, call.Arguments, this);
@@ -1784,22 +1783,15 @@ public partial class MainWindow : Window, IAnalystHost
                     if (preview.Length > 160) preview = preview[..157] + "…";
                     AddChat(Loc.AiBot, Loc.AiToolResult(call.Name, preview), log: true);
                     _turns.Add(new AiMsg { Role = "tool", Text = result, CallId = call.Id, ToolName = call.Name });
-                    if (call.Name == "ask_user")
-                    {
-                        string q = DiskAnalyst.AskQuestion(call.Arguments);
-                        if (!string.IsNullOrWhiteSpace(q)) AddChat(Loc.AiBot, q);
-                        stop = true;
-                    }
                 }
-                if (stop) return last;
             }
             if (!string.IsNullOrEmpty(last))
             {
                 _turns.Add(new AiMsg { Role = "assistant", Text = last });
-                HarvestNotes(last, check: false);
+                HarvestNotes(last, check: true);
                 CollectAiFromNotes();
                 AddChat(Loc.AiBot, last);
-                RefreshCleanUi();
+                ShowAiSuggested();
             }
             return last;
         }
@@ -1866,23 +1858,31 @@ public partial class MainWindow : Window, IAnalystHost
     {
         if (string.IsNullOrWhiteSpace(text) || _report == null) return;
         int n = 0;
-        foreach (Match m in Regex.Matches(text, @"[A-Za-z]:\\[^\s|*?""<>]{3,240}"))
+        foreach (var part in ChatFormat.Parse(text))
         {
+            if (part.Kind != ChatPartKind.Path || string.IsNullOrEmpty(part.Path)) continue;
             if (n++ >= 40) break;
-            string path = m.Value.TrimEnd('。', '.', ',', '，', '、', ')', '）', ']', '`', '"', '\'');
-            string key = NormPath(path);
-            if (key.Length < 4 || _aiNotes.ContainsKey(key)) continue;
-            bool hit = check && AllCleanItems().Any(x => string.Equals(NormPath(x.FullPath), key, StringComparison.OrdinalIgnoreCase));
-            ApplySuggest(key, Loc.AiMark, check: hit);
+            string key = NormPath(part.Path);
+            if (key.Length < 4) continue;
+            bool keep = part.Section == Loc.SecKeep || part.Section == Loc.SecFolders;
+            string note = string.IsNullOrWhiteSpace(part.Note) ? Loc.AiMark : part.Note;
+            ApplySuggest(key, note, check: check && !keep);
         }
-        Dispatcher.BeginInvoke(() => { PaintAiNotes(); CollectAiFromNotes(); RefreshCleanUi(); }, System.Windows.Threading.DispatcherPriority.Background);
+        Dispatcher.BeginInvoke(() => { PaintAiNotes(); CollectAiFromNotes(); ShowAiSuggested(); }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     void IAnalystHost.OnSuggest(string path, string note)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
-        ApplySuggest(path, string.IsNullOrWhiteSpace(note) ? Loc.AiMark : note.Trim(), check: false);
-        Dispatcher.BeginInvoke(() => { PaintAiNotes(); CollectAiFromNotes(); RefreshCleanUi(); }, System.Windows.Threading.DispatcherPriority.Background);
+        ApplySuggest(path, string.IsNullOrWhiteSpace(note) ? Loc.AiMark : note.Trim(), check: true);
+        Dispatcher.BeginInvoke(() => { PaintAiNotes(); CollectAiFromNotes(); ShowAiSuggested(); }, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    void ShowAiSuggested()
+    {
+        RefreshCleanUi();
+        if (CleanCatBox != null && CleanCatBox.Items.Count > 1)
+            CleanCatBox.SelectedIndex = 1;
     }
 
     void ApplySuggest(string path, string note, bool check)
@@ -1973,7 +1973,8 @@ public partial class MainWindow : Window, IAnalystHost
     private void ChatPath_Click(object sender, RoutedEventArgs e)
     {
         if (e is not PathClickEventArgs { Path: string path } || string.IsNullOrWhiteSpace(path)) return;
-        JumpToPath(path);
+        bool dir = Directory.Exists(path) || path.EndsWith('\\');
+        OpenExplorer(path, dir);
     }
 
     void JumpToPath(string path)

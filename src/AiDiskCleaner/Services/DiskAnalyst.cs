@@ -123,7 +123,7 @@ public static class DiskAnalyst
                     ["required"] = new[] { "paths", "checked" },
                 }),
             ("suggest",
-                "Mark files the user might delete. Highlights them in the tree and checks them on the right. Does not delete. Call this for every recommended FILE path, not Windows/Program Files/Users as a whole. note = specific reason in the user's language.",
+                "Mark files the user might delete. Checks them on the right clean list. Does not delete. Call this for every recommended FILE path, not Windows/Program Files/Users as a whole. note = specific reason in the user's language.",
                 new Dictionary<string, object>
                 {
                     ["type"] = "object",
@@ -146,9 +146,6 @@ public static class DiskAnalyst
                     },
                     ["required"] = new[] { "items" },
                 }),
-            ("ask_user",
-                "Ask the user a short question when the goal is unclear. Stop after this.",
-                Props(("question", "Question to show the user"))),
         };
         if (proto == AiProtocol.Anthropic)
             return list.Select(t => (object)new { name = t.Name, description = t.Desc, input_schema = t.Schema }).ToList();
@@ -172,19 +169,8 @@ public static class DiskAnalyst
             "search_clean" => Search(Str(args, "query"), host),
             "set_checked" => SetChecked(args, host),
             "suggest" => Suggest(args, host),
-            "ask_user" => "shown",
             _ => "unknown tool",
         };
-    }
-
-    public static string AskQuestion(string argsJson)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
-            return Str(doc.RootElement, "question");
-        }
-        catch { return ""; }
     }
 
     public static bool CanAiCheck(CleanItem x)
