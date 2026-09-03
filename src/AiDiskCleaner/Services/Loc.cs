@@ -216,7 +216,7 @@ public static class Loc
           KEEP
           GOTO C:\full\path	24.4G	why not delete
 
-          Each GOTO line: GOTO, then the full path, then size, then one-line reason. Copy paths from the scan. Suggest safe cache. WeChat/QQ: cache only. Do not call tools unless a path is missing from the scan. Prefer answering in one shot.
+          Each GOTO line: GOTO, then the full path, then size, then one-line reason. Copy paths from the scan list. Suggest safe cache. WeChat/QQ: cache only. Do not invent XML/DSML/tool tags. Do not call tools. One shot.
           """
         : """
           你是磁盘清理软件里的文件分析师。不要删除，不要编造路径。
@@ -233,7 +233,7 @@ public static class Loc
           KEEP
           GOTO C:\完整路径	24.4G	为什么不能删
 
-          每条 GOTO：GOTO、完整路径、大小、一句原因。路径从扫描结果原样复制。safe cache 可建议删。微信/QQ 只动缓存。扫描里已有的路径不要再调工具，尽量一轮答完。
+          每条 GOTO：GOTO、完整路径、大小、一句原因。路径从扫描清单原样复制。safe cache 可建议删。微信/QQ 只动缓存。不要写 XML/DSML/工具标签，不要调工具，一轮答完。
           """;
     public static string AiTool(string name) => IsEn ? $"tool: {name}" : $"工具：{name}";
     public static string AiKindName(AiProtocol p) => p switch

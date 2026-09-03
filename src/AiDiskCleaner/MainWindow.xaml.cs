@@ -1733,39 +1733,16 @@ public partial class MainWindow : Window, IAnalystHost
         try
         {
             _turns.Add(new AiMsg { Role = "user", Text = user });
-            var proto = AiClient.ParseProtocol(App.Settings.CurrentProvider()?.Protocol);
-            var tools = DiskAnalyst.Tools(proto);
-            string last = "";
-            ChatLine? live = null;
-            for (int round = 0; round < DiskAnalyst.MaxRounds; round++)
+            var live = AddChat(Loc.AiBot, Loc.JuryWaiting, log: true);
+            var buf = new System.Text.StringBuilder();
+            void Push(string delta)
             {
-                bool lastRound = round == DiskAnalyst.MaxRounds - 1
-                    || DiskAnalyst.EstimateTokens(_turns) >= DiskAnalyst.TokenBudget;
-                live = AddChat(Loc.AiBot, Loc.JuryWaiting, log: true);
-                var buf = new System.Text.StringBuilder();
-                void Push(string delta)
-                {
-                    buf.Append(delta);
-                    string snap = buf.ToString();
-                    Dispatcher.BeginInvoke(() => live.Text = snap, System.Windows.Threading.DispatcherPriority.Background);
-                }
-                AiReply reply = lastRound
-                    ? await AiClient.StreamAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, DiskAnalyst.SystemPrompt(), PackedTurns(), Push, CancellationToken.None)
-                    : await AiClient.TurnAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), tools, CancellationToken.None);
-                last = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
-                if (!reply.HasTools || lastRound)
-                {
-                    FinishAnalyst(live, last);
-                    return last;
-                }
-                Dispatcher.Invoke(() => { live.Log = true; live.Text = last; });
-                _turns.Add(new AiMsg { Role = "assistant", Text = last, Calls = reply.Calls });
-                foreach (var call in reply.Calls)
-                {
-                    string result = DiskAnalyst.Run(call.Name, call.Arguments, this);
-                    _turns.Add(new AiMsg { Role = "tool", Text = result, CallId = call.Id, ToolName = call.Name });
-                }
+                buf.Append(delta);
+                string snap = buf.ToString();
+                Dispatcher.BeginInvoke(() => live.Text = snap, System.Windows.Threading.DispatcherPriority.Background);
             }
+            var reply = await AiClient.StreamAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, DiskAnalyst.SystemPrompt(), PackedTurns(), Push, CancellationToken.None);
+            string last = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
             FinishAnalyst(live, last);
             return last;
         }
@@ -1790,6 +1767,7 @@ public partial class MainWindow : Window, IAnalystHost
 
     void FinishAnalyst(ChatLine? live, string last)
     {
+        last = StripToolMarkup(last);
         if (string.IsNullOrWhiteSpace(last)) last = Loc.AiOk;
         _turns.Add(new AiMsg { Role = "assistant", Text = last });
         HarvestNotes(last, check: true);
@@ -1804,6 +1782,22 @@ public partial class MainWindow : Window, IAnalystHost
         else
             AddChat(Loc.AiBot, last);
         ShowAiSuggested();
+    }
+
+    static string StripToolMarkup(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        var sb = new System.Text.StringBuilder();
+        foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            string line = raw.Trim();
+            if (line.Length == 0) { sb.AppendLine(); continue; }
+            if (line.Contains("| DSML |", StringComparison.OrdinalIgnoreCase)) continue;
+            if (line.Contains("<|") && line.Contains("|>")) continue;
+            if (line.Contains("tool_calls", StringComparison.OrdinalIgnoreCase) && line.Contains('<')) continue;
+            sb.AppendLine(raw);
+        }
+        return sb.ToString().Trim();
     }
 
     void IAnalystHost.OnChecksChanged(bool showLarge)

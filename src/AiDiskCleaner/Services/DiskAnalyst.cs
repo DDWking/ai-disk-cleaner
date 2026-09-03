@@ -40,6 +40,10 @@ public static class DiskAnalyst
         foreach (var g in report.Cleanable.GroupBy(x => string.IsNullOrEmpty(x.Group) ? "-" : x.Group)
                      .OrderByDescending(x => x.Sum(i => i.Size)))
             lines.Add($"  {g.Key}: {g.Count():N0}, {FileEntry.FormatSize(g.Sum(i => i.Size))}");
+        lines.Add("");
+        lines.Add("cleanable paths (copy these):");
+        foreach (var x in report.Cleanable.OrderByDescending(i => i.Size).Take(24))
+            lines.Add($"  {x.FullPath}\t{x.SizeText}\t{x.Reason}");
         lines.Add($"old: {report.OldFiles.Count:N0}, {Sum(report.OldFiles)}");
         lines.Add($"duplicates: {report.Duplicates.Count:N0} in {report.DupGroupCount:N0} groups, {Sum(report.Duplicates)}");
         if (!string.IsNullOrWhiteSpace(report.CompareNote))
