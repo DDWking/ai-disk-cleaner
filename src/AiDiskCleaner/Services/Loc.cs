@@ -10,6 +10,8 @@ public static class Loc
     public static bool IsEn => Lang == AppLang.En;
 
     public static string AppName => IsEn ? "Dashao Huo" : "大扫货";
+    public static string NavBrowse => IsEn ? "Browse" : "浏览";
+    public static string NavAi => IsEn ? "AI analysis" : "AI 分析";
     public static string Scan => IsEn ? "Scan" : "扫描";
     public static string Stop => IsEn ? "Stop" : "停止";
     public static string Settings => IsEn ? "Settings" : "设置";

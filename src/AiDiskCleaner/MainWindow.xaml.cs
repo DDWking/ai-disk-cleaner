@@ -95,7 +95,8 @@ public partial class MainWindow : Window, IAnalystHost
     private int _liveShown;
     private int _liveExtShown;
     private CleanReport? _report;
-    private int _rightTab; // 0 清理 1 扩展名 2 卸载
+    private int _rightTab; // 0 扩展名 1 卸载
+    private int _page; // 0 浏览 1 AI 分析
     private Action? _confirmYes;
     private List<AppUninstallItem> _apps = new();
     private bool _listingApps;
@@ -148,6 +149,7 @@ public partial class MainWindow : Window, IAnalystHost
         AiChatList.ItemsSource = _chat;
         JuryPaneList.ItemsSource = _juryPanes;
         ApplyUi();
+        ShowPage(0);
         ShowRightTab(0);
         PickDrive("C:\\");
     }
@@ -169,6 +171,8 @@ public partial class MainWindow : Window, IAnalystHost
     {
         Title = Loc.AppName;
         TitleText.Text = Loc.AppName;
+        NavBrowseBtn.Content = Loc.NavBrowse;
+        NavAiBtn.Content = Loc.NavAi;
         ScanButton.Content = Loc.Scan;
         StopButton.Content = Loc.Stop;
         SettingsButton.Content = Loc.Settings;
@@ -194,7 +198,6 @@ public partial class MainWindow : Window, IAnalystHost
         ColPct.Header = Loc.Pct;
         ColSize.Header = Loc.Size;
         TabExtBtn.Content = Loc.TabExt;
-        TabCleanBtn.Content = Loc.TabClean;
         TabUninstallBtn.Content = Loc.TabUninstall;
         UninstallRefreshBtn.Content = Loc.Refresh;
         UninstallAllBtn.Content = Loc.SelectAll;
@@ -1625,7 +1628,7 @@ public partial class MainWindow : Window, IAnalystHost
         _votes.Clear();
         _aiItems.Clear();
         _awaitConfirm = false;
-        ShowRightTab(0);
+        ShowPage(1);
         RefreshCleanUi();
         AddChat(Loc.AiYou, Loc.AiAnalyze);
         if (App.Settings.AiJuryOn)
@@ -1801,7 +1804,7 @@ public partial class MainWindow : Window, IAnalystHost
 
     void IAnalystHost.OnChecksChanged(bool showLarge)
     {
-        ShowRightTab(0);
+        ShowPage(1);
         if (showLarge && CleanCatBox.Items.Count > 2)
             CleanCatBox.SelectedIndex = 2;
         RefreshCleanUi();
@@ -2103,7 +2106,6 @@ public partial class MainWindow : Window, IAnalystHost
             SetAiLamp(ok.Count > 0);
             var merge = new JuryPane { Title = Loc.JuryMerge, LiveText = string.IsNullOrEmpty(board) ? Loc.JuryNone : board };
             _juryPanes.Add(merge);
-            AddChat(Loc.AiJuryName, string.IsNullOrEmpty(board) ? Loc.JuryNone : board);
             _turns.Clear();
             _turns.Add(new AiMsg { Role = "user", Text = user });
             _turns.Add(new AiMsg { Role = "assistant", Text = board });
@@ -2126,13 +2128,9 @@ public partial class MainWindow : Window, IAnalystHost
     {
         Dispatcher.Invoke(() => pane.LiveText = Loc.JuryThinking);
         var buf = new System.Text.StringBuilder();
-        var lastUi = DateTime.MinValue;
         void Push(string delta)
         {
             buf.Append(delta);
-            var now = DateTime.UtcNow;
-            if ((now - lastUi).TotalMilliseconds < 80) return;
-            lastUi = now;
             string snap = buf.ToString();
             Dispatcher.BeginInvoke(() => pane.LiveText = snap, System.Windows.Threading.DispatcherPriority.Background);
         }
@@ -2248,23 +2246,33 @@ public partial class MainWindow : Window, IAnalystHost
         catch { }
     }
 
-    private void TabClean_Click(object sender, RoutedEventArgs e) => ShowRightTab(0);
-    private void TabExt_Click(object sender, RoutedEventArgs e) => ShowRightTab(1);
+    private void NavBrowse_Click(object sender, RoutedEventArgs e) => ShowPage(0);
+    private void NavAi_Click(object sender, RoutedEventArgs e) => ShowPage(1);
+
+    void ShowPage(int page)
+    {
+        _page = page;
+        BrowsePage.Visibility = page == 0 ? Visibility.Visible : Visibility.Collapsed;
+        AiPage.Visibility = page == 1 ? Visibility.Visible : Visibility.Collapsed;
+        MarkTab(NavBrowseBtn, page == 0);
+        MarkTab(NavAiBtn, page == 1);
+        if (page == 1) RefreshCleanUi();
+    }
+
+    private void TabExt_Click(object sender, RoutedEventArgs e) => ShowRightTab(0);
     private void TabUninstall_Click(object sender, RoutedEventArgs e)
     {
-        ShowRightTab(2);
+        ShowRightTab(1);
         if (_apps.Count == 0 && !_listingApps) _ = LoadApps();
     }
 
     private void ShowRightTab(int tab)
     {
         _rightTab = tab;
-        CleanPane.Visibility = tab == 0 ? Visibility.Visible : Visibility.Collapsed;
-        ExtPane.Visibility = tab == 1 ? Visibility.Visible : Visibility.Collapsed;
-        UninstallPane.Visibility = tab == 2 ? Visibility.Visible : Visibility.Collapsed;
-        MarkTab(TabCleanBtn, tab == 0);
-        MarkTab(TabExtBtn, tab == 1);
-        MarkTab(TabUninstallBtn, tab == 2);
+        ExtPane.Visibility = tab == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UninstallPane.Visibility = tab == 1 ? Visibility.Visible : Visibility.Collapsed;
+        MarkTab(TabExtBtn, tab == 0);
+        MarkTab(TabUninstallBtn, tab == 1);
     }
 
     private static void MarkTab(Button b, bool on)
