@@ -175,34 +175,26 @@ public static class Loc
     public static string JuryNone => IsEn ? "No overlapping suggestions. Try a clearer goal." : "没有重叠建议。需求再说具体一点。";
     public static string JurySystem => IsEn
         ? """
-          You score cleanup candidates. Never delete. Never invent paths. No markdown.
-          Goal: everything safely cleanable (temp, cache, dumps, leftover installers, dev caches). Copy full paths from the scan.
+          Score cleanup candidates. Never delete. Never invent paths. Copy full paths from the scan.
           Never list Windows / Program Files / Users / WinSxS as a whole.
-          Reply exactly:
+          List at most 8 DELETABLE items:
 
           SUMMARY
-          one sentence.
+          one sentence
 
           DELETABLE
-          GOTO C:\full\path	12.4G	why it matches the need
-
-          KEEP
-          GOTO C:\full\path	24G	why to leave it
+          GOTO C:\full\path	12.4G	why
           """
         : """
-          你给清理项打分。不要删除，不要编造路径，不要 markdown。
-          目标：能安全清的都列（临时、缓存、转储、装完的安装包、开发缓存）。路径从扫描结果原样复制。
+          给清理项打分。不要删除，不要编造路径。只从扫描结果复制完整路径。
           不要写整个 Windows / Program Files / Users / WinSxS。
-          只按这个格式回复：
+          只列最值得清的 8 条。格式：
 
           SUMMARY
-          一句话。
+          一句话
 
           DELETABLE
-          GOTO C:\完整路径	12.4G	为什么符合需求
-
-          KEEP
-          GOTO C:\完整路径	24G	为什么别动
+          GOTO C:\完整路径	12.4G	原因
           """;
     public static string AiScanHeader => IsEn
         ? "Scan finished. Reply in the exact format below. Do not invent files."

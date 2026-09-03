@@ -83,11 +83,17 @@ public static class AiClient
         var proto = ParseProtocol(p?.Protocol);
         if (proto == AiProtocol.Completions)
         {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(12));
             try
             {
-                return await StreamCompletions(p, modelId, system, turns, onDelta, ct);
+                return await StreamCompletions(p, modelId, system, turns, onDelta, timeout.Token);
             }
-            catch (Exception ex) when (LooksLikeNoStream(ex))
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                onDelta(Loc.JuryRetry(Loc.AiTimeout));
+            }
+            catch (Exception ex)
             {
                 onDelta(Loc.JuryRetry(Pretty(ex)));
             }
@@ -281,7 +287,6 @@ public static class AiClient
             ["model"] = model,
             ["temperature"] = 0.2,
             ["messages"] = messages,
-            ["max_tokens"] = tools == null ? 1800 : 1200,
         };
         if (tools != null)
         {
@@ -295,8 +300,11 @@ public static class AiClient
         string body = await res.Content.ReadAsStringAsync(ct);
         if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
         using var doc = JsonDocument.Parse(body);
-        var msg = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
-        var reply = new AiReply { Text = Str(msg, "content") };
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+            throw Fail(body, "empty");
+        var msg = choices[0].GetProperty("message");
+        var reply = new AiReply { Text = MessageText(msg) };
         if (msg.TryGetProperty("tool_calls", out var calls) && calls.ValueKind == JsonValueKind.Array)
         {
             foreach (var c in calls.EnumerateArray())
@@ -310,7 +318,8 @@ public static class AiClient
                 });
             }
         }
-        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools) throw Fail(body, "empty");
+        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools)
+            throw Fail(ClipBody(body), "empty");
         return reply;
     }
 
@@ -458,7 +467,7 @@ public static class AiClient
             }
             reply.Text = string.Join("", texts);
         }
-        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools) throw Fail(body, "empty");
+        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools) throw Fail(ClipBody(body), "empty");
         return reply;
     }
 
@@ -507,6 +516,45 @@ public static class AiClient
         }
         ids.Sort(StringComparer.OrdinalIgnoreCase);
         return ids.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    static string MessageText(JsonElement msg)
+    {
+        string text = ContentText(msg.TryGetProperty("content", out var c) ? c : default);
+        if (!string.IsNullOrWhiteSpace(text)) return text;
+        foreach (var name in new[] { "reasoning_content", "reasoning", "output_text", "text" })
+        {
+            text = ContentText(msg.TryGetProperty(name, out var p) ? p : default);
+            if (!string.IsNullOrWhiteSpace(text)) return text;
+        }
+        return "";
+    }
+
+    static string ContentText(JsonElement e)
+    {
+        if (e.ValueKind == JsonValueKind.String) return e.GetString() ?? "";
+        if (e.ValueKind == JsonValueKind.Array)
+        {
+            var bits = new List<string>();
+            foreach (var part in e.EnumerateArray())
+            {
+                if (part.ValueKind == JsonValueKind.String) bits.Add(part.GetString() ?? "");
+                else if (part.ValueKind == JsonValueKind.Object)
+                {
+                    string t = FirstStr(part, "text", "content", "output_text");
+                    if (!string.IsNullOrEmpty(t)) bits.Add(t);
+                }
+            }
+            return string.Join("", bits);
+        }
+        return "";
+    }
+
+    static string ClipBody(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "empty";
+        string t = body.Replace('\n', ' ').Replace('\r', ' ').Trim();
+        return t.Length > 280 ? t[..277] + "…" : t;
     }
 
     static string Str(JsonElement e, string name)

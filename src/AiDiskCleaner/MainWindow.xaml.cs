@@ -2130,9 +2130,21 @@ public partial class MainWindow : Window, IAnalystHost
         try
         {
             Dispatcher.Invoke(() => pane.LiveText = Loc.JuryWaiting + "\n" + (seat.Provider.BaseUrl ?? "") + "\n" + seat.Model);
-            var reply = await AiClient.TurnAsync(seat.Provider, seat.Model, Loc.JurySystem,
-                new[] { new AiMsg { Role = "user", Text = user } }, null, CancellationToken.None);
-            string text = (reply.Text ?? "").Trim();
+            var buf = new System.Text.StringBuilder();
+            void Push(string delta)
+            {
+                if (delta.StartsWith("流式失败", StringComparison.Ordinal) || delta.StartsWith("stream failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    Dispatcher.BeginInvoke(() => pane.LiveText = delta, System.Windows.Threading.DispatcherPriority.Background);
+                    return;
+                }
+                buf.Append(delta);
+                string snap = buf.ToString();
+                Dispatcher.BeginInvoke(() => pane.LiveText = snap, System.Windows.Threading.DispatcherPriority.Background);
+            }
+            var reply = await AiClient.StreamAsync(seat.Provider, seat.Model, Loc.JurySystem,
+                new[] { new AiMsg { Role = "user", Text = user } }, Push, CancellationToken.None);
+            string text = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
             Dispatcher.Invoke(() => pane.LiveText = string.IsNullOrEmpty(text) ? Loc.JurySeatEmpty(seat.Model) : text);
             return (seat, text);
         }

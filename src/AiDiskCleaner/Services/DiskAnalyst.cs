@@ -27,13 +27,13 @@ public static class DiskAnalyst
             $"volume: {root.FullPath}  used {FileEntry.FormatSize(used)} / {FileEntry.FormatSize(total)}",
             $"tree: {root.FileCount:N0} files, {root.FolderCount:N0} folders, {FileEntry.FormatSize(root.Size)}",
             "",
-            "largest folders (root, top 12):",
+            "largest folders:",
         };
-        foreach (var d in RootFolders(root).Take(12))
+        foreach (var d in RootFolders(root).Take(8))
             lines.Add($"  {Line(d)}");
         lines.Add("");
-        lines.Add("largest files (top 16):");
-        foreach (var f in report.LargeFiles.Take(16))
+        lines.Add("largest files:");
+        foreach (var f in report.LargeFiles.Take(10))
             lines.Add($"  {ItemLine(f)}");
         lines.Add("");
         lines.Add($"cleanable: {report.Cleanable.Count:N0} items, {FileEntry.FormatSize(report.CleanableBytes)}");
@@ -44,7 +44,7 @@ public static class DiskAnalyst
         lines.Add($"duplicates: {report.Duplicates.Count:N0} in {report.DupGroupCount:N0} groups, {Sum(report.Duplicates)}");
         if (!string.IsNullOrWhiteSpace(report.CompareNote))
             lines.Add("compare: " + report.CompareNote);
-        var known = AppSignatures.HitsIn(RootFolders(root).Concat(root.Children)).Take(12).ToList();
+        var known = AppSignatures.HitsIn(RootFolders(root).Concat(root.Children)).Take(6).ToList();
         if (known.Count > 0)
         {
             lines.Add("");
