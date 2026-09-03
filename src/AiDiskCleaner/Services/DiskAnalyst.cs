@@ -13,8 +13,8 @@ public interface IAnalystHost
 
 public static class DiskAnalyst
 {
-    public const int MaxRounds = 6;
-    public const int TokenBudget = 12000;
+    public const int MaxRounds = 2;
+    public const int TokenBudget = 8000;
     static readonly HashSet<string> Listed = new(StringComparer.OrdinalIgnoreCase);
 
     public static string SystemPrompt() => Loc.AiAnalystSystem;
@@ -27,24 +27,28 @@ public static class DiskAnalyst
             $"volume: {root.FullPath}  used {FileEntry.FormatSize(used)} / {FileEntry.FormatSize(total)}",
             $"tree: {root.FileCount:N0} files, {root.FolderCount:N0} folders, {FileEntry.FormatSize(root.Size)}",
             "",
-            "largest folders (root, top 20):",
+            "largest folders:",
         };
-        foreach (var d in RootFolders(root).Take(20))
+        foreach (var d in RootFolders(root).Take(8))
             lines.Add($"  {Line(d)}");
         lines.Add("");
-        lines.Add("largest files (top 40):");
-        foreach (var f in report.LargeFiles.Take(40))
+        lines.Add("largest files:");
+        foreach (var f in report.LargeFiles.Take(10))
             lines.Add($"  {ItemLine(f)}");
         lines.Add("");
         lines.Add($"cleanable: {report.Cleanable.Count:N0} items, {FileEntry.FormatSize(report.CleanableBytes)}");
         foreach (var g in report.Cleanable.GroupBy(x => string.IsNullOrEmpty(x.Group) ? "-" : x.Group)
                      .OrderByDescending(x => x.Sum(i => i.Size)))
             lines.Add($"  {g.Key}: {g.Count():N0}, {FileEntry.FormatSize(g.Sum(i => i.Size))}");
+        lines.Add("");
+        lines.Add("cleanable paths (copy these):");
+        foreach (var x in report.Cleanable.OrderByDescending(i => i.Size).Take(24))
+            lines.Add($"  {x.FullPath}\t{x.SizeText}\t{x.Reason}");
         lines.Add($"old: {report.OldFiles.Count:N0}, {Sum(report.OldFiles)}");
         lines.Add($"duplicates: {report.Duplicates.Count:N0} in {report.DupGroupCount:N0} groups, {Sum(report.Duplicates)}");
         if (!string.IsNullOrWhiteSpace(report.CompareNote))
             lines.Add("compare: " + report.CompareNote);
-        var known = AppSignatures.HitsIn(RootFolders(root).Concat(root.Children)).Take(12).ToList();
+        var known = AppSignatures.HitsIn(RootFolders(root).Concat(root.Children)).Take(6).ToList();
         if (known.Count > 0)
         {
             lines.Add("");
@@ -123,7 +127,7 @@ public static class DiskAnalyst
                     ["required"] = new[] { "paths", "checked" },
                 }),
             ("suggest",
-                "Mark files the user might delete. Highlights them in the tree and checks them on the right. Does not delete. Call this for every recommended FILE path, not Windows/Program Files/Users as a whole. note = specific reason in the user's language.",
+                "Mark files the user might delete. Checks them on the right clean list. Does not delete. Call this for every recommended FILE path, not Windows/Program Files/Users as a whole. note = specific reason in the user's language.",
                 new Dictionary<string, object>
                 {
                     ["type"] = "object",
@@ -146,9 +150,6 @@ public static class DiskAnalyst
                     },
                     ["required"] = new[] { "items" },
                 }),
-            ("ask_user",
-                "Ask the user a short question when the goal is unclear. Stop after this.",
-                Props(("question", "Question to show the user"))),
         };
         if (proto == AiProtocol.Anthropic)
             return list.Select(t => (object)new { name = t.Name, description = t.Desc, input_schema = t.Schema }).ToList();
@@ -172,19 +173,8 @@ public static class DiskAnalyst
             "search_clean" => Search(Str(args, "query"), host),
             "set_checked" => SetChecked(args, host),
             "suggest" => Suggest(args, host),
-            "ask_user" => "shown",
             _ => "unknown tool",
         };
-    }
-
-    public static string AskQuestion(string argsJson)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
-            return Str(doc.RootElement, "question");
-        }
-        catch { return ""; }
     }
 
     public static bool CanAiCheck(CleanItem x)

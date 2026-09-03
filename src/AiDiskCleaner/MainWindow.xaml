@@ -10,7 +10,8 @@
         Icon="Assets/app.ico"
         Background="{DynamicResource Bg}"
         Foreground="{DynamicResource Text}"
-        FontFamily="{DynamicResource AppFont}">
+        FontFamily="{DynamicResource AppFont}"
+        Loaded="Window_Loaded">
   <WindowChrome.WindowChrome>
     <WindowChrome CaptionHeight="56" ResizeBorderThickness="6" GlassFrameThickness="0"
                   CornerRadius="0" UseAeroCaptionButtons="False"/>
@@ -495,6 +496,30 @@
         </Setter.Value>
       </Setter>
     </Style>
+    <Style TargetType="Button" x:Key="NavButton">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="16,10"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource HoverBg}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style TargetType="Button" x:Key="GhostButton">
       <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
@@ -773,19 +798,25 @@
 
     <Grid>
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" MinWidth="520"/>
+        <ColumnDefinition Width="148"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+      <Border Background="{DynamicResource Bg}" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,1,0">
+        <StackPanel Margin="8,16,8,16">
+          <Button x:Name="NavBrowseBtn" Content="浏览" Style="{StaticResource NavButton}" Click="NavBrowse_Click"/>
+          <Button x:Name="NavAiBtn" Content="AI 分析" Style="{StaticResource NavButton}" Margin="0,4,0,0" Click="NavAi_Click"/>
+        </StackPanel>
+      </Border>
+      <Grid Grid.Column="1">
+      <Grid x:Name="BrowsePage">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MinWidth="420"/>
         <ColumnDefinition Width="12"/>
-        <ColumnDefinition Width="380" MinWidth="260"/>
+        <ColumnDefinition Width="440" MinWidth="320"/>
       </Grid.ColumnDefinitions>
 
       <Border x:Name="LeftPanel" Grid.Column="0" Background="{DynamicResource PanelLeft}">
-        <Grid>
-          <Grid.RowDefinitions>
-            <RowDefinition Height="*" MinHeight="120"/>
-            <RowDefinition Height="8"/>
-            <RowDefinition Height="2*" MinHeight="220"/>
-          </Grid.RowDefinitions>
-          <DockPanel>
+        <DockPanel>
             <TextBlock x:Name="PathCrumb" DockPanel.Dock="Top" Margin="20,16,24,4" Text=""
                        Foreground="{DynamicResource TextMuted}" FontSize="11" TextTrimming="CharacterEllipsis"/>
             <TextBlock x:Name="FilterHint" DockPanel.Dock="Top" Margin="20,0,24,6" FontSize="11"
@@ -828,41 +859,6 @@
               </TreeView.ContextMenu>
             </TreeView>
           </DockPanel>
-          <GridSplitter Grid.Row="1" Height="8" HorizontalAlignment="Stretch" Cursor="SizeNS"/>
-          <Border Grid.Row="2" Background="#1E1E1E" BorderBrush="#6A6A6A" BorderThickness="0,1,0,0">
-            <DockPanel>
-              <Grid DockPanel.Dock="Top" Margin="16,10,16,8">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                  <Ellipse x:Name="AiLamp" Width="9" Height="9" Fill="#3A3A3A" Margin="0,0,8,0"/>
-                  <ComboBox x:Name="AiRunModelBox" Width="180" Height="26" Margin="0,0,0,0"
-                            SelectionChanged="AiRunModel_Changed"/>
-                  <Button x:Name="AiRunBtn" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                          Padding="10,3" FontSize="11" Click="AiRun_Click"/>
-                  <TextBlock x:Name="AiChatStatus" Foreground="#A8A8A8" FontSize="11" Margin="10,0,0,0"
-                             VerticalAlignment="Center"/>
-                </StackPanel>
-                <Button x:Name="AiChatClearBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Right"
-                        Padding="10,3" FontSize="11" Click="AiChatClear_Click"/>
-              </Grid>
-              <DockPanel DockPanel.Dock="Bottom" Margin="12,0,12,10">
-                <Button x:Name="AiChatSendBtn" DockPanel.Dock="Right" Style="{StaticResource GhostButton}"
-                        Margin="8,0,0,0" Click="AiChatSend_Click"/>
-                <TextBox x:Name="AiChatInput" Style="{StaticResource TermTextBox}" Height="28"
-                         Tag="问这张盘…" KeyDown="AiChatInput_KeyDown"/>
-              </DockPanel>
-              <ScrollViewer x:Name="AiChatScroll" Margin="12,0,12,8" VerticalScrollBarVisibility="Auto"
-                            HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl x:Name="AiChatList">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <ctrl:ChatBubble Line="{Binding}" PathClick="ChatPath_Click" Margin="0,0,0,10"/>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </ScrollViewer>
-            </DockPanel>
-          </Border>
-        </Grid>
       </Border>
 
       <GridSplitter Grid.Column="1" Width="12" Cursor="SizeWE"/>
@@ -870,11 +866,10 @@
       <Border x:Name="RightPanel" Grid.Column="2" Background="{DynamicResource PanelRight}">
         <DockPanel>
           <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,12,16,8">
-            <Button x:Name="TabCleanBtn" Content="清理" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabClean_Click"/>
             <Button x:Name="TabExtBtn" Content="扩展名" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabExt_Click"/>
             <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource GhostButton}" Click="TabUninstall_Click"/>
           </StackPanel>
-          <DockPanel x:Name="ExtPane" Visibility="Collapsed">
+          <DockPanel x:Name="ExtPane">
           <TextBlock x:Name="ExtTitle" DockPanel.Dock="Top" Margin="20,0,20,8" Text="扩展名 / 类型" Foreground="{DynamicResource TextDim}" FontSize="11"/>
           <DataGrid x:Name="ExtGrid" AutoGenerateColumns="False" IsReadOnly="True"
                     CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
@@ -884,6 +879,7 @@
                     HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                     SelectionMode="Single" SelectionUnit="FullRow"
                     VerticalContentAlignment="Center"
+                    HorizontalScrollBarVisibility="Disabled"
                     MouseDoubleClick="ExtGrid_MouseDoubleClick"
                     PreviewMouseRightButtonUp="ExtGrid_RightClick">
             <DataGrid.Resources>
@@ -943,50 +939,6 @@
             </DataGrid.Columns>
           </DataGrid>
           </DockPanel>
-          <DockPanel x:Name="CleanPane">
-            <StackPanel x:Name="CleanProgressPanel" DockPanel.Dock="Top" Margin="20,0,20,10" Visibility="Collapsed">
-              <TextBlock x:Name="CleanProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
-              <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
-            </StackPanel>
-            <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,0,20,8"
-                       Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
-            <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
-              <ComboBox x:Name="CleanCatBox" Width="148" Margin="0,0,8,6" SelectionChanged="CleanCat_Changed"
-                        WindowChrome.IsHitTestVisibleInChrome="True"/>
-              <Button x:Name="SelectAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectAll_Click"/>
-              <Button x:Name="SelectSafeBtn" Content="勾选安全项" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="SelectSafe_Click"/>
-            </WrapPanel>
-            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
-              <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Click="RecycleSelected_Click"/>
-              <Button x:Name="AiExplainBtn" Content="AI 解释勾选项" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="AiExplain_Click"/>
-              <TextBlock x:Name="CleanSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
-                         Foreground="{DynamicResource TextDim}" FontSize="11"/>
-            </StackPanel>
-            <DataGrid x:Name="CleanGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
-                      HeadersVisibility="Column" GridLinesVisibility="None"
-                      BorderThickness="0" RowHeight="32" Margin="12,0,16,0"
-                      AlternatingRowBackground="{DynamicResource RowAlt}"
-                      RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
-                      HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
-                      SelectionMode="Single" SelectionUnit="FullRow"
-                      VerticalContentAlignment="Center"
-                      MouseDoubleClick="CleanGrid_MouseDoubleClick"
-                      MouseLeftButtonUp="CleanGrid_Click">
-              <DataGrid.Columns>
-                <DataGridCheckBoxColumn x:Name="ColPick" Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
-                <DataGridTextColumn x:Name="ColCleanName" Header="名称" Binding="{Binding Name}" Width="120" IsReadOnly="True"/>
-                <DataGridTextColumn x:Name="ColCleanSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="72" IsReadOnly="True">
-                  <DataGridTextColumn.ElementStyle>
-                    <Style TargetType="TextBlock">
-                      <Setter Property="HorizontalAlignment" Value="Right"/>
-                      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
-                    </Style>
-                  </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
-                <DataGridTextColumn x:Name="ColCleanWhy" Header="原因" Binding="{Binding Reason}" Width="*" IsReadOnly="True"/>
-              </DataGrid.Columns>
-            </DataGrid>
-          </DockPanel>
           <DockPanel x:Name="UninstallPane" Visibility="Collapsed">
             <StackPanel x:Name="UninstallProgressPanel" DockPanel.Dock="Top" Margin="20,0,20,10" Visibility="Collapsed">
               <TextBlock x:Name="UninstallProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
@@ -1022,6 +974,8 @@
                       RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
                       HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                       SelectionMode="Single" SelectionUnit="FullRow"
+                      HorizontalScrollBarVisibility="Disabled"
+                      ColumnWidth="*"
                       MouseLeftButtonUp="UninstallGrid_Click"
                       MouseDoubleClick="UninstallGrid_DoubleClick">
               <DataGrid.GroupStyle>
@@ -1078,9 +1032,16 @@
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn x:Name="ColAppName" Header="名称" Binding="{Binding Name}" Width="*" MinWidth="180" IsReadOnly="True"/>
-                <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="110" IsReadOnly="True"/>
-                <DataGridTextColumn x:Name="ColAppSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="SizeBytes" Width="72" IsReadOnly="True">
+                <DataGridTextColumn x:Name="ColAppName" Header="名称" Binding="{Binding Name}" Width="*" MinWidth="120" IsReadOnly="True">
+                  <DataGridTextColumn.ElementStyle>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                      <Setter Property="ToolTip" Value="{Binding Name}"/>
+                    </Style>
+                  </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="0" MinWidth="0" MaxWidth="0" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="ColAppSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="SizeBytes" Width="72" MinWidth="72" MaxWidth="80" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="HorizontalAlignment" Value="Right"/>
@@ -1088,7 +1049,7 @@
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
-                <DataGridTextColumn x:Name="ColAppStatus" Header="状态" Binding="{Binding Status}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColAppStatus" Header="状态" Binding="{Binding Status}" Width="0" MinWidth="0" MaxWidth="0" IsReadOnly="True" Visibility="Collapsed"/>
               </DataGrid.Columns>
             </DataGrid>
             <DataGrid x:Name="JunkGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
@@ -1127,6 +1088,171 @@
           </DockPanel>
         </DockPanel>
       </Border>
+    </Grid>
+
+    <Grid x:Name="AiPage" Visibility="Collapsed">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MinWidth="420"/>
+        <ColumnDefinition Width="12"/>
+        <ColumnDefinition Width="420" MinWidth="280"/>
+      </Grid.ColumnDefinitions>
+      <Border Background="#1E1E1E">
+        <DockPanel>
+          <Grid DockPanel.Dock="Top" Margin="16,10,16,8">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Ellipse x:Name="AiLamp" Width="9" Height="9" Fill="#3A3A3A" Margin="0,0,8,0"/>
+              <ComboBox x:Name="AiRunModelBox" Width="180" Height="26"
+                        SelectionChanged="AiRunModel_Changed">
+                <ComboBox.GroupStyle>
+                  <GroupStyle>
+                    <GroupStyle.HeaderTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding Name}" Foreground="#8A8A8A" FontSize="11"
+                                   Margin="2,4,0,2"/>
+                      </DataTemplate>
+                    </GroupStyle.HeaderTemplate>
+                  </GroupStyle>
+                </ComboBox.GroupStyle>
+                <ComboBox.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Model}" TextTrimming="CharacterEllipsis"/>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <ItemsControl x:Name="JuryChipList" Visibility="Collapsed" Margin="0,0,4,0">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal"/>
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border BorderBrush="#3A7EBF" BorderThickness="1" Padding="8,2" Margin="0,0,6,0"
+                            Background="#1A3A58" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding}" Foreground="#5CC8FF" FontSize="11"/>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Button x:Name="AiRunBtn" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                      Padding="10,3" FontSize="11" Click="AiRun_Click"/>
+              <TextBlock x:Name="AiChatStatus" Foreground="#A8A8A8" FontSize="11" Margin="10,0,0,0"
+                         VerticalAlignment="Center"/>
+            </StackPanel>
+            <Button x:Name="AiChatClearBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Right"
+                    Padding="10,3" FontSize="11" Click="AiChatClear_Click"/>
+          </Grid>
+          <DockPanel DockPanel.Dock="Bottom" Margin="12,0,12,10">
+            <Button x:Name="AiChatSendBtn" DockPanel.Dock="Right" Style="{StaticResource GhostButton}"
+                    Margin="8,0,0,0" Click="AiChatSend_Click"/>
+            <TextBox x:Name="AiChatInput" Style="{StaticResource TermTextBox}" Height="28"
+                     Tag="问这张盘…" KeyDown="AiChatInput_KeyDown"/>
+          </DockPanel>
+          <Grid x:Name="AiChatHost" Margin="12,0,12,8">
+            <ScrollViewer x:Name="AiChatScroll" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl x:Name="AiChatList">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <ctrl:ChatBubble Line="{Binding}" PathClick="ChatPath_Click" Margin="0,0,0,10"/>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <ItemsControl x:Name="JuryPaneList" Visibility="Collapsed">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <UniformGrid Rows="1"/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border BorderBrush="#3A3A3A" BorderThickness="0,0,1,0" Margin="0,0,8,0" Padding="0,0,8,0">
+                    <DockPanel>
+                      <TextBlock DockPanel.Dock="Top" Text="{Binding Title}" Foreground="#5CC8FF"
+                                 FontSize="11" Margin="0,0,0,8"/>
+                      <TextBox Text="{Binding LiveText, Mode=OneWay}" IsReadOnly="True"
+                               TextWrapping="Wrap" AcceptsReturn="True" BorderThickness="0"
+                               Background="Transparent" Foreground="#E8E8E8" FontSize="12"
+                               VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                               CaretBrush="#E8E8E8"/>
+                    </DockPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Grid>
+        </DockPanel>
+      </Border>
+      <GridSplitter Grid.Column="1" Width="12" Cursor="SizeWE"/>
+      <Border Grid.Column="2" Background="{DynamicResource PanelRight}">
+        <DockPanel x:Name="CleanPane">
+          <StackPanel x:Name="CleanProgressPanel" DockPanel.Dock="Top" Margin="20,12,20,10" Visibility="Collapsed">
+            <TextBlock x:Name="CleanProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
+            <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
+          </StackPanel>
+          <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,12,20,8"
+                     Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
+          <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
+            <ComboBox x:Name="CleanCatBox" Width="168" Margin="0,0,8,6" SelectionChanged="CleanCat_Changed"
+                      WindowChrome.IsHitTestVisibleInChrome="True"/>
+            <Button x:Name="SelectAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectAll_Click"/>
+            <Button x:Name="SelectSafeBtn" Content="勾选安全项" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="SelectSafe_Click"/>
+          </WrapPanel>
+          <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
+            <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Click="RecycleSelected_Click"/>
+            <Button x:Name="AiExplainBtn" Content="AI 解释勾选项" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="AiExplain_Click"/>
+            <TextBlock x:Name="CleanSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextDim}" FontSize="11"/>
+          </StackPanel>
+          <DataGrid x:Name="CleanGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
+                    HeadersVisibility="Column" GridLinesVisibility="None"
+                    BorderThickness="0" RowHeight="32" Margin="12,0,16,0"
+                    AlternatingRowBackground="{DynamicResource RowAlt}"
+                    RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
+                    HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
+                    SelectionMode="Single" SelectionUnit="FullRow"
+                    VerticalContentAlignment="Center"
+                    HorizontalScrollBarVisibility="Disabled"
+                    MouseDoubleClick="CleanGrid_MouseDoubleClick"
+                    MouseLeftButtonUp="CleanGrid_Click">
+            <DataGrid.ContextMenu>
+              <ContextMenu>
+                <MenuItem x:Name="CleanOpenItem" Header="在资源管理器中打开" Click="CleanOpen_Click"/>
+              </ContextMenu>
+            </DataGrid.ContextMenu>
+            <DataGrid.Columns>
+              <DataGridCheckBoxColumn x:Name="ColPick" Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
+              <DataGridTextColumn x:Name="ColCleanName" Header="名称" Binding="{Binding Name}" Width="*" MinWidth="80" IsReadOnly="True">
+                <DataGridTextColumn.ElementStyle>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                    <Setter Property="ToolTip" Value="{Binding Name}"/>
+                  </Style>
+                </DataGridTextColumn.ElementStyle>
+              </DataGridTextColumn>
+              <DataGridTextColumn x:Name="ColCleanSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="72" IsReadOnly="True">
+                <DataGridTextColumn.ElementStyle>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="HorizontalAlignment" Value="Right"/>
+                    <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                  </Style>
+                </DataGridTextColumn.ElementStyle>
+              </DataGridTextColumn>
+              <DataGridTextColumn x:Name="ColCleanWhy" Header="原因" Binding="{Binding Reason}" Width="1.4*" MinWidth="80" IsReadOnly="True">
+                <DataGridTextColumn.ElementStyle>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                    <Setter Property="ToolTip" Value="{Binding Reason}"/>
+                  </Style>
+                </DataGridTextColumn.ElementStyle>
+              </DataGridTextColumn>
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+      </Border>
+    </Grid>
+    </Grid>
     </Grid>
   </DockPanel>
 
@@ -1179,6 +1305,34 @@
             </ItemsControl>
             <Button x:Name="AiAddProvBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Stretch"
                     Padding="10,8" Click="AiAddProv_Click"/>
+            <Button x:Name="JuryToggleBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Stretch"
+                    Padding="10,8" Margin="0,12,0,0" Click="JuryToggle_Click"/>
+            <StackPanel x:Name="JuryPanel" Visibility="Collapsed" Margin="0,10,0,0">
+              <ItemsControl x:Name="JuryPickList">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Margin="0,0,0,14">
+                      <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                                 Margin="0,0,0,8"/>
+                      <ItemsControl ItemsSource="{Binding Models}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <UniformGrid Columns="2"/>
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <Button Content="{Binding Label}" Tag="{Binding}" Style="{StaticResource GhostButton}"
+                                    HorizontalAlignment="Stretch" Padding="10,6" FontSize="11" Margin="0,0,8,8"
+                                    Click="JuryPick_Click"/>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
           </StackPanel>
         </ScrollViewer>
         <ScrollViewer x:Name="ProvEditBody" MaxHeight="520" Visibility="Collapsed"

@@ -10,6 +10,8 @@ public static class Loc
     public static bool IsEn => Lang == AppLang.En;
 
     public static string AppName => IsEn ? "Dashao Huo" : "大扫货";
+    public static string NavBrowse => IsEn ? "Browse" : "浏览";
+    public static string NavAi => IsEn ? "AI analysis" : "AI 分析";
     public static string Scan => IsEn ? "Scan" : "扫描";
     public static string Stop => IsEn ? "Stop" : "停止";
     public static string Settings => IsEn ? "Settings" : "设置";
@@ -107,10 +109,11 @@ public static class Loc
         IsEn ? $"{name} → {preview}" : $"{name} → {preview}";
     public static string AiYou => IsEn ? "You" : "你";
     public static string AiBot => ModelLabel();
+    public static string AiJuryName => IsEn ? "Jury" : "评审";
     public static string ModelLabel()
     {
         string name = (App.Settings.AiModel ?? "").Trim();
-        return string.IsNullOrEmpty(name) ? (IsEn ? "AI" : "AI") : name;
+        return string.IsNullOrEmpty(name) ? "AI" : name;
     }
     public static string AiLampOff => IsEn ? "not configured" : "未配置";
     public static string AiReady => IsEn ? "ready" : "已配置";
@@ -123,55 +126,115 @@ public static class Loc
     public static string AiExtraHint => IsEn
         ? "e.g. Always ask what I want before suggesting deletes."
         : "例如：先问我想清什么，再给建议。";
+    public static string SecSummary => IsEn ? "Overview" : "总览";
+    public static string SecFolders => IsEn ? "Folders" : "大文件夹";
+    public static string SecDeletable => IsEn ? "Likely deletable" : "可能能删";
+    public static string SecKeep => IsEn ? "Keep" : "别动";
+    public static string SecQuestion => IsEn ? "Question" : "问你一句";
+    public static string SecNeed => IsEn ? "Your goal" : "你的需求";
+    public static string GradeHigh => IsEn ? "High" : "高把握";
+    public static string GradeMid => IsEn ? "Medium" : "中把握";
+    public static string GradeLow => IsEn ? "Low" : "低把握";
+    public static string JuryToggleOn => IsEn ? "Multi-model jury: paused" : "多模型评选：暂关";
+    public static string JuryToggleOff => IsEn ? "Multi-model jury: off" : "多模型评选：关";
+    public static string JuryPaused => IsEn
+        ? "Jury is paused. Analyze uses one model until chat is stable."
+        : "评选先关掉。分析只用当前模型，对话稳了再开。";
+    public static string JuryChipMore(int n) => IsEn ? $"+{n}" : $"+{n}";
+    public static string JuryDefaultNeed => IsEn
+        ? "Clean everything that is safe: temp, caches, dumps, leftover installers, dev caches. Do not touch Windows / Program Files / Users as a whole."
+        : "能清的都清：临时、缓存、转储、装完的安装包、开发缓存。Windows / Program Files / Users 整夹别动。";
+    public static string JuryWorking(int n) => IsEn ? $"jury: {n} models…" : $"评审：{n} 个模型并行…";
+    public static string JuryThinking => IsEn ? "connecting…" : "正在连接…";
+    public static string JuryWaiting => IsEn ? "request sent, waiting for reply…" : "请求已发出，等回复…";
+    public static string AiWaiting(int s) => IsEn ? $"waiting… {s}s" : $"等回复中… {s} 秒";
+    public static string JuryRetry(string err) => IsEn ? "retrying: " + err : "改整段请求：" + err;
+    public static string AiPartial(string err) => IsEn ? "Stopped: " + err + " Using what we already have." : "中断：" + err + " 先用已经找到的项。";
+    public static string AiHttp520 => IsEn
+        ? "The API proxy returned 520. Too many tool rounds. Try Analyze again."
+        : "接口中转返回 520，多半是工具轮次太多。再点一次分析。";
+    public static string AiTimeout => IsEn
+        ? "Timed out. Check URL / key, or the model is too slow."
+        : "连接超时。检查地址和密钥，或模型太慢。";
+    public static string AiHostFail(string err) => IsEn
+        ? "Cannot reach host: " + err
+        : "连不上主机：" + err;
+    public static string AiNetFail(string err) => IsEn ? "Network error: " + err : "网络错误：" + err;
+    public static string AiHttpFail(int code, string err) => IsEn ? $"HTTP {code}: {err}" : $"HTTP {code}：{err}";
+    public static string JuryMerge => IsEn ? "Merged score" : "汇总";
+    public static string JurySeatOk(string name, int n) => IsEn ? $"{name} voted {n} items" : $"{name} 投了 {n} 条";
+    public static string JurySeatFail(string name, string err) => IsEn ? $"{name} failed, no vote: {err}" : $"{name} 失败没投：{err}";
+    public static string JurySeatEmpty(string name) => IsEn ? $"{name} returned nothing, no vote" : $"{name} 没有给出条目，没投";
+    public static string JuryVotedYes(IEnumerable<string> names) => IsEn ? "yes: " + string.Join(", ", names) : "投了：" + string.Join("、", names);
+    public static string JuryVotedNo(IEnumerable<string> names) => IsEn ? "no: " + string.Join(", ", names) : "没投：" + string.Join("、", names);
+    public static string JurySummary(int models, int high) => IsEn
+        ? $"{models} models voted. {high} high-confidence items are checked on the right."
+        : $"{models} 个模型已投票。高把握 {high} 项已在右边勾上。";
+    public static string JuryAsk => IsEn
+        ? "High-confidence items are checked. Press Recycle when ready."
+        : "高把握项已勾上。确认后点删除。";
+    public static string JuryChecked => IsEn ? "High-confidence items are now checked on the right." : "高把握项已在右边勾上。等你点删除。";
+    public static string JuryNone => IsEn ? "No overlapping suggestions. Try a clearer goal." : "没有重叠建议。需求再说具体一点。";
+    public static string JurySystem => IsEn
+        ? """
+          Score cleanup candidates. Never delete. Never invent paths. Copy full paths from the scan.
+          Never list Windows / Program Files / Users / WinSxS as a whole.
+          List at most 8 DELETABLE items:
+
+          SUMMARY
+          one sentence
+
+          DELETABLE
+          GOTO C:\full\path	12.4G	why
+          """
+        : """
+          给清理项打分。不要删除，不要编造路径。只从扫描结果复制完整路径。
+          不要写整个 Windows / Program Files / Users / WinSxS。
+          只列最值得清的 8 条。格式：
+
+          SUMMARY
+          一句话
+
+          DELETABLE
+          GOTO C:\完整路径	12.4G	原因
+          """;
     public static string AiScanHeader => IsEn
         ? "Scan finished. Reply in the exact format below. Do not invent files."
         : "扫描结束。必须按下述格式回复。不要编造文件。";
     public static string AiAnalystSystem => IsEn
         ? """
           You are a file analyst in a disk cleaner. Never delete. Never invent paths.
-          FINAL reply MUST use this exact shape (English or Chinese labels ok):
+          The user wants the disk as clean as it can safely be. Do not ask what to clean. List every safe candidate.
+          FINAL reply MUST use this exact shape. No markdown, no extra sections, no QUESTION section:
 
           SUMMARY
           one or two sentences.
 
-          FOLDERS
-          GOTO	<full path>	<size>	<what it is>
-          (3-8 root folders. Keep = do not delete. Migrate = move. Explain = just describe.)
-
           DELETABLE
-          GOTO	<full path>	<size>	<why it can be deleted>
-          (only concrete files/caches, never Windows / Program Files / Users / WinSxS as a whole)
+          GOTO C:\full\path	2.4G	why it can be deleted
+          (concrete files/caches/dumps/leftover installers/dev caches; never Windows / Program Files / Users / WinSxS as a whole)
 
           KEEP
-          GOTO	<full path>	<size>	<why not delete>
+          GOTO C:\full\path	24.4G	why not delete
 
-          QUESTION
-          one question about what the user wants to clean.
-
-          Rules: every actionable item is a GOTO line, tab-separated. Copy paths from the scan. Call suggest + set_checked for DELETABLE items. Safe cache may be suggested; confirm must be asked; keep/migrate only. WeChat/QQ: cache only.
+          Each GOTO line: GOTO, then the full path, then size, then one-line reason. Copy paths from the scan list. Suggest safe cache. WeChat/QQ: cache only. Do not invent XML/DSML/tool tags. Do not call tools. One shot.
           """
         : """
           你是磁盘清理软件里的文件分析师。不要删除，不要编造路径。
-          最终回复必须用下面这个格式，一行一项：
+          用户想尽量清干净。不要问清哪块，把能安全清的都列出来。
+          最终回复必须用下面这个格式。不要 markdown，不要 QUESTION 章节：
 
           SUMMARY
           一两句话总览。
 
-          FOLDERS
-          GOTO	完整路径	大小	这是什么
-          （3～8 个大根目录。Keep=别删，Migrate=搬家，Explain=只解释。）
-
           DELETABLE
-          GOTO	完整路径	大小	为什么能删
-          （只写具体文件/缓存，不要写整个 Windows / Program Files / Users / WinSxS）
+          GOTO C:\完整路径	2.4G	为什么能删
+          （只写具体文件/缓存/转储/装完的安装包/开发缓存，不要写整个 Windows / Program Files / Users / WinSxS）
 
           KEEP
-          GOTO	完整路径	大小	为什么不能删
+          GOTO C:\完整路径	24.4G	为什么不能删
 
-          QUESTION
-          问一句用户想先清哪块。
-
-          规则：可操作的每一项都必须是 GOTO 行，用 Tab 分隔。路径从扫描结果原样复制。DELETABLE 项同时调用 suggest 和 set_checked。safe cache 可建议删；confirm 要问；keep 只能迁移。微信/QQ 只动缓存。
+          每条 GOTO：GOTO、完整路径、大小、一句原因。路径从扫描清单原样复制。safe cache 可建议删。微信/QQ 只动缓存。不要写 XML/DSML/工具标签，不要调工具，一轮答完。
           """;
     public static string AiTool(string name) => IsEn ? $"tool: {name}" : $"工具：{name}";
     public static string AiKindName(AiProtocol p) => p switch
@@ -396,6 +459,7 @@ public static class Loc
     public static string ColReason => IsEn ? "Why" : "原因";
     public static string ColName => IsEn ? "Name" : "名称";
 
+    public static string CatAi => IsEn ? "AI suggested" : "AI 建议";
     public static string CatCleanable => IsEn ? "Safe to clean" : "可清理";
     public static string CatLarge => IsEn ? "Largest files" : "大文件";
     public static string CatOld => IsEn ? "Old files" : "老文件";

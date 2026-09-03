@@ -1,6 +1,13 @@
+using System.ClientModel;
+using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Security;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using OpenAI;
+using OpenAI.Chat;
 
 namespace AiDiskCleaner.Services;
 
@@ -31,7 +38,26 @@ public sealed class AiReply
 
 public static class AiClient
 {
-    static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(90) };
+    static AiClient()
+    {
+        AppContext.SetSwitch("OpenAI.DisableTelemetry", true);
+    }
+
+    static readonly HttpClient Http = CreateHttp();
+
+    static HttpClient CreateHttp()
+    {
+        var handler = new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            ConnectTimeout = TimeSpan.FromSeconds(15),
+            SslOptions = new SslClientAuthenticationOptions
+            {
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+            },
+        };
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(90) };
+    }
     static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public static AiProtocol ParseProtocol(string? s) => s switch
@@ -57,11 +83,39 @@ public static class AiClient
         return reply.Text;
     }
 
-    public static async Task<AiReply> TurnAsync(string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
+    public static Task<AiReply> TurnAsync(string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
+        => TurnAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, system, turns, tools, ct);
+
+    public static async Task<AiReply> StreamAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, Action<string> onDelta, CancellationToken ct)
     {
-        var p = App.Settings.CurrentProvider();
+        var proto = ParseProtocol(p?.Protocol);
+        if (proto == AiProtocol.Completions)
+        {
+            try
+            {
+                return await StreamCompletions(p, modelId, system, turns, onDelta, ct);
+            }
+            catch (Exception ex)
+            {
+                if (LooksLikeHardFail(ex)) throw new InvalidOperationException(Pretty(ex), ex);
+            }
+        }
+        var reply = await TurnAsync(p, modelId, system, turns, null, ct);
+        if (!string.IsNullOrEmpty(reply.Text)) onDelta(reply.Text);
+        return reply;
+    }
+
+    static bool LooksLikeHardFail(Exception ex)
+    {
+        string t = (ex.Message + " " + (ex.InnerException?.Message ?? "")).ToLowerInvariant();
+        return t.Contains("520") || t.Contains("502") || t.Contains("503") || t.Contains("504")
+            || t.Contains("401") || t.Contains("403");
+    }
+
+    public static async Task<AiReply> TurnAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
+    {
         string baseUrl = (p?.BaseUrl ?? "").Trim().TrimEnd('/');
-        string model = (App.Settings.AiModel ?? "").Trim();
+        string model = (modelId ?? "").Trim();
         string key = p?.ApiKey ?? "";
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(model))
             throw new InvalidOperationException(Loc.AiNeedConfig);
@@ -84,6 +138,43 @@ public static class AiClient
                 _ => await Completions(baseUrl, model, key, system, turns, null, ct),
             };
         }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(Pretty(ex), ex);
+        }
+    }
+
+    public static string Pretty(Exception ex)
+    {
+        var inner = ex;
+        while (inner.InnerException != null) inner = inner.InnerException;
+        if (inner is ClientResultException cre)
+        {
+            if (cre.Status == 520) return Loc.AiHttp520;
+            if (cre.Status > 0) return Loc.AiHttpFail(cre.Status, cre.Message);
+            return cre.Message;
+        }
+        if (inner is HttpRequestException http)
+        {
+            if (http.StatusCode is { } code) return Loc.AiHttpFail((int)code, http.Message);
+            if (inner.InnerException is SocketException sock)
+                return Loc.AiHostFail(sock.Message);
+            return Loc.AiNetFail(http.Message);
+        }
+        if (inner is SocketException s) return Loc.AiHostFail(s.Message);
+        if (inner is TaskCanceledException or OperationCanceledException or TimeoutException)
+            return Loc.AiTimeout;
+        string m = inner.Message ?? ex.Message;
+        if (m.Contains("No such host", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("不知道这样的主机", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("host not found", StringComparison.OrdinalIgnoreCase))
+            return Loc.AiHostFail(m);
+        if (m.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("Timeout", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("没有正确答复", StringComparison.OrdinalIgnoreCase))
+            return Loc.AiTimeout;
+        if (m.Contains("520")) return Loc.AiHttp520;
+        return m;
     }
 
     public static Task<string> TestAsync(CancellationToken ct)
@@ -105,6 +196,46 @@ public static class AiClient
         return ParseModelIds(body);
     }
 
+    static async Task<AiReply> StreamCompletions(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, Action<string> onDelta, CancellationToken ct)
+    {
+        string baseUrl = (p?.BaseUrl ?? "").Trim().TrimEnd('/');
+        string model = (modelId ?? "").Trim();
+        string key = p?.ApiKey ?? "";
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(model))
+            throw new InvalidOperationException(Loc.AiNeedConfig);
+        var client = MakeChat(baseUrl, model, key);
+        var messages = ToChatMessages(system, turns);
+        var sb = new StringBuilder();
+        using var first = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        first.CancelAfter(TimeSpan.FromSeconds(45));
+        bool got = false;
+        try
+        {
+            await foreach (var update in client.CompleteChatStreamingAsync(messages, new ChatCompletionOptions(), first.Token))
+            {
+                if (update.ContentUpdate.Count == 0) continue;
+                foreach (var part in update.ContentUpdate)
+                {
+                    if (string.IsNullOrEmpty(part.Text)) continue;
+                    if (!got)
+                    {
+                        got = true;
+                        first.CancelAfter(Timeout.InfiniteTimeSpan);
+                    }
+                    sb.Append(part.Text);
+                    onDelta(part.Text);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!got && !ct.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("empty");
+        }
+        var reply = new AiReply { Text = sb.ToString() };
+        if (string.IsNullOrWhiteSpace(reply.Text)) throw new InvalidOperationException("empty");
+        return reply;
+    }
+
     static bool LooksLikeNoTools(Exception ex)
     {
         string m = ex.Message.ToLowerInvariant();
@@ -112,64 +243,120 @@ public static class AiClient
                || m.Contains("unrecognized") || m.Contains("extra input") || m.Contains("unsupported");
     }
 
-    static async Task<AiReply> Completions(string baseUrl, string model, string key, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
+    static ChatClient MakeChat(string baseUrl, string model, string key)
     {
-        var messages = new List<object> { new { role = "system", content = system } };
+        var options = new OpenAIClientOptions
+        {
+            Endpoint = new Uri(RootUrl(baseUrl)),
+            NetworkTimeout = TimeSpan.FromSeconds(90),
+        };
+        string cred = string.IsNullOrWhiteSpace(key) ? "none" : key;
+        return new ChatClient(model, new ApiKeyCredential(cred), options);
+    }
+
+    static List<ChatMessage> ToChatMessages(string system, IReadOnlyList<AiMsg> turns)
+    {
+        var list = new List<ChatMessage> { new SystemChatMessage(system) };
         foreach (var t in turns)
         {
             if (t.Role == "tool")
-                messages.Add(new { role = "tool", tool_call_id = t.CallId ?? "", content = t.Text });
+                list.Add(new ToolChatMessage(t.CallId ?? "", t.Text ?? ""));
             else if (t.Role == "assistant" && t.Calls is { Count: > 0 })
             {
-                messages.Add(new
-                {
-                    role = "assistant",
-                    content = string.IsNullOrEmpty(t.Text) ? null : t.Text,
-                    tool_calls = t.Calls.Select(c => new
-                    {
-                        id = c.Id,
-                        type = "function",
-                        function = new { name = c.Name, arguments = c.Arguments },
-                    }).ToArray(),
-                });
+                var calls = t.Calls.Select(c => ChatToolCall.CreateFunctionToolCall(
+                    string.IsNullOrEmpty(c.Id) ? Guid.NewGuid().ToString("N") : c.Id,
+                    c.Name,
+                    BinaryData.FromString(string.IsNullOrEmpty(c.Arguments) ? "{}" : c.Arguments))).ToList();
+                var msg = new AssistantChatMessage(calls);
+                if (!string.IsNullOrEmpty(t.Text))
+                    msg.Content.Add(ChatMessageContentPart.CreateTextPart(t.Text));
+                list.Add(msg);
             }
+            else if (t.Role == "assistant")
+                list.Add(new AssistantChatMessage(t.Text ?? ""));
             else
-                messages.Add(new { role = t.Role, content = t.Text });
+                list.Add(new UserChatMessage(t.Text ?? ""));
         }
-        var payload = new Dictionary<string, object?>
+        return list;
+    }
+
+    static IEnumerable<ChatTool> ToChatTools(IReadOnlyList<object> tools)
+    {
+        foreach (var t in tools)
         {
-            ["model"] = model,
-            ["temperature"] = 0.2,
-            ["messages"] = messages,
-        };
+            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(t, Json));
+            var root = doc.RootElement;
+            var fn = root.TryGetProperty("function", out var f) ? f : root;
+            string name = Str(fn, "name");
+            if (string.IsNullOrEmpty(name)) continue;
+            string desc = Str(fn, "description");
+            BinaryData? schema = fn.TryGetProperty("parameters", out var p)
+                ? BinaryData.FromString(p.GetRawText())
+                : null;
+            yield return ChatTool.CreateFunctionTool(name, desc, schema);
+        }
+    }
+
+    static async Task<AiReply> Completions(string baseUrl, string model, string key, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
+    {
+        var client = MakeChat(baseUrl, model, key);
+        var messages = ToChatMessages(system, turns);
+        var options = new ChatCompletionOptions();
         if (tools != null)
         {
-            payload["tools"] = tools;
-            payload["tool_choice"] = "auto";
+            foreach (var tool in ToChatTools(tools))
+                options.Tools.Add(tool);
         }
-        using var req = new HttpRequestMessage(HttpMethod.Post, Join(baseUrl, "chat/completions"));
-        Auth(req, AiProtocol.Completions, key);
-        req.Content = JsonBody(payload);
-        using var res = await Http.SendAsync(req, ct);
-        string body = await res.Content.ReadAsStringAsync(ct);
-        if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
-        using var doc = JsonDocument.Parse(body);
-        var msg = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
-        var reply = new AiReply { Text = Str(msg, "content") };
-        if (msg.TryGetProperty("tool_calls", out var calls) && calls.ValueKind == JsonValueKind.Array)
+        ClientResult<ChatCompletion> result = await client.CompleteChatAsync(messages, options, ct);
+        return FromCompletion(result);
+    }
+
+    static AiReply FromCompletion(ClientResult<ChatCompletion> result)
+    {
+        var completion = result.Value;
+        var reply = new AiReply();
+        if (completion.Content is { Count: > 0 })
         {
-            foreach (var c in calls.EnumerateArray())
+            var bits = new List<string>();
+            foreach (var part in completion.Content)
+                if (!string.IsNullOrEmpty(part.Text)) bits.Add(part.Text);
+            reply.Text = string.Join("", bits);
+        }
+        if (completion.ToolCalls is { Count: > 0 })
+        {
+            foreach (var c in completion.ToolCalls)
             {
-                var fn = c.GetProperty("function");
                 reply.Calls.Add(new AiToolCall
                 {
-                    Id = Str(c, "id"),
-                    Name = Str(fn, "name"),
-                    Arguments = Str(fn, "arguments") is { Length: > 0 } a ? a : "{}",
+                    Id = c.Id ?? "",
+                    Name = c.FunctionName ?? "",
+                    Arguments = c.FunctionArguments is { } args && args.ToMemory().Length > 0
+                        ? args.ToString()
+                        : "{}",
                 });
             }
         }
-        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools) throw Fail(body, "empty");
+        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools)
+        {
+            string raw = "";
+            try { raw = result.GetRawResponse()?.Content?.ToString() ?? ""; }
+            catch { }
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(raw);
+                    if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+                    {
+                        var msg = choices[0].GetProperty("message");
+                        reply.Text = MessageText(msg);
+                    }
+                }
+                catch { }
+            }
+            if (string.IsNullOrWhiteSpace(reply.Text))
+                throw Fail(ClipBody(raw), "empty");
+        }
         return reply;
     }
 
@@ -317,7 +504,7 @@ public static class AiClient
             }
             reply.Text = string.Join("", texts);
         }
-        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools) throw Fail(body, "empty");
+        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.HasTools) throw Fail(ClipBody(body), "empty");
         return reply;
     }
 
@@ -333,15 +520,18 @@ public static class AiClient
             req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + key);
     }
 
-    static string Join(string baseUrl, string endpoint)
+    static string RootUrl(string baseUrl)
     {
         string root = baseUrl.Trim().TrimEnd('/');
         bool hasV1 = root.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
                      || root.Contains("/v1/", StringComparison.OrdinalIgnoreCase)
                      || root.Contains("/v1beta", StringComparison.OrdinalIgnoreCase);
         if (!hasV1) root += "/v1";
-        return root + "/" + endpoint.TrimStart('/');
+        return root;
     }
+
+    static string Join(string baseUrl, string endpoint)
+        => RootUrl(baseUrl) + "/" + endpoint.TrimStart('/');
 
     static List<string> ParseModelIds(string body)
     {
@@ -366,6 +556,45 @@ public static class AiClient
         }
         ids.Sort(StringComparer.OrdinalIgnoreCase);
         return ids.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    static string MessageText(JsonElement msg)
+    {
+        string text = ContentText(msg.TryGetProperty("content", out var c) ? c : default);
+        if (!string.IsNullOrWhiteSpace(text)) return text;
+        foreach (var name in new[] { "reasoning_content", "reasoning", "output_text", "text" })
+        {
+            text = ContentText(msg.TryGetProperty(name, out var p) ? p : default);
+            if (!string.IsNullOrWhiteSpace(text)) return text;
+        }
+        return "";
+    }
+
+    static string ContentText(JsonElement e)
+    {
+        if (e.ValueKind == JsonValueKind.String) return e.GetString() ?? "";
+        if (e.ValueKind == JsonValueKind.Array)
+        {
+            var bits = new List<string>();
+            foreach (var part in e.EnumerateArray())
+            {
+                if (part.ValueKind == JsonValueKind.String) bits.Add(part.GetString() ?? "");
+                else if (part.ValueKind == JsonValueKind.Object)
+                {
+                    string t = FirstStr(part, "text", "content", "output_text");
+                    if (!string.IsNullOrEmpty(t)) bits.Add(t);
+                }
+            }
+            return string.Join("", bits);
+        }
+        return "";
+    }
+
+    static string ClipBody(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "empty";
+        string t = body.Replace('\n', ' ').Replace('\r', ' ').Trim();
+        return t.Length > 280 ? t[..277] + "…" : t;
     }
 
     static string Str(JsonElement e, string name)

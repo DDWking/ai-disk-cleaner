@@ -20,6 +20,9 @@
     <Resource Include="Assets\app.ico" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="OpenAI" Version="2.13.0" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\UninstallTools\UninstallTools.csproj" />
     <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\StoreAppHelper\StoreAppHelper.csproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
