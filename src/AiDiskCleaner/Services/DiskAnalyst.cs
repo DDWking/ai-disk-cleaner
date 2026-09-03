@@ -13,8 +13,8 @@ public interface IAnalystHost
 
 public static class DiskAnalyst
 {
-    public const int MaxRounds = 6;
-    public const int TokenBudget = 12000;
+    public const int MaxRounds = 2;
+    public const int TokenBudget = 8000;
     static readonly HashSet<string> Listed = new(StringComparer.OrdinalIgnoreCase);
 
     public static string SystemPrompt() => Loc.AiAnalystSystem;

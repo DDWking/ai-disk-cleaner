@@ -1736,11 +1736,12 @@ public partial class MainWindow : Window, IAnalystHost
             var proto = AiClient.ParseProtocol(App.Settings.CurrentProvider()?.Protocol);
             var tools = DiskAnalyst.Tools(proto);
             string last = "";
+            ChatLine? live = null;
             for (int round = 0; round < DiskAnalyst.MaxRounds; round++)
             {
-                AddChat(Loc.AiBot, Loc.AiRound(round + 1), log: true);
-                bool overBudget = DiskAnalyst.EstimateTokens(_turns) >= DiskAnalyst.TokenBudget;
-                var live = AddChat(Loc.AiBot, Loc.JuryWaiting, log: true);
+                bool lastRound = round == DiskAnalyst.MaxRounds - 1
+                    || DiskAnalyst.EstimateTokens(_turns) >= DiskAnalyst.TokenBudget;
+                live = AddChat(Loc.AiBot, Loc.JuryWaiting, log: true);
                 var buf = new System.Text.StringBuilder();
                 void Push(string delta)
                 {
@@ -1748,51 +1749,24 @@ public partial class MainWindow : Window, IAnalystHost
                     string snap = buf.ToString();
                     Dispatcher.BeginInvoke(() => live.Text = snap, System.Windows.Threading.DispatcherPriority.Background);
                 }
-                AiReply reply;
-                if (overBudget || tools == null)
-                    reply = await AiClient.StreamAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, DiskAnalyst.SystemPrompt(), PackedTurns(), Push, CancellationToken.None);
-                else
-                    reply = await AiClient.TurnAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), tools, CancellationToken.None);
+                AiReply reply = lastRound
+                    ? await AiClient.StreamAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, DiskAnalyst.SystemPrompt(), PackedTurns(), Push, CancellationToken.None)
+                    : await AiClient.TurnAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), tools, CancellationToken.None);
                 last = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
-                if (!reply.HasTools)
+                if (!reply.HasTools || lastRound)
                 {
-                    if (string.IsNullOrEmpty(last)) last = Loc.AiOk;
-                    _turns.Add(new AiMsg { Role = "assistant", Text = last });
-                    HarvestNotes(last, check: true);
-                    CollectAiFromNotes();
-                    SetAiLamp(true);
-                    Dispatcher.Invoke(() =>
-                    {
-                        live.Log = false;
-                        live.Text = last;
-                        live.Parts = ChatFormat.Parse(last);
-                    });
-                    ShowAiSuggested();
+                    FinishAnalyst(live, last);
                     return last;
                 }
-                Dispatcher.Invoke(() =>
-                {
-                    live.Log = true;
-                    live.Text = string.IsNullOrEmpty(last) ? Loc.AiRound(round + 1) : last;
-                });
+                Dispatcher.Invoke(() => { live.Log = true; live.Text = last; });
                 _turns.Add(new AiMsg { Role = "assistant", Text = last, Calls = reply.Calls });
                 foreach (var call in reply.Calls)
                 {
                     string result = DiskAnalyst.Run(call.Name, call.Arguments, this);
-                    string preview = result.Replace("\r", " ").Replace("\n", " ");
-                    if (preview.Length > 160) preview = preview[..157] + "…";
-                    AddChat(Loc.AiBot, Loc.AiToolResult(call.Name, preview), log: true);
                     _turns.Add(new AiMsg { Role = "tool", Text = result, CallId = call.Id, ToolName = call.Name });
                 }
             }
-            if (!string.IsNullOrEmpty(last))
-            {
-                _turns.Add(new AiMsg { Role = "assistant", Text = last });
-                HarvestNotes(last, check: true);
-                CollectAiFromNotes();
-                AddChat(Loc.AiBot, last);
-                ShowAiSuggested();
-            }
+            FinishAnalyst(live, last);
             return last;
         }
         catch (Exception ex)
@@ -1800,7 +1774,9 @@ public partial class MainWindow : Window, IAnalystHost
             if (_turns.Count > 0 && _turns[^1].Role == "user")
                 _turns.RemoveAt(_turns.Count - 1);
             SetAiLamp(false);
-            AddChat(Loc.AiBot, ex.Message);
+            AddChat(Loc.AiBot, Loc.AiPartial(AiClient.Pretty(ex)), log: true);
+            CollectAiFromNotes();
+            ShowAiSuggested();
             return "";
         }
         finally
@@ -1810,6 +1786,24 @@ public partial class MainWindow : Window, IAnalystHost
             AiChatSendBtn.IsEnabled = true;
             AiExplainBtn.IsEnabled = true;
         }
+    }
+
+    void FinishAnalyst(ChatLine? live, string last)
+    {
+        if (string.IsNullOrWhiteSpace(last)) last = Loc.AiOk;
+        _turns.Add(new AiMsg { Role = "assistant", Text = last });
+        HarvestNotes(last, check: true);
+        CollectAiFromNotes();
+        SetAiLamp(true);
+        if (live != null)
+        {
+            live.Log = false;
+            live.Text = last;
+            live.Parts = ChatFormat.Parse(last);
+        }
+        else
+            AddChat(Loc.AiBot, last);
+        ShowAiSuggested();
     }
 
     void IAnalystHost.OnChecksChanged(bool showLarge)

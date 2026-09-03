@@ -95,7 +95,9 @@ public static class AiClient
             }
             catch (Exception ex)
             {
-                onDelta(Loc.JuryRetry(Pretty(ex)));
+                string msg = Pretty(ex);
+                if (LooksLikeHardFail(ex)) throw new InvalidOperationException(msg, ex);
+                onDelta(Loc.JuryRetry(msg));
             }
         }
         var reply = await TurnAsync(p, modelId, system, turns, null, ct);
@@ -103,10 +105,11 @@ public static class AiClient
         return reply;
     }
 
-    static bool LooksLikeNoStream(Exception ex)
+    static bool LooksLikeHardFail(Exception ex)
     {
         string t = (ex.Message + " " + (ex.InnerException?.Message ?? "")).ToLowerInvariant();
-        return t.Contains("empty") || t.Contains("stream") || t.Contains("json") || t.Contains("400") || t.Contains("unsupported");
+        return t.Contains("520") || t.Contains("502") || t.Contains("503") || t.Contains("504")
+            || t.Contains("401") || t.Contains("403");
     }
 
     public static async Task<AiReply> TurnAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
@@ -164,6 +167,7 @@ public static class AiClient
             || m.Contains("Timeout", StringComparison.OrdinalIgnoreCase)
             || m.Contains("没有正确答复", StringComparison.OrdinalIgnoreCase))
             return Loc.AiTimeout;
+        if (m.Contains("520")) return Loc.AiHttp520;
         return m;
     }
 

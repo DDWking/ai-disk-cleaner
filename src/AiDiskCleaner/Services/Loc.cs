@@ -147,7 +147,11 @@ public static class Loc
     public static string JuryWorking(int n) => IsEn ? $"jury: {n} models…" : $"评审：{n} 个模型并行…";
     public static string JuryThinking => IsEn ? "connecting…" : "正在连接…";
     public static string JuryWaiting => IsEn ? "request sent, waiting for reply…" : "请求已发出，等回复…";
-    public static string JuryRetry(string err) => IsEn ? "stream failed, retrying: " + err : "流式失败，改整段请求：" + err;
+    public static string JuryRetry(string err) => IsEn ? "retrying: " + err : "改整段请求：" + err;
+    public static string AiPartial(string err) => IsEn ? "Stopped: " + err + " Using what we already have." : "中断：" + err + " 先用已经找到的项。";
+    public static string AiHttp520 => IsEn
+        ? "The API proxy returned 520. Too many tool rounds. Try Analyze again."
+        : "接口中转返回 520，多半是工具轮次太多。再点一次分析。";
     public static string AiTimeout => IsEn
         ? "Timed out. Check URL / key, or the model is too slow."
         : "连接超时。检查地址和密钥，或模型太慢。";
@@ -212,7 +216,7 @@ public static class Loc
           KEEP
           GOTO C:\full\path	24.4G	why not delete
 
-          Each GOTO line: GOTO, then the full path, then size, then one-line reason. Copy paths from the scan. Suggest safe cache. WeChat/QQ: cache only. Call suggest for every DELETABLE path.
+          Each GOTO line: GOTO, then the full path, then size, then one-line reason. Copy paths from the scan. Suggest safe cache. WeChat/QQ: cache only. Do not call tools unless a path is missing from the scan. Prefer answering in one shot.
           """
         : """
           你是磁盘清理软件里的文件分析师。不要删除，不要编造路径。
@@ -229,7 +233,7 @@ public static class Loc
           KEEP
           GOTO C:\完整路径	24.4G	为什么不能删
 
-          每条 GOTO：GOTO、完整路径、大小、一句原因。路径从扫描结果原样复制。safe cache 可建议删。微信/QQ 只动缓存。每个 DELETABLE 路径都要调用 suggest。
+          每条 GOTO：GOTO、完整路径、大小、一句原因。路径从扫描结果原样复制。safe cache 可建议删。微信/QQ 只动缓存。扫描里已有的路径不要再调工具，尽量一轮答完。
           """;
     public static string AiTool(string name) => IsEn ? $"tool: {name}" : $"工具：{name}";
     public static string AiKindName(AiProtocol p) => p switch
