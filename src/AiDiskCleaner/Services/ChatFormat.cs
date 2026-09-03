@@ -3,7 +3,7 @@ using AiDiskCleaner.Models;
 
 namespace AiDiskCleaner.Services;
 
-public enum ChatPartKind { Text, Path, Break }
+public enum ChatPartKind { Text, Path, Break, Heading }
 
 public sealed class ChatPart
 {
@@ -16,94 +16,105 @@ public sealed class ChatPart
 public static class ChatFormat
 {
     static readonly Regex GotoLine = new(
-        @"^\s*(?:GOTO|跳转)[\t ]+([A-Za-z]:\\[^\t|]+?)[\t|]+([^\t|]*?)[\t|]+(.+?)\s*$",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        @"^\s*(?:GOTO|跳转)[\s|:：]+(.+)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     static readonly Regex WinPath = new(
-        @"[A-Za-z]:\\(?:[^\\/:*?""<>|\s]+\\)*[^\\/:*?""<>|\s]*",
+        @"[A-Za-z]:\\(?:[^\\/:*?""<>|\r\n]+\\)*[^\\/:*?""<>|\r\n]*",
         RegexOptions.Compiled);
+
+    static readonly Regex Bullet = new(@"^\s*(?:[-*•]|\d+[.)、])\s+", RegexOptions.Compiled);
 
     public static List<ChatPart> Parse(string src)
     {
         var parts = new List<ChatPart>();
-        if (string.IsNullOrEmpty(src)) return parts;
+        if (string.IsNullOrWhiteSpace(src)) return parts;
         var lines = src.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        bool any = false;
-        for (int i = 0; i < lines.Length; i++)
+        string? section = null;
+        bool pendingBreak = false;
+        foreach (var raw in lines)
         {
-            if (i > 0) parts.Add(new ChatPart { Kind = ChatPartKind.Break });
-            string line = lines[i];
-            string head = line.Trim();
-            if (head is "SUMMARY" or "FOLDERS" or "DELETABLE" or "KEEP" or "QUESTION"
-                or "总览" or "大文件夹" or "可删" or "保留")
+            string line = raw.Trim();
+            if (line.Length == 0) continue;
+            string? head = HeadingOf(line);
+            if (head != null)
             {
-                parts.Add(new ChatPart { Kind = ChatPartKind.Text, Text = Title(head) });
+                section = head;
+                AddBreak(parts, ref pendingBreak);
+                parts.Add(new ChatPart { Kind = ChatPartKind.Heading, Text = head });
+                pendingBreak = true;
                 continue;
             }
-            var g = GotoLine.Match(line);
-            if (g.Success)
+            var item = ItemFrom(line);
+            if (item != null)
             {
-                any = true;
-                string path = g.Groups[1].Value.Trim().TrimEnd('.', ',', '，', '。');
-                string size = g.Groups[2].Value.Trim();
-                string note = g.Groups[3].Value.Trim();
-                string label = string.IsNullOrEmpty(size) ? ShortName(path) : ShortName(path) + "  " + size;
-                parts.Add(new ChatPart { Kind = ChatPartKind.Path, Text = label, Path = path, Note = note });
-                if (!string.IsNullOrEmpty(note))
-                    parts.Add(new ChatPart { Kind = ChatPartKind.Text, Text = "  " + note });
+                AddBreak(parts, ref pendingBreak);
+                parts.Add(item);
+                pendingBreak = true;
                 continue;
             }
-            SplitLine(line, parts, ref any);
+            if (section == Loc.SecQuestion || section == Loc.SecSummary || section == null)
+            {
+                AddBreak(parts, ref pendingBreak);
+                parts.Add(new ChatPart { Kind = ChatPartKind.Text, Text = StripMd(line) });
+                pendingBreak = true;
+            }
         }
-        if (!any && parts.TrueForAll(p => p.Kind != ChatPartKind.Path))
-            return new List<ChatPart> { new() { Kind = ChatPartKind.Text, Text = src } };
         return parts;
     }
 
-    static void SplitLine(string line, List<ChatPart> parts, ref bool any)
+    static void AddBreak(List<ChatPart> parts, ref bool pending)
     {
-        int i = 0;
-        while (i < line.Length)
-        {
-            var m = WinPath.Match(line, i);
-            if (!m.Success)
-            {
-                parts.Add(new ChatPart { Kind = ChatPartKind.Text, Text = line[i..] });
-                return;
-            }
-            if (m.Index > i)
-                parts.Add(new ChatPart { Kind = ChatPartKind.Text, Text = line[i..m.Index] });
-            string path = m.Value.TrimEnd('.', ',', ';', '，', '。', '、');
-            if (path.Length >= 4)
-            {
-                any = true;
-                parts.Add(new ChatPart
-                {
-                    Kind = ChatPartKind.Path,
-                    Text = ShortName(path),
-                    Path = path,
-                });
-            }
-            else
-                parts.Add(new ChatPart { Kind = ChatPartKind.Text, Text = path });
-            i = m.Index + m.Length;
-        }
+        if (!pending || parts.Count == 0) return;
+        parts.Add(new ChatPart { Kind = ChatPartKind.Break });
+        pending = false;
     }
+
+    static ChatPart? ItemFrom(string line)
+    {
+        string work = Bullet.Replace(line, "");
+        var g = GotoLine.Match(work);
+        if (g.Success) work = g.Groups[1].Value.Trim();
+        var m = WinPath.Match(work);
+        if (!m.Success || m.Length < 4) return null;
+        string path = m.Value.Trim().TrimEnd('.', ',', ';', '，', '。', '、', '`', '"', '\'');
+        string rest = (work[..m.Index] + work[(m.Index + m.Length)..]).Trim();
+        rest = rest.Trim(' ', '-', '—', '–', '|', '·', ':', '：', '\t');
+        string size = TakeSize(ref rest);
+        string note = StripMd(rest);
+        string label = string.IsNullOrEmpty(size) ? ShortName(path) : ShortName(path) + "  " + size;
+        return new ChatPart { Kind = ChatPartKind.Path, Text = label, Path = path, Note = string.IsNullOrEmpty(note) ? null : note };
+    }
+
+    static string TakeSize(ref string rest)
+    {
+        var m = Regex.Match(rest, @"(\d+(?:\.\d+)?\s?(?:KB|MB|GB|G|M|K|TB))", RegexOptions.IgnoreCase);
+        if (!m.Success) return "";
+        rest = (rest[..m.Index] + rest[(m.Index + m.Length)..]).Trim(' ', '-', '—', '|', '·');
+        return m.Groups[1].Value.Replace(" ", "");
+    }
+
+    static string? HeadingOf(string line)
+    {
+        if (WinPath.IsMatch(line)) return null;
+        string s = StripMd(line).Trim().TrimEnd(':', '：');
+        if (s.Length > 18) return null;
+        string u = s.ToUpperInvariant();
+        if (u is "SUMMARY" or "OVERVIEW" or "总览" or "概览") return Loc.SecSummary;
+        if (u is "FOLDERS" or "LARGE FOLDERS" or "大文件夹" or "大根目录") return Loc.SecFolders;
+        if (u is "DELETABLE" or "SAFE TO DELETE" or "可删" or "可能能删" or "建议删除") return Loc.SecDeletable;
+        if (u is "KEEP" or "DO NOT DELETE" or "保留" or "别动") return Loc.SecKeep;
+        if (u is "QUESTION" or "ASK" or "问你一句" or "问题") return Loc.SecQuestion;
+        return null;
+    }
+
+    static string StripMd(string s)
+        => s.Replace("**", "").Replace("`", "").Trim().TrimStart('#', ' ');
 
     static string ShortName(string path)
     {
         string p = path.TrimEnd('\\');
         int i = p.LastIndexOf('\\');
-        return i < 0 ? p : p[(i + 1)..];
+        return i < 0 || i == p.Length - 1 ? p : p[(i + 1)..];
     }
-
-    static string Title(string head) => head.ToUpperInvariant() switch
-    {
-        "SUMMARY" or "总览" => Loc.IsEn ? "Overview" : "总览",
-        "FOLDERS" or "大文件夹" => Loc.IsEn ? "Folders" : "大文件夹",
-        "DELETABLE" or "可删" => Loc.IsEn ? "Likely deletable" : "可能能删",
-        "KEEP" or "保留" => Loc.IsEn ? "Keep" : "别动",
-        "QUESTION" => Loc.IsEn ? "Question" : "问你一句",
-        _ => head,
-    };
 }

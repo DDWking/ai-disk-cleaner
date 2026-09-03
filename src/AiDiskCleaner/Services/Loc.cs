@@ -123,55 +123,60 @@ public static class Loc
     public static string AiExtraHint => IsEn
         ? "e.g. Always ask what I want before suggesting deletes."
         : "例如：先问我想清什么，再给建议。";
+    public static string SecSummary => IsEn ? "Overview" : "总览";
+    public static string SecFolders => IsEn ? "Folders" : "大文件夹";
+    public static string SecDeletable => IsEn ? "Likely deletable" : "可能能删";
+    public static string SecKeep => IsEn ? "Keep" : "别动";
+    public static string SecQuestion => IsEn ? "Question" : "问你一句";
     public static string AiScanHeader => IsEn
         ? "Scan finished. Reply in the exact format below. Do not invent files."
         : "扫描结束。必须按下述格式回复。不要编造文件。";
     public static string AiAnalystSystem => IsEn
         ? """
           You are a file analyst in a disk cleaner. Never delete. Never invent paths.
-          FINAL reply MUST use this exact shape (English or Chinese labels ok):
+          FINAL reply MUST use this exact shape. No markdown, no extra sections, no prose mixed into item lines:
 
           SUMMARY
           one or two sentences.
 
           FOLDERS
-          GOTO	<full path>	<size>	<what it is>
-          (3-8 root folders. Keep = do not delete. Migrate = move. Explain = just describe.)
+          GOTO C:\full\path	12.4G	what it is
+          (3-8 root folders only)
 
           DELETABLE
-          GOTO	<full path>	<size>	<why it can be deleted>
-          (only concrete files/caches, never Windows / Program Files / Users / WinSxS as a whole)
+          GOTO C:\full\path	2.4G	why it can be deleted
+          (concrete files/caches only; never Windows / Program Files / Users / WinSxS as a whole)
 
           KEEP
-          GOTO	<full path>	<size>	<why not delete>
+          GOTO C:\full\path	24.4G	why not delete
 
           QUESTION
-          one question about what the user wants to clean.
+          one question.
 
-          Rules: every actionable item is a GOTO line, tab-separated. Copy paths from the scan. Call suggest + set_checked for DELETABLE items. Safe cache may be suggested; confirm must be asked; keep/migrate only. WeChat/QQ: cache only.
+          Each GOTO line: GOTO, then the full path, then size, then one-line reason. Copy paths from the scan. Call suggest + set_checked for DELETABLE items. Safe cache may be suggested; confirm must be asked; keep/migrate only. WeChat/QQ: cache only.
           """
         : """
           你是磁盘清理软件里的文件分析师。不要删除，不要编造路径。
-          最终回复必须用下面这个格式，一行一项：
+          最终回复必须用下面这个格式。不要 markdown，不要加别的章节，条目行里不要夹长文：
 
           SUMMARY
           一两句话总览。
 
           FOLDERS
-          GOTO	完整路径	大小	这是什么
-          （3～8 个大根目录。Keep=别删，Migrate=搬家，Explain=只解释。）
+          GOTO C:\完整路径	12.4G	这是什么
+          （只写 3～8 个大根目录）
 
           DELETABLE
-          GOTO	完整路径	大小	为什么能删
+          GOTO C:\完整路径	2.4G	为什么能删
           （只写具体文件/缓存，不要写整个 Windows / Program Files / Users / WinSxS）
 
           KEEP
-          GOTO	完整路径	大小	为什么不能删
+          GOTO C:\完整路径	24.4G	为什么不能删
 
           QUESTION
           问一句用户想先清哪块。
 
-          规则：可操作的每一项都必须是 GOTO 行，用 Tab 分隔。路径从扫描结果原样复制。DELETABLE 项同时调用 suggest 和 set_checked。safe cache 可建议删；confirm 要问；keep 只能迁移。微信/QQ 只动缓存。
+          每条 GOTO：GOTO、完整路径、大小、一句原因。路径从扫描结果原样复制。DELETABLE 同时调用 suggest 和 set_checked。safe cache 可建议删；confirm 要问；keep 只能迁移。微信/QQ 只动缓存。
           """;
     public static string AiTool(string name) => IsEn ? $"tool: {name}" : $"工具：{name}";
     public static string AiKindName(AiProtocol p) => p switch
