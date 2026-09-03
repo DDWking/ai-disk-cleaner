@@ -112,12 +112,6 @@ public static class Loc
     public static string AiJuryName => IsEn ? "Jury" : "评审";
     public static string ModelLabel()
     {
-        if (App.Settings.AiJuryOn)
-        {
-            var seats = Jury.Seats();
-            if (seats.Count > 1) return AiJuryName;
-            if (seats.Count == 1) return seats[0].Model;
-        }
         string name = (App.Settings.AiModel ?? "").Trim();
         return string.IsNullOrEmpty(name) ? "AI" : name;
     }
@@ -141,8 +135,11 @@ public static class Loc
     public static string GradeHigh => IsEn ? "High" : "高把握";
     public static string GradeMid => IsEn ? "Medium" : "中把握";
     public static string GradeLow => IsEn ? "Low" : "低把握";
-    public static string JuryToggleOn => IsEn ? "Multi-model jury: on" : "多模型评选：开";
+    public static string JuryToggleOn => IsEn ? "Multi-model jury: paused" : "多模型评选：暂关";
     public static string JuryToggleOff => IsEn ? "Multi-model jury: off" : "多模型评选：关";
+    public static string JuryPaused => IsEn
+        ? "Jury is paused. Analyze uses one model until chat is stable."
+        : "评选先关掉。分析只用当前模型，对话稳了再开。";
     public static string JuryChipMore(int n) => IsEn ? $"+{n}" : $"+{n}";
     public static string JuryDefaultNeed => IsEn
         ? "Clean everything that is safe: temp, caches, dumps, leftover installers, dev caches. Do not touch Windows / Program Files / Users as a whole."

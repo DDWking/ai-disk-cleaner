@@ -1452,8 +1452,6 @@ public partial class MainWindow : Window, IAnalystHost
 
     bool AiConfigured()
     {
-        if (App.Settings.AiJuryOn)
-            return Jury.Seats().Any(s => !string.IsNullOrWhiteSpace(s.Provider.BaseUrl) && !string.IsNullOrWhiteSpace(s.Model));
         var p = App.Settings.CurrentProvider();
         return p != null && !string.IsNullOrWhiteSpace(p.BaseUrl) && !string.IsNullOrWhiteSpace(App.Settings.AiModel);
     }
@@ -1532,15 +1530,16 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void JuryToggle_Click(object sender, RoutedEventArgs e)
     {
-        App.Settings.AiJuryOn = !App.Settings.AiJuryOn;
+        App.Settings.AiJuryOn = false;
         App.Settings.Save();
         RefreshJuryUi();
         PaintJuryButtons();
+        AddChat(Loc.AiBot, Loc.JuryPaused, log: true);
     }
 
     void RefreshJuryUi()
     {
-        bool on = App.Settings.AiJuryOn;
+        bool on = false;
         if (JuryToggleBtn != null)
             JuryToggleBtn.Content = on ? Loc.JuryToggleOn : Loc.JuryToggleOff;
         if (JuryPanel != null)
@@ -1631,10 +1630,8 @@ public partial class MainWindow : Window, IAnalystHost
         ShowPage(1);
         RefreshCleanUi();
         AddChat(Loc.AiYou, Loc.AiAnalyze);
-        if (App.Settings.AiJuryOn)
-            await RunJury();
-        else
-            await AskAnalyst(DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal));
+        ResetJuryPanes();
+        await AskAnalyst(DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal));
     }
 
     ChatLine AddChat(string who, string text, bool log = false)
@@ -1743,8 +1740,20 @@ public partial class MainWindow : Window, IAnalystHost
             {
                 AddChat(Loc.AiBot, Loc.AiRound(round + 1), log: true);
                 bool overBudget = DiskAnalyst.EstimateTokens(_turns) >= DiskAnalyst.TokenBudget;
-                var reply = await AiClient.TurnAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), overBudget ? null : tools, CancellationToken.None);
-                last = (reply.Text ?? "").Trim();
+                var live = AddChat(Loc.AiBot, Loc.JuryWaiting, log: true);
+                var buf = new System.Text.StringBuilder();
+                void Push(string delta)
+                {
+                    buf.Append(delta);
+                    string snap = buf.ToString();
+                    Dispatcher.BeginInvoke(() => live.Text = snap, System.Windows.Threading.DispatcherPriority.Background);
+                }
+                AiReply reply;
+                if (overBudget || tools == null)
+                    reply = await AiClient.StreamAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, DiskAnalyst.SystemPrompt(), PackedTurns(), Push, CancellationToken.None);
+                else
+                    reply = await AiClient.TurnAsync(DiskAnalyst.SystemPrompt(), PackedTurns(), tools, CancellationToken.None);
+                last = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
                 if (!reply.HasTools)
                 {
                     if (string.IsNullOrEmpty(last)) last = Loc.AiOk;
@@ -1752,12 +1761,21 @@ public partial class MainWindow : Window, IAnalystHost
                     HarvestNotes(last, check: false);
                     CollectAiFromNotes();
                     SetAiLamp(true);
-                    AddChat(Loc.AiBot, last);
+                    Dispatcher.Invoke(() =>
+                    {
+                        live.Log = false;
+                        live.Text = last;
+                        live.Parts = ChatFormat.Parse(last);
+                    });
                     RefreshCleanUi();
                     return last;
                 }
+                Dispatcher.Invoke(() =>
+                {
+                    live.Log = true;
+                    live.Text = string.IsNullOrEmpty(last) ? Loc.AiRound(round + 1) : last;
+                });
                 _turns.Add(new AiMsg { Role = "assistant", Text = last, Calls = reply.Calls });
-                if (!string.IsNullOrEmpty(last)) AddChat(Loc.AiBot, last);
                 bool stop = false;
                 foreach (var call in reply.Calls)
                 {
