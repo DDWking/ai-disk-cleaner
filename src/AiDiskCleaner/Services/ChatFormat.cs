@@ -11,6 +11,7 @@ public sealed class ChatPart
     public string Text { get; init; } = "";
     public string? Path { get; init; }
     public string? Note { get; init; }
+    public string? Section { get; init; }
 }
 
 public static class ChatFormat
@@ -45,7 +46,7 @@ public static class ChatFormat
                 pendingBreak = true;
                 continue;
             }
-            var item = ItemFrom(line);
+            var item = ItemFrom(line, section);
             if (item != null)
             {
                 AddBreak(parts, ref pendingBreak);
@@ -70,7 +71,7 @@ public static class ChatFormat
         pending = false;
     }
 
-    static ChatPart? ItemFrom(string line)
+    static ChatPart? ItemFrom(string line, string? section)
     {
         string work = Bullet.Replace(line, "");
         var g = GotoLine.Match(work);
@@ -83,7 +84,14 @@ public static class ChatFormat
         string size = TakeSize(ref rest);
         string note = StripMd(rest);
         string label = string.IsNullOrEmpty(size) ? ShortName(path) : ShortName(path) + "  " + size;
-        return new ChatPart { Kind = ChatPartKind.Path, Text = label, Path = path, Note = string.IsNullOrEmpty(note) ? null : note };
+        return new ChatPart
+        {
+            Kind = ChatPartKind.Path,
+            Text = label,
+            Path = path,
+            Note = string.IsNullOrEmpty(note) ? null : note,
+            Section = section,
+        };
     }
 
     static string TakeSize(ref string rest)
@@ -98,12 +106,16 @@ public static class ChatFormat
     {
         if (WinPath.IsMatch(line)) return null;
         string s = StripMd(line).Trim().TrimEnd(':', '：');
-        if (s.Length > 18) return null;
+        if (s.Length > 24) return null;
         string u = s.ToUpperInvariant();
         if (u is "SUMMARY" or "OVERVIEW" or "总览" or "概览") return Loc.SecSummary;
         if (u is "FOLDERS" or "LARGE FOLDERS" or "大文件夹" or "大根目录") return Loc.SecFolders;
         if (u is "DELETABLE" or "SAFE TO DELETE" or "可删" or "可能能删" or "建议删除") return Loc.SecDeletable;
         if (u is "KEEP" or "DO NOT DELETE" or "保留" or "别动") return Loc.SecKeep;
+        if (u is "NEED" or "需求") return Loc.SecNeed;
+        if (u is "HIGH" or "CONSENSUS" or "高把握") return Loc.GradeHigh;
+        if (u is "MID" or "SPLIT" or "中把握") return Loc.GradeMid;
+        if (u is "LOW" or "WEAK" or "低把握") return Loc.GradeLow;
         if (u is "QUESTION" or "ASK" or "问你一句" or "问题") return Loc.SecQuestion;
         return null;
     }

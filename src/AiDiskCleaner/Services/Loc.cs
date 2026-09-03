@@ -128,6 +128,59 @@ public static class Loc
     public static string SecDeletable => IsEn ? "Likely deletable" : "可能能删";
     public static string SecKeep => IsEn ? "Keep" : "别动";
     public static string SecQuestion => IsEn ? "Question" : "问你一句";
+    public static string SecNeed => IsEn ? "Your goal" : "你的需求";
+    public static string GradeHigh => IsEn ? "High" : "高把握";
+    public static string GradeMid => IsEn ? "Medium" : "中把握";
+    public static string GradeLow => IsEn ? "Low" : "低把握";
+    public static string JuryLabel => IsEn ? "Jury models (max 4)" : "评审模型（最多 4 个）";
+    public static string JuryHint => IsEn
+        ? "Checked models run together after you say what to clean. They vote; nothing is checked until you confirm."
+        : "勾上的模型会在你说清需求后一起跑，投票打分。没经你确认不会勾选删除项。";
+    public static string JuryNeedAsk => IsEn
+        ? "What should I focus on first?\n• caches / temp / dumps\n• Downloads installers\n• dev caches (npm, pip, Gradle, Docker)\n• video downloads\n• all cleanable items\nSay it in one line. I will not check anything until you confirm the scores."
+        : "想先清哪块？说一句就行：\n• 缓存 / 临时 / 转储\n• 下载里的安装包\n• 开发缓存（npm、pip、Gradle、Docker）\n• 视频下载\n• 全部可清项\n说完我再让模型一起打分。没经你确认不会勾选。";
+    public static string JuryWorking(int n) => IsEn ? $"jury: {n} models…" : $"评审：{n} 个模型并行…";
+    public static string JurySeatOk(string name, int n) => IsEn ? $"{name} · {n} items" : $"{name} · {n} 条";
+    public static string JurySeatFail(string name, string err) => IsEn ? $"{name} failed: {err}" : $"{name} 失败：{err}";
+    public static string JurySummary(int models, int high) => IsEn
+        ? $"{models} models voted. {high} high-confidence items. Nothing is checked yet."
+        : $"{models} 个模型已投票。高把握 {high} 项。还没勾选，等你确认。";
+    public static string JuryAsk => IsEn
+        ? "Reply 确认 to check high-confidence items. Or change the goal."
+        : "回「确认」就勾上高把握项。想改范围直接说。";
+    public static string JuryChecked => IsEn ? "High-confidence items are now checked on the right." : "高把握项已在右边勾上。等你点删除。";
+    public static string JuryNone => IsEn ? "No overlapping suggestions. Try a clearer goal." : "没有重叠建议。需求再说具体一点。";
+    public static string JurySystem => IsEn
+        ? """
+          You score cleanup candidates. Never delete. Never invent paths. No markdown.
+          Only list items that match the USER NEED. Copy full paths from the scan.
+          Never list Windows / Program Files / Users / WinSxS as a whole.
+          Reply exactly:
+
+          SUMMARY
+          one sentence.
+
+          DELETABLE
+          GOTO C:\full\path	12.4G	why it matches the need
+
+          KEEP
+          GOTO C:\full\path	24G	why to leave it
+          """
+        : """
+          你给清理项打分。不要删除，不要编造路径，不要 markdown。
+          只列符合「用户需求」的项。路径从扫描结果原样复制。
+          不要写整个 Windows / Program Files / Users / WinSxS。
+          只按这个格式回复：
+
+          SUMMARY
+          一句话。
+
+          DELETABLE
+          GOTO C:\完整路径	12.4G	为什么符合需求
+
+          KEEP
+          GOTO C:\完整路径	24G	为什么别动
+          """;
     public static string AiScanHeader => IsEn
         ? "Scan finished. Reply in the exact format below. Do not invent files."
         : "扫描结束。必须按下述格式回复。不要编造文件。";
@@ -153,7 +206,7 @@ public static class Loc
           QUESTION
           one question.
 
-          Each GOTO line: GOTO, then the full path, then size, then one-line reason. Copy paths from the scan. Call suggest + set_checked for DELETABLE items. Safe cache may be suggested; confirm must be asked; keep/migrate only. WeChat/QQ: cache only.
+          Each GOTO line: GOTO, then the full path, then size, then one-line reason. Copy paths from the scan. Ask the goal first. Do not call set_checked in this round. Safe cache may be suggested; keep/migrate only. WeChat/QQ: cache only.
           """
         : """
           你是磁盘清理软件里的文件分析师。不要删除，不要编造路径。
@@ -176,7 +229,7 @@ public static class Loc
           QUESTION
           问一句用户想先清哪块。
 
-          每条 GOTO：GOTO、完整路径、大小、一句原因。路径从扫描结果原样复制。DELETABLE 同时调用 suggest 和 set_checked。safe cache 可建议删；confirm 要问；keep 只能迁移。微信/QQ 只动缓存。
+          每条 GOTO：GOTO、完整路径、大小、一句原因。路径从扫描结果原样复制。先问清需求再建议。这一轮不要调用 set_checked。safe cache 可建议删；keep 只能迁移。微信/QQ 只动缓存。
           """;
     public static string AiTool(string name) => IsEn ? $"tool: {name}" : $"工具：{name}";
     public static string AiKindName(AiProtocol p) => p switch

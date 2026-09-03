@@ -57,11 +57,13 @@ public static class AiClient
         return reply.Text;
     }
 
-    public static async Task<AiReply> TurnAsync(string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
+    public static Task<AiReply> TurnAsync(string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
+        => TurnAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, system, turns, tools, ct);
+
+    public static async Task<AiReply> TurnAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
     {
-        var p = App.Settings.CurrentProvider();
         string baseUrl = (p?.BaseUrl ?? "").Trim().TrimEnd('/');
-        string model = (App.Settings.AiModel ?? "").Trim();
+        string model = (modelId ?? "").Trim();
         string key = p?.ApiKey ?? "";
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(model))
             throw new InvalidOperationException(Loc.AiNeedConfig);

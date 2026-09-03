@@ -111,6 +111,10 @@ public partial class MainWindow : Window, IAnalystHost
     private readonly Dictionary<string, string> _aiNotes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ObservableCollection<ChatLine> _chat = new();
     private readonly List<AiMsg> _turns = new();
+    private string? _need;
+    private List<VoteItem> _votes = new();
+    private bool _awaitNeed;
+    private bool _awaitConfirm;
     FileEntry? IAnalystHost.Root => _root;
     CleanReport? IAnalystHost.Report => _report;
     private static readonly AiProtocol[] AiProtos =
@@ -224,8 +228,11 @@ public partial class MainWindow : Window, IAnalystHost
         AiChatInput.Tag = Loc.AiChatHint;
         AiRunBtn.Content = Loc.AiAnalyze;
         AiAddProvBtn.Content = Loc.AiAddCustom;
+        JuryLabel.Text = Loc.JuryLabel;
+        JuryHint.Text = Loc.JuryHint;
         FillAiProtoBox();
         FillRunModels();
+        FillJuryPicks();
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_current == null)
@@ -1199,6 +1206,7 @@ public partial class MainWindow : Window, IAnalystHost
         AiProvCards.ItemsSource = null;
         AiProvCards.ItemsSource = App.Settings.AiProviders.ToList();
         FillRunModels();
+        FillJuryPicks();
         RefreshAiLamp();
     }
 
@@ -1431,6 +1439,7 @@ public partial class MainWindow : Window, IAnalystHost
         else if (models.Count > 0)
             AiRunModelBox.SelectedIndex = 0;
         _aiModelLock = false;
+        FillJuryPicks();
     }
 
     private void AiRunModel_Changed(object sender, SelectionChangedEventArgs e)
@@ -1440,11 +1449,58 @@ public partial class MainWindow : Window, IAnalystHost
         {
             App.Settings.AiModel = id;
             App.Settings.Save();
+            FillJuryPicks();
             RefreshAiLamp();
         }
     }
 
-    private async void AiRun_Click(object sender, RoutedEventArgs e)
+    void FillJuryPicks()
+    {
+        if (JuryPickList == null) return;
+        App.Settings.Migrate();
+        var chosen = new HashSet<string>(App.Settings.AiJury, StringComparer.OrdinalIgnoreCase);
+        var items = new List<JuryPick>();
+        foreach (var p in App.Settings.AiProviders)
+        {
+            foreach (var model in p.Models.Where(m => !string.IsNullOrWhiteSpace(m)))
+            {
+                string id = Jury.SeatId(p, model);
+                items.Add(new JuryPick
+                {
+                    Id = id,
+                    Label = string.IsNullOrEmpty(p.Name) ? model : p.Name + " / " + model,
+                    On = chosen.Contains(id),
+                });
+            }
+        }
+        if (items.Count == 0 && AiConfigured())
+        {
+            var p = App.Settings.CurrentProvider();
+            if (p != null)
+            {
+                string id = Jury.SeatId(p, App.Settings.AiModel);
+                items.Add(new JuryPick { Id = id, Label = App.Settings.AiModel, On = true });
+            }
+        }
+        JuryPickList.ItemsSource = items;
+    }
+
+    private void JuryPick_Click(object sender, RoutedEventArgs e)
+    {
+        if (JuryPickList.ItemsSource is not IEnumerable<JuryPick> items) return;
+        var picked = items.Where(x => x.On).Select(x => x.Id).ToList();
+        if (picked.Count > 4)
+        {
+            App.Settings.AiJury = picked.Take(4).ToList();
+            App.Settings.Save();
+            FillJuryPicks();
+            return;
+        }
+        App.Settings.AiJury = picked;
+        App.Settings.Save();
+    }
+
+    private void AiRun_Click(object sender, RoutedEventArgs e)
     {
         if (_aiBusy) return;
         if (_report == null || _root == null)
@@ -1460,8 +1516,12 @@ public partial class MainWindow : Window, IAnalystHost
         DiskAnalyst.ResetSession();
         _aiNotes.Clear();
         ClearAiSuggested();
+        _need = null;
+        _votes.Clear();
+        _awaitConfirm = false;
+        _awaitNeed = true;
         AddChat(Loc.AiYou, Loc.AiAnalyze);
-        await AskAnalyst(DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal));
+        AddChat(Loc.AiBot, Loc.JuryNeedAsk);
     }
 
     void AddChat(string who, string text, bool log = false)
@@ -1542,7 +1602,7 @@ public partial class MainWindow : Window, IAnalystHost
                 {
                     if (string.IsNullOrEmpty(last)) last = Loc.AiOk;
                     _turns.Add(new AiMsg { Role = "assistant", Text = last });
-                    HarvestNotes(last);
+                    HarvestNotes(last, check: false);
                     SetAiLamp(true);
                     AddChat(Loc.AiBot, last);
                     return last;
@@ -1569,7 +1629,7 @@ public partial class MainWindow : Window, IAnalystHost
             if (!string.IsNullOrEmpty(last))
             {
                 _turns.Add(new AiMsg { Role = "assistant", Text = last });
-                HarvestNotes(last);
+                HarvestNotes(last, check: false);
                 AddChat(Loc.AiBot, last);
             }
             return last;
@@ -1600,7 +1660,7 @@ public partial class MainWindow : Window, IAnalystHost
         PaintAiNotes();
     }
 
-    void HarvestNotes(string text)
+    void HarvestNotes(string text, bool check)
     {
         if (string.IsNullOrWhiteSpace(text) || _report == null) return;
         int n = 0;
@@ -1610,7 +1670,8 @@ public partial class MainWindow : Window, IAnalystHost
             string path = m.Value.TrimEnd('。', '.', ',', '，', '、', ')', '）', ']', '`', '"', '\'');
             string key = NormPath(path);
             if (key.Length < 4 || _aiNotes.ContainsKey(key)) continue;
-            ApplySuggest(key, Loc.AiMark, check: AllCleanItems().Any(x => string.Equals(NormPath(x.FullPath), key, StringComparison.OrdinalIgnoreCase)));
+            bool hit = check && AllCleanItems().Any(x => string.Equals(NormPath(x.FullPath), key, StringComparison.OrdinalIgnoreCase));
+            ApplySuggest(key, Loc.AiMark, check: hit);
         }
         Dispatcher.BeginInvoke(() => { PaintAiNotes(); RefreshCleanUi(); }, System.Windows.Threading.DispatcherPriority.Background);
     }
@@ -1618,7 +1679,7 @@ public partial class MainWindow : Window, IAnalystHost
     void IAnalystHost.OnSuggest(string path, string note)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
-        ApplySuggest(path, string.IsNullOrWhiteSpace(note) ? Loc.AiMark : note.Trim(), check: true);
+        ApplySuggest(path, string.IsNullOrWhiteSpace(note) ? Loc.AiMark : note.Trim(), check: false);
         Dispatcher.BeginInvoke(() => { PaintAiNotes(); RefreshCleanUi(); }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
@@ -1800,8 +1861,110 @@ public partial class MainWindow : Window, IAnalystHost
         }
         AiChatInput.Text = "";
         AddChat(Loc.AiYou, text);
-        try { await AskAnalyst(text); }
+        try
+        {
+            if (_awaitNeed)
+            {
+                _need = text;
+                _awaitNeed = false;
+                await RunJury();
+                return;
+            }
+            if (_awaitConfirm && LooksLikeConfirm(text))
+            {
+                ApplyJuryChecks();
+                _awaitConfirm = false;
+                AddChat(Loc.AiBot, Loc.JuryChecked);
+                return;
+            }
+            await AskAnalyst(text);
+        }
         catch { }
+    }
+
+    static bool LooksLikeConfirm(string text)
+    {
+        string t = text.Trim().ToLowerInvariant();
+        return t is "确认" or "好" or "可以" or "勾上" or "ok" or "yes" or "confirm" or "do it";
+    }
+
+    async Task RunJury()
+    {
+        if (_root == null || _report == null) return;
+        var seats = Jury.Seats();
+        if (seats.Count == 0)
+        {
+            AddChat(Loc.AiBot, Loc.AiScanSkip);
+            return;
+        }
+        _aiBusy = true;
+        RefreshAiLamp();
+        AiChatSendBtn.IsEnabled = false;
+        AiExplainBtn.IsEnabled = false;
+        try
+        {
+            AddChat(Loc.AiBot, Loc.JuryWorking(seats.Count), log: true);
+            string opening = DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal);
+            string user = Loc.SecNeed + "\n" + (_need ?? "") + "\n\n" + opening;
+            var tasks = seats.Select(async seat =>
+            {
+                try
+                {
+                    var reply = await AiClient.TurnAsync(seat.Provider, seat.Model, Loc.JurySystem,
+                        new[] { new AiMsg { Role = "user", Text = user } }, null, CancellationToken.None);
+                    return (Seat: seat, Text: (reply.Text ?? "").Trim(), Error: (string?)null);
+                }
+                catch (Exception ex)
+                {
+                    return (Seat: seat, Text: "", Error: ex.Message);
+                }
+            }).ToList();
+            var results = await Task.WhenAll(tasks);
+            var ok = new List<(JurySeat Seat, string Text)>();
+            foreach (var r in results)
+            {
+                if (!string.IsNullOrEmpty(r.Error))
+                {
+                    AddChat(Loc.AiBot, Loc.JurySeatFail(r.Seat.Label, r.Error), log: true);
+                    continue;
+                }
+                int n = ChatFormat.Parse(r.Text).Count(p => p.Kind == ChatPartKind.Path);
+                AddChat(Loc.AiBot, Loc.JurySeatOk(r.Seat.Label, n), log: true);
+                ok.Add((r.Seat, r.Text));
+            }
+            _votes = Jury.Tally(ok);
+            string board = Jury.Render(_need, ok, _votes);
+            foreach (var v in _votes)
+                ApplySuggest(v.Path, $"{v.Grade} · {v.Note}", check: false);
+            PaintAiNotes();
+            RefreshCleanUi();
+            _awaitConfirm = _votes.Any(v => v.Grade == Loc.GradeHigh || v.Grade == Loc.GradeMid);
+            SetAiLamp(ok.Count > 0);
+            AddChat(Loc.AiBot, string.IsNullOrEmpty(board) ? Loc.JuryNone : board);
+            _turns.Clear();
+            _turns.Add(new AiMsg { Role = "user", Text = user });
+            _turns.Add(new AiMsg { Role = "assistant", Text = board });
+        }
+        catch (Exception ex)
+        {
+            SetAiLamp(false);
+            AddChat(Loc.AiBot, ex.Message);
+        }
+        finally
+        {
+            _aiBusy = false;
+            RefreshAiLamp();
+            AiChatSendBtn.IsEnabled = true;
+            AiExplainBtn.IsEnabled = true;
+        }
+    }
+
+    void ApplyJuryChecks()
+    {
+        foreach (var v in _votes.Where(x => x.Grade == Loc.GradeHigh || (x.Grade == Loc.GradeMid && _votes.Count(y => y.Grade == Loc.GradeHigh) == 0)))
+            ApplySuggest(v.Path, $"{v.Grade} · {v.Note}", check: true);
+        PaintAiNotes();
+        RefreshCleanUi();
     }
 
     private void AiChatClear_Click(object sender, RoutedEventArgs e)
@@ -1811,6 +1974,10 @@ public partial class MainWindow : Window, IAnalystHost
         _turns.Clear();
         _aiNotes.Clear();
         ClearAiSuggested();
+        _need = null;
+        _votes.Clear();
+        _awaitNeed = false;
+        _awaitConfirm = false;
         DiskAnalyst.ResetSession();
         if (_root != null) PaintAiNotes();
         RefreshCleanUi();

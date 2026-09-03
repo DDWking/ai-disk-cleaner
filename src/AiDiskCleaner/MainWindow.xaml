@@ -1179,6 +1179,18 @@
             </ItemsControl>
             <Button x:Name="AiAddProvBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Stretch"
                     Padding="10,8" Click="AiAddProv_Click"/>
+            <TextBlock x:Name="JuryLabel" Foreground="{DynamicResource TextDim}" Margin="0,12,0,6"/>
+            <TextBlock x:Name="JuryHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                       TextWrapping="Wrap" Margin="0,0,0,8"/>
+            <ItemsControl x:Name="JuryPickList" Margin="0,0,0,4">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <CheckBox Content="{Binding Label}" IsChecked="{Binding On, Mode=TwoWay}"
+                            Foreground="{DynamicResource Accent}" FontSize="12" Margin="0,0,0,6"
+                            Click="JuryPick_Click"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
           </StackPanel>
         </ScrollViewer>
         <ScrollViewer x:Name="ProvEditBody" MaxHeight="520" Visibility="Collapsed"

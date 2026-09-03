@@ -29,6 +29,7 @@ public sealed class AppSettings
     public string AiActiveId { get; set; } = "";
     public string AiModel { get; set; } = "";
     public string AiExtraPrompt { get; set; } = "";
+    public List<string> AiJury { get; set; } = new();
 
     public string AiName { get; set; } = "";
     public string AiBaseUrl { get; set; } = "";
