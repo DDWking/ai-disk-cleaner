@@ -91,21 +91,13 @@ public static class AiClient
         var proto = ParseProtocol(p?.Protocol);
         if (proto == AiProtocol.Completions)
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(12));
             try
             {
-                return await StreamCompletions(p, modelId, system, turns, onDelta, timeout.Token);
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                onDelta(Loc.JuryRetry(Loc.AiTimeout));
+                return await StreamCompletions(p, modelId, system, turns, onDelta, ct);
             }
             catch (Exception ex)
             {
-                string msg = Pretty(ex);
-                if (LooksLikeHardFail(ex)) throw new InvalidOperationException(msg, ex);
-                onDelta(Loc.JuryRetry(msg));
+                if (LooksLikeHardFail(ex)) throw new InvalidOperationException(Pretty(ex), ex);
             }
         }
         var reply = await TurnAsync(p, modelId, system, turns, null, ct);
@@ -214,15 +206,30 @@ public static class AiClient
         var client = MakeChat(baseUrl, model, key);
         var messages = ToChatMessages(system, turns);
         var sb = new StringBuilder();
-        await foreach (var update in client.CompleteChatStreamingAsync(messages, new ChatCompletionOptions(), ct))
+        using var first = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        first.CancelAfter(TimeSpan.FromSeconds(45));
+        bool got = false;
+        try
         {
-            if (update.ContentUpdate.Count == 0) continue;
-            foreach (var part in update.ContentUpdate)
+            await foreach (var update in client.CompleteChatStreamingAsync(messages, new ChatCompletionOptions(), first.Token))
             {
-                if (string.IsNullOrEmpty(part.Text)) continue;
-                sb.Append(part.Text);
-                onDelta(part.Text);
+                if (update.ContentUpdate.Count == 0) continue;
+                foreach (var part in update.ContentUpdate)
+                {
+                    if (string.IsNullOrEmpty(part.Text)) continue;
+                    if (!got)
+                    {
+                        got = true;
+                        first.CancelAfter(Timeout.InfiniteTimeSpan);
+                    }
+                    sb.Append(part.Text);
+                    onDelta(part.Text);
+                }
             }
+        }
+        catch (OperationCanceledException) when (!got && !ct.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("empty");
         }
         var reply = new AiReply { Text = sb.ToString() };
         if (string.IsNullOrWhiteSpace(reply.Text)) throw new InvalidOperationException("empty");
