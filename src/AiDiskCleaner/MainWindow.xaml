@@ -810,9 +810,9 @@
       <Grid Grid.Column="1">
       <Grid x:Name="BrowsePage">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" MinWidth="520"/>
+        <ColumnDefinition Width="*" MinWidth="420"/>
         <ColumnDefinition Width="12"/>
-        <ColumnDefinition Width="360" MinWidth="240"/>
+        <ColumnDefinition Width="440" MinWidth="320"/>
       </Grid.ColumnDefinitions>
 
       <Border x:Name="LeftPanel" Grid.Column="0" Background="{DynamicResource PanelLeft}">
@@ -879,6 +879,7 @@
                     HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                     SelectionMode="Single" SelectionUnit="FullRow"
                     VerticalContentAlignment="Center"
+                    HorizontalScrollBarVisibility="Disabled"
                     MouseDoubleClick="ExtGrid_MouseDoubleClick"
                     PreviewMouseRightButtonUp="ExtGrid_RightClick">
             <DataGrid.Resources>
@@ -973,6 +974,8 @@
                       RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
                       HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                       SelectionMode="Single" SelectionUnit="FullRow"
+                      HorizontalScrollBarVisibility="Disabled"
+                      ColumnWidth="*"
                       MouseLeftButtonUp="UninstallGrid_Click"
                       MouseDoubleClick="UninstallGrid_DoubleClick">
               <DataGrid.GroupStyle>
@@ -1029,9 +1032,16 @@
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn x:Name="ColAppName" Header="名称" Binding="{Binding Name}" Width="*" MinWidth="180" IsReadOnly="True"/>
-                <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="110" IsReadOnly="True"/>
-                <DataGridTextColumn x:Name="ColAppSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="SizeBytes" Width="72" IsReadOnly="True">
+                <DataGridTextColumn x:Name="ColAppName" Header="名称" Binding="{Binding Name}" Width="*" MinWidth="120" IsReadOnly="True">
+                  <DataGridTextColumn.ElementStyle>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                      <Setter Property="ToolTip" Value="{Binding Name}"/>
+                    </Style>
+                  </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="0" MinWidth="0" MaxWidth="0" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="ColAppSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="SizeBytes" Width="72" MinWidth="72" MaxWidth="80" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="HorizontalAlignment" Value="Right"/>
@@ -1039,7 +1049,7 @@
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
-                <DataGridTextColumn x:Name="ColAppStatus" Header="状态" Binding="{Binding Status}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="ColAppStatus" Header="状态" Binding="{Binding Status}" Width="0" MinWidth="0" MaxWidth="0" IsReadOnly="True" Visibility="Collapsed"/>
               </DataGrid.Columns>
             </DataGrid>
             <DataGrid x:Name="JunkGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
@@ -1187,6 +1197,7 @@
                     HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                     SelectionMode="Single" SelectionUnit="FullRow"
                     VerticalContentAlignment="Center"
+                    HorizontalScrollBarVisibility="Disabled"
                     MouseDoubleClick="CleanGrid_MouseDoubleClick"
                     MouseLeftButtonUp="CleanGrid_Click">
             <DataGrid.ContextMenu>
@@ -1196,7 +1207,14 @@
             </DataGrid.ContextMenu>
             <DataGrid.Columns>
               <DataGridCheckBoxColumn x:Name="ColPick" Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
-              <DataGridTextColumn x:Name="ColCleanName" Header="名称" Binding="{Binding Name}" Width="120" IsReadOnly="True"/>
+              <DataGridTextColumn x:Name="ColCleanName" Header="名称" Binding="{Binding Name}" Width="*" MinWidth="80" IsReadOnly="True">
+                <DataGridTextColumn.ElementStyle>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                    <Setter Property="ToolTip" Value="{Binding Name}"/>
+                  </Style>
+                </DataGridTextColumn.ElementStyle>
+              </DataGridTextColumn>
               <DataGridTextColumn x:Name="ColCleanSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="72" IsReadOnly="True">
                 <DataGridTextColumn.ElementStyle>
                   <Style TargetType="TextBlock">
@@ -1205,7 +1223,14 @@
                   </Style>
                 </DataGridTextColumn.ElementStyle>
               </DataGridTextColumn>
-              <DataGridTextColumn x:Name="ColCleanWhy" Header="原因" Binding="{Binding Reason}" Width="*" IsReadOnly="True"/>
+              <DataGridTextColumn x:Name="ColCleanWhy" Header="原因" Binding="{Binding Reason}" Width="1.4*" MinWidth="80" IsReadOnly="True">
+                <DataGridTextColumn.ElementStyle>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                    <Setter Property="ToolTip" Value="{Binding Reason}"/>
+                  </Style>
+                </DataGridTextColumn.ElementStyle>
+              </DataGridTextColumn>
             </DataGrid.Columns>
           </DataGrid>
         </DockPanel>
