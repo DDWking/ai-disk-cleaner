@@ -233,6 +233,7 @@ public partial class MainWindow : Window, IAnalystHost
         FillAiProtoBox();
         FillRunModels();
         FillJuryPicks();
+        RefreshJuryUi();
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_current == null)
@@ -1207,6 +1208,7 @@ public partial class MainWindow : Window, IAnalystHost
         AiProvCards.ItemsSource = App.Settings.AiProviders.ToList();
         FillRunModels();
         FillJuryPicks();
+        RefreshJuryUi();
         RefreshAiLamp();
     }
 
@@ -1459,36 +1461,73 @@ public partial class MainWindow : Window, IAnalystHost
         if (JuryPickList == null) return;
         App.Settings.Migrate();
         var chosen = new HashSet<string>(App.Settings.AiJury, StringComparer.OrdinalIgnoreCase);
-        var items = new List<JuryPick>();
+        var groups = new List<JuryGroup>();
         foreach (var p in App.Settings.AiProviders)
         {
-            foreach (var model in p.Models.Where(m => !string.IsNullOrWhiteSpace(m)))
+            var models = p.Models.Where(m => !string.IsNullOrWhiteSpace(m)).ToList();
+            if (models.Count == 0 && p.Id == App.Settings.AiActiveId && !string.IsNullOrWhiteSpace(App.Settings.AiModel))
+                models.Add(App.Settings.AiModel);
+            if (models.Count == 0) continue;
+            groups.Add(new JuryGroup
             {
-                string id = Jury.SeatId(p, model);
-                items.Add(new JuryPick
+                Name = string.IsNullOrWhiteSpace(p.Name) ? p.Id : p.Name,
+                Models = models.Select(m => new JuryPick
                 {
-                    Id = id,
-                    Label = string.IsNullOrEmpty(p.Name) ? model : p.Name + " / " + model,
-                    On = chosen.Contains(id),
-                });
-            }
+                    Id = Jury.SeatId(p, m),
+                    Label = m,
+                    On = chosen.Contains(Jury.SeatId(p, m)),
+                }).ToList(),
+            });
         }
-        if (items.Count == 0 && AiConfigured())
+        JuryPickList.ItemsSource = groups;
+        RefreshJuryUi();
+    }
+
+    IEnumerable<JuryPick> AllJuryPicks()
+        => JuryPickList.ItemsSource is IEnumerable<JuryGroup> groups
+            ? groups.SelectMany(g => g.Models)
+            : Enumerable.Empty<JuryPick>();
+
+    private void JuryToggle_Click(object sender, RoutedEventArgs e)
+    {
+        App.Settings.AiJuryOn = !App.Settings.AiJuryOn;
+        App.Settings.Save();
+        RefreshJuryUi();
+    }
+
+    void RefreshJuryUi()
+    {
+        bool on = App.Settings.AiJuryOn;
+        if (JuryToggleBtn != null)
+            JuryToggleBtn.Content = on ? Loc.JuryToggleOn : Loc.JuryToggleOff;
+        if (JuryPanel != null)
+            JuryPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        if (AiRunModelBox != null)
+            AiRunModelBox.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        if (JuryChipList != null)
         {
-            var p = App.Settings.CurrentProvider();
-            if (p != null)
+            if (on)
             {
-                string id = Jury.SeatId(p, App.Settings.AiModel);
-                items.Add(new JuryPick { Id = id, Label = App.Settings.AiModel, On = true });
+                var names = Jury.Seats().Select(s => s.Model).Distinct().ToList();
+                if (names.Count > 3)
+                {
+                    int extra = names.Count - 2;
+                    names = names.Take(2).Concat(new[] { Loc.JuryChipMore(extra) }).ToList();
+                }
+                JuryChipList.ItemsSource = names;
+                JuryChipList.Visibility = names.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+            else
+            {
+                JuryChipList.ItemsSource = null;
+                JuryChipList.Visibility = Visibility.Collapsed;
             }
         }
-        JuryPickList.ItemsSource = items;
     }
 
     private void JuryPick_Click(object sender, RoutedEventArgs e)
     {
-        if (JuryPickList.ItemsSource is not IEnumerable<JuryPick> items) return;
-        var picked = items.Where(x => x.On).Select(x => x.Id).ToList();
+        var picked = AllJuryPicks().Where(x => x.On).Select(x => x.Id).ToList();
         if (picked.Count > 4)
         {
             App.Settings.AiJury = picked.Take(4).ToList();
@@ -1498,6 +1537,7 @@ public partial class MainWindow : Window, IAnalystHost
         }
         App.Settings.AiJury = picked;
         App.Settings.Save();
+        RefreshJuryUi();
     }
 
     private void AiRun_Click(object sender, RoutedEventArgs e)

@@ -132,10 +132,13 @@ public static class Loc
     public static string GradeHigh => IsEn ? "High" : "高把握";
     public static string GradeMid => IsEn ? "Medium" : "中把握";
     public static string GradeLow => IsEn ? "Low" : "低把握";
-    public static string JuryLabel => IsEn ? "Jury models (max 4)" : "评审模型（最多 4 个）";
+    public static string JuryToggleOn => IsEn ? "Multi-model jury: on" : "多模型评选：开";
+    public static string JuryToggleOff => IsEn ? "Multi-model jury: off" : "多模型评选：关";
+    public static string JuryLabel => IsEn ? "Models in the jury (max 4)" : "参与评选的模型（最多 4 个）";
     public static string JuryHint => IsEn
-        ? "Checked models run together after you say what to clean. They vote; nothing is checked until you confirm."
-        : "勾上的模型会在你说清需求后一起跑，投票打分。没经你确认不会勾选删除项。";
+        ? "Pick models under each provider. They run together after you say what to clean. Nothing is checked until you confirm."
+        : "按提供方勾选模型。说清需求后一起跑、投票打分。没经你确认不会勾选删除项。";
+    public static string JuryChipMore(int n) => IsEn ? $"+{n}" : $"+{n}";
     public static string JuryNeedAsk => IsEn
         ? "What should I focus on first?\n• caches / temp / dumps\n• Downloads installers\n• dev caches (npm, pip, Gradle, Docker)\n• video downloads\n• all cleanable items\nSay it in one line. I will not check anything until you confirm the scores."
         : "想先清哪块？说一句就行：\n• 缓存 / 临时 / 转储\n• 下载里的安装包\n• 开发缓存（npm、pip、Gradle、Docker）\n• 视频下载\n• 全部可清项\n说完我再让模型一起打分。没经你确认不会勾选。";

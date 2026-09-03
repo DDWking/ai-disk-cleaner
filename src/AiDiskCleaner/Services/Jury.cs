@@ -15,6 +15,12 @@ public sealed class JuryPick
     public bool On { get; set; }
 }
 
+public sealed class JuryGroup
+{
+    public string Name { get; set; } = "";
+    public List<JuryPick> Models { get; set; } = new();
+}
+
 public sealed class VoteItem
 {
     public string Path { get; init; } = "";
@@ -34,6 +40,14 @@ public static class Jury
         s.Migrate();
         var list = new List<JurySeat>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!s.AiJuryOn)
+        {
+            var p = s.CurrentProvider();
+            string model = (s.AiModel ?? "").Trim();
+            if (p != null && !string.IsNullOrEmpty(model))
+                list.Add(new JurySeat { Id = p.Id + "|" + model, Label = model, Provider = p, Model = model });
+            return list;
+        }
         foreach (var id in s.AiJury)
         {
             var seat = Parse(id);
