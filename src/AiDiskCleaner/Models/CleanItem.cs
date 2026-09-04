@@ -25,7 +25,19 @@ public sealed class CleanItem : INotifyPropertyChanged
     public string Name { get; set; } = "";
     public string FullPath { get; set; } = "";
     public long Size { get; set; }
-    public string Reason { get; set; } = "";
+
+    string _reason = "";
+    public string Reason
+    {
+        get => _reason;
+        set
+        {
+            if (_reason == value) return;
+            _reason = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(NoteText));
+        }
+    }
     public string Group { get; set; } = "";
     /// <summary>用途分类（system / browser / dev / im / game …），来自 AppSignatures。</summary>
     public string Category { get; set; } = "";
@@ -36,14 +48,27 @@ public sealed class CleanItem : INotifyPropertyChanged
 
     string _aiNote = "";
     /// <summary>
-    /// AI 给的一句话说明（「这是什么」）。风险档位一律由规则判定，AI 不参与，
-    /// 所以这里和 Reason（规则给的原因）分开存，两列各显示各的。
+    /// AI 给的一句话说明。风险档位一律由规则判定，AI 不参与。
+    /// 表格只显示一列说明：有 AI 文字就用它，没有就回退到规则原因。
     /// </summary>
     public string AiNote
     {
         get => _aiNote;
-        set { if (_aiNote == value) return; _aiNote = value; OnPropertyChanged(); }
+        set
+        {
+            if (_aiNote == value) return;
+            _aiNote = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(NoteText));
+            OnPropertyChanged(nameof(HasAiNote));
+        }
     }
+
+    /// <summary>表格「说明」列：优先 AI，否则规则原因。</summary>
+    public string NoteText => !string.IsNullOrWhiteSpace(_aiNote) ? _aiNote : Reason;
+
+    public bool HasAiNote => !string.IsNullOrWhiteSpace(_aiNote);
+
     public FileEntry? Entry { get; set; }
     public bool IsDirectory { get; set; }
 

@@ -980,7 +980,6 @@
             </WrapPanel>
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
               <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Click="RecycleSelected_Click"/>
-              <Button x:Name="AiExplainBtn" Content="AI 解释勾选项" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="AiExplain_Click"/>
               <TextBlock x:Name="CleanSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
                          Foreground="{DynamicResource TextDim}" FontSize="11"/>
             </StackPanel>
@@ -1053,21 +1052,16 @@
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
-                <DataGridTextColumn x:Name="ColCleanWhy" Header="原因" Binding="{Binding Reason}" Width="1.2*" MinWidth="80" IsReadOnly="True">
+                <DataGridTextColumn x:Name="ColCleanWhy" Header="说明" Binding="{Binding NoteText}" Width="2*" MinWidth="80" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-                      <Setter Property="ToolTip" Value="{Binding Reason}"/>
-                    </Style>
-                  </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
-                <!-- AI 只写「这是什么」，不写风险；风险列始终来自规则 -->
-                <DataGridTextColumn x:Name="ColCleanAiNote" Header="这是什么" Binding="{Binding AiNote}" Width="1.5*" MinWidth="80" IsReadOnly="True">
-                  <DataGridTextColumn.ElementStyle>
-                    <Style TargetType="TextBlock">
-                      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-                      <Setter Property="ToolTip" Value="{Binding AiNote}"/>
-                      <Setter Property="Foreground" Value="#7FC7E8"/>
+                      <Setter Property="ToolTip" Value="{Binding NoteText}"/>
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding HasAiNote}" Value="True">
+                          <Setter Property="Foreground" Value="#7FC7E8"/>
+                        </DataTrigger>
+                      </Style.Triggers>
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>

@@ -233,7 +233,6 @@ public partial class MainWindow : Window, IAnalystHost
         ColCleanName.Header = Loc.ColName;
         ColCleanSize.Header = Loc.Size;
         ColCleanWhy.Header = Loc.ColReason;
-        ColCleanAiNote.Header = Loc.AiColNote;
         RefreshCleanUi();
         DialogClose.Content = Loc.Close;
         ConfirmYesBtn.Content = Loc.Yes;
@@ -254,7 +253,6 @@ public partial class MainWindow : Window, IAnalystHost
         AiUrlBox.Tag = Loc.AiUrlHint;
         AiModelBox.Tag = Loc.AiModelHintBox;
         AiModelHint.Text = Loc.AiModelsEmpty;
-        AiExplainBtn.Content = Loc.AiExplain;
         AiAnalyzeCatBtn.Content = Loc.AiAnalyze;
         AiAddProvBtn.Content = Loc.AiAddCustom;
         FillAiProtoBox();
@@ -1432,20 +1430,6 @@ public partial class MainWindow : Window, IAnalystHost
         }
     }
 
-    private async void AiExplain_Click(object sender, RoutedEventArgs e)
-    {
-        if (_aiBusy) return;
-        var picked = CurrentCleanList().Where(x => x.Selected).ToList();
-        if (picked.Count == 0)
-        {
-            ShowAlert(Loc.AiTitle, Loc.AiNeedItems);
-            return;
-        }
-        // 和「AI 分析此类」走同一条路：只写「这是什么」那一列，
-        // 不改风险档位、不自动勾选任何东西（以前这条会顺手把项勾上，很危险）。
-        await ExplainItems(picked);
-    }
-
     bool AiConfigured()
     {
         var p = App.Settings.CurrentProvider();
@@ -1735,7 +1719,6 @@ public partial class MainWindow : Window, IAnalystHost
         _aiBusy = true;
         RefreshAiLamp();
         AiAnalyzeCatBtn.IsEnabled = false;
-        AiExplainBtn.IsEnabled = false;
         try
         {
             _turns.Add(new AiMsg { Role = "user", Text = user });
@@ -1782,7 +1765,6 @@ public partial class MainWindow : Window, IAnalystHost
             _aiBusy = false;
             RefreshAiLamp();
             AiAnalyzeCatBtn.IsEnabled = true;
-            AiExplainBtn.IsEnabled = true;
         }
     }
 
@@ -2104,7 +2086,6 @@ public partial class MainWindow : Window, IAnalystHost
         _aiStop = new CancellationTokenSource();
         RefreshAiLamp();
         AiAnalyzeCatBtn.IsEnabled = false;
-        AiExplainBtn.IsEnabled = false;
         AiStopBtn.Visibility = Visibility.Visible;
         SetCleanProgress(0, Loc.AiWorking, determinate: false);
 
@@ -2148,7 +2129,6 @@ public partial class MainWindow : Window, IAnalystHost
             _aiStop = null;
             RefreshAiLamp();
             AiAnalyzeCatBtn.IsEnabled = true;
-            AiExplainBtn.IsEnabled = true;
             AiStopBtn.Visibility = Visibility.Collapsed;
             HideCleanProgress();
             // AI 只写 AiNote，风险/分组没变，所以不重建分类、不重设 ItemsSource
@@ -2175,7 +2155,6 @@ public partial class MainWindow : Window, IAnalystHost
         _aiBusy = true;
         RefreshAiLamp();
         AiAnalyzeCatBtn.IsEnabled = false;
-        AiExplainBtn.IsEnabled = false;
         try
         {
             _juryPanes.Clear();
@@ -2217,7 +2196,6 @@ public partial class MainWindow : Window, IAnalystHost
             _aiBusy = false;
             RefreshAiLamp();
             AiAnalyzeCatBtn.IsEnabled = true;
-            AiExplainBtn.IsEnabled = true;
         }
     }
 

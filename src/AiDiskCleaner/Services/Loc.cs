@@ -520,8 +520,8 @@ public static class Loc
         IsEn ? $"Move {n:N0} items ({size}) to Recycle Bin?" : $"把 {n:N0} 项（{size}）删到回收站？";
     public static string RecycleManyOk(int n) => IsEn ? $"Moved {n:N0} items" : $"已移到回收站 {n:N0} 项";
     public static string NothingSelected => IsEn ? "Nothing selected." : "没有勾选项。";
-    /// <summary>清理表格里规则原因列的表头。</summary>
-    public static string ColReason => IsEn ? "Why cleanable" : "可清理原因";
+    /// <summary>清理表格说明列：规则原因，分析后被 AI 覆盖。</summary>
+    public static string ColReason => IsEn ? "Note" : "说明";
     public static string ColName => IsEn ? "Name" : "名称";
 
     public static string CatAi => IsEn ? "AI suggested" : "AI 建议";
