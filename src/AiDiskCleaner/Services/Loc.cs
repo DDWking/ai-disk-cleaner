@@ -43,6 +43,11 @@ public static class Loc
         IsEn ? $"{pct}%  {stage}  {files:N0} files" : $"{pct}%  {stage}  {files:N0} 个文件";
     public static string ProgressIndeterminate(string stage, int files) =>
         IsEn ? $"{stage}  {files:N0} files" : $"{stage}  {files:N0} 个文件";
+    /// <summary>分析阶段：第几步 / 共几步 + 当前动作。</summary>
+    public static string AnalyzeStep(int step, int total, string action) =>
+        IsEn ? $"Analyze {step}/{total}  {action}" : $"分析 {step}/{total}  {action}";
+    public static string FilterHere(string name) => IsEn ? $"in {name}" : $"当前：{name}";
+    public static string FilterAll => IsEn ? "whole disk" : "全盘";
     public static string MftFail => IsEn ? "MFT failed, falling back" : "MFT 失败，改用递归扫描";
     public static string Aborted => IsEn ? "Stopped" : "已停止";
     public static string ScanFailed => IsEn ? "Scan failed" : "扫描失败";
@@ -102,7 +107,7 @@ public static class Loc
     public static string AiAddProvider => IsEn ? "Add" : "添加";
     public static string AiDelProvider => IsEn ? "Remove" : "删除";
     public static string AiProviderList => IsEn ? "Providers" : "提供方";
-    public static string AiPickModel => IsEn ? "Model" : "模型";
+    public static string AiPickModel => IsEn ? "Model used for Analyze" : "分析用的模型";
     /// <summary>模型选择按钮上，还没选任何模型时的占位。</summary>
     public static string AiNoModel => IsEn ? "no model selected" : "未选模型";
     public static string AiNeedScanFirst => IsEn ? "Scan the disk first." : "先扫描磁盘。";
@@ -522,6 +527,7 @@ public static class Loc
     public static string NothingSelected => IsEn ? "Nothing selected." : "没有勾选项。";
     /// <summary>清理表格说明列：规则原因，分析后被 AI 覆盖。</summary>
     public static string ColReason => IsEn ? "Note" : "说明";
+    public static string ColRisk => IsEn ? "Risk" : "风险";
     public static string ColName => IsEn ? "Name" : "名称";
 
     public static string CatAi => IsEn ? "AI suggested" : "AI 建议";
@@ -608,6 +614,7 @@ public static class Loc
     public static string CleanShortcuts => IsEn ? "Checking shortcuts…" : "正在检查快捷方式…";
     public static string CleanDups => IsEn ? "Checking duplicates…" : "正在核对重复文件…";
     public static string CleanCompare => IsEn ? "Comparing with last scan…" : "正在和上次扫描对比…";
+    public const int AnalyzeSteps = 6;
 
     public static string Category(string fileName)
     {

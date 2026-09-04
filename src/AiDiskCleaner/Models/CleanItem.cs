@@ -4,7 +4,7 @@ using AiDiskCleaner.Services;
 
 namespace AiDiskCleaner.Models;
 
-/// <summary>三档风险，决定行高亮颜色。</summary>
+/// <summary>三档风险，决定风险列颜色。</summary>
 public enum CleanRisk
 {
     Safe,     // 绿：缓存、转储、回收站，可安全删除
@@ -87,7 +87,7 @@ public sealed class CleanItem : INotifyPropertyChanged
 }
 
 /// <summary>用途分类的一行，带占比可视化所需的数据。</summary>
-public sealed class CatRow
+public sealed class CatRow : INotifyPropertyChanged
 {
     public string Name { get; set; } = "";
     public List<CleanItem> Items { get; set; } = new();
@@ -96,9 +96,14 @@ public sealed class CatRow
     public string SizeText => FileEntry.FormatSize(Bytes);
     /// <summary>占全部可清理空间的百分比（0~100）。</summary>
     public double Percent { get; set; }
-    /// <summary>占比条填充部分的宽度（0~100）。</summary>
-    public double BarWidth => Math.Clamp(Percent, 0, 100);
-    /// <summary>占比条剩余部分的宽度。</summary>
-    public double BarRest => 100 - BarWidth;
     public string PercentText => Percent >= 10 ? $"{Percent:0}%" : $"{Percent:0.#}%";
+
+    bool _isCurrent;
+    public bool IsCurrent
+    {
+        get => _isCurrent;
+        set { if (_isCurrent == value) return; _isCurrent = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCurrent))); }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }

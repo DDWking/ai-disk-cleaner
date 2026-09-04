@@ -864,125 +864,49 @@
               <TextBlock x:Name="CleanProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
               <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
             </StackPanel>
-            <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,12,20,8"
+            <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,8,20,6"
                        Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
-            <!-- 分类：占比条 + 名称 + 大小，点一行切换 -->
-            <Border DockPanel.Dock="Top" Margin="16,0,16,6" MaxHeight="176">
-              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl x:Name="CatList" MouseLeftButtonUp="CatList_Click">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Border x:Name="Row" Padding="6,3" Cursor="Hand" Background="Transparent">
-                        <Grid>
-                          <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="54"/>
-                            <ColumnDefinition Width="38"/>
-                          </Grid.ColumnDefinitions>
-                          <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                          </Grid.RowDefinitions>
-                          <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Name}" FontSize="11"
-                                     Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis"/>
-                          <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SizeText}" FontSize="11"
-                                     Foreground="{DynamicResource Accent}" HorizontalAlignment="Right"/>
-                          <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding PercentText}" FontSize="11"
-                                     Foreground="{DynamicResource TextDim}" HorizontalAlignment="Right" Margin="8,0,0,0"/>
-                          <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Height="4" Margin="0,3,0,0">
-                            <Grid.ColumnDefinitions>
-                              <ColumnDefinition Width="{Binding BarWidth, Converter={StaticResource ShareWidth}}"/>
-                              <ColumnDefinition Width="{Binding BarRest, Converter={StaticResource ShareWidth}}"/>
-                            </Grid.ColumnDefinitions>
-                            <Border Background="{DynamicResource Accent}"/>
-                            <Border Grid.Column="1" Background="{DynamicResource Border}"/>
-                          </Grid>
-                        </Grid>
-                      </Border>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </ScrollViewer>
-            </Border>
+            <!-- 分类做成一行芯片，表格才能占满 -->
+            <ScrollViewer DockPanel.Dock="Top" Margin="16,0,16,6" MaxHeight="52"
+                          VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Auto">
+              <ItemsControl x:Name="CatList" MouseLeftButtonUp="CatList_Click">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal"/>
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border x:Name="Row" Padding="8,4" Margin="0,0,6,0" Cursor="Hand"
+                            BorderBrush="{DynamicResource Border}" BorderThickness="1" Background="Transparent">
+                      <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="NameTxt" Text="{Binding Name}" FontSize="11" Foreground="{DynamicResource Text}"/>
+                        <TextBlock Text="{Binding SizeText}" FontSize="11" Margin="8,0,0,0"
+                                   Foreground="{DynamicResource TextDim}"/>
+                      </StackPanel>
+                    </Border>
+                    <DataTemplate.Triggers>
+                      <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                        <Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                        <Setter TargetName="NameTxt" Property="Foreground" Value="{DynamicResource Accent}"/>
+                      </DataTrigger>
+                    </DataTemplate.Triggers>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
             <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
               <Button x:Name="SelectAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectAll_Click"/>
-              <Button x:Name="SelectSafeBtn" Content="勾选可安全删除" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="SelectSafe_Click"/>
-            </WrapPanel>
-            <!-- AI：只分析当前选中的分类，结果直接写进下面每一行的风险和描述 -->
-            <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
-              <!-- 模型选择：按钮 + 弹出列表（供应商小标题 + 模型行）。
-                   不用 ComboBox 分组——它在本主题下分组标题渲染但模型行不显示。 -->
-              <Button x:Name="AiModelBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,6"
-                      MinWidth="170" HorizontalContentAlignment="Left" Click="AiModelBtn_Click">
-                <Grid>
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                  </Grid.ColumnDefinitions>
-                  <TextBlock x:Name="AiModelBtnText" Grid.Column="0" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock Grid.Column="1" Text="▾" Margin="8,0,0,0" Opacity="0.6"/>
-                </Grid>
-              </Button>
-              <Popup x:Name="AiModelPopup" PlacementTarget="{Binding ElementName=AiModelBtn}"
-                     Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
-                     PopupAnimation="Fade">
-                <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}"
-                        BorderThickness="1" MinWidth="240" MaxWidth="360" Padding="4">
-                  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                                MaxHeight="320">
-                    <ItemsControl x:Name="AiModelList" MouseLeftButtonUp="AiModelRow_Click">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                          <Border x:Name="Row" Padding="8,5" Cursor="Hand" Background="Transparent">
-                            <Grid>
-                              <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                              </Grid.ColumnDefinitions>
-                              <TextBlock x:Name="Mark" Grid.Column="0" Text="▸" Margin="0,0,6,0"
-                                         Visibility="Collapsed" Foreground="{DynamicResource Accent}"/>
-                              <TextBlock x:Name="Txt" Grid.Column="1" Text="{Binding Text}" FontSize="12"
-                                         TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Text}"/>
-                            </Grid>
-                          </Border>
-                          <DataTemplate.Triggers>
-                            <DataTrigger Binding="{Binding IsHeader}" Value="True">
-                              <Setter TargetName="Row" Property="Cursor" Value="Arrow"/>
-                              <Setter TargetName="Row" Property="Background" Value="Transparent"/>
-                              <Setter TargetName="Txt" Property="Foreground" Value="{DynamicResource TextDim}"/>
-                              <Setter TargetName="Txt" Property="FontSize" Value="11"/>
-                              <Setter TargetName="Txt" Property="Margin" Value="0,4,0,0"/>
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding IsCurrent}" Value="True">
-                              <Setter TargetName="Mark" Property="Visibility" Value="Visible"/>
-                              <Setter TargetName="Txt" Property="FontWeight" Value="Bold"/>
-                              <Setter TargetName="Txt" Property="Foreground" Value="{DynamicResource Accent}"/>
-                            </DataTrigger>
-                            <MultiDataTrigger>
-                              <MultiDataTrigger.Conditions>
-                                <Condition Binding="{Binding IsHeader}" Value="False"/>
-                                <Condition Binding="{Binding RelativeSource={RelativeSource Self}, Path=IsMouseOver}" Value="True"/>
-                              </MultiDataTrigger.Conditions>
-                              <Setter TargetName="Row" Property="Background" Value="{DynamicResource SelectBg}"/>
-                            </MultiDataTrigger>
-                          </DataTemplate.Triggers>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                  </ScrollViewer>
-                </Border>
-              </Popup>
-              <Button x:Name="AiAnalyzeCatBtn" Content="AI 分析此类" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="AiAnalyzeCat_Click"/>
+              <Button x:Name="SelectSafeBtn" Content="勾选可安全删除" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectSafe_Click"/>
+              <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Margin="0,0,8,6" Click="RecycleSelected_Click"/>
+              <Button x:Name="AiAnalyzeCatBtn" Content="分析" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="AiAnalyzeCat_Click"/>
               <Button x:Name="AiStopBtn" Content="停止" Style="{StaticResource GhostButton}" Margin="0,0,8,6"
                       Visibility="Collapsed" Click="AiStop_Click"/>
-              <TextBlock x:Name="AiStatusText" VerticalAlignment="Center" Margin="0,0,0,6"
+              <TextBlock x:Name="AiStatusText" VerticalAlignment="Center" Margin="0,0,8,6"
+                         Foreground="{DynamicResource TextDim}" FontSize="11"/>
+              <TextBlock x:Name="CleanSelHint" VerticalAlignment="Center" Margin="0,0,0,6"
                          Foreground="{DynamicResource TextDim}" FontSize="11"/>
             </WrapPanel>
-            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
-              <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Click="RecycleSelected_Click"/>
-              <TextBlock x:Name="CleanSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
-                         Foreground="{DynamicResource TextDim}" FontSize="11"/>
-            </StackPanel>
             <DataGrid x:Name="CleanGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
                       HeadersVisibility="Column" GridLinesVisibility="None"
                       BorderThickness="0" RowHeight="32" Margin="12,0,16,0"
@@ -994,22 +918,7 @@
                       HorizontalScrollBarVisibility="Disabled"
                       MouseDoubleClick="CleanGrid_MouseDoubleClick"
                       MouseLeftButtonUp="CleanGrid_Click">
-              <DataGrid.RowStyle>
-                <Style TargetType="DataGridRow">
-                  <!-- 风险语义色：绿=可放心删，黄=删前看一眼，红=别删 -->
-                  <Style.Triggers>
-                    <DataTrigger Binding="{Binding Risk}" Value="Safe">
-                      <Setter Property="Background" Value="#12301C"/>
-                    </DataTrigger>
-                    <DataTrigger Binding="{Binding Risk}" Value="Confirm">
-                      <Setter Property="Background" Value="#332B10"/>
-                    </DataTrigger>
-                    <DataTrigger Binding="{Binding Risk}" Value="Keep">
-                      <Setter Property="Background" Value="#331414"/>
-                    </DataTrigger>
-                  </Style.Triggers>
-                </Style>
-              </DataGrid.RowStyle>
+              <!-- 风险色只上在风险列，整行铺色在黑白风里太吵 -->
               <DataGrid.ContextMenu>
                 <ContextMenu>
                   <MenuItem x:Name="CleanOpenItem" Header="在资源管理器中打开" Click="CleanOpen_Click"/>
@@ -1341,34 +1250,67 @@
             </ItemsControl>
             <Button x:Name="AiAddProvBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Stretch"
                     Padding="10,8" Click="AiAddProv_Click"/>
-            <Button x:Name="JuryToggleBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Stretch"
-                    Padding="10,8" Margin="0,12,0,0" Click="JuryToggle_Click"/>
-            <StackPanel x:Name="JuryPanel" Visibility="Collapsed" Margin="0,10,0,0">
-              <ItemsControl x:Name="JuryPickList">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate>
-                    <StackPanel Margin="0,0,0,14">
-                      <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextMuted}" FontSize="11"
-                                 Margin="0,0,0,8"/>
-                      <ItemsControl ItemsSource="{Binding Models}">
-                        <ItemsControl.ItemsPanel>
-                          <ItemsPanelTemplate>
-                            <UniformGrid Columns="2"/>
-                          </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate>
-                            <Button Content="{Binding Label}" Tag="{Binding}" Style="{StaticResource GhostButton}"
-                                    HorizontalAlignment="Stretch" Padding="10,6" FontSize="11" Margin="0,0,8,8"
-                                    Click="JuryPick_Click"/>
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
-                    </StackPanel>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
+            <TextBlock x:Name="AiPickModelLabel" Foreground="{DynamicResource TextDim}" Margin="0,16,0,8"/>
+            <Button x:Name="AiModelBtn" Style="{StaticResource GhostButton}" Margin="0,0,0,4"
+                    MinWidth="170" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="AiModelBtn_Click">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="AiModelBtnText" Grid.Column="0" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="1" Text="▾" Margin="8,0,0,0" Opacity="0.6"/>
+              </Grid>
+            </Button>
+            <Popup x:Name="AiModelPopup" PlacementTarget="{Binding ElementName=AiModelBtn}"
+                   Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
+                   PopupAnimation="Fade">
+              <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}"
+                      BorderThickness="1" MinWidth="240" MaxWidth="360" Padding="4">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              MaxHeight="320">
+                  <ItemsControl x:Name="AiModelList" MouseLeftButtonUp="AiModelRow_Click">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border x:Name="Row" Padding="8,5" Cursor="Hand" Background="Transparent">
+                          <Grid>
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="Auto"/>
+                              <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="Mark" Grid.Column="0" Text="▸" Margin="0,0,6,0"
+                                       Visibility="Collapsed" Foreground="{DynamicResource Accent}"/>
+                            <TextBlock x:Name="Txt" Grid.Column="1" Text="{Binding Text}" FontSize="12"
+                                       TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Text}"/>
+                          </Grid>
+                        </Border>
+                        <DataTemplate.Triggers>
+                          <DataTrigger Binding="{Binding IsHeader}" Value="True">
+                            <Setter TargetName="Row" Property="Cursor" Value="Arrow"/>
+                            <Setter TargetName="Row" Property="Background" Value="Transparent"/>
+                            <Setter TargetName="Txt" Property="Foreground" Value="{DynamicResource TextDim}"/>
+                            <Setter TargetName="Txt" Property="FontSize" Value="11"/>
+                            <Setter TargetName="Txt" Property="Margin" Value="0,4,0,0"/>
+                          </DataTrigger>
+                          <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                            <Setter TargetName="Mark" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="Txt" Property="FontWeight" Value="Bold"/>
+                            <Setter TargetName="Txt" Property="Foreground" Value="{DynamicResource Accent}"/>
+                          </DataTrigger>
+                          <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                              <Condition Binding="{Binding IsHeader}" Value="False"/>
+                              <Condition Binding="{Binding RelativeSource={RelativeSource Self}, Path=IsMouseOver}" Value="True"/>
+                            </MultiDataTrigger.Conditions>
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource SelectBg}"/>
+                          </MultiDataTrigger>
+                        </DataTemplate.Triggers>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Border>
+            </Popup>
           </StackPanel>
         </ScrollViewer>
         <ScrollViewer x:Name="ProvEditBody" MaxHeight="520" Visibility="Collapsed"

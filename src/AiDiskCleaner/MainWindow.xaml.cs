@@ -2,15 +2,12 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
-using System.Collections.ObjectModel;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using AiDiskCleaner.Controls;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 using UninstallTools;
@@ -96,7 +93,6 @@ public partial class MainWindow : Window, IAnalystHost
     private int _liveExtShown;
     private CleanReport? _report;
     private int _rightTab; // 0 清理 1 扩展名 2 卸载
-    private int _page; // 0 浏览 1 AI 分析
     private Action? _confirmYes;
     private List<AppUninstallItem> _apps = new();
     private bool _listingApps;
@@ -109,18 +105,13 @@ public partial class MainWindow : Window, IAnalystHost
     private bool _aiBusy;
     private bool _aiOk;
     private bool _aiTried;
-    private readonly Dictionary<string, string> _aiNotes = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ObservableCollection<ChatLine> _chat = new();
-    private readonly List<AiMsg> _turns = new();
-    private string? _need;
-    private List<VoteItem> _votes = new();
-    private List<CleanItem> _aiItems = new();
     // 按用途分好的分类（名称 + 条目 + 占比），分类列表和「分析当前分类」都用它
     private List<CatRow> _cats = new();
     private int _catIndex;
-    private readonly ObservableCollection<JuryPane> _juryPanes = new();
     FileEntry? IAnalystHost.Root => _root;
     CleanReport? IAnalystHost.Report => _report;
+    void IAnalystHost.OnChecksChanged(bool showLarge) { }
+    void IAnalystHost.OnSuggest(string path, string note) { }
     private static readonly AiProtocol[] AiProtos =
         { AiProtocol.Completions, AiProtocol.Responses, AiProtocol.Anthropic };
 
@@ -230,6 +221,7 @@ public partial class MainWindow : Window, IAnalystHost
         SelectSafeBtn.Content = Loc.SelectSafe;
         HighlightSelectMode();
         RecycleSelBtn.Content = Loc.RecycleSelected;
+        ColCleanRisk.Header = Loc.ColRisk;
         ColCleanName.Header = Loc.ColName;
         ColCleanSize.Header = Loc.Size;
         ColCleanWhy.Header = Loc.ColReason;
@@ -255,10 +247,9 @@ public partial class MainWindow : Window, IAnalystHost
         AiModelHint.Text = Loc.AiModelsEmpty;
         AiAnalyzeCatBtn.Content = Loc.AiAnalyze;
         AiAddProvBtn.Content = Loc.AiAddCustom;
+        if (AiPickModelLabel != null) AiPickModelLabel.Text = Loc.AiPickModel;
         FillAiProtoBox();
         FillRunModels();
-        FillJuryPicks();
-        RefreshJuryUi();
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_current == null)
@@ -394,7 +385,8 @@ public partial class MainWindow : Window, IAnalystHost
         var analyzeProgress = new Progress<ScanProgress>(p =>
         {
             int pct = p.Percent >= 0 ? p.Percent : 0;
-            SetCleanProgress(pct, p.CurrentDirectory, determinate: p.Percent >= 0);
+            int step = pct <= 5 ? 1 : pct <= 20 ? 2 : pct <= 45 ? 3 : pct <= 70 ? 4 : pct < 100 ? 5 : 6;
+            SetCleanProgress(pct, Loc.AnalyzeStep(step, Loc.AnalyzeSteps, p.CurrentDirectory), determinate: p.Percent >= 0);
         });
         try
         {
@@ -416,7 +408,7 @@ public partial class MainWindow : Window, IAnalystHost
             ? Loc.CleanHintReady(report.Cleanable.Count, FileEntry.FormatSize(report.CleanableBytes))
             : Loc.HintClean;
         UiLog($"分析完成: cleanable={report.Cleanable.Count} dup={report.Duplicates.Count}");
-        _ = AutoAnalyze(root, report);
+        RefreshAiLamp();
     }
 
     private void SetCleanProgress(double value, string text, bool determinate)
@@ -503,18 +495,12 @@ public partial class MainWindow : Window, IAnalystHost
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
-        var mark = MarkFor(d.FullPath);
-        string note = mark.Note;
-        bool marked = mark.Hit;
         var name = new TextBlock
         {
-            Text = string.IsNullOrEmpty(note) ? d.Name : d.Name + "  ·  " + note,
-            Foreground = marked
-                ? new SolidColorBrush(Color.FromRgb(0x5C, 0xC8, 0xFF))
-                : ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Text"),
+            Text = d.Name,
+            Foreground = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Text"),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            ToolTip = string.IsNullOrEmpty(note) ? null : note,
         };
         double pct = isRoot && _volumeTotal > 0
             ? 100.0 * _volumeUsed / _volumeTotal
@@ -539,8 +525,6 @@ public partial class MainWindow : Window, IAnalystHost
         grid.Children.Add(alloc);
         grid.Children.Add(files);
         grid.Children.Add(folders);
-        if (marked)
-            grid.Background = new SolidColorBrush(Color.FromArgb(0x40, 0x1A, 0x5A, 0x90));
         return grid;
     }
 
@@ -708,7 +692,6 @@ public partial class MainWindow : Window, IAnalystHost
         var item = (TreeViewItem)sender;
         if (item.Items.Count == 1 && item.Items[0] is TreeViewItem ph && ReferenceEquals(ph.Tag, Placeholder))
             PopulateDirChildren(item);
-        PaintItem(item);
     }
 
     private void ShowDirectory(FileEntry dir)
@@ -718,6 +701,8 @@ public partial class MainWindow : Window, IAnalystHost
         FileCountText.Text = Loc.FileDirCount(dir.FileCount, dir.FolderCount);
         TotalSizeText.Text = FileEntry.FormatSize(dir.Size) + "  /  " + FileEntry.FormatSize(dir.Allocated);
         ShowExtStats(dir);
+        if (_report != null && _rightTab == 0)
+            ShowCleanCat();
     }
 
     private static readonly Color[] ExtPalette =
@@ -1250,8 +1235,6 @@ public partial class MainWindow : Window, IAnalystHost
         AiProvCards.ItemsSource = null;
         AiProvCards.ItemsSource = App.Settings.AiProviders.ToList();
         FillRunModels();
-        FillJuryPicks();
-        RefreshJuryUi();
         RefreshAiLamp();
     }
 
@@ -1436,14 +1419,6 @@ public partial class MainWindow : Window, IAnalystHost
         return p != null && !string.IsNullOrWhiteSpace(p.BaseUrl) && !string.IsNullOrWhiteSpace(App.Settings.AiModel);
     }
 
-    async Task AutoAnalyze(FileEntry root, CleanReport report)
-    {
-        if (_chat.Count == 0)
-            AddChat(Loc.AiBot, Loc.AiScanSkip);
-        RefreshAiLamp();
-        await Task.CompletedTask;
-    }
-
     void FillRunModels()
     {
         if (AiModelList == null || AiModelBtnText == null) return;
@@ -1483,8 +1458,6 @@ public partial class MainWindow : Window, IAnalystHost
             : (string.IsNullOrWhiteSpace(cur)
                 ? (provName.Length > 0 ? provName + " / " + Loc.AiNoModel : Loc.AiNoModel)
                 : (provName.Length > 0 ? provName + " / " + cur : cur));
-
-        FillJuryPicks();
     }
 
     static string ProvName(AiProviderCfg p)
@@ -1506,174 +1479,6 @@ public partial class MainWindow : Window, IAnalystHost
         AiModelPopup.IsOpen = false;
         FillRunModels();
         RefreshAiLamp();
-    }
-
-    void FillJuryPicks()
-    {
-        if (JuryPickList == null) return;
-        App.Settings.Migrate();
-        var chosen = new HashSet<string>(App.Settings.AiJury, StringComparer.OrdinalIgnoreCase);
-        var groups = new List<JuryGroup>();
-        foreach (var p in App.Settings.AiProviders)
-        {
-            var models = p.Models.Where(m => !string.IsNullOrWhiteSpace(m))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            if (models.Count == 0 && p.Id == App.Settings.AiActiveId && !string.IsNullOrWhiteSpace(App.Settings.AiModel))
-                models.Add(App.Settings.AiModel);
-            if (models.Count == 0) continue;
-            groups.Add(new JuryGroup
-            {
-                Name = string.IsNullOrWhiteSpace(p.Name) ? p.Id : p.Name,
-                Models = models.Select(m => new JuryPick
-                {
-                    Id = Jury.SeatId(p, m),
-                    Label = m,
-                    On = chosen.Contains(Jury.SeatId(p, m)),
-                }).ToList(),
-            });
-        }
-        JuryPickList.ItemsSource = groups;
-        RefreshJuryUi();
-        Dispatcher.BeginInvoke(PaintJuryButtons, System.Windows.Threading.DispatcherPriority.Background);
-    }
-
-    IEnumerable<JuryPick> AllJuryPicks()
-        => JuryPickList.ItemsSource is IEnumerable<JuryGroup> groups
-            ? groups.SelectMany(g => g.Models)
-            : Enumerable.Empty<JuryPick>();
-
-    private void JuryToggle_Click(object sender, RoutedEventArgs e)
-    {
-        App.Settings.AiJuryOn = false;
-        App.Settings.Save();
-        RefreshJuryUi();
-        PaintJuryButtons();
-        AddChat(Loc.AiBot, Loc.JuryPaused, log: true);
-    }
-
-    void RefreshJuryUi()
-    {
-        // 多模型陪审已废弃（分析固定走当前这一个模型），相关面板一律隐藏
-        if (JuryPanel != null)
-            JuryPanel.Visibility = Visibility.Collapsed;
-    }
-
-    private void JuryPick_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { Tag: JuryPick pick }) return;
-        if (!pick.On && AllJuryPicks().Count(x => x.On) >= 4) return;
-        pick.On = !pick.On;
-        App.Settings.AiJury = AllJuryPicks().Where(x => x.On).Select(x => x.Id).ToList();
-        App.Settings.Save();
-        PaintJuryButtons();
-        RefreshJuryUi();
-    }
-
-    void PaintJuryButtons()
-    {
-        if (JuryPickList == null) return;
-        foreach (var btn in FindButtons(JuryPickList))
-        {
-            if (btn.Tag is not JuryPick pick) continue;
-            btn.BorderBrush = ThemeService.Brush(pick.On ? "Accent" : "Border");
-            btn.Foreground = ThemeService.Brush(pick.On ? "Accent" : "TextDim");
-        }
-        if (JuryToggleBtn != null)
-        {
-            bool on = App.Settings.AiJuryOn;
-            JuryToggleBtn.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
-            JuryToggleBtn.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
-        }
-    }
-
-    static IEnumerable<Button> FindButtons(DependencyObject root)
-    {
-        int n = VisualTreeHelper.GetChildrenCount(root);
-        for (int i = 0; i < n; i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is Button b) yield return b;
-            foreach (var inner in FindButtons(child)) yield return inner;
-        }
-    }
-
-    private async void AiRun_Click(object sender, RoutedEventArgs e)
-    {
-        if (_aiBusy) return;
-        if (_report == null || _root == null)
-        {
-            AddChat(Loc.AiBot, Loc.AiNeedScanFirst);
-            return;
-        }
-        if (!AiConfigured())
-        {
-            AddChat(Loc.AiBot, Loc.AiScanSkip);
-            return;
-        }
-        DiskAnalyst.ResetSession();
-        _aiNotes.Clear();
-        ClearAiSuggested();
-        ResetJuryPanes();
-        _need = Loc.JuryDefaultNeed;
-        _votes.Clear();
-        _aiItems.Clear();
-        ShowPage(1);
-        RefreshCleanUi();
-        AddChat(Loc.AiYou, Loc.AiAnalyze);
-        ResetJuryPanes();
-        await AskAnalyst(DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal));
-    }
-
-    ChatLine AddChat(string who, string text, bool log = false)
-    {
-        var line = new ChatLine
-        {
-            Who = who,
-            Text = text,
-            Log = log,
-            Parts = log ? new() : ChatFormat.Parse(text),
-        };
-        _chat.Add(line);
-        return line;
-    }
-
-    ChatLine AddPane(JuryPane pane, string who, string text, bool log = false)
-    {
-        if (!Dispatcher.CheckAccess())
-            return Dispatcher.Invoke(() => AddPane(pane, who, text, log));
-        var line = new ChatLine
-        {
-            Who = who,
-            Text = text,
-            Log = log,
-            Parts = log ? new() : ChatFormat.Parse(text),
-        };
-        pane.Lines.Add(line);
-        return line;
-    }
-
-    void ShowJuryPanes(bool on)
-    {
-        // 陪审面板已随 AI 分析页一起移除，保留空实现避免到处改调用点
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.Invoke(() => ShowJuryPanes(on));
-            return;
-        }
-    }
-
-    void ResetJuryPanes()
-    {
-        _juryPanes.Clear();
-        ShowJuryPanes(false);
-    }
-
-    List<AiMsg> PackedTurns()
-    {
-        if (_turns.Count <= 24) return _turns.ToList();
-        return _turns.Skip(_turns.Count - 24).ToList();
     }
 
     void RefreshAiLamp()
@@ -1713,80 +1518,6 @@ public partial class MainWindow : Window, IAnalystHost
         RefreshAiLamp();
     }
 
-    async Task<string> AskAnalyst(string user)
-    {
-        if (_aiBusy) return "";
-        _aiBusy = true;
-        RefreshAiLamp();
-        AiAnalyzeCatBtn.IsEnabled = false;
-        try
-        {
-            _turns.Add(new AiMsg { Role = "user", Text = user });
-            var live = AddChat(Loc.AiBot, Loc.JuryWaiting, log: true);
-            var buf = new System.Text.StringBuilder();
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            var tick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-            tick.Tick += (_, _) =>
-            {
-                if (buf.Length == 0)
-                    live.Text = Loc.AiWaiting(sw.Elapsed.Seconds);
-            };
-            tick.Start();
-            void Push(string delta)
-            {
-                buf.Append(delta);
-                string snap = buf.ToString();
-                Dispatcher.BeginInvoke(() => live.Text = snap, System.Windows.Threading.DispatcherPriority.Background);
-            }
-            try
-            {
-                var reply = await AiClient.StreamAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, DiskAnalyst.SystemPrompt(), PackedTurns(), Push, CancellationToken.None);
-                string last = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
-                FinishAnalyst(live, last);
-                return last;
-            }
-            finally
-            {
-                tick.Stop();
-            }
-        }
-        catch (Exception ex)
-        {
-            if (_turns.Count > 0 && _turns[^1].Role == "user")
-                _turns.RemoveAt(_turns.Count - 1);
-            SetAiLamp(false);
-            AddChat(Loc.AiBot, Loc.AiPartial(AiClient.Pretty(ex)), log: true);
-            CollectAiFromNotes();
-            ShowAiSuggested();
-            return "";
-        }
-        finally
-        {
-            _aiBusy = false;
-            RefreshAiLamp();
-            AiAnalyzeCatBtn.IsEnabled = true;
-        }
-    }
-
-    void FinishAnalyst(ChatLine? live, string last)
-    {
-        last = StripToolMarkup(last);
-        if (string.IsNullOrWhiteSpace(last)) last = Loc.AiOk;
-        _turns.Add(new AiMsg { Role = "assistant", Text = last });
-        HarvestNotes(last, check: true);
-        CollectAiFromNotes();
-        SetAiLamp(true);
-        if (live != null)
-        {
-            live.Log = false;
-            live.Text = last;
-            live.Parts = ChatFormat.Parse(last);
-        }
-        else
-            AddChat(Loc.AiBot, last);
-        ShowAiSuggested();
-    }
-
     static string StripToolMarkup(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return "";
@@ -1803,235 +1534,6 @@ public partial class MainWindow : Window, IAnalystHost
         return sb.ToString().Trim();
     }
 
-    void IAnalystHost.OnChecksChanged(bool showLarge)
-    {
-        ShowPage(0);
-        ShowRightTab(0);
-        // 分类现在按用途动态生成，没有固定的「大文件」位置，保持当前分类即可
-        RefreshCleanUi();
-        PaintAiNotes();
-    }
-
-    void CollectAiFromNotes()
-    {
-        var list = new List<CleanItem>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in AllCleanItems().Where(x => x.AiSuggested))
-        {
-            if (!seen.Add(NormPath(item.FullPath))) continue;
-            list.Add(item);
-        }
-        foreach (var (path, note) in _aiNotes)
-        {
-            if (!seen.Add(path) || IsProtectedSuggest(path)) continue;
-            var hit = AllCleanItems().FirstOrDefault(x => string.Equals(NormPath(x.FullPath), path, StringComparison.OrdinalIgnoreCase));
-            if (hit != null)
-            {
-                hit.AiSuggested = true;
-                if (!string.IsNullOrWhiteSpace(note)) hit.Reason = note;
-                list.Add(hit);
-                continue;
-            }
-            list.Add(new CleanItem
-            {
-                Name = Path.GetFileName(path),
-                FullPath = path,
-                Reason = note,
-                Group = Loc.CatAi,
-                AiSuggested = true,
-                CanDelete = true,
-            });
-        }
-        _aiItems = list;
-    }
-
-    void HarvestNotes(string text, bool check)
-    {
-        if (string.IsNullOrWhiteSpace(text) || _report == null) return;
-        int n = 0;
-        foreach (var part in ChatFormat.Parse(text))
-        {
-            if (part.Kind != ChatPartKind.Path || string.IsNullOrEmpty(part.Path)) continue;
-            if (n++ >= 40) break;
-            string key = NormPath(part.Path);
-            if (key.Length < 4) continue;
-            bool keep = part.Section == Loc.SecKeep || part.Section == Loc.SecFolders;
-            string note = string.IsNullOrWhiteSpace(part.Note) ? Loc.AiMark : part.Note;
-            ApplySuggest(key, note, check: check && !keep);
-        }
-        Dispatcher.BeginInvoke(() => { PaintAiNotes(); CollectAiFromNotes(); ShowAiSuggested(); }, System.Windows.Threading.DispatcherPriority.Background);
-    }
-
-    void IAnalystHost.OnSuggest(string path, string note)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return;
-        ApplySuggest(path, string.IsNullOrWhiteSpace(note) ? Loc.AiMark : note.Trim(), check: true);
-        Dispatcher.BeginInvoke(() => { PaintAiNotes(); CollectAiFromNotes(); ShowAiSuggested(); }, System.Windows.Threading.DispatcherPriority.Background);
-    }
-
-    void ShowAiSuggested()
-    {
-        RefreshCleanUi();
-        ShowRightTab(0);
-    }
-
-    void ApplySuggest(string path, string note, bool check)
-    {
-        string key = NormPath(path);
-        if (key.Length == 0 || IsProtectedSuggest(key)) return;
-        _aiNotes[key] = ClipNote(note);
-        string? parent = Path.GetDirectoryName(key);
-        int depth = 0;
-        while (!string.IsNullOrEmpty(parent) && parent.Length >= 3 && depth++ < 24)
-        {
-            string p = NormPath(parent);
-            if (p.Length <= 3 || IsProtectedSuggest(p)) break;
-            if (!_aiNotes.ContainsKey(p) || _aiNotes[p] == Loc.AiMark)
-                _aiNotes[p] = Loc.AiInside(ClipNote(note));
-            parent = Path.GetDirectoryName(p);
-        }
-        if (!check || _report == null) return;
-        var item = AllCleanItems().FirstOrDefault(x => string.Equals(NormPath(x.FullPath), key, StringComparison.OrdinalIgnoreCase));
-        if (item == null)
-        {
-            item = AllCleanItems().FirstOrDefault(x =>
-                !string.IsNullOrEmpty(x.FullPath)
-                && key.StartsWith(NormPath(x.FullPath) + "\\", StringComparison.OrdinalIgnoreCase)
-                && DiskAnalyst.CanAiCheck(x));
-        }
-        if (item == null || !DiskAnalyst.CanAiCheck(item)) return;
-        item.Selected = true;
-        item.AiSuggested = true;
-        if (!string.IsNullOrWhiteSpace(note) && note != Loc.AiMark)
-            item.Reason = ClipNote(note);
-    }
-
-    IEnumerable<CleanItem> AllCleanItems()
-    {
-        if (_report == null) yield break;
-        foreach (var x in _report.Cleanable) yield return x;
-        foreach (var x in _report.LargeFiles) yield return x;
-        foreach (var x in _report.OldFiles) yield return x;
-        foreach (var x in _report.Duplicates) yield return x;
-    }
-
-    static bool IsProtectedSuggest(string path)
-    {
-        string p = path.ToLowerInvariant();
-        if (p is "c:" or "c:\\" or "d:" or "d:\\") return true;
-        if (p is @"c:\windows" or @"c:\users" or @"c:\program files" or @"c:\program files (x86)" or @"c:\programdata")
-            return true;
-        if (p.Contains(@"\windows\winsxs")) return true;
-        return false;
-    }
-
-    static string ClipNote(string note)
-    {
-        string t = (note ?? "").Replace('\n', ' ').Replace('\r', ' ').Trim();
-        if (t.Equals("AI", StringComparison.OrdinalIgnoreCase) || t == Loc.AiMark) return Loc.AiMark;
-        return t.Length > 40 ? t[..37] + "…" : t;
-    }
-
-    static string NormPath(string? p)
-        => (p ?? "").Replace('/', '\\').Trim().TrimEnd('\\');
-
-    (bool Hit, string Note) MarkFor(string? path)
-    {
-        string key = NormPath(path);
-        if (key.Length == 0) return (false, "");
-        if (_aiNotes.TryGetValue(key, out var exact))
-            return (true, exact);
-        return (false, "");
-    }
-
-    void PaintAiNotes()
-    {
-        foreach (var obj in DirTree.Items)
-            if (obj is TreeViewItem item)
-                PaintItem(item);
-    }
-
-    void PaintItem(TreeViewItem item)
-    {
-        if (item.Tag is FileEntry e)
-            item.Header = MakeFolderHeader(e, ReferenceEquals(e, _root));
-        foreach (var child in item.Items)
-            if (child is TreeViewItem t && t.Tag is FileEntry)
-                PaintItem(t);
-    }
-
-    private void ChatPath_Click(object sender, RoutedEventArgs e)
-    {
-        if (e is not PathClickEventArgs { Path: string path } || string.IsNullOrWhiteSpace(path)) return;
-        bool dir = Directory.Exists(path) || path.EndsWith('\\');
-        OpenExplorer(path, dir);
-    }
-
-    void JumpToPath(string path)
-    {
-        string key = NormPath(path);
-        if (key.Length < 3 || _root == null) return;
-        if (!_aiNotes.ContainsKey(key))
-            ApplySuggest(key, NearbyNote(key) ?? Loc.AiMark, check: false);
-        var item = RevealInTree(key);
-        if (item == null) return;
-        item.IsSelected = true;
-        item.BringIntoView();
-        if (item.Tag is FileEntry e)
-            ShowDirectory(e.IsDirectory ? e : e.Parent ?? e);
-        PaintAiNotes();
-    }
-
-    string? NearbyNote(string key)
-    {
-        if (_aiNotes.TryGetValue(key, out var n) && n != Loc.AiMark) return n;
-        string? parent = Path.GetDirectoryName(key);
-        while (!string.IsNullOrEmpty(parent) && parent.Length >= 3)
-        {
-            string p = NormPath(parent);
-            if (_aiNotes.TryGetValue(p, out var note) && note != Loc.AiMark && !note.StartsWith("内有") && !note.StartsWith("inside:"))
-                return note;
-            parent = Path.GetDirectoryName(p);
-        }
-        return null;
-    }
-
-    TreeViewItem? RevealInTree(string path)
-    {
-        if (DirTree.Items.Count == 0 || DirTree.Items[0] is not TreeViewItem rootItem) return null;
-        string want = NormPath(path);
-        var item = rootItem;
-        EnsureTreeChildren(item);
-        while (true)
-        {
-            TreeViewItem? next = null;
-            foreach (var obj in item.Items)
-            {
-                if (obj is not TreeViewItem child || child.Tag is not FileEntry e) continue;
-                string cur = NormPath(e.FullPath);
-                if (string.Equals(cur, want, StringComparison.OrdinalIgnoreCase)
-                    || want.StartsWith(cur + "\\", StringComparison.OrdinalIgnoreCase))
-                {
-                    next = child;
-                    break;
-                }
-            }
-            if (next == null) return item;
-            item = next;
-            string here = NormPath((item.Tag as FileEntry)?.FullPath);
-            if (string.Equals(here, want, StringComparison.OrdinalIgnoreCase)) return item;
-            item.IsExpanded = true;
-            EnsureTreeChildren(item);
-        }
-    }
-
-    void EnsureTreeChildren(TreeViewItem item)
-    {
-        if (item.Tag is not FileEntry e || !e.IsDirectory) return;
-        bool stub = item.Items.Count == 1 && (item.Items[0] as TreeViewItem)?.Tag == Placeholder;
-        if (stub || (item.Items.Count == 0 && e.Children.Count > 0))
-            PopulateDirChildren(item);
-    }
 
     // ===== AI：分析当前选中的分类 =====
 
@@ -2137,177 +1639,9 @@ public partial class MainWindow : Window, IAnalystHost
         }
     }
 
-    static bool LooksLikeConfirm(string text)
-    {
-        string t = text.Trim().ToLowerInvariant();
-        return t is "确认" or "好" or "可以" or "勾上" or "ok" or "yes" or "confirm" or "do it";
-    }
-
-    async Task RunJury()
-    {
-        if (_root == null || _report == null) return;
-        var seats = Jury.Seats();
-        if (seats.Count == 0)
-        {
-            AddChat(Loc.AiBot, Loc.AiScanSkip);
-            return;
-        }
-        _aiBusy = true;
-        RefreshAiLamp();
-        AiAnalyzeCatBtn.IsEnabled = false;
-        try
-        {
-            _juryPanes.Clear();
-            var panes = seats.Select(s => new JuryPane { Title = s.Model }).ToList();
-            foreach (var pane in panes) _juryPanes.Add(pane);
-            ShowJuryPanes(true);
-            string opening = DiskAnalyst.Opening(_root, _report, _volumeUsed, _volumeTotal);
-            string user = Loc.SecNeed + "\n" + (_need ?? "") + "\n\n" + opening;
-            var tasks = seats.Select((seat, i) => RunSeat(seat, panes[i], user)).ToList();
-            var results = await Task.WhenAll(tasks);
-            var ok = new List<(JurySeat Seat, string Text)>();
-            foreach (var r in results)
-            {
-                if (string.IsNullOrEmpty(r.Text)) continue;
-                ok.Add((r.Seat, r.Text));
-            }
-            _votes = Jury.Tally(ok);
-            string board = Jury.Render(seats, ok, _votes);
-            foreach (var v in _votes)
-                ApplySuggest(v.Path, $"{v.Grade} · {v.Note}", check: false);
-            RebuildAiItems(seats);
-            ApplyJuryChecks();
-            PaintAiNotes();
-            RefreshCleanUi();
-            SetAiLamp(ok.Count > 0);
-            var merge = new JuryPane { Title = Loc.JuryMerge, LiveText = string.IsNullOrEmpty(board) ? Loc.JuryNone : board };
-            _juryPanes.Add(merge);
-            _turns.Clear();
-            _turns.Add(new AiMsg { Role = "user", Text = user });
-            _turns.Add(new AiMsg { Role = "assistant", Text = board });
-        }
-        catch (Exception ex)
-        {
-            SetAiLamp(false);
-            AddChat(Loc.AiBot, ex.Message);
-        }
-        finally
-        {
-            _aiBusy = false;
-            RefreshAiLamp();
-            AiAnalyzeCatBtn.IsEnabled = true;
-        }
-    }
-
-    async Task<(JurySeat Seat, string Text)> RunSeat(JurySeat seat, JuryPane pane, string user)
-    {
-        Dispatcher.Invoke(() => pane.LiveText = Loc.JuryThinking + "\n" + (seat.Provider.BaseUrl ?? ""));
-        try
-        {
-            Dispatcher.Invoke(() => pane.LiveText = Loc.JuryWaiting + "\n" + (seat.Provider.BaseUrl ?? "") + "\n" + seat.Model);
-            var buf = new System.Text.StringBuilder();
-            void Push(string delta)
-            {
-                if (delta.StartsWith("流式失败", StringComparison.Ordinal) || delta.StartsWith("stream failed", StringComparison.OrdinalIgnoreCase))
-                {
-                    Dispatcher.BeginInvoke(() => pane.LiveText = delta, System.Windows.Threading.DispatcherPriority.Background);
-                    return;
-                }
-                buf.Append(delta);
-                string snap = buf.ToString();
-                Dispatcher.BeginInvoke(() => pane.LiveText = snap, System.Windows.Threading.DispatcherPriority.Background);
-            }
-            var reply = await AiClient.StreamAsync(seat.Provider, seat.Model, Loc.JurySystem,
-                new[] { new AiMsg { Role = "user", Text = user } }, Push, CancellationToken.None);
-            string text = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString().Trim() : reply.Text.Trim();
-            Dispatcher.Invoke(() => pane.LiveText = string.IsNullOrEmpty(text) ? Loc.JurySeatEmpty(seat.Model) : text);
-            return (seat, text);
-        }
-        catch (Exception ex)
-        {
-            Dispatcher.Invoke(() => pane.LiveText = Loc.JurySeatFail(seat.Label, AiClient.Pretty(ex)));
-            return (seat, "");
-        }
-    }
-
-    void ApplyJuryChecks()
-    {
-        foreach (var v in _votes.Where(x => x.Grade == Loc.GradeHigh || (x.Grade == Loc.GradeMid && _votes.Count(y => y.Grade == Loc.GradeHigh) == 0)))
-            ApplySuggest(v.Path, $"{v.Grade} · {v.Note}", check: true);
-        foreach (var item in _aiItems)
-            item.Selected = _votes.Any(v => string.Equals(NormPath(v.Path), NormPath(item.FullPath), StringComparison.OrdinalIgnoreCase)
-                && (v.Grade == Loc.GradeHigh || (v.Grade == Loc.GradeMid && _votes.Count(y => y.Grade == Loc.GradeHigh) == 0)));
-        PaintAiNotes();
-        RefreshCleanUi();
-    }
-
-    void RebuildAiItems(IReadOnlyList<JurySeat> seats)
-    {
-        var list = new List<CleanItem>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var v in _votes)
-        {
-            if (!seen.Add(v.Path)) continue;
-            string why = $"{v.Grade} · {v.Votes}/{seats.Count} · {Loc.JuryVotedYes(v.Voters.Select(s => s.Contains('/') ? s[(s.LastIndexOf('/') + 1)..].Trim() : s))}";
-            if (!string.IsNullOrWhiteSpace(v.Note)) why += " · " + v.Note;
-            var hit = AllCleanItems().FirstOrDefault(x => string.Equals(NormPath(x.FullPath), v.Path, StringComparison.OrdinalIgnoreCase));
-            if (hit != null)
-            {
-                hit.AiSuggested = true;
-                hit.Reason = why;
-                list.Add(hit);
-                continue;
-            }
-            list.Add(new CleanItem
-            {
-                Name = v.Name,
-                FullPath = v.Path,
-                Size = LookupSize(v.Path),
-                Reason = why,
-                Group = Loc.CatAi,
-                AiSuggested = true,
-                CanDelete = true,
-            });
-        }
-        _aiItems = list;
-    }
-
-    long LookupSize(string path)
-    {
-        var hit = AllCleanItems().FirstOrDefault(x => string.Equals(NormPath(x.FullPath), path, StringComparison.OrdinalIgnoreCase));
-        return hit?.Size ?? 0;
-    }
-
-    private void AiChatClear_Click(object sender, RoutedEventArgs e)
-    {
-        if (_aiBusy) return;
-        _chat.Clear();
-        _turns.Clear();
-        _aiNotes.Clear();
-        ClearAiSuggested();
-        ResetJuryPanes();
-        _need = null;
-        _votes.Clear();
-        _aiItems.Clear();
-        DiskAnalyst.ResetSession();
-        if (_root != null) PaintAiNotes();
-        RefreshCleanUi();
-    }
-
-    void ClearAiSuggested()
-    {
-        foreach (var x in AllCleanItems())
-        {
-            if (!x.AiSuggested) continue;
-            x.AiSuggested = false;
-            x.Selected = false;
-        }
-    }
-
     /// <summary>
     /// 右键「问 AI 这是什么」：单轮问答，答案用弹窗显示。
-    /// 不再走 AskAnalyst —— 那条路会按 DELETABLE/KEEP 自动帮你勾选，
-    /// 而且 AI 分析页已经删掉了，回答根本没地方显示。
+    /// 不走旧的分析页：那条路会按 DELETABLE/KEEP 自动勾选。
     /// </summary>
     private async void CtxAskAi_Click(object sender, RoutedEventArgs e)
     {
@@ -2355,19 +1689,6 @@ public partial class MainWindow : Window, IAnalystHost
         catch { }
     }
 
-    private void NavBrowse_Click(object sender, RoutedEventArgs e) => ShowPage(0);
-    private void NavAi_Click(object sender, RoutedEventArgs e) => ShowPage(1);
-
-    void ShowPage(int page)
-    {
-        _page = page;
-        // AI 分析页和左侧导航都已移除，当前只有浏览这一页，
-        // 分析入口在右侧清理面板里。
-        if (BrowsePage != null)
-            BrowsePage.Visibility = page == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (page == 0) RefreshCleanUi();
-    }
-
     private void TabClean_Click(object sender, RoutedEventArgs e) => ShowRightTab(0);
     private void TabExt_Click(object sender, RoutedEventArgs e) => ShowRightTab(1);
     private void TabUninstall_Click(object sender, RoutedEventArgs e)
@@ -2399,13 +1720,14 @@ public partial class MainWindow : Window, IAnalystHost
         if (CatList == null) return;
         int keep = _catIndex;
         BuildCategories();
-        CatList.ItemsSource = _cats;
         _catIndex = keep >= 0 && keep < _cats.Count ? keep : 0;
-        ShowCleanCat();
+        MarkCurrentCat();
+        CatList.ItemsSource = null;
+        CatList.ItemsSource = _cats;
         if (_report == null)
             CleanSummary.Text = Loc.AnalyzeAfterScan;
         else
-            CleanSummary.Text = Loc.CleanHintReady(_report.Cleanable.Count, FileEntry.FormatSize(_report.CleanableBytes));
+            ShowCleanCat();
         UpdateCleanSelHint();
         ShowRightTab(_rightTab);
     }
@@ -2442,6 +1764,12 @@ public partial class MainWindow : Window, IAnalystHost
         }
     }
 
+    void MarkCurrentCat()
+    {
+        for (int i = 0; i < _cats.Count; i++)
+            _cats[i].IsCurrent = i == _catIndex;
+    }
+
     /// <summary>点分类列表里的一行，切换当前分类。</summary>
     private void CatList_Click(object sender, MouseButtonEventArgs e)
     {
@@ -2452,6 +1780,7 @@ public partial class MainWindow : Window, IAnalystHost
         int idx = _cats.IndexOf(cat);
         if (idx < 0 || idx == _catIndex) return;
         _catIndex = idx;
+        MarkCurrentCat();
         ShowCleanCat();
     }
 
@@ -2496,7 +1825,8 @@ public partial class MainWindow : Window, IAnalystHost
         int safe = list.Count(x => x.Risk == CleanRisk.Safe);
         int confirm = list.Count(x => x.Risk == CleanRisk.Confirm);
         int keep = list.Count(x => x.Risk == CleanRisk.Keep);
-        CleanSummary.Text = Label(CurrentCatName(), list) + "   " + Loc.RiskSummary(safe, confirm, keep);
+        string scope = InCurrentFolder(_current) ? Loc.FilterHere(_current.Name) : Loc.FilterAll;
+        CleanSummary.Text = Label(CurrentCatName(), list) + "  ·  " + scope + "   " + Loc.RiskSummary(safe, confirm, keep);
         UpdateCleanSelHint();
     }
 
@@ -2508,10 +1838,33 @@ public partial class MainWindow : Window, IAnalystHost
     private List<CleanItem> CurrentCleanList()
     {
         if (_report == null) return new List<CleanItem>();
-        if (_catIndex >= 0 && _catIndex < _cats.Count)
-            return _cats[_catIndex].Items;
-        return new List<CleanItem>();
+        var list = _catIndex >= 0 && _catIndex < _cats.Count
+            ? _cats[_catIndex].Items
+            : new List<CleanItem>();
+        if (!InCurrentFolder(_current)) return list;
+        string prefix = FolderPrefix(_current);
+        return list.Where(x => UnderPrefix(x.FullPath, prefix)).ToList();
     }
+
+    bool InCurrentFolder(FileEntry? dir)
+        => dir != null && _root != null && !ReferenceEquals(dir, _root) && !string.IsNullOrEmpty(dir.FullPath);
+
+    static string FolderPrefix(FileEntry dir)
+    {
+        string p = NormPath(dir.FullPath);
+        return p.Length == 2 && p[1] == ':' ? p + "\\" : p + "\\";
+    }
+
+    static bool UnderPrefix(string? path, string prefix)
+    {
+        string p = NormPath(path);
+        if (p.Length == 0) return false;
+        return p.Equals(prefix.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)
+            || p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    static string NormPath(string? p)
+        => (p ?? "").Replace('/', '\\').Trim().TrimEnd('\\');
 
     private void SelectAll_Click(object sender, RoutedEventArgs e)
     {
