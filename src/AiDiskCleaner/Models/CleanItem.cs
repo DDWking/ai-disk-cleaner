@@ -7,7 +7,7 @@ namespace AiDiskCleaner.Models;
 /// <summary>三档风险，决定行高亮颜色。</summary>
 public enum CleanRisk
 {
-    Safe,     // 绿：缓存、转储、回收站，放心删
+    Safe,     // 绿：缓存、转储、回收站，可安全删除
     Confirm,  // 黄：大文件、重复、依赖目录，删前看一眼
     Keep,     // 红：系统文件、虚拟机、SDK，别删
 }
@@ -29,8 +29,8 @@ public sealed class CleanItem : INotifyPropertyChanged
     public string Group { get; set; } = "";
     /// <summary>用途分类（system / browser / dev / im / game …），来自 AppSignatures。</summary>
     public string Category { get; set; } = "";
-    /// <summary>风险档位，决定行高亮颜色。默认 Safe，未识别的按条目类型另判。</summary>
-    public CleanRisk Risk { get; set; } = CleanRisk.Safe;
+    /// <summary>风险档位，决定行高亮颜色。</summary>
+    public CleanRisk Risk { get; set; } = CleanRisk.Confirm;
     public bool CanDelete { get; set; } = true;
     public bool AiSuggested { get; set; }
     public FileEntry? Entry { get; set; }
@@ -48,4 +48,21 @@ public sealed class CleanItem : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+/// <summary>用途分类的一行，带占比可视化所需的数据。</summary>
+public sealed class CatRow
+{
+    public string Name { get; set; } = "";
+    public List<CleanItem> Items { get; set; } = new();
+    public int Count => Items.Count;
+    public long Bytes => Items.Sum(x => x.Size);
+    public string SizeText => FileEntry.FormatSize(Bytes);
+    /// <summary>占全部可清理空间的百分比（0~100）。</summary>
+    public double Percent { get; set; }
+    /// <summary>占比条填充部分的宽度（0~100）。</summary>
+    public double BarWidth => Math.Clamp(Percent, 0, 100);
+    /// <summary>占比条剩余部分的宽度。</summary>
+    public double BarRest => 100 - BarWidth;
+    public string PercentText => Percent >= 10 ? $"{Percent:0}%" : $"{Percent:0.#}%";
 }

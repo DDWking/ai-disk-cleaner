@@ -115,8 +115,9 @@ public partial class MainWindow : Window, IAnalystHost
     private string? _need;
     private List<VoteItem> _votes = new();
     private List<CleanItem> _aiItems = new();
-    // 按用途分好的分类（名称 + 条目），下拉和「分析当前分类」都用它
-    private List<(string Name, List<CleanItem> Items)> _cats = new();
+    // 按用途分好的分类（名称 + 条目 + 占比），分类列表和「分析当前分类」都用它
+    private List<CatRow> _cats = new();
+    private int _catIndex;
     private readonly ObservableCollection<JuryPane> _juryPanes = new();
     FileEntry? IAnalystHost.Root => _root;
     CleanReport? IAnalystHost.Report => _report;
@@ -1814,8 +1815,7 @@ public partial class MainWindow : Window, IAnalystHost
     {
         ShowPage(0);
         ShowRightTab(0);
-        if (showLarge && CleanCatBox.Items.Count > 2)
-            CleanCatBox.SelectedIndex = 2;
+        // 分类现在按用途动态生成，没有固定的「大文件」位置，保持当前分类即可
         RefreshCleanUi();
         PaintAiNotes();
     }
@@ -1880,8 +1880,6 @@ public partial class MainWindow : Window, IAnalystHost
     void ShowAiSuggested()
     {
         RefreshCleanUi();
-        if (CleanCatBox != null && CleanCatBox.Items.Count > 1)
-            CleanCatBox.SelectedIndex = 1;
         ShowRightTab(0);
     }
 
@@ -2414,11 +2412,11 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void RefreshCleanUi()
     {
-        if (CleanCatBox == null) return;
-        int keep = CleanCatBox.SelectedIndex;
+        if (CatList == null) return;
+        int keep = _catIndex;
         BuildCategories();
-        CleanCatBox.ItemsSource = _cats.Select(c => Label(c.Name, c.Items)).ToList();
-        CleanCatBox.SelectedIndex = keep >= 0 && keep < _cats.Count ? keep : (_cats.Count > 0 ? 0 : -1);
+        CatList.ItemsSource = _cats;
+        _catIndex = keep >= 0 && keep < _cats.Count ? keep : 0;
         ShowCleanCat();
         if (_report == null)
             CleanSummary.Text = Loc.AnalyzeAfterScan;
@@ -2428,7 +2426,7 @@ public partial class MainWindow : Window, IAnalystHost
         ShowRightTab(_rightTab);
     }
 
-    /// <summary>把所有可清理候选按用途归类，只保留有内容的分类，按可回收空间降序。</summary>
+    /// <summary>把所有可清理候选按用途归类，只保留有内容的分类，算出占比，按空间降序。</summary>
     void BuildCategories()
     {
         _cats.Clear();
@@ -2441,12 +2439,47 @@ public partial class MainWindow : Window, IAnalystHost
             if (!seen.Add(NormPath(x.FullPath))) continue;
             all.Add(x);
         }
-        foreach (var g in all
-                     .GroupBy(x => string.IsNullOrWhiteSpace(x.Group) ? Loc.CatOther : x.Group)
-                     .OrderByDescending(g => g.Sum(x => x.Size)))
+
+        var groups = all
+            .GroupBy(x => string.IsNullOrWhiteSpace(x.Group) ? Loc.CatOther : x.Group)
+            .OrderByDescending(g => g.Sum(x => x.Size))
+            .ToList();
+
+        long total = groups.Sum(g => g.Sum(x => x.Size));
+        foreach (var g in groups)
         {
-            _cats.Add((g.Key, g.OrderByDescending(x => x.Size).ToList()));
+            long bytes = g.Sum(x => x.Size);
+            _cats.Add(new CatRow
+            {
+                Name = g.Key,
+                Items = g.OrderByDescending(x => x.Size).ToList(),
+                Percent = total > 0 ? bytes * 100.0 / total : 0,
+            });
         }
+    }
+
+    /// <summary>点分类列表里的一行，切换当前分类。</summary>
+    private void CatList_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject src) return;
+        // 从点到的数据行取回对应的 CatRow
+        var row = Ancestor<Border>(src);
+        if (row?.DataContext is not CatRow cat) return;
+        int idx = _cats.IndexOf(cat);
+        if (idx < 0 || idx == _catIndex) return;
+        _catIndex = idx;
+        ShowCleanCat();
+    }
+
+    static T? Ancestor<T>(DependencyObject start) where T : DependencyObject
+    {
+        var cur = start;
+        while (cur != null)
+        {
+            if (cur is T hit) return hit;
+            cur = System.Windows.Media.VisualTreeHelper.GetParent(cur);
+        }
+        return null;
     }
 
     /// <summary>参与「按用途分类」的全部候选条目。</summary>
@@ -2467,8 +2500,6 @@ public partial class MainWindow : Window, IAnalystHost
         return title + "  ·  " + Loc.CatCount(items.Count, FileEntry.FormatSize(items.Sum(x => x.Size)));
     }
 
-    private void CleanCat_Changed(object sender, SelectionChangedEventArgs e) => ShowCleanCat();
-
     private void ShowCleanCat()
     {
         if (_report == null)
@@ -2486,15 +2517,15 @@ public partial class MainWindow : Window, IAnalystHost
     }
 
     string CurrentCatName()
-        => CleanCatBox.SelectedIndex >= 0 && CleanCatBox.SelectedIndex < _cats.Count
-            ? _cats[CleanCatBox.SelectedIndex].Name
+        => _catIndex >= 0 && _catIndex < _cats.Count
+            ? _cats[_catIndex].Name
             : Loc.CatOther;
 
     private List<CleanItem> CurrentCleanList()
     {
         if (_report == null) return new List<CleanItem>();
-        if (CleanCatBox.SelectedIndex >= 0 && CleanCatBox.SelectedIndex < _cats.Count)
-            return _cats[CleanCatBox.SelectedIndex].Items;
+        if (_catIndex >= 0 && _catIndex < _cats.Count)
+            return _cats[_catIndex].Items;
         return new List<CleanItem>();
     }
 
@@ -2511,26 +2542,21 @@ public partial class MainWindow : Window, IAnalystHost
     {
         bool on = !IsSafeSelected();
         foreach (var item in CurrentCleanList())
-            item.Selected = on && item.CanDelete && IsSafeGroup(item);
+            item.Selected = on && item.CanDelete && item.Risk == CleanRisk.Safe;
         UpdateCleanSelHint();
         CleanGrid.Items.Refresh();
     }
 
-    private static bool IsSafeGroup(CleanItem item)
-        => item.Group == Loc.GroupTemp || item.Group == Loc.GroupDump || item.Group == Loc.GroupRecycle;
+    private bool IsSafeSelected()
+    {
+        var list = CurrentCleanList().Where(x => x.CanDelete && x.Risk == CleanRisk.Safe).ToList();
+        return list.Count > 0 && list.All(x => x.Selected);
+    }
 
     private bool IsAllSelected()
     {
         var list = CurrentCleanList().Where(x => x.CanDelete).ToList();
         return list.Count > 0 && list.All(x => x.Selected);
-    }
-
-    private bool IsSafeSelected()
-    {
-        var list = CurrentCleanList().Where(x => x.CanDelete).ToList();
-        if (list.Count == 0) return false;
-        return list.All(x => x.Selected == (x.CanDelete && IsSafeGroup(x)))
-               && list.Any(IsSafeGroup);
     }
 
     private void HighlightSelectMode()

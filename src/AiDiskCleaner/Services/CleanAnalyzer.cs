@@ -94,16 +94,54 @@ public static class CleanAnalyzer
             string ext = Path.GetExtension(f.Name);
             string? reason = null;
             string group;
-            var risk = CleanRisk.Safe;
+            // 收紧后的默认档：没有明确证据就不说"可安全删除"。
+            // 误标安全是清理工具最贵的错误，宁可让用户自己看一眼。
+            var risk = CleanRisk.Confirm;
+            string? displayName = null;
 
-            if (path.Contains(@"\$recycle.bin\"))
+            if (path.Contains(@"$recycle.bin", StringComparison.OrdinalIgnoreCase))
             {
-                reason = Loc.ReasonRecycle;
+                // $I 是元数据（每个被删文件一个，几十字节），不当条目列出来
+                if (RecycleNameResolver.IsMetaFile(f.FullPath)) continue;
+
                 group = Loc.GroupRecycle;
                 risk = CleanRisk.Confirm;
+                string? original = RecycleNameResolver.OriginalPath(f.FullPath);
+                if (!string.IsNullOrEmpty(original))
+                {
+                    // 显示用户认得的原名，删除时仍用磁盘上的真实路径
+                    displayName = Path.GetFileName(original);
+                    reason = Loc.ReasonRecycleNamed(displayName!);
+                }
+                else
+                {
+                    reason = Loc.ReasonRecycle;
+                }
+            }
+            else if (ext.Equals(".dmp", StringComparison.OrdinalIgnoreCase) || path.Contains(@"\minidump\") || path.Contains(@"\crashdumps\"))
+            {
+                // 崩溃转储：明确可删
+                reason = Loc.ReasonDump;
+                group = Loc.GroupDump;
+                risk = CleanRisk.Safe;
+            }
+            else if (AppSignatures.IsSafeCache(path))
+            {
+                // 认得出来的应用缓存（60+ 条签名，带 Safe 标记）
+                reason = AppSignatures.Describe(path) ?? Loc.ReasonTempDir;
+                group = Loc.GroupTemp;
+                risk = CleanRisk.Safe;
+            }
+            else if (path.Contains(@"\windows\softwaredistribution\download\") || path.Contains(@"\windows\temp\"))
+            {
+                // Windows 更新缓存 / 系统临时目录
+                reason = Loc.ReasonWinUpdate;
+                group = Loc.GroupTemp;
+                risk = CleanRisk.Safe;
             }
             else if (LooksLikeTempDir(path) && (TempExt.Contains(ext) || f.Name.StartsWith('~') || f.Size == 0))
             {
+                // 只是"路径像临时目录"，没匹配到已知签名 -> 需确认
                 reason = Loc.ReasonTempDir;
                 group = Loc.GroupTemp;
             }
@@ -112,37 +150,24 @@ public static class CleanAnalyzer
                 reason = Loc.ReasonTempExt;
                 group = Loc.GroupTemp;
             }
-            else if (ext.Equals(".dmp", StringComparison.OrdinalIgnoreCase) || path.Contains(@"\minidump\") || path.Contains(@"\crashdumps\"))
-            {
-                reason = Loc.ReasonDump;
-                group = Loc.GroupDump;
-            }
-            else if (AppSignatures.IsSafeCache(path))
-            {
-                reason = AppSignatures.Describe(path) ?? Loc.ReasonTempDir;
-                group = Loc.GroupTemp;
-            }
-            else if (path.Contains(@"\windows\softwaredistribution\download\") || path.Contains(@"\windows\temp\"))
-            {
-                reason = Loc.ReasonWinUpdate;
-                group = Loc.GroupTemp;
-            }
             else if (InstallExt.Contains(ext) && path.Contains(@"\downloads\") && f.Size >= 20L * 1024 * 1024)
             {
                 reason = Loc.ReasonInstaller;
                 group = Loc.GroupInstaller;
-                risk = CleanRisk.Confirm;
             }
             else if ((ext.Equals(".tmp", StringComparison.OrdinalIgnoreCase) || ext.Equals(".temp", StringComparison.OrdinalIgnoreCase)
                       || ext.Equals(".log", StringComparison.OrdinalIgnoreCase))
                      && f.Size >= 8L * 1024 * 1024 && !LooksUnsafe(path))
             {
+                // 单个大临时文件，没匹配到签名 -> 需确认
                 reason = Loc.ReasonTempExt;
                 group = Loc.GroupTemp;
             }
             else continue;
 
-            report.Cleanable.Add(Item(f, reason, group, selected: group != Loc.GroupInstaller, risk: risk));
+            var item = Item(f, reason, group, selected: risk == CleanRisk.Safe, risk: risk);
+            if (!string.IsNullOrEmpty(displayName)) item.Name = displayName!;
+            report.Cleanable.Add(item);
         }
 
         foreach (var d in dirs)

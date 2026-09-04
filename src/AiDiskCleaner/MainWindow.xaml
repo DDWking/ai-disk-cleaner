@@ -866,15 +866,51 @@
             </StackPanel>
             <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,12,20,8"
                        Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
+            <!-- 分类：占比条 + 名称 + 大小，点一行切换 -->
+            <Border DockPanel.Dock="Top" Margin="16,0,16,6" MaxHeight="176">
+              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl x:Name="CatList" MouseLeftButtonUp="CatList_Click">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border x:Name="Row" Padding="6,3" Cursor="Hand" Background="Transparent">
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="54"/>
+                            <ColumnDefinition Width="38"/>
+                          </Grid.ColumnDefinitions>
+                          <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                          </Grid.RowDefinitions>
+                          <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Name}" FontSize="11"
+                                     Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis"/>
+                          <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SizeText}" FontSize="11"
+                                     Foreground="{DynamicResource Accent}" HorizontalAlignment="Right"/>
+                          <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding PercentText}" FontSize="11"
+                                     Foreground="{DynamicResource TextDim}" HorizontalAlignment="Right" Margin="8,0,0,0"/>
+                          <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Height="4" Margin="0,3,0,0">
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="{Binding BarWidth, Converter={StaticResource ShareWidth}}"/>
+                              <ColumnDefinition Width="{Binding BarRest, Converter={StaticResource ShareWidth}}"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Background="{DynamicResource Accent}"/>
+                            <Border Grid.Column="1" Background="{DynamicResource Border}"/>
+                          </Grid>
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Border>
             <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
-              <ComboBox x:Name="CleanCatBox" Width="168" Margin="0,0,8,6" SelectionChanged="CleanCat_Changed"
-                        WindowChrome.IsHitTestVisibleInChrome="True"/>
               <Button x:Name="SelectAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectAll_Click"/>
-              <Button x:Name="SelectSafeBtn" Content="勾选安全项" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="SelectSafe_Click"/>
+              <Button x:Name="SelectSafeBtn" Content="勾选可安全删除" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="SelectSafe_Click"/>
             </WrapPanel>
             <!-- AI：只分析当前选中的分类，结果直接写进下面每一行的风险和描述 -->
             <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
-              <ComboBox x:Name="AiRunModelBox" Width="150" Margin="0,0,8,6"
+              <ComboBox x:Name="AiRunModelBox" Width="210" Margin="0,0,8,6"
                         SelectionChanged="AiRunModel_Changed">
                 <ComboBox.GroupStyle>
                   <GroupStyle>
@@ -937,7 +973,7 @@
               </DataGrid.ContextMenu>
               <DataGrid.Columns>
                 <DataGridCheckBoxColumn x:Name="ColPick" Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
-                <DataGridTextColumn x:Name="ColCleanRisk" Header="风险" Binding="{Binding RiskText}" SortMemberPath="Risk" Width="62" IsReadOnly="True">
+                <DataGridTextColumn x:Name="ColCleanRisk" Header="风险" Binding="{Binding RiskText}" SortMemberPath="Risk" Width="88" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="HorizontalAlignment" Value="Center"/>

@@ -476,7 +476,7 @@ public static class Loc
     public static string Analyzing => IsEn ? "Analyzing…" : "正在分析…";
     public static string RecycleSelected => IsEn ? "Recycle selected" : "删除勾选项";
     public static string SelectAll => IsEn ? "Select all" : "全选";
-    public static string SelectSafe => IsEn ? "Select safe" : "勾选安全项";
+    public static string SelectSafe => IsEn ? "Select safe to delete" : "勾选可安全删除";
     public static string SelectNone => IsEn ? "Clear checks" : "取消勾选";
     public static string CleanHintReady(int n, string size) =>
         IsEn ? $"Cleanable: {n:N0} items, about {size}" : $"可清理：{n:N0} 项，约 {size}";
@@ -515,7 +515,7 @@ public static class Loc
     public static string CatOther => IsEn ? "Other" : "其他";
 
     // ===== 风险三档 =====
-    public static string RiskSafe => IsEn ? "Safe" : "安全";
+    public static string RiskSafe => IsEn ? "Safe to delete" : "可安全删除";
     public static string RiskConfirm => IsEn ? "Check first" : "需确认";
     public static string RiskKeep => IsEn ? "Do not delete" : "别删";
     public static string NoteCache => IsEn ? "cache data" : "缓存数据";
@@ -544,6 +544,9 @@ public static class Loc
     public static string ReasonVmDisk => IsEn ? "VM / WSL / emulator disk image" : "虚拟机 / WSL / 模拟器磁盘";
     public static string AskAiFolder => IsEn ? "Ask AI what this is" : "问 AI 这是什么";
     public static string ReasonRecycle => IsEn ? "Already in Recycle Bin" : "已在回收站";
+    public static string ReasonRecycleNamed(string name) => IsEn
+        ? $"In Recycle Bin as “{name}”"
+        : $"已在回收站（原名 {name}）";
     public static string ReasonLarge => IsEn ? "Among the largest files" : "占用最大的文件之一";
     public static string ReasonOld(string age) => IsEn ? $"Not modified for {age}" : $"已 {age} 未改";
     public static string ReasonEmpty => IsEn ? "Folder has no files" : "空文件夹";
