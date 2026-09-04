@@ -49,3 +49,9 @@ scans/
 cache/
 *.scandb
 *.scan.json
+
+# ===== Pi sidecar =====
+# 自包含 exe 由 build-sidecar.ps1 生成（约 86MB），不进版本库
+sidecar/AiSidecar.exe
+sidecar/install.log
+sidecar/run.log
