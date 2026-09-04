@@ -25,11 +25,18 @@ public sealed class JuryGroup
     public List<JuryPick> Models { get; set; } = new();
 }
 
-public sealed class RunModelPick
+/// <summary>
+/// 模型选择弹出列表的一行：要么是供应商标题（IsHeader），要么是一个可选模型。
+/// 不用 ComboBox + GroupStyle —— 本主题下它只渲染分组标题，模型行不显示。
+/// </summary>
+public sealed class ModelRow
 {
-    public string ProviderId { get; set; } = "";
-    public string Provider { get; set; } = "";
-    public string Model { get; set; } = "";
+    public bool IsHeader { get; init; }
+    public string Text { get; init; } = "";
+    public string ProviderId { get; init; } = "";
+    public string Model { get; init; } = "";
+    /// <summary>当前正在使用的模型：前面加 ▸、加粗。</summary>
+    public bool IsCurrent { get; set; }
 }
 
 public sealed class JuryPane : INotifyPropertyChanged

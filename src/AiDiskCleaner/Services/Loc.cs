@@ -103,6 +103,8 @@ public static class Loc
     public static string AiDelProvider => IsEn ? "Remove" : "删除";
     public static string AiProviderList => IsEn ? "Providers" : "提供方";
     public static string AiPickModel => IsEn ? "Model" : "模型";
+    /// <summary>模型选择按钮上，还没选任何模型时的占位。</summary>
+    public static string AiNoModel => IsEn ? "no model selected" : "未选模型";
     public static string AiNeedScanFirst => IsEn ? "Scan the disk first." : "先扫描磁盘。";
     public static string AiRound(int n) => IsEn ? $"round {n}" : $"第 {n} 轮";
     public static string AiToolResult(string name, string preview) =>
@@ -201,33 +203,67 @@ public static class Loc
     public static string AiScanHeader => IsEn
         ? "Scan finished. Reply in the exact format below. Do not invent files."
         : "扫描结束。必须按下述格式回复。不要编造文件。";
+    /// <summary>清单标题：告诉模型下面这些就是要它解释的路径。</summary>
+    public static string AiCatListHeader => IsEn
+        ? "Explain each of these items:"
+        : "逐条解释下面这些条目：";
+    /// <summary>
+    /// AI 只做一件事：告诉用户「这是什么」。风险档位由规则（AppSignatures / CleanAnalyzer）判定，
+    /// 可审计、可复现，不让模型来回改，也省得它一本正经地把系统文件标成可删。
+    /// </summary>
     public static string AiCatSystem => IsEn
         ? """
-          You are a disk cleanup analyst. Rate each listed item's deletion risk and describe it in one line.
-          Only use paths from the list. Never invent paths. Never delete anything.
+          You are a file explainer inside a disk cleaner. For each listed item, say in one short line what it actually is
+          (which program owns it, what it stores, whether it regenerates after deleting).
+          Do NOT judge deletion risk. Do NOT output risk words (safe / confirm / keep / delete / 危险). The app already rates risk by rules.
+          Only use paths from the list. Never invent paths. Never add a preamble, markdown, or a summary.
 
-          Reply with one line per item, nothing else:
-          GOTO <full path><TAB><safe|confirm|keep><TAB><one-line reason in the user's language>
+          Reply with exactly one line per item:
+          GOTO <full path><TAB><one-line explanation in the user's language>
 
-          safe = temp/cache/crash dumps/recycle, safe to delete.
-          confirm = large files, duplicates, package caches, installers — check before deleting.
-          keep = system files, SDKs, VM images, chat history, documents — do not delete.
+          Example:
+          GOTO C:\Users\me\AppData\Local\npm-cache	npm 的下载缓存，删掉后下次安装会重新拉取
           """
         : """
-          你是磁盘清理分析师。给下面每个条目判定删除风险，并用一句话说明。
-          只能用清单里的路径，不要编造，不要删除任何东西。
+          你是磁盘清理软件里的「文件说明员」。对下面每个条目，用一句话说清它到底是什么：
+          属于哪个软件、里面存的是什么、删掉之后会不会自己长回来。
+          不要判断能不能删，不要输出风险词（safe / confirm / keep / 危险 / 可删 / 别删）——风险由软件按规则判定。
+          只能使用清单里的路径，不要编造路径。不要写开场白，不要写总结，不要 markdown。
 
-          每个条目回复一行，不要别的内容：
-          GOTO <完整路径><TAB><safe|confirm|keep><TAB><一句中文原因>
+          每个条目严格回复一行：
+          GOTO <完整路径><TAB><一句中文说明：这是什么>
 
-          safe = 临时/缓存/崩溃转储/回收站，可以放心删。
-          confirm = 大文件、重复文件、包缓存、安装包，删之前看一眼。
-          keep = 系统文件、SDK、虚拟机镜像、聊天记录、文档，别删。
+          例：
+          GOTO C:\Users\me\AppData\Local\npm-cache	npm 的下载缓存，删掉后下次安装会重新拉取
           """;
     public static string AiCatEmpty => IsEn ? "Nothing to analyze in this category." : "这个分类没有可分析的条目。";
-    public static string AiCatDone(int n) => IsEn ? $"AI rated {n} items" : $"AI 判定了 {n} 条";
+    /// <summary>右键「问 AI 这是什么」用的提示词：只解释，不判风险。</summary>
+    public static string AiFolderAskSystem => IsEn
+        ? """
+          You are a file explainer. The user points at one folder on their disk. In two or three short sentences say
+          what this folder is: which program owns it, what it stores, and what happens if it is deleted
+          (does it regenerate, is user data inside).
+          Do NOT judge deletion risk and do NOT tell the user to delete or keep it — the app rates risk by rules.
+          No markdown, no preamble, no bullet list. Plain sentences only.
+          """
+        : """
+          你是磁盘清理软件里的「文件说明员」。用户指向磁盘上的一个文件夹，请用两三句话说清它是什么：
+          属于哪个软件、里面存的是什么、删掉之后会怎样（会不会自己长回来、里面有没有用户的真实数据）。
+          不要判断能不能删，不要劝用户删或留——风险由软件按规则判定。
+          不要 markdown，不要开场白，不要列点，就写两三句白话。
+          """;
+    /// <summary>问 AI 单个文件夹时的用户消息模板。</summary>
+    public static string AiFolderAskUser(string path, string listing) => IsEn
+        ? $"Folder: {path}\nTop items:\n{listing}"
+        : $"文件夹：{path}\n里面的条目：\n{listing}";
+    public static string AiFolderAskFail(string err) => IsEn
+        ? "AI did not answer: " + err
+        : "AI 没答上来：" + err;
+    public static string AiCatDone(int n) => IsEn ? $"AI explained {n} items" : $"AI 说明了 {n} 条";
     public static string AiCatStopped => IsEn ? "Stopped." : "已停止。";
-    public static string AiNoItems => IsEn ? "AI returned nothing usable." : "AI 没给出可用的判定。";
+    public static string AiNoItems => IsEn ? "AI returned nothing usable." : "AI 没给出可用的说明。";
+    /// <summary>清理表格里 AI 说明列的表头。</summary>
+    public static string AiColNote => IsEn ? "What it is" : "这是什么";
 
     public static string AiAnalystSystem => IsEn
         ? """
@@ -484,7 +520,8 @@ public static class Loc
         IsEn ? $"Move {n:N0} items ({size}) to Recycle Bin?" : $"把 {n:N0} 项（{size}）删到回收站？";
     public static string RecycleManyOk(int n) => IsEn ? $"Moved {n:N0} items" : $"已移到回收站 {n:N0} 项";
     public static string NothingSelected => IsEn ? "Nothing selected." : "没有勾选项。";
-    public static string ColReason => IsEn ? "Why" : "原因";
+    /// <summary>清理表格里规则原因列的表头。</summary>
+    public static string ColReason => IsEn ? "Why cleanable" : "可清理原因";
     public static string ColName => IsEn ? "Name" : "名称";
 
     public static string CatAi => IsEn ? "AI suggested" : "AI 建议";

@@ -55,3 +55,4 @@ cache/
 sidecar/AiSidecar.exe
 sidecar/install.log
 sidecar/run.log
+sidecar/.bun-cache/

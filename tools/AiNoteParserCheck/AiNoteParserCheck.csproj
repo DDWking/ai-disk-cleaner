@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 手工跑的解析器检查：dotnet run 本目录
+       直接编译主工程里真正在用的 AiNoteParser.cs / CleanItem.cs，
+       不复制逻辑，所以测的就是发出去的那份代码。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>AiNoteParserCheck</AssemblyName>
+    <RootNamespace>AiNoteParserCheck</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="LocStub.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AiNoteParser.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\CleanItem.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" />
+  </ItemGroup>
+
+</Project>

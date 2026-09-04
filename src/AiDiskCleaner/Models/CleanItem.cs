@@ -33,6 +33,17 @@ public sealed class CleanItem : INotifyPropertyChanged
     public CleanRisk Risk { get; set; } = CleanRisk.Confirm;
     public bool CanDelete { get; set; } = true;
     public bool AiSuggested { get; set; }
+
+    string _aiNote = "";
+    /// <summary>
+    /// AI 给的一句话说明（「这是什么」）。风险档位一律由规则判定，AI 不参与，
+    /// 所以这里和 Reason（规则给的原因）分开存，两列各显示各的。
+    /// </summary>
+    public string AiNote
+    {
+        get => _aiNote;
+        set { if (_aiNote == value) return; _aiNote = value; OnPropertyChanged(); }
+    }
     public FileEntry? Entry { get; set; }
     public bool IsDirectory { get; set; }
 

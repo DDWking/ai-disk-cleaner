@@ -71,23 +71,20 @@ public static class DiskAnalyst
         return string.Join(Environment.NewLine, lines);
     }
 
+    /// <summary>
+    /// 右键「问 AI 这是什么」的提问内容：只给路径指纹，让模型解释这个文件夹。
+    /// 不再问「哪些子项能删」——风险由规则判定，AI 只负责说明。
+    /// </summary>
     public static string FolderAsk(FileEntry dir)
     {
-        var lines = new List<string>
-        {
-            Loc.IsEn
-                ? "Explain this folder only. What is it? Which children look deletable? Do not invent files."
-                : "只解释这个文件夹：它是什么、哪些子项可能能删。不要编造。",
-            Line(dir),
-            "children (top 20):",
-        };
+        var kids = new List<string>();
         foreach (var c in dir.Children
                      .Where(x => !x.IsFilesGroup && !string.IsNullOrEmpty(x.FullPath))
                      .OrderByDescending(x => x.Size)
                      .Take(20))
-            lines.Add("  " + Line(c));
+            kids.Add("  " + Line(c));
         Listed.Add(Norm(dir.FullPath));
-        return string.Join(Environment.NewLine, lines);
+        return Loc.AiFolderAskUser(Line(dir), string.Join(Environment.NewLine, kids));
     }
 
     public static void ResetSession() => Listed.Clear();

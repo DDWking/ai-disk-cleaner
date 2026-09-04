@@ -233,6 +233,7 @@ public partial class MainWindow : Window, IAnalystHost
         ColCleanName.Header = Loc.ColName;
         ColCleanSize.Header = Loc.Size;
         ColCleanWhy.Header = Loc.ColReason;
+        ColCleanAiNote.Header = Loc.AiColNote;
         RefreshCleanUi();
         DialogClose.Content = Loc.Close;
         ConfirmYesBtn.Content = Loc.Yes;
@@ -1434,28 +1435,15 @@ public partial class MainWindow : Window, IAnalystHost
     private async void AiExplain_Click(object sender, RoutedEventArgs e)
     {
         if (_aiBusy) return;
-        var picked = CurrentCleanList().Where(x => x.Selected).Take(40).ToList();
+        var picked = CurrentCleanList().Where(x => x.Selected).ToList();
         if (picked.Count == 0)
         {
             ShowAlert(Loc.AiTitle, Loc.AiNeedItems);
             return;
         }
-        SetCleanProgress(0, Loc.AiWorking, determinate: false);
-        try
-        {
-            var lines = picked.Select(x =>
-                $"- {x.Name}  {x.SizeText}  {x.Reason}  {(x.CanDelete ? "" : "[protected]")}  {x.FullPath}");
-            string user = Loc.AiPromptHeader + Environment.NewLine + string.Join(Environment.NewLine, lines);
-            AddChat(Loc.AiYou, Loc.AiExplain);
-            await AskAnalyst(user);
-        }
-        catch
-        {
-        }
-        finally
-        {
-            HideCleanProgress();
-        }
+        // 和「AI 分析此类」走同一条路：只写「这是什么」那一列，
+        // 不改风险档位、不自动勾选任何东西（以前这条会顺手把项勾上，很危险）。
+        await ExplainItems(picked);
     }
 
     bool AiConfigured()
@@ -1474,44 +1462,66 @@ public partial class MainWindow : Window, IAnalystHost
 
     void FillRunModels()
     {
-        if (AiRunModelBox == null) return;
-        _aiModelLock = true;
-        var picks = new List<RunModelPick>();
+        if (AiModelList == null || AiModelBtnText == null) return;
+        var rows = new List<ModelRow>();
+        string cur = (App.Settings.AiModel ?? "").Trim();
+        string activeId = App.Settings.AiActiveId ?? "";
+
         foreach (var p in App.Settings.AiProviders)
         {
             var models = p.Models.Where(m => !string.IsNullOrWhiteSpace(m))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            if (models.Count == 0 && p.Id == App.Settings.AiActiveId && !string.IsNullOrWhiteSpace(App.Settings.AiModel))
-                models.Add(App.Settings.AiModel);
-            string name = string.IsNullOrWhiteSpace(p.Name) ? p.Id : p.Name;
-            picks.AddRange(models.Select(m => new RunModelPick { ProviderId = p.Id, Provider = name, Model = m }));
+            // 当前模型还没进目录（手填的），也让它出现在列表里
+            if (models.Count == 0 && p.Id == activeId && cur.Length > 0)
+                models.Add(cur);
+            if (models.Count == 0) continue;
+
+            rows.Add(new ModelRow { IsHeader = true, Text = ProvName(p) });
+            foreach (var m in models)
+                rows.Add(new ModelRow
+                {
+                    Text = m,
+                    ProviderId = p.Id,
+                    Model = m,
+                    IsCurrent = p.Id == activeId && string.Equals(m, cur, StringComparison.OrdinalIgnoreCase),
+                });
         }
-        var view = new System.Windows.Data.CollectionViewSource { Source = picks };
-        view.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(RunModelPick.Provider)));
-        AiRunModelBox.ItemsSource = view.View;
-        string cur = App.Settings.AiModel ?? "";
-        var sel = picks.FirstOrDefault(x => string.Equals(x.Model, cur, StringComparison.OrdinalIgnoreCase)
-                && x.ProviderId == App.Settings.AiActiveId)
-            ?? picks.FirstOrDefault(x => string.Equals(x.Model, cur, StringComparison.OrdinalIgnoreCase))
-            ?? picks.FirstOrDefault();
-        AiRunModelBox.SelectedItem = sel;
-        _aiModelLock = false;
+
+        AiModelList.ItemsSource = rows;
+
+        // 按钮显示「提供方 / 模型」；没配任何东西时提示去设置
+        var prov = App.Settings.CurrentProvider();
+        string provName = prov == null ? "" : ProvName(prov);
+        AiModelBtnText.Text = rows.Count == 0
+            ? Loc.AiNoModel
+            : (string.IsNullOrWhiteSpace(cur)
+                ? (provName.Length > 0 ? provName + " / " + Loc.AiNoModel : Loc.AiNoModel)
+                : (provName.Length > 0 ? provName + " / " + cur : cur));
+
         FillJuryPicks();
     }
 
-    private void AiRunModel_Changed(object sender, SelectionChangedEventArgs e)
+    static string ProvName(AiProviderCfg p)
+        => string.IsNullOrWhiteSpace(p.Name) ? p.Id : p.Name.Trim();
+
+    private void AiModelBtn_Click(object sender, RoutedEventArgs e)
+        => AiModelPopup.IsOpen = !AiModelPopup.IsOpen;
+
+    private void AiModelRow_Click(object sender, MouseButtonEventArgs e)
     {
-        if (_aiModelLock) return;
-        if (AiRunModelBox.SelectedItem is RunModelPick pick && !string.IsNullOrWhiteSpace(pick.Model))
-        {
-            App.Settings.AiActiveId = pick.ProviderId;
-            App.Settings.AiModel = pick.Model;
-            App.Settings.Save();
-            FillJuryPicks();
-            RefreshAiLamp();
-        }
+        if (e.OriginalSource is not DependencyObject src) return;
+        var border = Ancestor<Border>(src);
+        if (border?.DataContext is not ModelRow row || row.IsHeader) return;
+        if (string.IsNullOrWhiteSpace(row.Model)) return;
+
+        App.Settings.AiActiveId = row.ProviderId;
+        App.Settings.AiModel = row.Model;
+        App.Settings.Save();
+        AiModelPopup.IsOpen = false;
+        FillRunModels();
+        RefreshAiLamp();
     }
 
     void FillJuryPicks()
@@ -2067,7 +2077,7 @@ public partial class MainWindow : Window, IAnalystHost
             SetAiStatus(Loc.AiCatEmpty);
             return;
         }
-        await AskAnalystForCategory(items);
+        await ExplainItems(items);
     }
 
     void SetAiStatus(string text)
@@ -2078,10 +2088,11 @@ public partial class MainWindow : Window, IAnalystHost
     }
 
     /// <summary>
-    /// 把当前分类的条目交给 AI，让它给每条判定风险档 + 一句描述，写回条目本身。
-    /// 风险档在 AI 之外还有规则兜底（AppSignatures），所以 AI 挂了也不影响主体功能。
+    /// 把条目交给 AI，让它逐条写一句「这是什么」，写回条目的 AiNote。
+    /// AI 不碰风险档位，也不碰勾选：风险全部由规则（AppSignatures / CleanAnalyzer）判定，
+    /// 可审计、可复现，不会出现「同一份盘两次分析给出两种颜色」，更不会偷偷帮你勾上东西。
     /// </summary>
-    async Task AskAnalystForCategory(List<CleanItem> items)
+    async Task ExplainItems(List<CleanItem> items)
     {
         if (!AiConfigured())
         {
@@ -2093,16 +2104,18 @@ public partial class MainWindow : Window, IAnalystHost
         _aiStop = new CancellationTokenSource();
         RefreshAiLamp();
         AiAnalyzeCatBtn.IsEnabled = false;
+        AiExplainBtn.IsEnabled = false;
         AiStopBtn.Visibility = Visibility.Visible;
         SetCleanProgress(0, Loc.AiWorking, determinate: false);
 
         try
         {
-            // 只送前 60 条，避免 prompt 过大把中转打挂
+            // 只送前 60 条，避免 prompt 过大把中转打挂。
+            // 输入用「- 路径 (类型, 大小)」，输出才用 GOTO，两种格式刻意不同，模型不容易照抄输入。
             var batch = items.OrderByDescending(x => x.Size).Take(60).ToList();
             var lines = batch.Select(x =>
-                $"GOTO {x.FullPath}\t{(x.IsDirectory ? "dir" : "file")}\t{x.SizeText}\t{x.Reason}");
-            string user = Loc.AiCatSystem + Environment.NewLine + string.Join(Environment.NewLine, lines);
+                $"- {x.FullPath} ({(x.IsDirectory ? Loc.Folder : Loc.FilesCol)}, {x.SizeText})");
+            string user = Loc.AiCatListHeader + Environment.NewLine + string.Join(Environment.NewLine, lines);
 
             var turns = new List<AiMsg> { new() { Role = "user", Text = user } };
             var buf = new System.Text.StringBuilder();
@@ -2119,7 +2132,7 @@ public partial class MainWindow : Window, IAnalystHost
             }
 
             string text = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString() : reply.Text;
-            int applied = ApplyAiRatings(batch, text);
+            int applied = AiNoteParser.Apply(batch, text);
             SetAiLamp(true);
             SetAiStatus(applied > 0 ? Loc.AiCatDone(applied) : Loc.AiNoItems);
         }
@@ -2135,49 +2148,13 @@ public partial class MainWindow : Window, IAnalystHost
             _aiStop = null;
             RefreshAiLamp();
             AiAnalyzeCatBtn.IsEnabled = true;
+            AiExplainBtn.IsEnabled = true;
             AiStopBtn.Visibility = Visibility.Collapsed;
             HideCleanProgress();
-            // 风险/描述变了，重新分组并刷新
-            BuildCategories();
-            CleanGrid.ItemsSource = CurrentCleanList();
+            // AI 只写 AiNote，风险/分组没变，所以不重建分类、不重设 ItemsSource
+            // （重设会把表格滚动位置和勾选状态弄丢）。AiNote 走属性通知，单元格自己刷新。
             UpdateCleanSelHint();
         }
-    }
-
-    /// <summary>解析 AI 回的 "GOTO 路径\t档位\t描述"，写回条目。</summary>
-    static int ApplyAiRatings(List<CleanItem> batch, string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return 0;
-        var byPath = new Dictionary<string, CleanItem>(StringComparer.OrdinalIgnoreCase);
-        foreach (var x in batch)
-            if (!string.IsNullOrEmpty(x.FullPath))
-                byPath[x.FullPath] = x;
-
-        int applied = 0;
-        foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
-        {
-            string line = raw.Trim();
-            if (!line.StartsWith("GOTO", StringComparison.OrdinalIgnoreCase)) continue;
-            var parts = line[4..].Trim().Split('\t');
-            if (parts.Length < 3) continue;
-
-            string path = parts[0].Trim();
-            string level = parts[1].Trim().ToLowerInvariant();
-            string note = string.Join(" ", parts.Skip(2)).Trim();
-            if (note.Length > 160) note = note[..157] + "…";
-            if (!byPath.TryGetValue(path, out var item)) continue;
-
-            item.Risk = level switch
-            {
-                "safe" => CleanRisk.Safe,
-                "confirm" or "caution" or "check" => CleanRisk.Confirm,
-                "keep" or "danger" or "no" => CleanRisk.Keep,
-                _ => item.Risk,
-            };
-            if (!string.IsNullOrEmpty(note)) item.Reason = note;
-            applied++;
-        }
-        return applied;
     }
 
     static bool LooksLikeConfirm(string text)
@@ -2349,17 +2326,46 @@ public partial class MainWindow : Window, IAnalystHost
         }
     }
 
+    /// <summary>
+    /// 右键「问 AI 这是什么」：单轮问答，答案用弹窗显示。
+    /// 不再走 AskAnalyst —— 那条路会按 DELETABLE/KEEP 自动帮你勾选，
+    /// 而且 AI 分析页已经删掉了，回答根本没地方显示。
+    /// </summary>
     private async void CtxAskAi_Click(object sender, RoutedEventArgs e)
     {
         if (_aiBusy) return;
         if (ContextEntry() is not { IsDirectory: true } dir || dir.IsFilesGroup) return;
         if (!AiConfigured())
         {
-            AddChat(Loc.AiBot, Loc.AiScanSkip);
+            ShowAlert(Loc.AiColNote, Loc.AiScanSkip);
             return;
         }
-        AddChat(Loc.AiYou, Loc.AskAiFolder + "  " + dir.FullPath);
-        await AskAnalyst(DiskAnalyst.FolderAsk(dir));
+
+        _aiBusy = true;
+        RefreshAiLamp();
+        SetAiStatus(Loc.AiWorking);
+        try
+        {
+            var turns = new List<AiMsg> { new() { Role = "user", Text = DiskAnalyst.FolderAsk(dir) } };
+            var reply = await AiClient.StreamAsync(
+                App.Settings.CurrentProvider(), App.Settings.AiModel,
+                Loc.AiFolderAskSystem, turns, _ => { }, CancellationToken.None);
+
+            string text = StripToolMarkup(reply.Text ?? "").Trim();
+            SetAiLamp(true);
+            SetAiStatus(text.Length > 0 ? Loc.AiOk : Loc.AiNoItems);
+            ShowAlert(dir.Name + " · " + Loc.AiColNote, text.Length > 0 ? text : Loc.AiNoItems);
+        }
+        catch (Exception ex)
+        {
+            SetAiLamp(false);
+            SetAiStatus(Loc.AiPartial(AiClient.Pretty(ex)));
+        }
+        finally
+        {
+            _aiBusy = false;
+            RefreshAiLamp();
+        }
     }
 
     private void RepoLink_Click(object sender, MouseButtonEventArgs e)
