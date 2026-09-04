@@ -32,6 +32,13 @@ public partial class App : Application
         base.OnStartup(e);
     }
 
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // 不关的话，用户退出大扫货后 sidecar 进程会残留
+        try { SidecarClient.Stop(); } catch { }
+        base.OnExit(e);
+    }
+
     static void Crash(Exception ex)
     {
         try

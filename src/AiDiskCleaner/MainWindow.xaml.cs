@@ -151,6 +151,9 @@ public partial class MainWindow : Window, IAnalystHost
         ApplyUi();
         ShowPage(0);
         ShowRightTab(0);
+        // sidecar 的工具回调落到这里（this 实现了 IAnalystHost），
+        // 勾选/删除等动作仍在 C# 侧执行。
+        try { SidecarClient.AttachToolHost(this); } catch { }
         PickDrive("C:\\");
     }
 

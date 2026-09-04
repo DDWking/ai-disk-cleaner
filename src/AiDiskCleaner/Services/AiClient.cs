@@ -79,6 +79,22 @@ public static class AiClient
 
     public static async Task<string> ChatAsync(string system, IReadOnlyList<AiMsg> turns, CancellationToken ct)
     {
+        // 和 StreamAsync 一样优先走 sidecar，这样「测试连接」点通了就等于分析也能通
+        if (App.Settings.AiUseSidecar)
+        {
+            try
+            {
+                if (SidecarClient.EnsureStarted())
+                {
+                    var via = await ChatViaSidecar(App.Settings.CurrentProvider(), App.Settings.AiModel, system, turns, ct);
+                    if (!string.IsNullOrWhiteSpace(via.Text)) return via.Text;
+                }
+            }
+            catch
+            {
+                // 落到内置路径
+            }
+        }
         var reply = await TurnAsync(system, turns, tools: null, ct);
         return reply.Text;
     }
@@ -88,6 +104,25 @@ public static class AiClient
 
     public static async Task<AiReply> StreamAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, Action<string> onDelta, CancellationToken ct)
     {
+        // 优先 Pi sidecar：pi-ai 处理中转协议、推理内容、工具循环。
+        // sidecar 起不来或出错就落回下面的内置路径，AI 不会彻底不能用。
+        if (App.Settings.AiUseSidecar && p != null && !string.IsNullOrWhiteSpace(modelId))
+        {
+            try
+            {
+                if (SidecarClient.EnsureStarted())
+                {
+                    string text = await SidecarClient.ChatAsync(p, modelId!, system, turns, onDelta, 4, ct);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        return new AiReply { Text = text };
+                }
+            }
+            catch
+            {
+                // 落到内置路径
+            }
+        }
+
         var proto = ParseProtocol(p?.Protocol);
         if (proto == AiProtocol.Completions)
         {
@@ -103,6 +138,14 @@ public static class AiClient
         var reply = await TurnAsync(p, modelId, system, turns, null, ct);
         if (!string.IsNullOrEmpty(reply.Text)) onDelta(reply.Text);
         return reply;
+    }
+
+    /// <summary>整段请求，同样优先走 sidecar，保证「测试连接」和「分析」走同一条路。</summary>
+    static async Task<AiReply> ChatViaSidecar(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, CancellationToken ct)
+    {
+        if (p == null || string.IsNullOrWhiteSpace(modelId)) return new AiReply();
+        string text = await SidecarClient.ChatAsync(p, modelId!, system, turns, _ => { }, 1, ct);
+        return new AiReply { Text = text };
     }
 
     static bool LooksLikeHardFail(Exception ex)

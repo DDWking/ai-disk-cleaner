@@ -31,6 +31,9 @@ public sealed class AppSettings
     public string AiExtraPrompt { get; set; } = "";
     public List<string> AiJury { get; set; } = new();
     public bool AiJuryOn { get; set; }
+    // 走 Pi sidecar（pi-ai 处理中转协议 / 推理内容 / 工具循环）。
+    // sidecar 起不来会自动退回内置的 OpenAI.NET 客户端。
+    public bool AiUseSidecar { get; set; } = true;
 
     public string AiName { get; set; } = "";
     public string AiBaseUrl { get; set; } = "";
