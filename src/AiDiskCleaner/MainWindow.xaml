@@ -866,10 +866,75 @@
       <Border x:Name="RightPanel" Grid.Column="2" Background="{DynamicResource PanelRight}">
         <DockPanel>
           <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,12,16,8">
+            <Button x:Name="TabCleanBtn" Content="清理" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabClean_Click"/>
             <Button x:Name="TabExtBtn" Content="扩展名" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabExt_Click"/>
             <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource GhostButton}" Click="TabUninstall_Click"/>
           </StackPanel>
-          <DockPanel x:Name="ExtPane">
+          <DockPanel x:Name="CleanPane">
+            <StackPanel x:Name="CleanProgressPanel" DockPanel.Dock="Top" Margin="20,12,20,10" Visibility="Collapsed">
+              <TextBlock x:Name="CleanProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
+              <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
+            </StackPanel>
+            <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,12,20,8"
+                       Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
+            <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
+              <ComboBox x:Name="CleanCatBox" Width="168" Margin="0,0,8,6" SelectionChanged="CleanCat_Changed"
+                        WindowChrome.IsHitTestVisibleInChrome="True"/>
+              <Button x:Name="SelectAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectAll_Click"/>
+              <Button x:Name="SelectSafeBtn" Content="勾选安全项" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="SelectSafe_Click"/>
+            </WrapPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
+              <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Click="RecycleSelected_Click"/>
+              <Button x:Name="AiExplainBtn" Content="AI 解释勾选项" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="AiExplain_Click"/>
+              <TextBlock x:Name="CleanSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
+                         Foreground="{DynamicResource TextDim}" FontSize="11"/>
+            </StackPanel>
+            <DataGrid x:Name="CleanGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
+                      HeadersVisibility="Column" GridLinesVisibility="None"
+                      BorderThickness="0" RowHeight="32" Margin="12,0,16,0"
+                      AlternatingRowBackground="{DynamicResource RowAlt}"
+                      RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
+                      HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
+                      SelectionMode="Single" SelectionUnit="FullRow"
+                      VerticalContentAlignment="Center"
+                      HorizontalScrollBarVisibility="Disabled"
+                      MouseDoubleClick="CleanGrid_MouseDoubleClick"
+                      MouseLeftButtonUp="CleanGrid_Click">
+              <DataGrid.ContextMenu>
+                <ContextMenu>
+                  <MenuItem x:Name="CleanOpenItem" Header="在资源管理器中打开" Click="CleanOpen_Click"/>
+                </ContextMenu>
+              </DataGrid.ContextMenu>
+              <DataGrid.Columns>
+                <DataGridCheckBoxColumn x:Name="ColPick" Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
+                <DataGridTextColumn x:Name="ColCleanName" Header="名称" Binding="{Binding Name}" Width="*" MinWidth="80" IsReadOnly="True">
+                  <DataGridTextColumn.ElementStyle>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                      <Setter Property="ToolTip" Value="{Binding Name}"/>
+                    </Style>
+                  </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn x:Name="ColCleanSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="72" IsReadOnly="True">
+                  <DataGridTextColumn.ElementStyle>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="HorizontalAlignment" Value="Right"/>
+                      <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                    </Style>
+                  </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn x:Name="ColCleanWhy" Header="原因" Binding="{Binding Reason}" Width="1.4*" MinWidth="80" IsReadOnly="True">
+                  <DataGridTextColumn.ElementStyle>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                      <Setter Property="ToolTip" Value="{Binding Reason}"/>
+                    </Style>
+                  </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+          <DockPanel x:Name="ExtPane" Visibility="Collapsed">
           <TextBlock x:Name="ExtTitle" DockPanel.Dock="Top" Margin="20,0,20,8" Text="扩展名 / 类型" Foreground="{DynamicResource TextDim}" FontSize="11"/>
           <DataGrid x:Name="ExtGrid" AutoGenerateColumns="False" IsReadOnly="True"
                     CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
@@ -1093,8 +1158,6 @@
     <Grid x:Name="AiPage" Visibility="Collapsed">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*" MinWidth="420"/>
-        <ColumnDefinition Width="12"/>
-        <ColumnDefinition Width="420" MinWidth="280"/>
       </Grid.ColumnDefinitions>
       <Border Background="#1E1E1E">
         <DockPanel>
@@ -1182,73 +1245,6 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </Grid>
-        </DockPanel>
-      </Border>
-      <GridSplitter Grid.Column="1" Width="12" Cursor="SizeWE"/>
-      <Border Grid.Column="2" Background="{DynamicResource PanelRight}">
-        <DockPanel x:Name="CleanPane">
-          <StackPanel x:Name="CleanProgressPanel" DockPanel.Dock="Top" Margin="20,12,20,10" Visibility="Collapsed">
-            <TextBlock x:Name="CleanProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
-            <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
-          </StackPanel>
-          <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,12,20,8"
-                     Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
-          <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
-            <ComboBox x:Name="CleanCatBox" Width="168" Margin="0,0,8,6" SelectionChanged="CleanCat_Changed"
-                      WindowChrome.IsHitTestVisibleInChrome="True"/>
-            <Button x:Name="SelectAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectAll_Click"/>
-            <Button x:Name="SelectSafeBtn" Content="勾选安全项" Style="{StaticResource GhostButton}" Margin="0,0,0,6" Click="SelectSafe_Click"/>
-          </WrapPanel>
-          <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
-            <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Click="RecycleSelected_Click"/>
-            <Button x:Name="AiExplainBtn" Content="AI 解释勾选项" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="AiExplain_Click"/>
-            <TextBlock x:Name="CleanSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
-                       Foreground="{DynamicResource TextDim}" FontSize="11"/>
-          </StackPanel>
-          <DataGrid x:Name="CleanGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
-                    HeadersVisibility="Column" GridLinesVisibility="None"
-                    BorderThickness="0" RowHeight="32" Margin="12,0,16,0"
-                    AlternatingRowBackground="{DynamicResource RowAlt}"
-                    RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
-                    HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
-                    SelectionMode="Single" SelectionUnit="FullRow"
-                    VerticalContentAlignment="Center"
-                    HorizontalScrollBarVisibility="Disabled"
-                    MouseDoubleClick="CleanGrid_MouseDoubleClick"
-                    MouseLeftButtonUp="CleanGrid_Click">
-            <DataGrid.ContextMenu>
-              <ContextMenu>
-                <MenuItem x:Name="CleanOpenItem" Header="在资源管理器中打开" Click="CleanOpen_Click"/>
-              </ContextMenu>
-            </DataGrid.ContextMenu>
-            <DataGrid.Columns>
-              <DataGridCheckBoxColumn x:Name="ColPick" Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
-              <DataGridTextColumn x:Name="ColCleanName" Header="名称" Binding="{Binding Name}" Width="*" MinWidth="80" IsReadOnly="True">
-                <DataGridTextColumn.ElementStyle>
-                  <Style TargetType="TextBlock">
-                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-                    <Setter Property="ToolTip" Value="{Binding Name}"/>
-                  </Style>
-                </DataGridTextColumn.ElementStyle>
-              </DataGridTextColumn>
-              <DataGridTextColumn x:Name="ColCleanSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="Size" Width="72" IsReadOnly="True">
-                <DataGridTextColumn.ElementStyle>
-                  <Style TargetType="TextBlock">
-                    <Setter Property="HorizontalAlignment" Value="Right"/>
-                    <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
-                  </Style>
-                </DataGridTextColumn.ElementStyle>
-              </DataGridTextColumn>
-              <DataGridTextColumn x:Name="ColCleanWhy" Header="原因" Binding="{Binding Reason}" Width="1.4*" MinWidth="80" IsReadOnly="True">
-                <DataGridTextColumn.ElementStyle>
-                  <Style TargetType="TextBlock">
-                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-                    <Setter Property="ToolTip" Value="{Binding Reason}"/>
-                  </Style>
-                </DataGridTextColumn.ElementStyle>
-              </DataGridTextColumn>
-            </DataGrid.Columns>
-          </DataGrid>
         </DockPanel>
       </Border>
     </Grid>

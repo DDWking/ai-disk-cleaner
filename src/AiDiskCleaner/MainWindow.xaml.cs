@@ -95,7 +95,7 @@ public partial class MainWindow : Window, IAnalystHost
     private int _liveShown;
     private int _liveExtShown;
     private CleanReport? _report;
-    private int _rightTab; // 0 扩展名 1 卸载
+    private int _rightTab; // 0 清理 1 扩展名 2 卸载
     private int _page; // 0 浏览 1 AI 分析
     private Action? _confirmYes;
     private List<AppUninstallItem> _apps = new();
@@ -197,6 +197,7 @@ public partial class MainWindow : Window, IAnalystHost
         ColType.Header = Loc.Type;
         ColPct.Header = Loc.Pct;
         ColSize.Header = Loc.Size;
+        TabCleanBtn.Content = Loc.TabClean;
         TabExtBtn.Content = Loc.TabExt;
         TabUninstallBtn.Content = Loc.TabUninstall;
         UninstallRefreshBtn.Content = Loc.Refresh;
@@ -1831,7 +1832,8 @@ public partial class MainWindow : Window, IAnalystHost
 
     void IAnalystHost.OnChecksChanged(bool showLarge)
     {
-        ShowPage(1);
+        ShowPage(0);
+        ShowRightTab(0);
         if (showLarge && CleanCatBox.Items.Count > 2)
             CleanCatBox.SelectedIndex = 2;
         RefreshCleanUi();
@@ -1900,6 +1902,7 @@ public partial class MainWindow : Window, IAnalystHost
         RefreshCleanUi();
         if (CleanCatBox != null && CleanCatBox.Items.Count > 1)
             CleanCatBox.SelectedIndex = 1;
+        ShowRightTab(0);
     }
 
     void ApplySuggest(string path, string note, bool check)
@@ -2298,23 +2301,28 @@ public partial class MainWindow : Window, IAnalystHost
         AiPage.Visibility = page == 1 ? Visibility.Visible : Visibility.Collapsed;
         MarkTab(NavBrowseBtn, page == 0);
         MarkTab(NavAiBtn, page == 1);
-        if (page == 1) RefreshCleanUi();
+        if (page == 0) RefreshCleanUi();
     }
 
-    private void TabExt_Click(object sender, RoutedEventArgs e) => ShowRightTab(0);
+    private void TabClean_Click(object sender, RoutedEventArgs e) => ShowRightTab(0);
+    private void TabExt_Click(object sender, RoutedEventArgs e) => ShowRightTab(1);
     private void TabUninstall_Click(object sender, RoutedEventArgs e)
     {
-        ShowRightTab(1);
+        ShowRightTab(2);
         if (_apps.Count == 0 && !_listingApps) _ = LoadApps();
     }
 
     private void ShowRightTab(int tab)
     {
         _rightTab = tab;
-        ExtPane.Visibility = tab == 0 ? Visibility.Visible : Visibility.Collapsed;
-        UninstallPane.Visibility = tab == 1 ? Visibility.Visible : Visibility.Collapsed;
-        MarkTab(TabExtBtn, tab == 0);
-        MarkTab(TabUninstallBtn, tab == 1);
+        if (CleanPane != null)
+            CleanPane.Visibility = tab == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ExtPane.Visibility = tab == 1 ? Visibility.Visible : Visibility.Collapsed;
+        UninstallPane.Visibility = tab == 2 ? Visibility.Visible : Visibility.Collapsed;
+        MarkTab(TabCleanBtn, tab == 0);
+        MarkTab(TabExtBtn, tab == 1);
+        MarkTab(TabUninstallBtn, tab == 2);
+        if (tab == 0) RefreshCleanUi();
     }
 
     private static void MarkTab(Button b, bool on)
