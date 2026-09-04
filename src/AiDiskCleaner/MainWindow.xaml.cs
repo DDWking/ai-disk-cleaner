@@ -108,6 +108,7 @@ public partial class MainWindow : Window, IAnalystHost
     // 按用途分好的分类（名称 + 条目 + 占比），分类列表和「分析当前分类」都用它
     private List<CatRow> _cats = new();
     private int _catIndex;
+    private bool _catLock;
     FileEntry? IAnalystHost.Root => _root;
     CleanReport? IAnalystHost.Report => _report;
     void IAnalystHost.OnChecksChanged(bool showLarge) { }
@@ -1722,8 +1723,14 @@ public partial class MainWindow : Window, IAnalystHost
         BuildCategories();
         _catIndex = keep >= 0 && keep < _cats.Count ? keep : 0;
         MarkCurrentCat();
-        CatList.ItemsSource = null;
-        CatList.ItemsSource = _cats;
+        _catLock = true;
+        try
+        {
+            CatList.ItemsSource = null;
+            CatList.ItemsSource = _cats;
+            CatList.SelectedIndex = _cats.Count == 0 ? -1 : _catIndex;
+        }
+        finally { _catLock = false; }
         if (_report == null)
             CleanSummary.Text = Loc.AnalyzeAfterScan;
         else
@@ -1762,6 +1769,16 @@ public partial class MainWindow : Window, IAnalystHost
                 Percent = total > 0 ? bytes * 100.0 / total : 0,
             });
         }
+        if (_cats.Count > 1)
+        {
+            var allItems = _cats.SelectMany(c => c.Items).OrderByDescending(x => x.Size).ToList();
+            _cats.Insert(0, new CatRow
+            {
+                Name = Loc.CatAll,
+                Items = allItems,
+                Percent = 100,
+            });
+        }
     }
 
     void MarkCurrentCat()
@@ -1770,14 +1787,11 @@ public partial class MainWindow : Window, IAnalystHost
             _cats[i].IsCurrent = i == _catIndex;
     }
 
-    /// <summary>点分类列表里的一行，切换当前分类。</summary>
-    private void CatList_Click(object sender, MouseButtonEventArgs e)
+    /// <summary>下拉换分类。</summary>
+    private void CatList_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (e.OriginalSource is not DependencyObject src) return;
-        // 从点到的数据行取回对应的 CatRow
-        var row = Ancestor<Border>(src);
-        if (row?.DataContext is not CatRow cat) return;
-        int idx = _cats.IndexOf(cat);
+        if (_catLock) return;
+        int idx = CatList.SelectedIndex;
         if (idx < 0 || idx == _catIndex) return;
         _catIndex = idx;
         MarkCurrentCat();
@@ -1807,12 +1821,6 @@ public partial class MainWindow : Window, IAnalystHost
         foreach (var x in _report.LongPaths) yield return x;
     }
 
-    private static string Label(string title, List<CleanItem>? items)
-    {
-        if (items == null || items.Count == 0) return title + "  ·  0";
-        return title + "  ·  " + Loc.CatCount(items.Count, FileEntry.FormatSize(items.Sum(x => x.Size)));
-    }
-
     private void ShowCleanCat()
     {
         if (_report == null)
@@ -1826,7 +1834,7 @@ public partial class MainWindow : Window, IAnalystHost
         int confirm = list.Count(x => x.Risk == CleanRisk.Confirm);
         int keep = list.Count(x => x.Risk == CleanRisk.Keep);
         string scope = InCurrentFolder(_current) ? Loc.FilterHere(_current.Name) : Loc.FilterAll;
-        CleanSummary.Text = Label(CurrentCatName(), list) + "  ·  " + scope + "   " + Loc.RiskSummary(safe, confirm, keep);
+        CleanSummary.Text = scope + "   " + Loc.RiskSummary(safe, confirm, keep);
         UpdateCleanSelHint();
     }
 

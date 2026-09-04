@@ -556,6 +556,7 @@ public static class Loc
     public static string CatBloat => IsEn ? "Bloatware" : "卸载残留";
     public static string CatIme => IsEn ? "Input methods" : "输入法";
     public static string CatOther => IsEn ? "Other" : "其他";
+    public static string CatAll => IsEn ? "All" : "全部";
 
     // ===== 风险三档 =====
     public static string RiskSafe => IsEn ? "Safe to delete" : "可安全删除";

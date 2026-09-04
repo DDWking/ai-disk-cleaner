@@ -864,37 +864,13 @@
               <TextBlock x:Name="CleanProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
               <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
             </StackPanel>
-            <TextBlock x:Name="CleanSummary" DockPanel.Dock="Top" Margin="20,8,20,6"
-                       Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
-            <!-- 分类做成一行芯片，表格才能占满 -->
-            <ScrollViewer DockPanel.Dock="Top" Margin="16,0,16,6" MaxHeight="52"
-                          VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Auto">
-              <ItemsControl x:Name="CatList" MouseLeftButtonUp="CatList_Click">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate>
-                    <StackPanel Orientation="Horizontal"/>
-                  </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate>
-                    <Border x:Name="Row" Padding="8,4" Margin="0,0,6,0" Cursor="Hand"
-                            BorderBrush="{DynamicResource Border}" BorderThickness="1" Background="Transparent">
-                      <StackPanel Orientation="Horizontal">
-                        <TextBlock x:Name="NameTxt" Text="{Binding Name}" FontSize="11" Foreground="{DynamicResource Text}"/>
-                        <TextBlock Text="{Binding SizeText}" FontSize="11" Margin="8,0,0,0"
-                                   Foreground="{DynamicResource TextDim}"/>
-                      </StackPanel>
-                    </Border>
-                    <DataTemplate.Triggers>
-                      <DataTrigger Binding="{Binding IsCurrent}" Value="True">
-                        <Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource Accent}"/>
-                        <Setter TargetName="NameTxt" Property="Foreground" Value="{DynamicResource Accent}"/>
-                      </DataTrigger>
-                    </DataTemplate.Triggers>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </ScrollViewer>
+            <DockPanel DockPanel.Dock="Top" Margin="16,8,16,6" LastChildFill="True">
+              <ComboBox x:Name="CatList" DockPanel.Dock="Left" MinWidth="220" Width="280" Margin="0,0,12,0"
+                        DisplayMemberPath="MenuText" MaxDropDownHeight="420"
+                        SelectionChanged="CatList_Changed"/>
+              <TextBlock x:Name="CleanSummary" VerticalAlignment="Center"
+                         Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
+            </DockPanel>
             <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
               <Button x:Name="SelectAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectAll_Click"/>
               <Button x:Name="SelectSafeBtn" Content="勾选可安全删除" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectSafe_Click"/>

@@ -94,6 +94,8 @@ public sealed class CatRow : INotifyPropertyChanged
     public int Count => Items.Count;
     public long Bytes => Items.Sum(x => x.Size);
     public string SizeText => FileEntry.FormatSize(Bytes);
+    /// <summary>下拉里显示：名称 · 条数 · 大小。</summary>
+    public string MenuText => $"{Name}  ·  {Count:N0}  ·  {SizeText}";
     /// <summary>占全部可清理空间的百分比（0~100）。</summary>
     public double Percent { get; set; }
     public string PercentText => Percent >= 10 ? $"{Percent:0}%" : $"{Percent:0.#}%";
