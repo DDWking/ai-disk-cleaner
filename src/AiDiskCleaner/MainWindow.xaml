@@ -797,21 +797,11 @@
     </Border>
 
     <Grid>
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="148"/>
-        <ColumnDefinition Width="*"/>
-      </Grid.ColumnDefinitions>
-      <Border Background="{DynamicResource Bg}" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,1,0">
-        <StackPanel Margin="8,16,8,16">
-          <Button x:Name="NavBrowseBtn" Content="浏览" Style="{StaticResource NavButton}" Click="NavBrowse_Click"/>
-        </StackPanel>
-      </Border>
-      <Grid Grid.Column="1">
       <Grid x:Name="BrowsePage">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*" MinWidth="420"/>
         <ColumnDefinition Width="12"/>
-        <ColumnDefinition Width="440" MinWidth="320"/>
+        <ColumnDefinition x:Name="RightCol" Width="440" MinWidth="320" MaxWidth="1200"/>
       </Grid.ColumnDefinitions>
 
       <Border x:Name="LeftPanel" Grid.Column="0" Background="{DynamicResource PanelLeft}">
@@ -1214,7 +1204,6 @@
       </Border>
     </Grid>
 
-    </Grid>
     </Grid>
   </DockPanel>
 

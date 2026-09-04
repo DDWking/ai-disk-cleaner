@@ -145,6 +145,9 @@ public partial class MainWindow : Window, IAnalystHost
             MaxButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
             BorderThickness = WindowState == WindowState.Maximized ? new Thickness(8) : new Thickness(1);
         };
+        // 右侧面板拉太宽会被挤出可视区（左列有 MinWidth=420，挤到头就把右列顶没了）。
+        // 这里按窗口宽度动态封顶，保证拖到任何位置右列都还在。
+        SizeChanged += (_, _) => UpdateRightColLimit();
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
         ApplyUi();
@@ -153,6 +156,14 @@ public partial class MainWindow : Window, IAnalystHost
         // 勾选/删除等动作仍在 C# 侧执行。
         try { SidecarClient.AttachToolHost(this); } catch { }
         PickDrive("C:\\");
+    }
+
+    /// <summary>右列最大宽度 = 窗口宽 - 左列最小宽 - 分隔条 - 余量，防止右列被挤出消失。</summary>
+    void UpdateRightColLimit()
+    {
+        if (RightCol == null) return;
+        double max = ActualWidth - 420 - 12 - 40;   // 左列 MinWidth + splitter + 余量
+        RightCol.MaxWidth = Math.Max(320, max);
     }
 
     void Window_Loaded(object sender, RoutedEventArgs e)
@@ -172,8 +183,6 @@ public partial class MainWindow : Window, IAnalystHost
     {
         Title = Loc.AppName;
         TitleText.Text = Loc.AppName;
-        NavBrowseBtn.Content = Loc.NavBrowse;
-        NavBrowseBtn.Content = Loc.NavBrowse;
         ScanButton.Content = Loc.Scan;
         StopButton.Content = Loc.Stop;
         SettingsButton.Content = Loc.Settings;
@@ -2370,11 +2379,10 @@ public partial class MainWindow : Window, IAnalystHost
     void ShowPage(int page)
     {
         _page = page;
-        // AI 分析页已移除，当前只有浏览这一页，分析入口在右侧清理面板里
+        // AI 分析页和左侧导航都已移除，当前只有浏览这一页，
+        // 分析入口在右侧清理面板里。
         if (BrowsePage != null)
             BrowsePage.Visibility = page == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (NavBrowseBtn != null)
-            MarkTab(NavBrowseBtn, page == 0);
         if (page == 0) RefreshCleanUi();
     }
 
