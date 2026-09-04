@@ -201,6 +201,34 @@ public static class Loc
     public static string AiScanHeader => IsEn
         ? "Scan finished. Reply in the exact format below. Do not invent files."
         : "扫描结束。必须按下述格式回复。不要编造文件。";
+    public static string AiCatSystem => IsEn
+        ? """
+          You are a disk cleanup analyst. Rate each listed item's deletion risk and describe it in one line.
+          Only use paths from the list. Never invent paths. Never delete anything.
+
+          Reply with one line per item, nothing else:
+          GOTO <full path><TAB><safe|confirm|keep><TAB><one-line reason in the user's language>
+
+          safe = temp/cache/crash dumps/recycle, safe to delete.
+          confirm = large files, duplicates, package caches, installers — check before deleting.
+          keep = system files, SDKs, VM images, chat history, documents — do not delete.
+          """
+        : """
+          你是磁盘清理分析师。给下面每个条目判定删除风险，并用一句话说明。
+          只能用清单里的路径，不要编造，不要删除任何东西。
+
+          每个条目回复一行，不要别的内容：
+          GOTO <完整路径><TAB><safe|confirm|keep><TAB><一句中文原因>
+
+          safe = 临时/缓存/崩溃转储/回收站，可以放心删。
+          confirm = 大文件、重复文件、包缓存、安装包，删之前看一眼。
+          keep = 系统文件、SDK、虚拟机镜像、聊天记录、文档，别删。
+          """;
+    public static string AiCatEmpty => IsEn ? "Nothing to analyze in this category." : "这个分类没有可分析的条目。";
+    public static string AiCatDone(int n) => IsEn ? $"AI rated {n} items" : $"AI 判定了 {n} 条";
+    public static string AiCatStopped => IsEn ? "Stopped." : "已停止。";
+    public static string AiNoItems => IsEn ? "AI returned nothing usable." : "AI 没给出可用的判定。";
+
     public static string AiAnalystSystem => IsEn
         ? """
           You are a file analyst in a disk cleaner. Never delete. Never invent paths.
@@ -468,6 +496,32 @@ public static class Loc
     public static string CatShortcut => IsEn ? "Broken shortcuts" : "失效快捷方式";
     public static string CatLong => IsEn ? "Long paths" : "超长路径";
     public static string CatCompare => IsEn ? "Since last scan" : "和上次比";
+
+    // ===== 按用途分类（来自 AppSignatures.Category）=====
+    public static string CatSystem => IsEn ? "System" : "系统";
+    public static string CatBrowser => IsEn ? "Browsers" : "浏览器";
+    public static string CatDev => IsEn ? "Dev tools" : "开发工具";
+    public static string CatChat => IsEn ? "Chat apps" : "聊天软件";
+    public static string CatGame => IsEn ? "Games" : "游戏";
+    public static string CatMedia => IsEn ? "Media" : "影音";
+    public static string CatCloud => IsEn ? "Cloud drives" : "网盘";
+    public static string CatVm => IsEn ? "Virtual machines" : "虚拟机";
+    public static string CatIde => IsEn ? "IDE / editors" : "IDE / 编辑器";
+    public static string CatAiTool => IsEn ? "AI tools" : "AI 工具";
+    public static string CatOffice => IsEn ? "Office" : "办公";
+    public static string CatSecurity => IsEn ? "Security" : "安全软件";
+    public static string CatBloat => IsEn ? "Bloatware" : "卸载残留";
+    public static string CatIme => IsEn ? "Input methods" : "输入法";
+    public static string CatOther => IsEn ? "Other" : "其他";
+
+    // ===== 风险三档 =====
+    public static string RiskSafe => IsEn ? "Safe" : "安全";
+    public static string RiskConfirm => IsEn ? "Check first" : "需确认";
+    public static string RiskKeep => IsEn ? "Do not delete" : "别删";
+    public static string NoteCache => IsEn ? "cache data" : "缓存数据";
+    public static string RiskSummary(int safe, int confirm, int keep) => IsEn
+        ? $"safe {safe} · check {confirm} · keep {keep}"
+        : $"安全 {safe} · 需确认 {confirm} · 别删 {keep}";
 
     public static string GroupTemp => IsEn ? "Temp / cache" : "临时/缓存";
     public static string GroupDump => IsEn ? "Crash dumps" : "崩溃转储";

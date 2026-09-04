@@ -1,3 +1,5 @@
+using AiDiskCleaner.Models;
+
 namespace AiDiskCleaner.Services;
 
 public enum SigRisk { Safe, Cautious, Keep, Bloat }
@@ -126,6 +128,49 @@ public static class AppSignatures
         var s = hit.Value.Sig;
         if (s.Risk != SigRisk.Safe) return false;
         return s.Subs is not { Length: > 0 } || hit.Value.SubHit;
+    }
+
+    /// <summary>用途分类的中文显示名。</summary>
+    public static string CategoryName(string? key) => (key ?? "").Trim().ToLowerInvariant() switch
+    {
+        "system" => Loc.CatSystem,
+        "browser" => Loc.CatBrowser,
+        "dev" => Loc.CatDev,
+        "im" => Loc.CatChat,
+        "game" => Loc.CatGame,
+        "media" => Loc.CatMedia,
+        "cloud" => Loc.CatCloud,
+        "vm" => Loc.CatVm,
+        "ide" => Loc.CatIde,
+        "ai" => Loc.CatAiTool,
+        "office" => Loc.CatOffice,
+        "security" => Loc.CatSecurity,
+        "bloat" => Loc.CatBloat,
+        "ime" => Loc.CatIme,
+        _ => Loc.CatOther,
+    };
+
+    /// <summary>SigRisk（4 档）压成界面上的三档风险。</summary>
+    public static CleanRisk ToCleanRisk(SigRisk r) => r switch
+    {
+        SigRisk.Safe => CleanRisk.Safe,
+        SigRisk.Keep => CleanRisk.Keep,
+        _ => CleanRisk.Confirm,   // Cautious / Bloat 都要看一眼
+    };
+
+    /// <summary>
+    /// 按路径识别用途分类、风险、一句说明。认不出来返回 null，由调用方兜底。
+    /// </summary>
+    public static (string Key, string Name, CleanRisk Risk, string Note)? Classify(string? path)
+    {
+        var hit = Match(path);
+        if (hit == null) return null;
+        var s = hit.Value.Sig;
+        string key = (s.Category ?? "").Trim().ToLowerInvariant();
+        var risk = ToCleanRisk(s.Risk);
+        string note = s.Note ?? "";
+        if (string.IsNullOrEmpty(note) && hit.Value.SubHit) note = Loc.NoteCache;
+        return (key, CategoryName(key), risk, note);
     }
 
     public static IEnumerable<(AppSig Sig, string Sample, long Size)> HitsIn(IEnumerable<Models.FileEntry> dirs)

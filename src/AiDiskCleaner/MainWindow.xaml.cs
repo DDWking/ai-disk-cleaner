@@ -115,7 +115,8 @@ public partial class MainWindow : Window, IAnalystHost
     private string? _need;
     private List<VoteItem> _votes = new();
     private List<CleanItem> _aiItems = new();
-    private bool _awaitConfirm;
+    // 按用途分好的分类（名称 + 条目），下拉和「分析当前分类」都用它
+    private List<(string Name, List<CleanItem> Items)> _cats = new();
     private readonly ObservableCollection<JuryPane> _juryPanes = new();
     FileEntry? IAnalystHost.Root => _root;
     CleanReport? IAnalystHost.Report => _report;
@@ -146,10 +147,7 @@ public partial class MainWindow : Window, IAnalystHost
         };
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
-        AiChatList.ItemsSource = _chat;
-        JuryPaneList.ItemsSource = _juryPanes;
         ApplyUi();
-        ShowPage(0);
         ShowRightTab(0);
         // sidecar 的工具回调落到这里（this 实现了 IAnalystHost），
         // 勾选/删除等动作仍在 C# 侧执行。
@@ -175,7 +173,7 @@ public partial class MainWindow : Window, IAnalystHost
         Title = Loc.AppName;
         TitleText.Text = Loc.AppName;
         NavBrowseBtn.Content = Loc.NavBrowse;
-        NavAiBtn.Content = Loc.NavAi;
+        NavBrowseBtn.Content = Loc.NavBrowse;
         ScanButton.Content = Loc.Scan;
         StopButton.Content = Loc.Stop;
         SettingsButton.Content = Loc.Settings;
@@ -246,11 +244,7 @@ public partial class MainWindow : Window, IAnalystHost
         AiModelBox.Tag = Loc.AiModelHintBox;
         AiModelHint.Text = Loc.AiModelsEmpty;
         AiExplainBtn.Content = Loc.AiExplain;
-        RefreshAiLamp();
-        AiChatSendBtn.Content = Loc.AiSend;
-        AiChatClearBtn.Content = Loc.AiClear;
-        AiChatInput.Tag = Loc.AiChatHint;
-        AiRunBtn.Content = Loc.AiAnalyze;
+        AiAnalyzeCatBtn.Content = Loc.AiAnalyze;
         AiAddProvBtn.Content = Loc.AiAddCustom;
         FillAiProtoBox();
         FillRunModels();
@@ -291,7 +285,7 @@ public partial class MainWindow : Window, IAnalystHost
         _scanning = true;
         ScanButton.IsEnabled = false;
         StopButton.IsEnabled = true;
-        if (AiRunBtn != null) AiRunBtn.IsEnabled = false;
+        if (AiAnalyzeCatBtn != null) AiAnalyzeCatBtn.IsEnabled = false;
         _scanStart = DateTime.Now;
         _cts = new CancellationTokenSource();
         HeaderStats.Text = Loc.Scanning;
@@ -357,7 +351,7 @@ public partial class MainWindow : Window, IAnalystHost
             _scanning = false;
             ScanButton.IsEnabled = true;
             StopButton.IsEnabled = false;
-            if (AiRunBtn != null) AiRunBtn.IsEnabled = true;
+            if (AiAnalyzeCatBtn != null) AiAnalyzeCatBtn.IsEnabled = true;
             ScanProgressPanel.Visibility = Visibility.Collapsed;
             ScanProgressBar.IsIndeterminate = false;
         }
@@ -1557,32 +1551,9 @@ public partial class MainWindow : Window, IAnalystHost
 
     void RefreshJuryUi()
     {
-        bool on = false;
-        if (JuryToggleBtn != null)
-            JuryToggleBtn.Content = on ? Loc.JuryToggleOn : Loc.JuryToggleOff;
+        // 多模型陪审已废弃（分析固定走当前这一个模型），相关面板一律隐藏
         if (JuryPanel != null)
-            JuryPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-        if (AiRunModelBox != null)
-            AiRunModelBox.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
-        if (JuryChipList != null)
-        {
-            if (on)
-            {
-                var names = Jury.Seats().Select(s => s.Model).Distinct().ToList();
-                if (names.Count > 3)
-                {
-                    int extra = names.Count - 2;
-                    names = names.Take(2).Concat(new[] { Loc.JuryChipMore(extra) }).ToList();
-                }
-                JuryChipList.ItemsSource = names;
-                JuryChipList.Visibility = names.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            }
-            else
-            {
-                JuryChipList.ItemsSource = null;
-                JuryChipList.Visibility = Visibility.Collapsed;
-            }
-        }
+            JuryPanel.Visibility = Visibility.Collapsed;
     }
 
     private void JuryPick_Click(object sender, RoutedEventArgs e)
@@ -1644,7 +1615,6 @@ public partial class MainWindow : Window, IAnalystHost
         _need = Loc.JuryDefaultNeed;
         _votes.Clear();
         _aiItems.Clear();
-        _awaitConfirm = false;
         ShowPage(1);
         RefreshCleanUi();
         AddChat(Loc.AiYou, Loc.AiAnalyze);
@@ -1662,7 +1632,6 @@ public partial class MainWindow : Window, IAnalystHost
             Parts = log ? new() : ChatFormat.Parse(text),
         };
         _chat.Add(line);
-        Dispatcher.BeginInvoke(() => AiChatScroll.ScrollToEnd(), System.Windows.Threading.DispatcherPriority.Background);
         return line;
     }
 
@@ -1683,14 +1652,12 @@ public partial class MainWindow : Window, IAnalystHost
 
     void ShowJuryPanes(bool on)
     {
+        // 陪审面板已随 AI 分析页一起移除，保留空实现避免到处改调用点
         if (!Dispatcher.CheckAccess())
         {
             Dispatcher.Invoke(() => ShowJuryPanes(on));
             return;
         }
-        if (JuryPaneList == null || AiChatScroll == null) return;
-        JuryPaneList.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-        AiChatScroll.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
     }
 
     void ResetJuryPanes()
@@ -1707,30 +1674,31 @@ public partial class MainWindow : Window, IAnalystHost
 
     void RefreshAiLamp()
     {
+        if (AiStatusText == null) return;
         if (_aiBusy)
         {
-            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0xE8, 0xC5, 0x4A));
-            AiChatStatus.Text = Loc.AiLampBusy;
+            AiStatusText.Text = Loc.AiLampBusy;
+            AiStatusText.Foreground = ThemeService.Brush("Accent");
         }
         else if (_aiOk)
         {
-            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0x3D, 0xD6, 0x68));
-            AiChatStatus.Text = Loc.AiLampOn;
+            AiStatusText.Text = Loc.AiLampOn;
+            AiStatusText.Foreground = ThemeService.Brush("TextDim");
         }
         else if (_aiTried)
         {
-            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0xE0, 0x4F, 0x4F));
-            AiChatStatus.Text = Loc.AiLampFail;
+            AiStatusText.Text = Loc.AiLampFail;
+            AiStatusText.Foreground = ThemeService.Brush("TextDim");
         }
         else if (AiConfigured())
         {
-            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0x3D, 0xD6, 0x68));
-            AiChatStatus.Text = Loc.AiReady;
+            AiStatusText.Text = Loc.AiReady;
+            AiStatusText.Foreground = ThemeService.Brush("TextDim");
         }
         else
         {
-            AiLamp.Fill = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A));
-            AiChatStatus.Text = Loc.AiLampOff;
+            AiStatusText.Text = Loc.AiLampOff;
+            AiStatusText.Foreground = ThemeService.Brush("TextDim");
         }
     }
 
@@ -1746,7 +1714,7 @@ public partial class MainWindow : Window, IAnalystHost
         if (_aiBusy) return "";
         _aiBusy = true;
         RefreshAiLamp();
-        AiChatSendBtn.IsEnabled = false;
+        AiAnalyzeCatBtn.IsEnabled = false;
         AiExplainBtn.IsEnabled = false;
         try
         {
@@ -1793,7 +1761,7 @@ public partial class MainWindow : Window, IAnalystHost
         {
             _aiBusy = false;
             RefreshAiLamp();
-            AiChatSendBtn.IsEnabled = true;
+            AiAnalyzeCatBtn.IsEnabled = true;
             AiExplainBtn.IsEnabled = true;
         }
     }
@@ -2066,39 +2034,143 @@ public partial class MainWindow : Window, IAnalystHost
             PopulateDirChildren(item);
     }
 
-    private async void AiChatSend_Click(object sender, RoutedEventArgs e)
-        => await SendChat();
+    // ===== AI：分析当前选中的分类 =====
 
-    private async void AiChatInput_KeyDown(object sender, KeyEventArgs e)
+    CancellationTokenSource? _aiStop;
+
+    private async void AiAnalyzeCat_Click(object sender, RoutedEventArgs e)
+        => await AnalyzeCurrentCategory();
+
+    private void AiStop_Click(object sender, RoutedEventArgs e)
     {
-        if (e.Key != Key.Enter) return;
-        e.Handled = true;
-        await SendChat();
+        try { _aiStop?.Cancel(); } catch { }
     }
 
-    async Task SendChat()
+    async Task AnalyzeCurrentCategory()
     {
-        string text = AiChatInput.Text?.Trim() ?? "";
-        if (string.IsNullOrEmpty(text) || _aiBusy) return;
+        if (_aiBusy) return;
         if (_report == null)
         {
-            AddChat(Loc.AiBot, Loc.AiNeedScan);
+            SetAiStatus(Loc.AiNeedScanFirst);
             return;
         }
-        AiChatInput.Text = "";
-        AddChat(Loc.AiYou, text);
+        var items = CurrentCleanList();
+        if (items.Count == 0)
+        {
+            SetAiStatus(Loc.AiCatEmpty);
+            return;
+        }
+        await AskAnalystForCategory(items);
+    }
+
+    void SetAiStatus(string text)
+    {
+        if (AiStatusText == null) return;
+        AiStatusText.Text = text;
+        AiStatusText.Foreground = ThemeService.Brush("TextDim");
+    }
+
+    /// <summary>
+    /// 把当前分类的条目交给 AI，让它给每条判定风险档 + 一句描述，写回条目本身。
+    /// 风险档在 AI 之外还有规则兜底（AppSignatures），所以 AI 挂了也不影响主体功能。
+    /// </summary>
+    async Task AskAnalystForCategory(List<CleanItem> items)
+    {
+        if (!AiConfigured())
+        {
+            SetAiStatus(Loc.AiScanSkip);
+            return;
+        }
+
+        _aiBusy = true;
+        _aiStop = new CancellationTokenSource();
+        RefreshAiLamp();
+        AiAnalyzeCatBtn.IsEnabled = false;
+        AiStopBtn.Visibility = Visibility.Visible;
+        SetCleanProgress(0, Loc.AiWorking, determinate: false);
+
         try
         {
-            if (_awaitConfirm && LooksLikeConfirm(text))
+            // 只送前 60 条，避免 prompt 过大把中转打挂
+            var batch = items.OrderByDescending(x => x.Size).Take(60).ToList();
+            var lines = batch.Select(x =>
+                $"GOTO {x.FullPath}\t{(x.IsDirectory ? "dir" : "file")}\t{x.SizeText}\t{x.Reason}");
+            string user = Loc.AiCatSystem + Environment.NewLine + string.Join(Environment.NewLine, lines);
+
+            var turns = new List<AiMsg> { new() { Role = "user", Text = user } };
+            var buf = new System.Text.StringBuilder();
+            void Push(string delta) => buf.Append(delta);
+
+            var reply = await AiClient.StreamAsync(
+                App.Settings.CurrentProvider(), App.Settings.AiModel,
+                Loc.AiCatSystem, turns, Push, _aiStop.Token);
+
+            if (_aiStop.IsCancellationRequested)
             {
-                ApplyJuryChecks();
-                _awaitConfirm = false;
-                AddChat(Loc.AiBot, Loc.JuryChecked);
+                SetAiStatus(Loc.AiCatStopped);
                 return;
             }
-            await AskAnalyst(text);
+
+            string text = string.IsNullOrWhiteSpace(reply.Text) ? buf.ToString() : reply.Text;
+            int applied = ApplyAiRatings(batch, text);
+            SetAiLamp(true);
+            SetAiStatus(applied > 0 ? Loc.AiCatDone(applied) : Loc.AiNoItems);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            SetAiLamp(false);
+            SetAiStatus(Loc.AiPartial(AiClient.Pretty(ex)));
+        }
+        finally
+        {
+            _aiBusy = false;
+            _aiStop?.Dispose();
+            _aiStop = null;
+            RefreshAiLamp();
+            AiAnalyzeCatBtn.IsEnabled = true;
+            AiStopBtn.Visibility = Visibility.Collapsed;
+            HideCleanProgress();
+            // 风险/描述变了，重新分组并刷新
+            BuildCategories();
+            CleanGrid.ItemsSource = CurrentCleanList();
+            UpdateCleanSelHint();
+        }
+    }
+
+    /// <summary>解析 AI 回的 "GOTO 路径\t档位\t描述"，写回条目。</summary>
+    static int ApplyAiRatings(List<CleanItem> batch, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return 0;
+        var byPath = new Dictionary<string, CleanItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var x in batch)
+            if (!string.IsNullOrEmpty(x.FullPath))
+                byPath[x.FullPath] = x;
+
+        int applied = 0;
+        foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            string line = raw.Trim();
+            if (!line.StartsWith("GOTO", StringComparison.OrdinalIgnoreCase)) continue;
+            var parts = line[4..].Trim().Split('\t');
+            if (parts.Length < 3) continue;
+
+            string path = parts[0].Trim();
+            string level = parts[1].Trim().ToLowerInvariant();
+            string note = string.Join(" ", parts.Skip(2)).Trim();
+            if (note.Length > 160) note = note[..157] + "…";
+            if (!byPath.TryGetValue(path, out var item)) continue;
+
+            item.Risk = level switch
+            {
+                "safe" => CleanRisk.Safe,
+                "confirm" or "caution" or "check" => CleanRisk.Confirm,
+                "keep" or "danger" or "no" => CleanRisk.Keep,
+                _ => item.Risk,
+            };
+            if (!string.IsNullOrEmpty(note)) item.Reason = note;
+            applied++;
+        }
+        return applied;
     }
 
     static bool LooksLikeConfirm(string text)
@@ -2118,7 +2190,7 @@ public partial class MainWindow : Window, IAnalystHost
         }
         _aiBusy = true;
         RefreshAiLamp();
-        AiChatSendBtn.IsEnabled = false;
+        AiAnalyzeCatBtn.IsEnabled = false;
         AiExplainBtn.IsEnabled = false;
         try
         {
@@ -2144,7 +2216,6 @@ public partial class MainWindow : Window, IAnalystHost
             ApplyJuryChecks();
             PaintAiNotes();
             RefreshCleanUi();
-            _awaitConfirm = false;
             SetAiLamp(ok.Count > 0);
             var merge = new JuryPane { Title = Loc.JuryMerge, LiveText = string.IsNullOrEmpty(board) ? Loc.JuryNone : board };
             _juryPanes.Add(merge);
@@ -2161,7 +2232,7 @@ public partial class MainWindow : Window, IAnalystHost
         {
             _aiBusy = false;
             RefreshAiLamp();
-            AiChatSendBtn.IsEnabled = true;
+            AiAnalyzeCatBtn.IsEnabled = true;
             AiExplainBtn.IsEnabled = true;
         }
     }
@@ -2256,7 +2327,6 @@ public partial class MainWindow : Window, IAnalystHost
         _need = null;
         _votes.Clear();
         _aiItems.Clear();
-        _awaitConfirm = false;
         DiskAnalyst.ResetSession();
         if (_root != null) PaintAiNotes();
         RefreshCleanUi();
@@ -2300,10 +2370,11 @@ public partial class MainWindow : Window, IAnalystHost
     void ShowPage(int page)
     {
         _page = page;
-        BrowsePage.Visibility = page == 0 ? Visibility.Visible : Visibility.Collapsed;
-        AiPage.Visibility = page == 1 ? Visibility.Visible : Visibility.Collapsed;
-        MarkTab(NavBrowseBtn, page == 0);
-        MarkTab(NavAiBtn, page == 1);
+        // AI 分析页已移除，当前只有浏览这一页，分析入口在右侧清理面板里
+        if (BrowsePage != null)
+            BrowsePage.Visibility = page == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (NavBrowseBtn != null)
+            MarkTab(NavBrowseBtn, page == 0);
         if (page == 0) RefreshCleanUi();
     }
 
@@ -2337,31 +2408,49 @@ public partial class MainWindow : Window, IAnalystHost
     {
         if (CleanCatBox == null) return;
         int keep = CleanCatBox.SelectedIndex;
-        var cats = new List<string>
-        {
-            Label(Loc.CatCleanable, _report?.Cleanable),
-            Label(Loc.CatAi, _aiItems),
-            Label(Loc.CatLarge, _report?.LargeFiles),
-            Label(Loc.CatOld, _report?.OldFiles),
-            Label(Loc.CatDup, _report?.Duplicates),
-            Label(Loc.CatEmpty, _report?.EmptyFolders),
-            Label(Loc.CatShortcut, _report?.BrokenShortcuts),
-            Label(Loc.CatLong, _report?.LongPaths),
-            Label(Loc.CatCompare, _report?.Compare),
-        };
-        CleanCatBox.ItemsSource = cats;
-        CleanCatBox.SelectedIndex = keep >= 0 && keep < cats.Count ? keep : 0;
+        BuildCategories();
+        CleanCatBox.ItemsSource = _cats.Select(c => Label(c.Name, c.Items)).ToList();
+        CleanCatBox.SelectedIndex = keep >= 0 && keep < _cats.Count ? keep : (_cats.Count > 0 ? 0 : -1);
         ShowCleanCat();
         if (_report == null)
             CleanSummary.Text = Loc.AnalyzeAfterScan;
-        else if (CleanCatBox.SelectedIndex == 1)
-            CleanSummary.Text = Label(Loc.CatAi, _aiItems);
-        else if (CleanCatBox.SelectedIndex == 8)
-            CleanSummary.Text = _report.CompareNote;
         else
             CleanSummary.Text = Loc.CleanHintReady(_report.Cleanable.Count, FileEntry.FormatSize(_report.CleanableBytes));
         UpdateCleanSelHint();
         ShowRightTab(_rightTab);
+    }
+
+    /// <summary>把所有可清理候选按用途归类，只保留有内容的分类，按可回收空间降序。</summary>
+    void BuildCategories()
+    {
+        _cats.Clear();
+        if (_report == null) return;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var all = new List<CleanItem>();
+        foreach (var x in AllCandidates())
+        {
+            if (string.IsNullOrEmpty(x.FullPath)) continue;
+            if (!seen.Add(NormPath(x.FullPath))) continue;
+            all.Add(x);
+        }
+        foreach (var g in all
+                     .GroupBy(x => string.IsNullOrWhiteSpace(x.Group) ? Loc.CatOther : x.Group)
+                     .OrderByDescending(g => g.Sum(x => x.Size)))
+        {
+            _cats.Add((g.Key, g.OrderByDescending(x => x.Size).ToList()));
+        }
+    }
+
+    /// <summary>参与「按用途分类」的全部候选条目。</summary>
+    IEnumerable<CleanItem> AllCandidates()
+    {
+        foreach (var x in _report!.Cleanable) yield return x;
+        foreach (var x in _report.LargeFiles) yield return x;
+        foreach (var x in _report.OldFiles) yield return x;
+        foreach (var x in _report.Duplicates) yield return x;
+        foreach (var x in _report.EmptyFolders) yield return x;
+        foreach (var x in _report.BrokenShortcuts) yield return x;
+        foreach (var x in _report.LongPaths) yield return x;
     }
 
     private static string Label(string title, List<CleanItem>? items)
@@ -2380,26 +2469,26 @@ public partial class MainWindow : Window, IAnalystHost
             return;
         }
         CleanGrid.ItemsSource = CurrentCleanList();
-        if (CleanCatBox.SelectedIndex == 1)
-            CleanSummary.Text = Label(Loc.CatAi, _aiItems);
-        else if (CleanCatBox.SelectedIndex == 8)
-            CleanSummary.Text = _report.CompareNote;
+        var list = CurrentCleanList();
+        int safe = list.Count(x => x.Risk == CleanRisk.Safe);
+        int confirm = list.Count(x => x.Risk == CleanRisk.Confirm);
+        int keep = list.Count(x => x.Risk == CleanRisk.Keep);
+        CleanSummary.Text = Label(CurrentCatName(), list) + "   " + Loc.RiskSummary(safe, confirm, keep);
         UpdateCleanSelHint();
     }
 
+    string CurrentCatName()
+        => CleanCatBox.SelectedIndex >= 0 && CleanCatBox.SelectedIndex < _cats.Count
+            ? _cats[CleanCatBox.SelectedIndex].Name
+            : Loc.CatOther;
+
     private List<CleanItem> CurrentCleanList()
-        => CleanCatBox.SelectedIndex switch
-        {
-            1 => _aiItems,
-            2 => _report?.LargeFiles ?? new(),
-            3 => _report?.OldFiles ?? new(),
-            4 => _report?.Duplicates ?? new(),
-            5 => _report?.EmptyFolders ?? new(),
-            6 => _report?.BrokenShortcuts ?? new(),
-            7 => _report?.LongPaths ?? new(),
-            8 => _report?.Compare ?? new(),
-            _ => _report?.Cleanable ?? new(),
-        };
+    {
+        if (_report == null) return new List<CleanItem>();
+        if (CleanCatBox.SelectedIndex >= 0 && CleanCatBox.SelectedIndex < _cats.Count)
+            return _cats[CleanCatBox.SelectedIndex].Items;
+        return new List<CleanItem>();
+    }
 
     private void SelectAll_Click(object sender, RoutedEventArgs e)
     {

@@ -94,11 +94,13 @@ public static class CleanAnalyzer
             string ext = Path.GetExtension(f.Name);
             string? reason = null;
             string group;
+            var risk = CleanRisk.Safe;
 
             if (path.Contains(@"\$recycle.bin\"))
             {
                 reason = Loc.ReasonRecycle;
                 group = Loc.GroupRecycle;
+                risk = CleanRisk.Confirm;
             }
             else if (LooksLikeTempDir(path) && (TempExt.Contains(ext) || f.Name.StartsWith('~') || f.Size == 0))
             {
@@ -129,6 +131,7 @@ public static class CleanAnalyzer
             {
                 reason = Loc.ReasonInstaller;
                 group = Loc.GroupInstaller;
+                risk = CleanRisk.Confirm;
             }
             else if ((ext.Equals(".tmp", StringComparison.OrdinalIgnoreCase) || ext.Equals(".temp", StringComparison.OrdinalIgnoreCase)
                       || ext.Equals(".log", StringComparison.OrdinalIgnoreCase))
@@ -139,7 +142,7 @@ public static class CleanAnalyzer
             }
             else continue;
 
-            report.Cleanable.Add(Item(f, reason, group, selected: group != Loc.GroupInstaller));
+            report.Cleanable.Add(Item(f, reason, group, selected: group != Loc.GroupInstaller, risk: risk));
         }
 
         foreach (var d in dirs)
@@ -165,7 +168,7 @@ public static class CleanAnalyzer
             var hint = KnownPaths.LargeHint(f);
             string reason = hint?.Reason ?? Loc.ReasonLarge;
             string group = hint?.Group ?? Loc.GroupLarge;
-            report.LargeFiles.Add(Item(f, reason, group, selected: false));
+            report.LargeFiles.Add(Item(f, reason, group, selected: false, risk: CleanRisk.Confirm));
         }
     }
 
@@ -176,7 +179,7 @@ public static class CleanAnalyzer
                      .Where(x => CanList(x) && x.Modified != DateTime.MinValue && x.Modified < cutoff && x.Size >= 8L * 1024 * 1024)
                      .OrderBy(x => x.Modified)
                      .Take(80))
-            report.OldFiles.Add(Item(f, Loc.ReasonOld(f.AgeText), Loc.GroupOld, selected: false));
+            report.OldFiles.Add(Item(f, Loc.ReasonOld(f.AgeText), Loc.GroupOld, selected: false, risk: CleanRisk.Confirm));
     }
 
     private static void FillEmpty(CleanReport report, List<FileEntry> dirs)
@@ -220,7 +223,7 @@ public static class CleanAnalyzer
             if (string.IsNullOrEmpty(target)) continue;
             bool exists = File.Exists(target) || Directory.Exists(target);
             if (exists) continue;
-            report.BrokenShortcuts.Add(Item(f, Loc.ReasonBroken(target), Loc.GroupShortcut, selected: false));
+            report.BrokenShortcuts.Add(Item(f, Loc.ReasonBroken(target), Loc.GroupShortcut, selected: false, risk: CleanRisk.Safe));
             if (report.BrokenShortcuts.Count >= 80) break;
         }
     }
@@ -274,7 +277,8 @@ public static class CleanAnalyzer
                         extra ? Loc.ReasonDupExtra(keep.FullPath) : Loc.ReasonDupKeep,
                         Loc.GroupDup,
                         selected: extra && CanOffer(f),
-                        canDelete: extra && CanOffer(f)));
+                        canDelete: extra && CanOffer(f),
+                        risk: CleanRisk.Confirm));
                 }
                 if (report.Duplicates.Count >= 200) return;
             }
@@ -353,19 +357,34 @@ public static class CleanAnalyzer
         report.Compare.Sort((a, b) => b.Size.CompareTo(a.Size));
     }
 
-    private static CleanItem Item(FileEntry e, string reason, string group, bool selected, bool canDelete = true)
-        => new()
+    private static CleanItem Item(FileEntry e, string reason, string group, bool selected, bool canDelete = true, CleanRisk risk = CleanRisk.Safe)
+    {
+        // 先用应用签名识别：能认出来就用它的用途分类、风险、说明；
+        // 认不出来才退回调用方给的兜底值（group / risk）。
+        var cls = AppSignatures.Classify(e.FullPath);
+        string category = cls?.Key ?? "";
+        string groupName = cls?.Name ?? group;
+        var finalRisk = cls?.Risk ?? risk;
+        string note = cls?.Note ?? "";
+        string finalReason = string.IsNullOrEmpty(note) || reason.Contains(note, StringComparison.Ordinal)
+            ? reason
+            : reason + " · " + note;
+
+        return new CleanItem
         {
             Name = e.Name,
             FullPath = e.FullPath,
             Size = e.Size,
-            Reason = reason,
-            Group = group,
+            Reason = finalReason,
+            Group = groupName,
+            Category = category,
+            Risk = finalRisk,
             CanDelete = canDelete && CanOffer(e),
-            Selected = selected && canDelete && CanOffer(e),
+            Selected = selected && canDelete && CanOffer(e) && finalRisk != CleanRisk.Keep,
             Entry = e,
             IsDirectory = e.IsDirectory,
         };
+    }
 
     private static bool CanList(FileEntry e)
         => !e.IsFilesGroup && !string.IsNullOrEmpty(e.FullPath) && !e.Name.StartsWith('$');
