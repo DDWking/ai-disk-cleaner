@@ -2322,7 +2322,6 @@ public partial class MainWindow : Window, IAnalystHost
         MarkTab(TabCleanBtn, tab == 0);
         MarkTab(TabExtBtn, tab == 1);
         MarkTab(TabUninstallBtn, tab == 2);
-        if (tab == 0) RefreshCleanUi();
     }
 
     private static void MarkTab(Button b, bool on)
