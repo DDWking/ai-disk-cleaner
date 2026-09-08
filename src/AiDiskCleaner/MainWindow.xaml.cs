@@ -24,7 +24,7 @@ public sealed class InvertBoolConverter : IValueConverter
         => Binding.DoNothing;
 }
 
-/// <summary>GroupKey 0/1 默认展开，2/3（Windows 功能、受保护）折叠。</summary>
+/// <summary>建议卸载和可以考虑默认展开，建议保留默认折叠。</summary>
 public sealed class GroupExpandedConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -47,10 +47,9 @@ public sealed class AppGroupConverter : IValueConverter
         else if (value is int i) key = i;
         return key switch
         {
-            1 => Loc.UninstallGroupSteam(n),
-            2 => Loc.UninstallGroupFeatures(n),
-            3 => Loc.UninstallGroupProtected(n),
-            _ => Loc.UninstallGroupOk,
+            0 => Loc.UninstallGroupRecommend(n),
+            1 => Loc.UninstallGroupConsider(n),
+            _ => Loc.UninstallGroupKeep(n),
         };
     }
 
@@ -97,6 +96,11 @@ public partial class MainWindow : Window, IAnalystHost
     private List<AppUninstallItem> _apps = new();
     private bool _listingApps;
     private BulkUninstallTask? _uninstallTask;
+    private bool _aiAppsBusy;
+    private CancellationTokenSource? _aiAppsStop;
+    private string _uninstallAnalysisNote = "";
+    private BulkUninstallTask? _handledUninstallTask;
+    private int _appInventoryVersion;
     private List<JunkItem> _junk = new();
     private bool _showingJunk;
     private long _volumeTotal;
@@ -206,12 +210,15 @@ public partial class MainWindow : Window, IAnalystHost
         UninstallRefreshBtn.Content = Loc.Refresh;
         UninstallAllBtn.Content = Loc.SelectAll;
         UninstallRunBtn.Content = Loc.UninstallRun;
+        UninstallAiAnalyzeBtn.Content = Loc.AiAppsAnalyze;
+        UninstallAiSelectBtn.Content = Loc.AiAppsSelect;
+        ColAppRecommendation.Header = Loc.AppRecommendationHeader;
         UninstallSearchHint.Text = Loc.UninstallSearchHint;
         JunkSafeBtn.Content = Loc.JunkSafe;
         JunkDeleteBtn.Content = Loc.JunkDelete;
         ColAppName.Header = Loc.ColName;
         ColAppPub.Header = Loc.Publisher;
-        ColAppSize.Header = Loc.Size;
+        ColAppSize.Header = Loc.AppScannedSize;
         ColAppStatus.Header = Loc.Status;
         ColJunkApp.Header = Loc.ColName;
         ColJunkKind.Header = Loc.ColCategory;
@@ -323,7 +330,7 @@ public partial class MainWindow : Window, IAnalystHost
         try
         {
             string drive = DriveBox.SelectedItem.ToString()!;
-            FileEntry root;
+            FileEntry? root = null;
             try
             {
                 root = await Task.Run(() => _scanner.Scan(drive, progress, _cts.Token));
@@ -333,7 +340,7 @@ public partial class MainWindow : Window, IAnalystHost
                 HeaderStats.Text = Loc.MftFail;
                 root = await Task.Run(() => _fallback.Scan(drive, progress, _cts.Token));
             }
-            FinishScan(root);
+            if (root != null) FinishScan(root);
         }
         catch (OperationCanceledException)
         {
@@ -370,6 +377,14 @@ public partial class MainWindow : Window, IAnalystHost
         PopulateTree();
         ShowDirectory(root);
         UiLog("PopulateTree 完成");
+        if (_apps.Count > 0)
+        {
+            _ = RefreshAppUsageAfterScanAsync(_apps, _allFiles, root);
+        }
+        else if (!_listingApps)
+        {
+            _ = LoadApps();
+        }
         ElapsedText.Text = Loc.Elapsed((DateTime.Now - _scanStart).TotalSeconds);
         HeaderStats.Text = Loc.Files(root.FileCount);
         CleanHintText.Text = Loc.Analyzing;
@@ -410,6 +425,25 @@ public partial class MainWindow : Window, IAnalystHost
             : Loc.HintClean;
         UiLog($"分析完成: cleanable={report.Cleanable.Count} dup={report.Duplicates.Count}");
         RefreshAiLamp();
+    }
+
+    private async Task RefreshAppUsageAfterScanAsync(
+        List<AppUninstallItem> apps,
+        List<FileEntry> files,
+        FileEntry root)
+    {
+        try
+        {
+            var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(apps, files));
+            if (!ReferenceEquals(_root, root) || !ReferenceEquals(_apps, apps)) return;
+            AppRecommendationService.ApplyUsage(usage);
+            AppRecommendationService.ApplyLocalRules(apps, clearSelection: false);
+            if (!_showingJunk) BindAppList();
+        }
+        catch (Exception ex)
+        {
+            UiLog("刷新软件占用失败: " + ex.Message);
+        }
     }
 
     private void SetCleanProgress(double value, string text, bool determinate)
@@ -1933,10 +1967,13 @@ public partial class MainWindow : Window, IAnalystHost
 
     private async Task LoadApps()
     {
-        if (_listingApps) return;
+        if (_listingApps || _aiAppsBusy) return;
         _listingApps = true;
         UninstallRefreshBtn.IsEnabled = false;
         UninstallRunBtn.IsEnabled = false;
+        UninstallAllBtn.IsEnabled = false;
+        UninstallAiAnalyzeBtn.IsEnabled = false;
+        UninstallAiSelectBtn.IsEnabled = false;
         UninstallProgressPanel.Visibility = Visibility.Visible;
         UninstallProgressBar.IsIndeterminate = true;
         UninstallProgressBar.Value = 0;
@@ -1951,6 +1988,10 @@ public partial class MainWindow : Window, IAnalystHost
                 UninstallProgressText.Text = p.CurrentDirectory;
             });
             var list = await Task.Run(() => BcuUninstallService.ListApps(progress, CancellationToken.None));
+            var files = _allFiles;
+            var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(list, files));
+            AppRecommendationService.ApplyUsage(usage);
+            AppRecommendationService.ApplyLocalRules(list);
             foreach (var app in list)
             {
                 try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }
@@ -1958,7 +1999,9 @@ public partial class MainWindow : Window, IAnalystHost
                 app.IconBytes = null;
             }
             _apps = list;
+            _appInventoryVersion++;
             _junk.Clear();
+            _uninstallAnalysisNote = Loc.UninstallAiNotConfigured;
             ShowAppList();
         }
         catch (Exception ex)
@@ -1970,6 +2013,9 @@ public partial class MainWindow : Window, IAnalystHost
             _listingApps = false;
             UninstallRefreshBtn.IsEnabled = true;
             UninstallRunBtn.IsEnabled = true;
+            UninstallAllBtn.IsEnabled = true;
+            UninstallAiAnalyzeBtn.IsEnabled = true;
+            UninstallAiSelectBtn.IsEnabled = true;
             UninstallProgressPanel.Visibility = Visibility.Collapsed;
             UninstallProgressBar.IsIndeterminate = false;
         }
@@ -1985,6 +2031,97 @@ public partial class MainWindow : Window, IAnalystHost
         foreach (var a in vis)
             a.Selected = !allOn;
         UpdateUninstallSelHint();
+    }
+
+    private void UninstallAiSelect_Click(object sender, RoutedEventArgs e)
+    {
+        var visible = VisibleApps().Where(x => x.CanUninstall).ToList();
+        var suggested = visible.Where(x => x.Recommendation == AppRecommendationDecision.Recommend).ToList();
+        bool allOn = suggested.Count > 0 && suggested.All(x => x.Selected);
+        foreach (var app in visible)
+            app.Selected = !allOn && app.Recommendation == AppRecommendationDecision.Recommend;
+        UpdateUninstallSelHint();
+    }
+
+    private void UninstallAiAnalyze_Click(object sender, RoutedEventArgs e)
+    {
+        if (_listingApps || _uninstallTask is { Finished: false }) return;
+        if (!AiConfigured())
+        {
+            _uninstallAnalysisNote = Loc.UninstallAiNotConfigured;
+            ApplyUninstallFilter();
+            return;
+        }
+        AskConfirm(Loc.AiAppsAnalyze, Loc.AiAppsPrivacy, () => _ = AnalyzeAppsAsync());
+    }
+
+    private async Task AnalyzeAppsAsync()
+    {
+        if (_aiAppsBusy || _listingApps || _uninstallTask is { Finished: false } || _apps.Count == 0) return;
+        if (!AiConfigured())
+        {
+            _uninstallAnalysisNote = Loc.UninstallAiNotConfigured;
+            ApplyUninstallFilter();
+            return;
+        }
+
+        _aiAppsBusy = true;
+        _aiBusy = true;
+        var apps = _apps;
+        int inventoryVersion = _appInventoryVersion;
+        _aiAppsStop = new CancellationTokenSource();
+        RefreshAiLamp();
+        UninstallRefreshBtn.IsEnabled = false;
+        UninstallAllBtn.IsEnabled = false;
+        UninstallRunBtn.IsEnabled = false;
+        UninstallAiAnalyzeBtn.IsEnabled = false;
+        UninstallAiSelectBtn.IsEnabled = false;
+        UninstallProgressPanel.Visibility = Visibility.Visible;
+        UninstallProgressBar.IsIndeterminate = true;
+        UninstallProgressText.Text = Loc.AiAppsAnalyzing;
+        _uninstallAnalysisNote = Loc.AiAppsAnalyzing;
+        ApplyUninstallFilter();
+        try
+        {
+            var results = await AppRecommendationService.AnalyzeRemoteAsync(apps, _aiAppsStop.Token);
+            if (!ReferenceEquals(_apps, apps) || _appInventoryVersion != inventoryVersion)
+            {
+                _uninstallAnalysisNote = Loc.AiAppsStale;
+                ApplyUninstallFilter();
+                return;
+            }
+            AppRecommendationService.ApplyLocalRules(apps, clearSelection: false);
+            int count = AppRecommendationService.ApplyAiResults(apps, results);
+            SetAiLamp(true);
+            _uninstallAnalysisNote = count > 0 ? Loc.AiAppsDone(count) : Loc.AiAppsLocal;
+            BindAppList();
+        }
+        catch (OperationCanceledException)
+        {
+            _uninstallAnalysisNote = Loc.AiAppsLocal;
+            ApplyUninstallFilter();
+        }
+        catch (Exception ex)
+        {
+            SetAiLamp(false);
+            _uninstallAnalysisNote = Loc.AiAppsFailed(AiClient.Pretty(ex));
+            ApplyUninstallFilter();
+        }
+        finally
+        {
+            _aiAppsBusy = false;
+            _aiBusy = false;
+            _aiAppsStop?.Dispose();
+            _aiAppsStop = null;
+            RefreshAiLamp();
+            UninstallRefreshBtn.IsEnabled = true;
+            UninstallAllBtn.IsEnabled = true;
+            UninstallRunBtn.IsEnabled = true;
+            UninstallAiAnalyzeBtn.IsEnabled = true;
+            UninstallAiSelectBtn.IsEnabled = true;
+            UninstallProgressPanel.Visibility = Visibility.Collapsed;
+            UninstallProgressBar.IsIndeterminate = false;
+        }
     }
 
     private void UninstallGrid_Click(object sender, MouseButtonEventArgs e) => UpdateUninstallSelHint();
@@ -2041,10 +2178,11 @@ public partial class MainWindow : Window, IAnalystHost
             ShowAlert(Loc.TabUninstall, Loc.NothingSelected);
             return;
         }
-        int features = picked.Count(x => x.GroupKey == 2);
-        string msg = features > 0
-            ? Loc.UninstallConfirmFeatures(picked.Count, features)
-            : Loc.UninstallConfirm(picked.Count);
+        long bytes = picked.Sum(x => x.ActualSizeBytes > 0 ? x.ActualSizeBytes : x.SizeBytes);
+        bool warning = picked.Any(x => !string.IsNullOrWhiteSpace(x.RecommendationWarning)
+            || x.Recommendation != AppRecommendationDecision.Recommend);
+        var names = picked.Select(x => "- " + x.Name).Take(20);
+        string msg = Loc.UninstallConfirmDetails(names, picked.Count, FileEntry.FormatSize(bytes), warning);
         AskConfirm(Loc.TabUninstall, msg, () => RunUninstall(picked));
     }
 
@@ -2052,7 +2190,21 @@ public partial class MainWindow : Window, IAnalystHost
     {
         try
         {
+            picked = picked
+                .Where(x => x.Entry != null
+                    && x.CanUninstall
+                    && x.Entry.UninstallPossible
+                    && !x.Entry.IsProtected
+                    && !x.Entry.SystemComponent
+                    && x.Entry.UninstallerKind != UninstallerType.WindowsFeature)
+                .ToList();
+            if (picked.Count == 0)
+            {
+                ShowAlert(Loc.TabUninstall, Loc.NothingSelected);
+                return;
+            }
             _uninstallTask?.Dispose();
+            _handledUninstallTask = null;
             _uninstallTask = BcuUninstallService.StartUninstall(picked);
             UninstallProgressPanel.Visibility = Visibility.Visible;
             UninstallProgressBar.IsIndeterminate = true;
@@ -2070,6 +2222,7 @@ public partial class MainWindow : Window, IAnalystHost
     {
         var task = _uninstallTask;
         if (task == null) return;
+        if (task.Finished && ReferenceEquals(_handledUninstallTask, task)) return;
         var byEntry = task.AllUninstallersList.ToDictionary(x => x.UninstallerEntry);
         foreach (var app in _apps)
         {
@@ -2091,6 +2244,7 @@ public partial class MainWindow : Window, IAnalystHost
         UninstallProgressBar.Value = total == 0 ? 0 : done * 100.0 / total;
         UninstallProgressText.Text = Loc.UninstallRunning + $" {done}/{total}";
         if (!task.Finished) return;
+        _handledUninstallTask = task;
         UninstallRunBtn.IsEnabled = true;
         int ok = task.AllUninstallersList.Count(x => x.CurrentStatus == UninstallStatus.Completed);
         int fail = task.AllUninstallersList.Count(x => x.CurrentStatus == UninstallStatus.Failed);
@@ -2100,7 +2254,37 @@ public partial class MainWindow : Window, IAnalystHost
             .Select(x => x.UninstallerEntry)
             .ToList();
         if (finished.Count > 0) _ = ScanLeftovers(finished);
-        else UninstallProgressPanel.Visibility = Visibility.Collapsed;
+        else
+        {
+            UninstallProgressPanel.Visibility = Visibility.Collapsed;
+            _ = RefreshAppsOnlyAsync();
+        }
+    }
+
+    private async Task RefreshAppsOnlyAsync()
+    {
+        try
+        {
+            var list = await Task.Run(() => BcuUninstallService.ListApps(null, CancellationToken.None));
+            var files = _allFiles;
+            var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(list, files));
+            AppRecommendationService.ApplyUsage(usage);
+            AppRecommendationService.ApplyLocalRules(list);
+            foreach (var app in list)
+            {
+                try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }
+                catch { app.Icon = null; }
+                app.IconBytes = null;
+            }
+            _apps = list;
+            _appInventoryVersion++;
+            _uninstallAnalysisNote = Loc.UninstallAiNotConfigured;
+            if (!_showingJunk) ShowAppList();
+        }
+        catch (Exception ex)
+        {
+            UiLog("卸载后刷新软件列表失败: " + ex.Message);
+        }
     }
 
     private void ShowAppList()
@@ -2121,9 +2305,9 @@ public partial class MainWindow : Window, IAnalystHost
         {
             view.GroupDescriptions.Clear();
             view.SortDescriptions.Clear();
-            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(AppUninstallItem.GroupKey)));
-            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.GroupKey), ListSortDirection.Ascending));
-            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.SizeBytes), ListSortDirection.Descending));
+            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(AppUninstallItem.RecommendationGroupKey)));
+            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.RecommendationGroupKey), ListSortDirection.Ascending));
+            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.ActualSizeBytes), ListSortDirection.Descending));
             view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.Name), ListSortDirection.Ascending));
             view.Filter = FilterApp;
         }
@@ -2185,6 +2369,8 @@ public partial class MainWindow : Window, IAnalystHost
         if (_apps.Count == 0) UninstallSummary.Text = Loc.UninstallHint;
         else if (string.IsNullOrWhiteSpace(UninstallSearchBox.Text)) UninstallSummary.Text = Loc.UninstallCount(_apps.Count);
         else UninstallSummary.Text = Loc.UninstallFiltered(n, _apps.Count);
+        if (_apps.Count > 0 && !string.IsNullOrWhiteSpace(_uninstallAnalysisNote))
+            UninstallSummary.Text += "  ·  " + _uninstallAnalysisNote;
         UpdateUninstallSelHint();
     }
 
@@ -2217,6 +2403,7 @@ public partial class MainWindow : Window, IAnalystHost
         {
             UninstallProgressPanel.Visibility = Visibility.Collapsed;
             UninstallProgressBar.IsIndeterminate = false;
+            await RefreshAppsOnlyAsync();
         }
     }
 

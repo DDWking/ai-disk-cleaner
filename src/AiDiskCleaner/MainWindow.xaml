@@ -1030,9 +1030,11 @@
             </StackPanel>
             <TextBlock x:Name="UninstallSummary" DockPanel.Dock="Top" Margin="20,0,20,8"
                        Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"
-                       Text="点刷新列出已装软件。卸载走各软件自己的卸载程序。"/>
+                       Text="建议仅供分析。请自行核对并勾选，确认后才会调用软件自己的卸载程序。"/>
             <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
               <Button x:Name="UninstallRefreshBtn" Content="刷新" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallRefresh_Click"/>
+              <Button x:Name="UninstallAiAnalyzeBtn" Content="分析软件" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallAiAnalyze_Click"/>
+              <Button x:Name="UninstallAiSelectBtn" Content="勾选建议项" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallAiSelect_Click"/>
               <Button x:Name="UninstallAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="UninstallSelectAll_Click"/>
               <Button x:Name="JunkSafeBtn" Content="勾选安全残留" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="JunkSafe_Click" Visibility="Collapsed"/>
               <Grid Width="180" Margin="0,0,0,6">
@@ -1092,6 +1094,7 @@
                       <Setter Property="Padding" Value="10,0,0,0"/>
                       <Setter Property="HorizontalContentAlignment" Value="Left"/>
                       <Setter Property="VerticalContentAlignment" Value="Center"/>
+                      <Setter Property="IsEnabled" Value="{Binding CanUninstall}"/>
                     </Style>
                   </DataGridCheckBoxColumn.CellStyle>
                   <DataGridCheckBoxColumn.ElementStyle>
@@ -1099,6 +1102,7 @@
                       <Setter Property="HorizontalAlignment" Value="Left"/>
                       <Setter Property="VerticalAlignment" Value="Center"/>
                       <Setter Property="Margin" Value="0"/>
+                      <Setter Property="IsEnabled" Value="{Binding CanUninstall}"/>
                     </Style>
                   </DataGridCheckBoxColumn.ElementStyle>
                 </DataGridCheckBoxColumn>
@@ -1125,11 +1129,19 @@
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
                 <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="0" MinWidth="0" MaxWidth="0" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn x:Name="ColAppSize" Header="大小" Binding="{Binding SizeText}" SortMemberPath="SizeBytes" Width="72" MinWidth="72" MaxWidth="80" IsReadOnly="True">
+                <DataGridTextColumn x:Name="ColAppSize" Header="扫描占用" Binding="{Binding ActualSizeText}" SortMemberPath="ActualSizeBytes" Width="84" MinWidth="84" MaxWidth="92" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="HorizontalAlignment" Value="Right"/>
                       <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                    </Style>
+                  </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn x:Name="ColAppRecommendation" Header="建议" Binding="{Binding RecommendationText}" Width="240" MinWidth="180" IsReadOnly="True">
+                  <DataGridTextColumn.ElementStyle>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                      <Setter Property="ToolTip" Value="{Binding RecommendationText}"/>
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>

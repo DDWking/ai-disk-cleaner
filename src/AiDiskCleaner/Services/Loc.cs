@@ -108,6 +108,39 @@ public static class Loc
     public static string AiDelProvider => IsEn ? "Remove" : "删除";
     public static string AiProviderList => IsEn ? "Providers" : "提供方";
     public static string AiPickModel => IsEn ? "Model used for Analyze" : "分析用的模型";
+    public static string AiAppsAnalyzing => IsEn ? "AI is reviewing installed apps…" : "AI 正在分析已安装软件…";
+    public static string AiAppsDone(int n) => IsEn ? $"AI reviewed {n:N0} apps. Suggestions are for review only." : $"AI 已分析 {n:N0} 个软件。建议仅供核对，不会自动卸载。";
+    public static string AiAppsLocal => IsEn ? "Local rules are active. Configure AI for deeper suggestions." : "当前使用本地规则。配置 AI 后可获得更深入的建议。";
+    public static string AiAppsFailed(string error) => IsEn ? "AI unavailable: " + error + ". Local rules remain active." : "AI 暂不可用：" + error + "。已保留本地规则建议。";
+    public static string AiAppsStale => IsEn ? "The app list changed during analysis. Results were discarded." : "分析期间软件清单已更新，已丢弃本次结果。";
+    public static string AiAppsPrivacy => IsEn
+        ? "Remote AI receives app name, publisher, version, installed date, size and usage signals. Paths and API keys are not sent.\n\nContinue with remote analysis?"
+        : "远程 AI 只接收软件名称、发布者、版本、安装日期、大小和使用状态，不发送路径和密钥。\n\n是否继续发送给远程 AI 分析？";
+    public static string AiAppsAnalyze => IsEn ? "Analyze apps" : "分析软件";
+    public static string AiAppsSelect => IsEn ? "Select suggestions" : "勾选建议项";
+    public static string AppRecommendationHeader => IsEn ? "Recommendation" : "建议";
+    public static string AppScannedSize => IsEn ? "Scanned size" : "扫描占用";
+    public static string AppSizeEstimated => IsEn ? " est." : "（估算）";
+    public static string AiAppsSystem => IsEn
+        ? """
+          You analyze an installed-app inventory. Give advice only; never uninstall anything and never invent facts.
+          Return JSON only, with this shape: {"items":[{"appId":"...", "decision":"recommend|consider|keep", "confidence":0.0, "reason":"short reason", "dataWarning":"short warning"}]}.
+          Use only appId values from the input. Include at most one item per appId. Recommend only apps that are plausibly unwanted,
+          redundant, obsolete, or known bloatware. Keep Windows features, system components, protected items, security software,
+          drivers, runtimes, SDKs, virtualization tools, and apps with unclear ownership. runningState is running, not-running,
+          or unknown. Apps that are running or whose running state is unknown must not be recommended.
+          Do not infer personal preference. Keep reasons short and written in the user's language.
+          """
+        : """
+          你是安装软件清单分析员，只提供建议和解释，绝不卸载软件，也不要编造事实。
+          只能回复 JSON，格式必须是：{"items":[{"appId":"...", "decision":"recommend|consider|keep", "confidence":0.0, "reason":"简短原因", "dataWarning":"简短提醒"}]}。
+          只能使用输入里的 appId，每个 appId 最多输出一次。只有明显可能是不需要、重复、过时或常见捆绑软件时才建议卸载。
+          Windows 功能、系统组件、受保护项、安全软件、驱动、运行库、SDK、虚拟化工具以及归属不清的软件必须保留。
+          runningState 的值是 running、not-running 或 unknown。正在运行或运行状态无法确认的软件都不能建议卸载。
+          不要猜测用户偏好。原因简短，用用户的语言。
+          """;
+    public static string AiAppsPrompt(string json) =>
+        IsEn ? "Installed app inventory:\n" + json : "已安装软件清单：\n" + json;
     /// <summary>模型选择按钮上，还没选任何模型时的占位。</summary>
     public static string AiNoModel => IsEn ? "no model selected" : "未选模型";
     public static string AiNeedScanFirst => IsEn ? "Scan the disk first." : "先扫描磁盘。";
@@ -462,8 +495,8 @@ public static class Loc
     public static string UninstallRun => IsEn ? "Uninstall selected" : "卸载勾选项";
     public static string UninstallListing => IsEn ? "Listing installed apps…" : "正在列出已装软件…";
     public static string UninstallHint => IsEn
-        ? "Refresh to list installed apps. Uninstall uses each app's own uninstaller (BCU engine)."
-        : "点刷新列出已装软件。卸载走各软件自己的卸载程序（BCU 引擎）。";
+        ? "Suggestions are analysis only. Review and check apps yourself; uninstall runs each app's own uninstaller."
+        : "建议仅供分析。请自行核对并勾选，确认后才会调用软件自己的卸载程序。";
     public static string UninstallSearchHint => IsEn ? "Search apps…" : "搜索软件…";
     public static string UninstallFiltered(int shown, int total) =>
         IsEn ? $"{shown:N0} / {total:N0} apps" : $"{shown:N0} / {total:N0} 个软件";
@@ -471,6 +504,12 @@ public static class Loc
     public static string UninstallConfirm(int n) =>
         IsEn ? $"Run the official uninstaller for {n:N0} apps? Each may show its own window."
              : $"对 {n:N0} 个软件运行官方卸载程序？每个都可能弹出自己的窗口。";
+    public static string UninstallConfirmDetails(IEnumerable<string> names, int n, string size, bool warning) =>
+        IsEn
+            ? $"You are about to run official uninstallers for {n:N0} apps ({size}).\n\n{string.Join("\n", names)}"
+              + (warning ? "\n\nSome selected apps have warnings. Review them before confirming." : "")
+            : $"即将对 {n:N0} 个软件运行官方卸载程序，预计释放 {size}。\n\n{string.Join("\n", names)}"
+              + (warning ? "\n\n部分软件有提醒，请确认后再继续。" : "");
     public static string UninstallProtected => IsEn ? "Protected" : "受保护";
     public static string UninstallGroupOk => IsEn ? "Can uninstall" : "可卸载";
     public static string UninstallGroupSteam(int n) => IsEn ? $"Steam ({n:N0})" : $"Steam（{n:N0}）";
@@ -483,6 +522,29 @@ public static class Loc
         IsEn ? $"Run uninstallers for {n:N0} items, including {features:N0} Windows features? Features use DISM and may need a reboot."
              : $"对 {n:N0} 项运行卸载（含 {features:N0} 个 Windows 功能）？功能走 DISM，可能要重启。";
     public static string UninstallNoWay => IsEn ? "No uninstaller" : "无法卸载";
+    public static string UninstallGroupRecommend(int n) => IsEn ? $"Suggested to uninstall ({n:N0})" : $"建议卸载（{n:N0}）";
+    public static string UninstallGroupConsider(int n) => IsEn ? $"Consider ({n:N0})" : $"可以考虑（{n:N0}）";
+    public static string UninstallGroupKeep(int n) => IsEn ? $"Suggested to keep ({n:N0})" : $"建议保留（{n:N0}）";
+    public static string AppRecommendationLabel(AppRecommendationDecision decision) => decision switch
+    {
+        AppRecommendationDecision.Recommend => IsEn ? "Recommend uninstall" : "建议卸载",
+        AppRecommendationDecision.Keep => IsEn ? "Keep" : "建议保留",
+        _ => IsEn ? "Consider" : "可以考虑",
+    };
+    public static string AppKeepSystem => IsEn ? "System or protected component" : "系统或受保护组件";
+    public static string AppKeepNoUninstaller => IsEn ? "No usable uninstaller was found" : "没有可用的卸载程序";
+    public static string AppKeepCritical => IsEn ? "Runtime, driver, security, or virtualization component" : "运行库、驱动、安全或虚拟化组件";
+    public static string AppConsiderRunning => IsEn ? "Currently running" : "当前正在运行";
+    public static string AppRunningWarning => IsEn ? "Close it before uninstalling" : "卸载前请先退出软件";
+    public static string AppConsiderRunningUnknown => IsEn ? "Running state could not be verified" : "无法确认是否正在运行";
+    public static string AppRunningUnknownWarning => IsEn ? "Verify it is closed before uninstalling" : "卸载前请确认软件已退出";
+    public static string AppRecommendBloat => IsEn ? "Known bundled or unwanted software pattern" : "符合常见捆绑或不需要软件特征";
+    public static string AppConsiderLarge => IsEn ? "Large install footprint; confirm that you no longer need it" : "占用空间较大，请确认是否还需要";
+    public static string AppConsiderStartup => IsEn ? "Starts with Windows; review whether it is needed" : "会随系统启动，请确认是否还需要";
+    public static string AppConsiderUnknown => IsEn ? "No strong uninstall signal; review manually" : "没有足够依据自动判断，请自行核对";
+    public static string UninstallAiNotConfigured => IsEn
+        ? "Local rules are being used. AI is optional and never controls uninstall."
+        : "当前使用本地规则。AI 可选，且永远不会直接控制卸载。";
     public static string UninstallRunning => IsEn ? "Uninstalling…" : "正在卸载…";
     public static string UninstallDone => IsEn ? "Done" : "完成";
     public static string UninstallFailed => IsEn ? "Failed" : "失败";

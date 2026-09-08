@@ -67,13 +67,18 @@ public static class BcuUninstallService
             : e.UninstallPossible ? "" : Loc.UninstallNoWay;
         return new AppUninstallItem
         {
+            AppId = Guid.NewGuid().ToString("N"),
             Name = e.DisplayName,
             Publisher = pub,
             Version = e.DisplayVersion ?? "",
             SizeBytes = bytes,
+            ActualSizeBytes = bytes,
+            InstallDate = e.InstallDate,
             InstallLocation = e.InstallLocation ?? "",
-            CanUninstall = e.UninstallPossible && !e.IsProtected,
+            CanUninstall = e.UninstallPossible && !e.IsProtected && !e.SystemComponent && !feature,
             IsProtected = e.IsProtected,
+            SystemComponent = e.SystemComponent,
+            HasStartup = e.HasStartups,
             GroupKey = group,
             IconBytes = TryIconBytes(e),
             Entry = e,
@@ -128,7 +133,12 @@ public static class BcuUninstallService
     public static BulkUninstallTask StartUninstall(IEnumerable<AppUninstallItem> items)
     {
         var targets = items
-            .Where(x => x.CanUninstall && x.Entry != null)
+            .Where(x => x.CanUninstall
+                && x.Entry != null
+                && x.Entry.UninstallPossible
+                && !x.Entry.IsProtected
+                && !x.Entry.SystemComponent
+                && x.Entry.UninstallerKind != UninstallerType.WindowsFeature)
             .Select(x => new BulkUninstallEntry(x.Entry!, false, UninstallStatus.Waiting))
             .ToList();
         if (targets.Count == 0)
