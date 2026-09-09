@@ -2319,10 +2319,41 @@ public partial class MainWindow : Window, IAnalystHost
             _appInventoryVersion++;
             _uninstallAnalysisNote = Loc.UninstallAiNotConfigured;
             if (!_showingJunk) ShowAppList();
+            // 卸载后：立即刷新顶部可用空间，再后台重扫整盘，让目录树和清理面板跟着变。
+            UpdateVolumeInfo();
+            _ = ReScanAfterUninstallAsync();
         }
         catch (Exception ex)
         {
             UiLog("卸载后刷新软件列表失败: " + ex.Message);
+        }
+    }
+
+    private async Task ReScanAfterUninstallAsync()
+    {
+        if (_scanning || _root == null) return;
+        string drive = _root.FullPath;
+        if (string.IsNullOrWhiteSpace(drive)) return;
+        _scanning = true;
+        _scanStart = DateTime.Now;
+        ScanButton.IsEnabled = false;
+        UiLog("卸载后重扫磁盘: " + drive);
+        try
+        {
+            FileEntry? root = null;
+            try { root = await Task.Run(() => _scanner.Scan(drive, null, CancellationToken.None)); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            { root = await Task.Run(() => _fallback.Scan(drive, null, CancellationToken.None)); }
+            if (root != null) FinishScan(root);
+        }
+        catch (Exception ex)
+        {
+            UiLog("卸载后重扫失败: " + ex.Message);
+        }
+        finally
+        {
+            _scanning = false;
+            ScanButton.IsEnabled = true;
         }
     }
 
