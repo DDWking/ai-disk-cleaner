@@ -55,8 +55,11 @@
 ```
 
 ### 2026-09-04  DDWking
+- 撤回「说明列默认收起」——把理由藏起来只会让人更没底。说明列恢复常驻，文案改「诚实版」：签名命中写依据（`开发缓存 · 删了会自动重建`），启发式命中直接写 `大文件 · 看不出用途` / `已 N 天未改 · 看不出用途`（新增 `Loc.ReasonUnknown`）。分组名暂不动。
+- AI 按钮文案改成「让 AI 看看这些是什么」（`Loc.AiExplainBtn`），明确它是可选第二意见、只解释那批"看不出用途"的项。
+
+### 2026-09-04  DDWking
 - **右列铺不满的真正原因**（上次诊断错了）：`RightPanel` 里三个 pane 的外层是 `DockPanel`，`CleanPane` 没写 `DockPanel.Dock`，作为非最后一个子元素默认按 `Dock=Left` 停靠，宽度取内容宽度；`UninstallPane` 才是 `LastChildFill` 的那个。右列固定 440 时被夹住看不出来，左树收起、右列变宽才露馅。改成 `Grid`（tabs 一行 Auto，三个 pane 同处 `Grid.Row="1"`，谁可见谁占满）。
-- 「说明」列默认收起，先只给「类型 / 名称 / 大小」；`ExplainItems` 里 AI 真写出说明（`applied > 0`）才展开。规则原因没丢——鼠标停在「类型」列有 tooltip。
 
 ### 2026-09-04  DDWking
 - 修右列铺不满：`UpdateRightColLimit` 在构造函数里跑时窗口还没尺寸，算出 `MaxWidth=320`，而右列是 `Star` 宽——Star 列被 MaxWidth 卡住，右边就空一块。改成左树收起时 `MaxWidth=Infinity`，并在 `Window_Loaded` 用真实尺寸重算一次。

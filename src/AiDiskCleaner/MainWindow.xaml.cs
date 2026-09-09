@@ -319,7 +319,7 @@ public partial class MainWindow : Window, IAnalystHost
         AiUrlBox.Tag = Loc.AiUrlHint;
         AiModelBox.Tag = Loc.AiModelHintBox;
         AiModelHint.Text = Loc.AiModelsEmpty;
-        AiAnalyzeCatBtn.Content = Loc.AiAnalyze;
+        AiAnalyzeCatBtn.Content = Loc.AiExplainBtn;
         AiAddProvBtn.Content = Loc.AiAddCustom;
         if (AiPickModelLabel != null) AiPickModelLabel.Text = Loc.AiPickModel;
         FillAiProtoBox();
@@ -1703,8 +1703,6 @@ public partial class MainWindow : Window, IAnalystHost
             int applied = AiNoteParser.Apply(batch, text);
             SetAiLamp(true);
             SetAiStatus(applied > 0 ? Loc.AiCatDone(applied) : Loc.AiNoItems);
-            // 说明列默认收着，AI 真写出东西了才让它出现。
-            if (applied > 0) ColCleanWhy.Visibility = Visibility.Visible;
         }
         catch (Exception ex)
         {

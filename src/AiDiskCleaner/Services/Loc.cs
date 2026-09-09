@@ -249,6 +249,7 @@ public static class Loc
     /// AI 只做一件事：告诉用户「这是什么」。风险档位由规则（AppSignatures / CleanAnalyzer）判定，
     /// 可审计、可复现，不让模型来回改，也省得它一本正经地把系统文件标成可删。
     /// </summary>
+    public static string AiExplainBtn => IsEn ? "Ask AI what these are" : "让 AI 看看这些是什么";
     public static string AiCatSystem => IsEn
         ? """
           You are a file explainer inside a disk cleaner. For each listed item, say in one short line what it actually is
@@ -672,11 +673,13 @@ public static class Loc
     public static string GroupLong => IsEn ? "Long path" : "超长路径";
     public static string GroupCompare => IsEn ? "Delta" : "变化";
 
-    public static string ReasonTempDir => IsEn ? "In a temp/cache folder" : "在临时/缓存目录里";
-    public static string ReasonTempExt => IsEn ? "Temp / log leftover" : "临时或日志残留";
+    /// <summary>「看不出用途」是刻意写的：启发式只认得出体积/位置，认不出这是什么。</summary>
+    public static string ReasonUnknown => IsEn ? "can't tell what it is" : "看不出用途";
+    public static string ReasonTempDir => IsEn ? $"In a temp folder · {ReasonUnknown}" : $"在临时目录里 · {ReasonUnknown}";
+    public static string ReasonTempExt => IsEn ? $"Temp / log leftover · {ReasonUnknown}" : $"临时或日志残留 · {ReasonUnknown}";
     public static string ReasonDump => IsEn ? "Crash dump" : "崩溃转储";
-    public static string ReasonWinUpdate => IsEn ? "Windows update leftover" : "Windows 更新残留";
-    public static string ReasonInstaller => IsEn ? "Installer in Downloads, likely safe" : "下载里的安装包，可考虑删";
+    public static string ReasonWinUpdate => IsEn ? "Windows update download cache" : "Windows 更新下载缓存";
+    public static string ReasonInstaller => IsEn ? "Installer sitting in Downloads" : "下载目录里的安装包";
     public static string ReasonOldInstaller => IsEn ? "Old disk image / installer, unused for months" : "很久没动的镜像/安装包";
     public static string ReasonVmDisk => IsEn ? "VM / WSL / emulator disk image" : "虚拟机 / WSL / 模拟器磁盘";
     public static string AskAiFolder => IsEn ? "Ask AI what this is" : "问 AI 这是什么";
@@ -684,8 +687,8 @@ public static class Loc
     public static string ReasonRecycleNamed(string name) => IsEn
         ? $"In Recycle Bin as “{name}”"
         : $"已在回收站（原名 {name}）";
-    public static string ReasonLarge => IsEn ? "Among the largest files" : "占用最大的文件之一";
-    public static string ReasonOld(string age) => IsEn ? $"Not modified for {age}" : $"已 {age} 未改";
+    public static string ReasonLarge => IsEn ? $"Large file · {ReasonUnknown}" : $"大文件 · {ReasonUnknown}";
+    public static string ReasonOld(string age) => IsEn ? $"Untouched for {age} · {ReasonUnknown}" : $"已 {age} 未改 · {ReasonUnknown}";
     public static string ReasonEmpty => IsEn ? "Folder has no files" : "空文件夹";
     public static string ReasonBroken(string target) =>
         IsEn ? "Target missing: " + target : "目标不存在：" + target;

@@ -22,15 +22,15 @@ public static class AppSignatures
 
     public static readonly AppSig[] All =
     {
-        new("npm", "dev", SigRisk.Safe, N(@"\npm-cache", @"\appdata\roaming\npm"), Note: "开发缓存，可清", Migrate: "npm_config_cache"),
-        new("pip", "dev", SigRisk.Safe, N(@"\pip\cache", @"\appdata\local\pip"), Note: "开发缓存，可清", Migrate: "PIP_CACHE_DIR"),
-        new("Yarn", "dev", SigRisk.Safe, N(@"\yarn\cache"), Note: "开发缓存，可清"),
-        new("pnpm", "dev", SigRisk.Safe, N(@"\pnpm\store", @"\pnpm\content-v2"), Note: "开发缓存，可清"),
-        new("NuGet", "dev", SigRisk.Cautious, N(@"\.nuget\packages", @"\nuget\v3-cache"), Note: "清了下次会重新下"),
-        new("Cargo", "dev", SigRisk.Safe, N(@"\.cargo\registry", @"\.cargo\git"), Note: "开发缓存，可清"),
+        new("npm", "dev", SigRisk.Safe, N(@"\npm-cache", @"\appdata\roaming\npm"), Note: "开发缓存 · 删了会自动重建", Migrate: "npm_config_cache"),
+        new("pip", "dev", SigRisk.Safe, N(@"\pip\cache", @"\appdata\local\pip"), Note: "开发缓存 · 删了会自动重建", Migrate: "PIP_CACHE_DIR"),
+        new("Yarn", "dev", SigRisk.Safe, N(@"\yarn\cache"), Note: "开发缓存 · 删了会自动重建"),
+        new("pnpm", "dev", SigRisk.Safe, N(@"\pnpm\store", @"\pnpm\content-v2"), Note: "开发缓存 · 删了会自动重建"),
+        new("NuGet", "dev", SigRisk.Cautious, N(@"\.nuget\packages", @"\nuget\v3-cache"), Note: "删了下次会重新下"),
+        new("Cargo", "dev", SigRisk.Safe, N(@"\.cargo\registry", @"\.cargo\git"), Note: "开发缓存 · 删了会自动重建"),
         new("Maven", "dev", SigRisk.Cautious, N(@"\.m2\repository"), Note: "清了构建会重新下"),
-        new("Gradle", "dev", SigRisk.Safe, N(@"\.gradle\caches"), Note: "开发缓存，可清"),
-        new("Go modules", "dev", SigRisk.Safe, N(@"\go\pkg\mod"), Note: "开发缓存，可清"),
+        new("Gradle", "dev", SigRisk.Safe, N(@"\.gradle\caches"), Note: "开发缓存 · 删了会自动重建"),
+        new("Go modules", "dev", SigRisk.Safe, N(@"\go\pkg\mod"), Note: "开发缓存 · 删了会自动重建"),
         new("conda", "dev", SigRisk.Safe, N(@"\miniconda3\pkgs", @"\anaconda3\pkgs", @"\conda\pkgs")),
         new("node_modules", "dev", SigRisk.Cautious, N(@"\node_modules"), Note: "依赖目录，确认项目不用再删"),
         new("Python venv", "dev", SigRisk.Cautious, N(@"\.venv", @"\venv\")),

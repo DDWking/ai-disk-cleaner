@@ -969,9 +969,9 @@
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
-                <!-- 默认收起：先只给「类型 / 名称 / 大小」，说明等 AI 分析出来再展开。
-                     规则原因没丢，鼠标停「类型」列就能看到。 -->
-                <DataGridTextColumn x:Name="ColCleanWhy" Header="说明" Binding="{Binding NoteText}" Width="2*" MinWidth="80" IsReadOnly="True" Visibility="Collapsed">
+                <!-- 说明列常驻：理由就是可信度来源，藏起来只会让人更没底。
+                     AI 有产出时覆盖规则原因，没有就显示规则原因。 -->
+                <DataGridTextColumn x:Name="ColCleanWhy" Header="说明" Binding="{Binding NoteText}" Width="2*" MinWidth="80" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
