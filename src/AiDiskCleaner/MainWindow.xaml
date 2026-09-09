@@ -759,15 +759,13 @@
                  Tag="{DynamicResource SearchHintText}"
                  WindowChrome.IsHitTestVisibleInChrome="True"
                  TextChanged="SearchBox_TextChanged"/>
-        <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+        <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
           <TextBlock x:Name="VolumeText" Foreground="{DynamicResource TextDim}" Margin="0,0,16,0" Text=""/>
           <TextBlock x:Name="HeaderStats" Foreground="{DynamicResource Accent}" Text="就绪"/>
         </StackPanel>
         <StackPanel Grid.Column="7" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button x:Name="SettingsButton" Content="设置" Style="{StaticResource GhostButton}" Margin="0,0,6,0"
+          <Button x:Name="SettingsButton" Content="设置" Style="{StaticResource GhostButton}" Margin="0,0,10,0"
                   Padding="10,6" Click="SettingsButton_Click" WindowChrome.IsHitTestVisibleInChrome="True"/>
-          <Button x:Name="AboutButton" Content="关于" Style="{StaticResource GhostButton}" Margin="0,0,10,0"
-                  Padding="10,6" Click="AboutButton_Click" WindowChrome.IsHitTestVisibleInChrome="True"/>
           <Button Content="—" Style="{StaticResource CaptionButton}" Click="MinButton_Click"/>
           <Button x:Name="MaxButton" Content="□" Style="{StaticResource CaptionButton}" Click="MaxButton_Click"/>
           <Button Content="×" Style="{StaticResource CaptionCloseButton}" Click="CloseButton_Click"/>
@@ -820,17 +818,11 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="140"/>
                 <ColumnDefinition Width="80"/>
-                <ColumnDefinition Width="80"/>
-                <ColumnDefinition Width="80"/>
-                <ColumnDefinition Width="72"/>
                 <ColumnDefinition Width="{x:Static SystemParameters.VerticalScrollBarWidth}"/>
               </Grid.ColumnDefinitions>
               <TextBlock x:Name="NameHeader" Grid.Column="1" Text="路径" Foreground="{DynamicResource TextMuted}" FontSize="11" Cursor="Hand" MouseLeftButtonDown="SortName_Click"/>
               <TextBlock x:Name="PctHeader" Grid.Column="2" Text="占比" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
               <TextBlock x:Name="SizeHeader" Grid.Column="3" Text="大小" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortSize_Click"/>
-              <TextBlock x:Name="AllocHeader" Grid.Column="4" Text="分配" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortAlloc_Click"/>
-              <TextBlock x:Name="FilesHeader" Grid.Column="5" Text="文件" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortFiles_Click"/>
-              <TextBlock x:Name="FoldersHeader" Grid.Column="6" Text="文件夹" Foreground="{DynamicResource TextMuted}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,4,0" Cursor="Hand" MouseLeftButtonDown="SortFolders_Click"/>
             </Grid>
             <TreeView x:Name="DirTree" Padding="16,0,0,16"
                       Background="Transparent"
@@ -876,9 +868,9 @@
                          Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
             </DockPanel>
             <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
+              <Button x:Name="RecycleSelBtn" Content="确认删除" Style="{StaticResource PrimaryButton}" Margin="0,0,8,6" Click="RecycleSelected_Click"/>
               <Button x:Name="SuggestLinkBtn" Content="按 AI 建议勾选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="ReviewSuggestions_Click"/>
               <Button x:Name="AiAnalyzeCatBtn" Content="分析" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="AiAnalyzeCat_Click"/>
-              <Button x:Name="RecycleSelBtn" Content="确认删除" Style="{StaticResource PrimaryButton}" Margin="0,0,8,6" Click="RecycleSelected_Click"/>
               <Button x:Name="AiStopBtn" Content="停止" Style="{StaticResource GhostButton}" Margin="0,0,8,6"
                       Visibility="Collapsed" Click="AiStop_Click"/>
               <TextBlock x:Name="AiStatusText" VerticalAlignment="Center" Margin="0,0,8,6"
@@ -1264,6 +1256,9 @@
                 <TextBlock Grid.Column="1" Text="▾" Margin="8,0,0,0" Opacity="0.6"/>
               </Grid>
             </Button>
+            <Button x:Name="AboutLinkBtn" Style="{StaticResource GhostButton}" Margin="0,16,0,0"
+                    HorizontalAlignment="Left" Padding="12,6" Click="AboutButton_Click"
+                    Content="关于大扫货"/>
             <Popup x:Name="AiModelPopup" PlacementTarget="{Binding ElementName=AiModelBtn}"
                    Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
                    PopupAnimation="Fade">

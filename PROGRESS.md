@@ -55,6 +55,10 @@
 ```
 
 ### 2026-09-04  DDWking
+- 继续减法：顶栏「关于」移进设置对话框（`AboutLinkBtn`，在 `SettingsBody` 滚动区里）；目录树 6 列砍到 3 列（去掉 分配 / 文件 / 文件夹，表头保留 16px 缩进列，行网格起点在树 padding 内，对齐不变）；清理面板「确认删除」挪到按钮行最前。
+- 顺手清死代码：`SortAlloc_Click` / `SortFiles_Click` / `SortFolders_Click` 和 `SortKey` 里已无列的 Allocated/Files/Folders/Modified 一起删掉；`Loc.Allocated` / `Loc.FoldersCol` 删（`Loc.FilesCol` 还被 AI 提示词用着，保留）。
+
+### 2026-09-04  DDWking
 - 按钮层级重排（一屏只留一个实心按钮）：顶栏去掉「看 AI 建议」、扫描降级为幽灵按钮、停止只在扫描时出现；「看 AI 建议」降级成清理面板里的一行「按 AI 建议勾选」；清理面板去掉「全选 / 勾选可安全删除」，全选改表头复选框，主按钮变成动态的「确认删除 N 项」（无勾选时禁用）。
 - 左树默认收起：顶栏「文件夹」按钮切换，收起时右列铺满、分隔条隐藏（`ApplyTreeVisibility` / `_treeVisible`），`UpdateRightColLimit` 跟着算可用宽度。
 - 表头复选框没用 `x:Name`——DataGrid 列里的命名元素在 WPF 里可能取不到字段，改成从 `Click` 的 sender 拿，并在 `ApplyUi` 里从 `ColPick.Header` 回填 `_pickAllBox`。

@@ -16,6 +16,7 @@ public static class Loc
     public static string Stop => IsEn ? "Stop" : "停止";
     public static string Settings => IsEn ? "Settings" : "设置";
     public static string About => IsEn ? "About" : "关于";
+    public static string AboutDashaoHuo => IsEn ? "About Dashao Huo" : "关于大扫货";
     public static string Ready => IsEn ? "Ready" : "就绪";
     public static string Scanning => IsEn ? "Scanning" : "扫描中";
     public static string Preparing => IsEn ? "Preparing…" : "准备中…";
@@ -358,10 +359,8 @@ public static class Loc
     public static string Repo => "https://github.com/DDWking/ai-disk-cleaner";
     public static string NoExt => IsEn ? "(no extension)" : "(无扩展名)";
     public static string Folder => IsEn ? "Folder" : "文件夹";
-    public static string Allocated => IsEn ? "Allocated" : "分配";
     public static string Items => IsEn ? "Items" : "项目";
     public static string FilesCol => IsEn ? "Files" : "文件";
-    public static string FoldersCol => IsEn ? "Folders" : "文件夹";
     public static string OpenInExplorer => IsEn ? "Open in Explorer" : "在资源管理器中打开";
     public static string CopyPath => IsEn ? "Copy path" : "复制路径";
     public static string CopyName => IsEn ? "Copy name" : "复制名称";

@@ -122,7 +122,7 @@ public partial class MainWindow : Window, IAnalystHost
     private static readonly AiProtocol[] AiProtos =
         { AiProtocol.Completions, AiProtocol.Responses, AiProtocol.Anthropic };
 
-    private enum SortKey { Size, Name, Allocated, Files, Folders, Modified }
+    private enum SortKey { Size, Name }
 
     private static readonly object Placeholder = new();
 
@@ -206,15 +206,12 @@ public partial class MainWindow : Window, IAnalystHost
         ScanButton.Content = Loc.Scan;
         StopButton.Content = Loc.Stop;
         SettingsButton.Content = Loc.Settings;
-        AboutButton.Content = Loc.About;
+        if (AboutLinkBtn != null) AboutLinkBtn.Content = Loc.AboutDashaoHuo;
         if (HeaderStats.Text is "就绪" or "Ready") HeaderStats.Text = Loc.Ready;
         PathCrumb.Text = _current == null || string.IsNullOrEmpty(_current.FullPath) ? "" : _current.FullPath;
         NameHeader.Text = Loc.Path;
         PctHeader.Text = Loc.Pct;
         SizeHeader.Text = Loc.Size;
-        AllocHeader.Text = Loc.Allocated;
-        FilesHeader.Text = Loc.FilesCol;
-        FoldersHeader.Text = Loc.FoldersCol;
         CtxOpen.Header = Loc.OpenInExplorer;
         if (CleanOpenItem != null) CleanOpenItem.Header = Loc.OpenInExplorer;
         CtxCopyPath.Header = Loc.CopyPath;
@@ -559,9 +556,6 @@ public partial class MainWindow : Window, IAnalystHost
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
         var name = new TextBlock
         {
             Text = d.Name,
@@ -577,21 +571,12 @@ public partial class MainWindow : Window, IAnalystHost
             : d.PercentShare;
         var pctCell = MakePctBar(share, pct, d.IsDimmed);
         var size = ColText(FileEntry.FormatSize(d.Size), d.IsDimmed ? "TextMuted" : "AccentDim");
-        var alloc = ColText(FileEntry.FormatSize(d.Allocated), "TextMuted");
-        var files = ColText(d.IsDirectory || d.IsFilesGroup ? d.FileCount.ToString("N0") : "", "TextMuted");
-        var folders = ColText(d.IsDirectory ? d.FolderCount.ToString("N0") : "", "TextMuted");
         Grid.SetColumn(name, 0);
         Grid.SetColumn(pctCell, 1);
         Grid.SetColumn(size, 2);
-        Grid.SetColumn(alloc, 3);
-        Grid.SetColumn(files, 4);
-        Grid.SetColumn(folders, 5);
         grid.Children.Add(name);
         grid.Children.Add(pctCell);
         grid.Children.Add(size);
-        grid.Children.Add(alloc);
-        grid.Children.Add(files);
-        grid.Children.Add(folders);
         return grid;
     }
 
@@ -643,10 +628,6 @@ public partial class MainWindow : Window, IAnalystHost
         return _sort switch
         {
             SortKey.Name => kids.OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase),
-            SortKey.Allocated => kids.OrderByDescending(c => c.Allocated),
-            SortKey.Files => kids.OrderByDescending(c => c.FileCount),
-            SortKey.Folders => kids.OrderByDescending(c => c.FolderCount),
-            SortKey.Modified => kids.OrderByDescending(c => c.Modified),
             _ => kids.OrderByDescending(c => c.Size),
         };
     }
@@ -1136,9 +1117,6 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void SortName_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Name);
     private void SortSize_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Size);
-    private void SortAlloc_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Allocated);
-    private void SortFiles_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Files);
-    private void SortFolders_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Folders);
 
     private void SetSort(SortKey key)
     {
