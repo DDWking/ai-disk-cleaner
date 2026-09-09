@@ -863,9 +863,8 @@
               <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
             </StackPanel>
             <DockPanel DockPanel.Dock="Top" Margin="16,8,16,6" LastChildFill="True">
-              <ComboBox x:Name="CatList" DockPanel.Dock="Left" MinWidth="220" Width="280" Margin="0,0,12,0"
-                        DisplayMemberPath="MenuText" MaxDropDownHeight="420"
-                        SelectionChanged="CatList_Changed"/>
+              <Button x:Name="FilterBtn" DockPanel.Dock="Left" Content="筛选" Style="{StaticResource GhostButton}"
+                      Padding="10,6" Margin="0,0,12,0" Click="FilterBtn_Click"/>
               <TextBlock x:Name="CleanSummary" VerticalAlignment="Center"
                          Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
             </DockPanel>
@@ -927,7 +926,7 @@
                               ToolTip="全选 / 取消全选" Click="PickAll_Click"/>
                   </DataGridCheckBoxColumn.Header>
                 </DataGridCheckBoxColumn>
-                <DataGridTextColumn x:Name="ColCleanRisk" Header="风险" Binding="{Binding RiskText}" SortMemberPath="Risk" Width="88" IsReadOnly="True">
+                <DataGridTextColumn x:Name="ColCleanType" Header="类型" Binding="{Binding Group}" SortMemberPath="Group" Width="88" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="HorizontalAlignment" Value="Center"/>

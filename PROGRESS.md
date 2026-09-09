@@ -55,6 +55,12 @@
 ```
 
 ### 2026-09-04  DDWking
+- 修右列铺不满：`UpdateRightColLimit` 在构造函数里跑时窗口还没尺寸，算出 `MaxWidth=320`，而右列是 `Star` 宽——Star 列被 MaxWidth 卡住，右边就空一块。改成左树收起时 `MaxWidth=Infinity`，并在 `Window_Loaded` 用真实尺寸重算一次。
+- 风险列改成「类型」列（绑定 `Group`，不再下安全结论）：行只说「这是什么」（开发缓存 / 大文件 / 老文件…），安全与否由分组标题承担。起因：截图里 `weights.bin` 4 GB 被标成「可安全删除」但理由是「占用最大的文件之一」——`CleanAnalyzer.Item()` 让路径签名覆盖了风险档位，标签和理由自相矛盾。
+- 分类下拉从主视图移走，降级成「筛选」按钮 + 动态 `ContextMenu`（`FilterBtn_Click` / `SelectCategory`），`CatList` 和 `_catLock` 一起删掉。分类不再和风险分组叠成两层。
+- 清死代码：`CleanItem.RiskText`、`Loc.RiskSafe/RiskConfirm/RiskKeep`、`Loc.FilterHere`、`Loc.ColRisk`。
+
+### 2026-09-04  DDWking
 - 清理列表按风险分两组：`CleanItem.RiskGroupKey`（安全=0 / 需确认=1），`ShowCleanCat` 把 `CleanGrid.ItemsSource` 换成带 `GroupDescriptions` 的视图，配 `CleanGroupConverter`（组标题带条数+大小）和 `CleanGroupExpandedConverter`（安全组展开、需确认组折叠）。复用卸载页那套 `GroupStyle`+`Expander`。
 - 顶部摘要去重：「建议清理 554 项 · 需要你判断 225 项」→「共 779 项 · 254 GB」（分类计数挪到组标题里），`Loc.RiskSummary` 删掉。
 - 注意：`Jury.cs` 里那条「本主题下 GroupStyle 只渲染标题、行不显示」的坑只针对 ComboBox + GroupStyle，DataGrid 的 GroupStyle 正常。

@@ -146,7 +146,7 @@ public partial class MainWindow : Window, IAnalystHost
     // 按用途分好的分类（名称 + 条目 + 占比），分类列表和「分析当前分类」都用它
     private List<CatRow> _cats = new();
     private int _catIndex;
-    private bool _catLock;
+
     FileEntry? IAnalystHost.Root => _root;
     CleanReport? IAnalystHost.Report => _report;
     void IAnalystHost.OnChecksChanged(bool showLarge) { }
@@ -190,14 +190,19 @@ public partial class MainWindow : Window, IAnalystHost
         PickDrive("C:\\");
     }
 
-    /// <summary>右列最大宽度 = 窗口宽 - 左列最小宽 - 分隔条 - 余量，防止右列被挤出消失。</summary>
+    /// <summary>
+    /// 右列最大宽度：左树展开时 = 窗口宽 - 左列最小宽 - 分隔条 - 余量，防止右列被挤出消失；
+    /// 左树收起时直接去掉上限，让 Star 列铺满（否则会被构造函数里算出的 320 卡住）。
+    /// </summary>
     void UpdateRightColLimit()
     {
         if (RightCol == null) return;
-        double max = _treeVisible
-            ? ActualWidth - 420 - 12 - 40   // 左列 MinWidth + splitter + 余量
-            : ActualWidth - 40;             // 左树收起时右列铺满
-        RightCol.MaxWidth = Math.Max(320, max);
+        if (!_treeVisible)
+        {
+            RightCol.MaxWidth = double.PositiveInfinity;
+            return;
+        }
+        RightCol.MaxWidth = Math.Max(320, ActualWidth - 420 - 12 - 40);
     }
 
     void ApplyTreeVisibility()
@@ -220,6 +225,8 @@ public partial class MainWindow : Window, IAnalystHost
 
     void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        // 构造函数里窗口还没有真实尺寸，这里用最终尺寸重算一次右列宽度。
+        ApplyTreeVisibility();
         if (!_scanning && _root == null)
             RunScan();
     }
@@ -287,7 +294,8 @@ public partial class MainWindow : Window, IAnalystHost
             pickAll.ToolTip = Loc.SelectAllTip;
             _pickAllBox = pickAll;
         }
-        ColCleanRisk.Header = Loc.ColRisk;
+        ColCleanType.Header = Loc.ColType;
+        FilterBtn.Content = Loc.FilterLabel;
         ColCleanName.Header = Loc.ColName;
         ColCleanSize.Header = Loc.Size;
         ColCleanWhy.Header = Loc.ColReason;
@@ -1794,19 +1802,11 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void RefreshCleanUi()
     {
-        if (CatList == null) return;
+        if (FilterBtn == null) return;
         int keep = _catIndex;
         BuildCategories();
         _catIndex = keep >= 0 && keep < _cats.Count ? keep : 0;
         MarkCurrentCat();
-        _catLock = true;
-        try
-        {
-            CatList.ItemsSource = null;
-            CatList.ItemsSource = _cats;
-            CatList.SelectedIndex = _cats.Count == 0 ? -1 : _catIndex;
-        }
-        finally { _catLock = false; }
         if (_report == null)
             CleanSummary.Text = Loc.AnalyzeAfterScan;
         else
@@ -1864,12 +1864,33 @@ public partial class MainWindow : Window, IAnalystHost
             _cats[i].IsCurrent = i == _catIndex;
     }
 
-    /// <summary>下拉换分类。</summary>
-    private void CatList_Changed(object sender, SelectionChangedEventArgs e)
+    /// <summary>分类筛选：从主视图挪出来的可选条件，点「筛选」才展开。</summary>
+    private void FilterBtn_Click(object sender, RoutedEventArgs e)
     {
-        if (_catLock) return;
-        int idx = CatList.SelectedIndex;
-        if (idx < 0 || idx == _catIndex) return;
+        if (_cats.Count == 0) return;
+        var menu = new ContextMenu
+        {
+            PlacementTarget = FilterBtn,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+        };
+        for (int i = 0; i < _cats.Count; i++)
+        {
+            int idx = i;
+            var mi = new MenuItem
+            {
+                Header = _cats[i].MenuText,
+                IsCheckable = true,
+                IsChecked = i == _catIndex,
+            };
+            mi.Click += (_, _) => SelectCategory(idx);
+            menu.Items.Add(mi);
+        }
+        menu.IsOpen = true;
+    }
+
+    private void SelectCategory(int idx)
+    {
+        if (idx < 0 || idx >= _cats.Count || idx == _catIndex) return;
         _catIndex = idx;
         MarkCurrentCat();
         ShowCleanCat();
@@ -1917,7 +1938,10 @@ public partial class MainWindow : Window, IAnalystHost
             view.SortDescriptions.Add(new SortDescription(nameof(CleanItem.Size), ListSortDirection.Descending));
         }
         CleanGrid.ItemsSource = view;
-        string scope = InCurrentFolder(_current) ? Loc.FilterHere(_current.Name) : Loc.FilterAll;
+        string cat = _catIndex > 0 && _catIndex < _cats.Count ? _cats[_catIndex].Name : "";
+        FilterBtn.Content = string.IsNullOrEmpty(cat) ? Loc.FilterLabel : Loc.FilterLabel + "：" + cat;
+        string scope = string.IsNullOrEmpty(cat) ? Loc.FilterAll : cat;
+        if (InCurrentFolder(_current)) scope += " · " + _current.Name;
         CleanSummary.Text = scope + "   " + Loc.CleanScopeTotal(list.Count, FileEntry.FormatSize(list.Sum(x => x.Size)));
         UpdateCleanSelHint();
     }
@@ -2702,8 +2726,6 @@ public partial class MainWindow : Window, IAnalystHost
         {
             _catIndex = 0;
             MarkCurrentCat();
-            _catLock = true;
-            try { CatList.SelectedIndex = 0; } finally { _catLock = false; }
         }
         ShowCleanCat();
         CleanSummary.Text = Loc.ReviewHint(

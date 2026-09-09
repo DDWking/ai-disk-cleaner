@@ -47,7 +47,6 @@ public static class Loc
     /// <summary>分析阶段：第几步 / 共几步 + 当前动作。</summary>
     public static string AnalyzeStep(int step, int total, string action) =>
         IsEn ? $"Analyze {step}/{total}  {action}" : $"分析 {step}/{total}  {action}";
-    public static string FilterHere(string name) => IsEn ? $"in {name}" : $"当前：{name}";
     public static string FilterAll => IsEn ? "whole disk" : "全盘";
     public static string MftFail => IsEn ? "MFT failed, falling back" : "MFT 失败，改用递归扫描";
     public static string Aborted => IsEn ? "Stopped" : "已停止";
@@ -612,7 +611,9 @@ public static class Loc
     public static string NothingSelected => IsEn ? "Nothing selected." : "没有勾选项。";
     /// <summary>清理表格说明列：规则原因，分析后被 AI 覆盖。</summary>
     public static string ColReason => IsEn ? "Note" : "说明";
-    public static string ColRisk => IsEn ? "Risk" : "风险";
+    /// <summary>只说「这是什么」，不下安全结论——安全与否由分组标题承担。</summary>
+    public static string ColType => IsEn ? "Type" : "类型";
+    public static string FilterLabel => IsEn ? "Filter" : "筛选";
     public static string ColName => IsEn ? "Name" : "名称";
 
     public static string CatAi => IsEn ? "AI suggested" : "AI 建议";
@@ -644,9 +645,7 @@ public static class Loc
     public static string CatAll => IsEn ? "All" : "全部";
 
     // ===== 风险三档 =====
-    public static string RiskSafe => IsEn ? "Safe to delete" : "可安全删除";
-    public static string RiskConfirm => IsEn ? "Check first" : "需确认";
-    public static string RiskKeep => IsEn ? "Do not delete" : "别删";
+
     public static string NoteCache => IsEn ? "cache data" : "缓存数据";
     public static string CleanGroupSafe(int n, string size) => IsEn
         ? $"Suggested to clean ({n:N0} · {size})"

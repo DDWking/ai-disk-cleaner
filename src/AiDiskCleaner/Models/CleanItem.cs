@@ -77,13 +77,6 @@ public sealed class CleanItem : INotifyPropertyChanged
     /// <summary>表格分组用：0 = 建议清理（安全），1 = 需要你确认。「别删」不进列表。</summary>
     public int RiskGroupKey => Risk == CleanRisk.Safe ? 0 : 1;
 
-    public string RiskText => Risk switch
-    {
-        CleanRisk.Safe => Loc.RiskSafe,
-        CleanRisk.Confirm => Loc.RiskConfirm,
-        _ => Loc.RiskKeep,
-    };
-
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
