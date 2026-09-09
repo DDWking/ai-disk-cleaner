@@ -155,13 +155,13 @@ public static class Loc
         string name = (App.Settings.AiModel ?? "").Trim();
         return string.IsNullOrEmpty(name) ? "AI" : name;
     }
-    public static string AiLampOff => IsEn ? "not configured" : "未配置";
-    public static string AiReady => IsEn ? "ready" : "已配置";
+    public static string AiLampOff => IsEn ? "AI not configured" : "AI 未配置";
+    public static string AiReady => IsEn ? "AI ready" : "AI 已配置";
     public static string AiMark => IsEn ? "AI suggested" : "AI 建议";
     public static string AiInside(string note) => IsEn ? "inside: " + note : "内有 · " + note;
-    public static string AiLampOn => IsEn ? "connected" : "已连接";
-    public static string AiLampBusy => IsEn ? "reading…" : "正在分析…";
-    public static string AiLampFail => IsEn ? "failed" : "失败";
+    public static string AiLampOn => IsEn ? "AI connected" : "AI 已连接";
+    public static string AiLampBusy => IsEn ? "AI reading…" : "AI 正在分析…";
+    public static string AiLampFail => IsEn ? "AI failed" : "AI 失败";
     public static string AiExtraPrompt => IsEn ? "Extra instructions (optional)" : "额外提示词（可选）";
     public static string AiExtraHint => IsEn
         ? "e.g. Always ask what I want before suggesting deletes."
@@ -556,20 +556,18 @@ public static class Loc
         IsEn ? $"Uninstall finished: {ok} done, {fail} failed, {skip} skipped · freed ≈ {freed}"
              : $"卸载完成：成功 {ok}，失败 {fail}，跳过 {skip} · 释放约 {freed}";
     public static string UninstallResultPending => IsEn ? "Still left:" : "未完成：";
-    public static string OneClick => IsEn ? "One-click cleanup" : "一键处理";
-    public static string OneClickScanFirst =>
-        IsEn ? "Scan the disk first, then use one-click cleanup." : "请先扫描磁盘，再一键处理。";
-    public static string OneClickScanning =>
+    /// <summary>只按建议勾选并展示，绝不代替用户删除——AI 只负责分析，删不删由用户确认。</summary>
+    public static string ReviewSuggestions => IsEn ? "Review suggestions" : "看 AI 建议";
+    public static string ReviewScanFirst =>
+        IsEn ? "Scan the disk first, then review suggestions." : "请先扫描磁盘，再看建议。";
+    public static string ReviewScanning =>
         IsEn ? "Scanning in progress, please wait." : "正在扫描，请稍候。";
-    public static string OneClickNothing =>
-        IsEn ? "Nothing to clean in one click." : "没有可一键处理的内容。";
-    public static string OneClickConfirm(int junkCount, string junkSize, int appCount, string appSize) =>
+    public static string ReviewNothing =>
+        IsEn ? "No suggestions right now." : "暂时没有可以建议清理的内容。";
+    public static string ReviewHint(int junkCount, string junkSize, int appCount, string appSize) =>
         IsEn
-            ? $"Move {junkCount:N0} safe item(s) ({junkSize}) to the Recycle Bin?\n\n{appCount:N0} app(s) (≈{appSize}) were pre-selected for uninstall; confirm them on the Uninstall tab."
-            : $"将 {junkCount:N0} 项安全垃圾（{junkSize}）移入回收站？\n\n已勾选 {appCount:N0} 个建议卸载的软件（约 {appSize}），回收后会切到卸载页，请核对后再点「卸载」。";
-    public static string OneClickAfterRecycle =>
-        IsEn ? "Suggested apps are pre-selected. Review them, then click Uninstall."
-             : "已勾选建议卸载的软件，请核对后点「卸载勾选项」。";
+            ? $"Pre-checked by suggestion: {junkCount:N0} item(s) ({junkSize}) and {appCount:N0} app(s) (≈{appSize}). Nothing has been deleted — review each group, then confirm."
+            : $"已按建议勾选：可清理 {junkCount:N0} 项（{junkSize}），软件 {appCount:N0} 个（约 {appSize}）。还没有删除任何东西——请逐组核对后再确认。";
     public static string JunkScanning => IsEn ? "Scanning leftovers…" : "正在扫描残留…";
     public static string JunkNone => IsEn ? "No leftovers found." : "没有发现残留。";
     public static string JunkHint(int n, int safe) =>
@@ -646,9 +644,12 @@ public static class Loc
     public static string RiskConfirm => IsEn ? "Check first" : "需确认";
     public static string RiskKeep => IsEn ? "Do not delete" : "别删";
     public static string NoteCache => IsEn ? "cache data" : "缓存数据";
-    public static string RiskSummary(int safe, int confirm, int keep) => IsEn
-        ? $"safe {safe} · check {confirm} · keep {keep}"
-        : $"安全 {safe} · 需确认 {confirm} · 别删 {keep}";
+    public static string RiskSummary(int safe, int confirm) => IsEn
+        ? $"suggested to clean {safe} · needs your call {confirm}"
+        : $"建议清理 {safe} 项 · 需要你判断 {confirm} 项";
+    public static string SelectedHint(int n, string size) => IsEn
+        ? $"{n:N0} selected · about {size}"
+        : $"已勾选 {n:N0} 项 · 可释放约 {size}";
 
     public static string GroupTemp => IsEn ? "Temp / cache" : "临时/缓存";
     public static string GroupDump => IsEn ? "Crash dumps" : "崩溃转储";

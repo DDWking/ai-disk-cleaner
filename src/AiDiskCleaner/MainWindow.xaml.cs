@@ -182,7 +182,7 @@ public partial class MainWindow : Window, IAnalystHost
         Title = Loc.AppName;
         TitleText.Text = Loc.AppName;
         ScanButton.Content = Loc.Scan;
-        OneClickBtn.Content = Loc.OneClick;
+        SuggestBtn.Content = Loc.ReviewSuggestions;
         StopButton.Content = Loc.Stop;
         SettingsButton.Content = Loc.Settings;
         AboutButton.Content = Loc.About;
@@ -424,8 +424,9 @@ public partial class MainWindow : Window, IAnalystHost
         try { ScanSnapshot.Capture(root).Save(); } catch { }
         HideCleanProgress();
         RefreshCleanUi();
-        CleanHintText.Text = report.Cleanable.Count > 0
-            ? Loc.CleanHintReady(report.Cleanable.Count, FileEntry.FormatSize(report.CleanableBytes))
+        var offerable = report.Cleanable.Where(x => x.Risk != CleanRisk.Keep).ToList();
+        CleanHintText.Text = offerable.Count > 0
+            ? Loc.CleanHintReady(offerable.Count, FileEntry.FormatSize(offerable.Sum(x => x.Size)))
             : Loc.HintClean;
         UiLog($"分析完成: cleanable={report.Cleanable.Count} dup={report.Duplicates.Count}");
         RefreshAiLamp();
@@ -1786,6 +1787,7 @@ public partial class MainWindow : Window, IAnalystHost
         var all = new List<CleanItem>();
         foreach (var x in AllCandidates())
         {
+            if (x.Risk == CleanRisk.Keep) continue; // 「别删」不进清理列表，少点噪音
             if (string.IsNullOrEmpty(x.FullPath)) continue;
             if (!seen.Add(NormPath(x.FullPath))) continue;
             all.Add(x);
@@ -1870,9 +1872,8 @@ public partial class MainWindow : Window, IAnalystHost
         var list = CurrentCleanList();
         int safe = list.Count(x => x.Risk == CleanRisk.Safe);
         int confirm = list.Count(x => x.Risk == CleanRisk.Confirm);
-        int keep = list.Count(x => x.Risk == CleanRisk.Keep);
         string scope = InCurrentFolder(_current) ? Loc.FilterHere(_current.Name) : Loc.FilterAll;
-        CleanSummary.Text = scope + "   " + Loc.RiskSummary(safe, confirm, keep);
+        CleanSummary.Text = scope + "   " + Loc.RiskSummary(safe, confirm);
         UpdateCleanSelHint();
     }
 
@@ -1961,7 +1962,7 @@ public partial class MainWindow : Window, IAnalystHost
         var picked = CurrentCleanList().Where(x => x.Selected && x.CanDelete).ToList();
         CleanSelHint.Text = picked.Count == 0
             ? ""
-            : Loc.CatCount(picked.Count, FileEntry.FormatSize(picked.Sum(x => x.Size)));
+            : Loc.SelectedHint(picked.Count, FileEntry.FormatSize(picked.Sum(x => x.Size)));
         HighlightSelectMode();
     }
 
@@ -2620,16 +2621,19 @@ public partial class MainWindow : Window, IAnalystHost
             ShowAlert(Loc.DeleteToRecycle, Loc.DeleteFailed(string.Join(", ", failed.Take(8))));
     }
 
-    private async void OneClick_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 只按建议勾选并展示，绝不代替用户删除：AI/规则只负责分析，删不删由用户看过清单后确认。
+    /// </summary>
+    private async void ReviewSuggestions_Click(object sender, RoutedEventArgs e)
     {
         if (_scanning)
         {
-            ShowAlert(Loc.OneClick, Loc.OneClickScanning);
+            ShowAlert(Loc.ReviewSuggestions, Loc.ReviewScanning);
             return;
         }
         if (_report == null)
         {
-            ShowAlert(Loc.OneClick, Loc.OneClickScanFirst);
+            ShowAlert(Loc.ReviewSuggestions, Loc.ReviewScanFirst);
             RunScan();
             return;
         }
@@ -2638,7 +2642,7 @@ public partial class MainWindow : Window, IAnalystHost
         if (_apps.Count == 0 && !_listingApps)
             await LoadApps();
 
-        // 勾选建议卸载的软件。
+        // 预勾选建议卸载的软件（用户仍可取消）。
         int appCount = 0;
         long appBytes = 0;
         foreach (var app in _apps)
@@ -2651,7 +2655,7 @@ public partial class MainWindow : Window, IAnalystHost
             }
         }
 
-        // 全盘安全垃圾（不限于当前分类/目录视图）。
+        // 全盘「有把握」的项（不限于当前分类/目录视图）。
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var safe = new List<CleanItem>();
         foreach (var item in AllCandidates())
@@ -2665,23 +2669,28 @@ public partial class MainWindow : Window, IAnalystHost
 
         if (safe.Count == 0 && appCount == 0)
         {
-            ShowAlert(Loc.OneClick, Loc.OneClickNothing);
+            ShowAlert(Loc.ReviewSuggestions, Loc.ReviewNothing);
             return;
         }
 
-        void DoIt()
-        {
-            if (safe.Count > 0)
-                RecyclePicked(safe);
-            ShowRightTab(2);
-            UpdateUninstallSelHint();
-            if (appCount > 0)
-                UninstallSummary.Text = Loc.OneClickAfterRecycle;
-        }
+        // 只勾选，不删除。切到「全部」让用户看到完整的建议清单。
+        foreach (var item in safe)
+            item.Selected = true;
 
-        AskConfirm(
-            Loc.OneClick,
-            Loc.OneClickConfirm(safe.Count, FileEntry.FormatSize(junkBytes), appCount, FileEntry.FormatSize(appBytes)),
-            DoIt);
+        ShowRightTab(0);
+        if (_cats.Count > 0)
+        {
+            _catIndex = 0;
+            MarkCurrentCat();
+            _catLock = true;
+            try { CatList.SelectedIndex = 0; } finally { _catLock = false; }
+        }
+        ShowCleanCat();
+        CleanSummary.Text = Loc.ReviewHint(
+            safe.Count, FileEntry.FormatSize(junkBytes),
+            appCount, FileEntry.FormatSize(appBytes));
+        UpdateCleanSelHint();
+        CleanGrid.Items.Refresh();
+        UpdateUninstallSelHint();
     }
 }

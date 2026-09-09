@@ -747,8 +747,8 @@
         <Button x:Name="ScanButton" Grid.Column="2" Content="扫描" Style="{StaticResource PrimaryButton}"
                 Margin="0,0,8,0" Click="ScanButton_Click"
                 WindowChrome.IsHitTestVisibleInChrome="True"/>
-        <Button x:Name="OneClickBtn" Grid.Column="3" Content="一键处理" Style="{StaticResource PrimaryButton}"
-                Margin="0,0,8,0" Click="OneClick_Click"
+        <Button x:Name="SuggestBtn" Grid.Column="3" Content="看 AI 建议" Style="{StaticResource PrimaryButton}"
+                Margin="0,0,8,0" Click="ReviewSuggestions_Click"
                 WindowChrome.IsHitTestVisibleInChrome="True"/>
         <Button x:Name="StopButton" Grid.Column="4" Content="停止" Style="{StaticResource GhostButton}"
                 Margin="0,0,16,0" IsEnabled="False" Click="StopButton_Click"
