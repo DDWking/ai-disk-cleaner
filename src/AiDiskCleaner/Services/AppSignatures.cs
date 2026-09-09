@@ -77,6 +77,8 @@ public static class AppSignatures
         new("Qoder 缓存", "ai", SigRisk.Safe, N(@"\qoder"), CacheSubs),
         new("WinSxS", "system", SigRisk.Keep, N(@"\winsxs"), Note: "别删"),
         new("Windows 更新下载", "system", SigRisk.Safe, N(@"\windows\softwaredistribution\download")),
+        new("NVIDIA 驱动缓存", "system", SigRisk.Safe, N(@"\programdata\nvidia corporation\downloader", @"\programdata\nvidia corporation\nv_cache"), Note: "驱动下载缓存，可清"),
+        new("软件安装包缓存", "system", SigRisk.Cautious, N(@"\programdata\package cache"), Note: "安装器缓存，清了修复/卸载可能要重下"),
         new("传递优化", "system", SigRisk.Safe, N(@"\deliveryoptimization")),
         new("Windows 错误报告", "system", SigRisk.Safe, N(@"\windows\wer")),
         new("缩略图缓存", "system", SigRisk.Safe, N(@"\microsoft\windows\explorer")),

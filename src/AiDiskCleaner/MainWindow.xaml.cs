@@ -182,6 +182,7 @@ public partial class MainWindow : Window, IAnalystHost
         Title = Loc.AppName;
         TitleText.Text = Loc.AppName;
         ScanButton.Content = Loc.Scan;
+        OneClickBtn.Content = Loc.OneClick;
         StopButton.Content = Loc.Stop;
         SettingsButton.Content = Loc.Settings;
         AboutButton.Content = Loc.About;
@@ -2617,5 +2618,70 @@ public partial class MainWindow : Window, IAnalystHost
         HeaderStats.Text = Loc.RecycleManyOk(ok);
         if (failed.Count > 0)
             ShowAlert(Loc.DeleteToRecycle, Loc.DeleteFailed(string.Join(", ", failed.Take(8))));
+    }
+
+    private async void OneClick_Click(object sender, RoutedEventArgs e)
+    {
+        if (_scanning)
+        {
+            ShowAlert(Loc.OneClick, Loc.OneClickScanning);
+            return;
+        }
+        if (_report == null)
+        {
+            ShowAlert(Loc.OneClick, Loc.OneClickScanFirst);
+            RunScan();
+            return;
+        }
+
+        // 确保软件列表已加载（本地规则会先标注建议卸载的项）。
+        if (_apps.Count == 0 && !_listingApps)
+            await LoadApps();
+
+        // 勾选建议卸载的软件。
+        int appCount = 0;
+        long appBytes = 0;
+        foreach (var app in _apps)
+        {
+            app.Selected = app.CanUninstall && app.Recommendation == AppRecommendationDecision.Recommend;
+            if (app.Selected)
+            {
+                appCount++;
+                appBytes += app.ActualSizeBytes > 0 ? app.ActualSizeBytes : app.SizeBytes;
+            }
+        }
+
+        // 全盘安全垃圾（不限于当前分类/目录视图）。
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var safe = new List<CleanItem>();
+        foreach (var item in AllCandidates())
+        {
+            if (!item.CanDelete || item.Risk != CleanRisk.Safe) continue;
+            if (string.IsNullOrEmpty(item.FullPath)) continue;
+            if (!seen.Add(NormPath(item.FullPath))) continue;
+            safe.Add(item);
+        }
+        long junkBytes = safe.Sum(x => x.Size);
+
+        if (safe.Count == 0 && appCount == 0)
+        {
+            ShowAlert(Loc.OneClick, Loc.OneClickNothing);
+            return;
+        }
+
+        void DoIt()
+        {
+            if (safe.Count > 0)
+                RecyclePicked(safe);
+            ShowRightTab(2);
+            UpdateUninstallSelHint();
+            if (appCount > 0)
+                UninstallSummary.Text = Loc.OneClickAfterRecycle;
+        }
+
+        AskConfirm(
+            Loc.OneClick,
+            Loc.OneClickConfirm(safe.Count, FileEntry.FormatSize(junkBytes), appCount, FileEntry.FormatSize(appBytes)),
+            DoIt);
     }
 }

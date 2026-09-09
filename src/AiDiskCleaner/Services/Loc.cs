@@ -556,6 +556,20 @@ public static class Loc
         IsEn ? $"Uninstall finished: {ok} done, {fail} failed, {skip} skipped · freed ≈ {freed}"
              : $"卸载完成：成功 {ok}，失败 {fail}，跳过 {skip} · 释放约 {freed}";
     public static string UninstallResultPending => IsEn ? "Still left:" : "未完成：";
+    public static string OneClick => IsEn ? "One-click cleanup" : "一键处理";
+    public static string OneClickScanFirst =>
+        IsEn ? "Scan the disk first, then use one-click cleanup." : "请先扫描磁盘，再一键处理。";
+    public static string OneClickScanning =>
+        IsEn ? "Scanning in progress, please wait." : "正在扫描，请稍候。";
+    public static string OneClickNothing =>
+        IsEn ? "Nothing to clean in one click." : "没有可一键处理的内容。";
+    public static string OneClickConfirm(int junkCount, string junkSize, int appCount, string appSize) =>
+        IsEn
+            ? $"Move {junkCount:N0} safe item(s) ({junkSize}) to the Recycle Bin?\n\n{appCount:N0} app(s) (≈{appSize}) were pre-selected for uninstall; confirm them on the Uninstall tab."
+            : $"将 {junkCount:N0} 项安全垃圾（{junkSize}）移入回收站？\n\n已勾选 {appCount:N0} 个建议卸载的软件（约 {appSize}），回收后会切到卸载页，请核对后再点「卸载」。";
+    public static string OneClickAfterRecycle =>
+        IsEn ? "Suggested apps are pre-selected. Review them, then click Uninstall."
+             : "已勾选建议卸载的软件，请核对后点「卸载勾选项」。";
     public static string JunkScanning => IsEn ? "Scanning leftovers…" : "正在扫描残留…";
     public static string JunkNone => IsEn ? "No leftovers found." : "没有发现残留。";
     public static string JunkHint(int n, int safe) =>

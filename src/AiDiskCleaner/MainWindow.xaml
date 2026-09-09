@@ -735,6 +735,7 @@
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
@@ -746,20 +747,23 @@
         <Button x:Name="ScanButton" Grid.Column="2" Content="扫描" Style="{StaticResource PrimaryButton}"
                 Margin="0,0,8,0" Click="ScanButton_Click"
                 WindowChrome.IsHitTestVisibleInChrome="True"/>
-        <Button x:Name="StopButton" Grid.Column="3" Content="停止" Style="{StaticResource GhostButton}"
+        <Button x:Name="OneClickBtn" Grid.Column="3" Content="一键处理" Style="{StaticResource PrimaryButton}"
+                Margin="0,0,8,0" Click="OneClick_Click"
+                WindowChrome.IsHitTestVisibleInChrome="True"/>
+        <Button x:Name="StopButton" Grid.Column="4" Content="停止" Style="{StaticResource GhostButton}"
                 Margin="0,0,16,0" IsEnabled="False" Click="StopButton_Click"
                 WindowChrome.IsHitTestVisibleInChrome="True"/>
-        <TextBox x:Name="SearchBox" Grid.Column="4" Width="220" MaxWidth="340"
+        <TextBox x:Name="SearchBox" Grid.Column="5" Width="220" MaxWidth="340"
                  HorizontalAlignment="Left" VerticalAlignment="Center"
                  Style="{StaticResource TermTextBox}"
                  Tag="{DynamicResource SearchHintText}"
                  WindowChrome.IsHitTestVisibleInChrome="True"
                  TextChanged="SearchBox_TextChanged"/>
-        <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+        <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
           <TextBlock x:Name="VolumeText" Foreground="{DynamicResource TextDim}" Margin="0,0,16,0" Text=""/>
           <TextBlock x:Name="HeaderStats" Foreground="{DynamicResource Accent}" Text="就绪"/>
         </StackPanel>
-        <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center">
+        <StackPanel Grid.Column="7" Orientation="Horizontal" VerticalAlignment="Center">
           <Button x:Name="SettingsButton" Content="设置" Style="{StaticResource GhostButton}" Margin="0,0,6,0"
                   Padding="10,6" Click="SettingsButton_Click" WindowChrome.IsHitTestVisibleInChrome="True"/>
           <Button x:Name="AboutButton" Content="关于" Style="{StaticResource GhostButton}" Margin="0,0,10,0"
