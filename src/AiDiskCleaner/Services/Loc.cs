@@ -558,6 +558,11 @@ public static class Loc
     public static string UninstallResultPending => IsEn ? "Still left:" : "未完成：";
     /// <summary>只按建议勾选并展示，绝不代替用户删除——AI 只负责分析，删不删由用户确认。</summary>
     public static string ReviewSuggestions => IsEn ? "Review suggestions" : "看 AI 建议";
+    public static string ReviewSuggestionsShort => IsEn ? "Pre-check by suggestion" : "按 AI 建议勾选";
+    public static string SelectAllTip => IsEn ? "Select all / clear" : "全选 / 取消全选";
+    public static string ConfirmDelete(int n) => n > 0
+        ? (IsEn ? $"Delete {n:N0} item(s)" : $"确认删除 {n:N0} 项")
+        : (IsEn ? "Delete selected" : "确认删除");
     public static string ReviewScanFirst =>
         IsEn ? "Scan the disk first, then review suggestions." : "请先扫描磁盘，再看建议。";
     public static string ReviewScanning =>

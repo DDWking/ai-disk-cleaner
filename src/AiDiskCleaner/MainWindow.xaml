@@ -744,14 +744,14 @@
                    VerticalAlignment="Center" Margin="8,0,16,0"/>
         <ComboBox x:Name="DriveBox" Grid.Column="1" Width="72" VerticalAlignment="Center" Margin="0,0,8,0"
                   WindowChrome.IsHitTestVisibleInChrome="True"/>
-        <Button x:Name="ScanButton" Grid.Column="2" Content="扫描" Style="{StaticResource PrimaryButton}"
+        <Button x:Name="ScanButton" Grid.Column="2" Content="扫描" Style="{StaticResource GhostButton}"
                 Margin="0,0,8,0" Click="ScanButton_Click"
                 WindowChrome.IsHitTestVisibleInChrome="True"/>
-        <Button x:Name="SuggestBtn" Grid.Column="3" Content="看 AI 建议" Style="{StaticResource PrimaryButton}"
-                Margin="0,0,8,0" Click="ReviewSuggestions_Click"
+        <Button x:Name="TreeToggleBtn" Grid.Column="3" Content="文件夹" Style="{StaticResource GhostButton}"
+                Margin="0,0,8,0" Click="ToggleTree_Click"
                 WindowChrome.IsHitTestVisibleInChrome="True"/>
         <Button x:Name="StopButton" Grid.Column="4" Content="停止" Style="{StaticResource GhostButton}"
-                Margin="0,0,16,0" IsEnabled="False" Click="StopButton_Click"
+                Margin="0,0,16,0" IsEnabled="False" Visibility="Collapsed" Click="StopButton_Click"
                 WindowChrome.IsHitTestVisibleInChrome="True"/>
         <TextBox x:Name="SearchBox" Grid.Column="5" Width="220" MaxWidth="340"
                  HorizontalAlignment="Left" VerticalAlignment="Center"
@@ -803,8 +803,8 @@
     <Grid>
       <Grid x:Name="BrowsePage">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" MinWidth="420"/>
-        <ColumnDefinition Width="12"/>
+        <ColumnDefinition x:Name="LeftCol" Width="*" MinWidth="420"/>
+        <ColumnDefinition x:Name="SplitterCol" Width="12"/>
         <ColumnDefinition x:Name="RightCol" Width="440" MinWidth="320" MaxWidth="1200"/>
       </Grid.ColumnDefinitions>
 
@@ -854,7 +854,7 @@
           </DockPanel>
       </Border>
 
-      <GridSplitter Grid.Column="1" Width="12" Cursor="SizeWE"/>
+      <GridSplitter x:Name="Splitter" Grid.Column="1" Width="12" Cursor="SizeWE"/>
 
       <Border x:Name="RightPanel" Grid.Column="2" Background="{DynamicResource PanelRight}">
         <DockPanel>
@@ -876,10 +876,9 @@
                          Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
             </DockPanel>
             <WrapPanel DockPanel.Dock="Top" Margin="16,0,16,8">
-              <Button x:Name="SelectAllBtn" Content="全选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectAll_Click"/>
-              <Button x:Name="SelectSafeBtn" Content="勾选可安全删除" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="SelectSafe_Click"/>
-              <Button x:Name="RecycleSelBtn" Content="删除勾选项" Style="{StaticResource PrimaryButton}" Margin="0,0,8,6" Click="RecycleSelected_Click"/>
+              <Button x:Name="SuggestLinkBtn" Content="按 AI 建议勾选" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="ReviewSuggestions_Click"/>
               <Button x:Name="AiAnalyzeCatBtn" Content="分析" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Click="AiAnalyzeCat_Click"/>
+              <Button x:Name="RecycleSelBtn" Content="确认删除" Style="{StaticResource PrimaryButton}" Margin="0,0,8,6" Click="RecycleSelected_Click"/>
               <Button x:Name="AiStopBtn" Content="停止" Style="{StaticResource GhostButton}" Margin="0,0,8,6"
                       Visibility="Collapsed" Click="AiStop_Click"/>
               <TextBlock x:Name="AiStatusText" VerticalAlignment="Center" Margin="0,0,8,6"
@@ -905,7 +904,12 @@
                 </ContextMenu>
               </DataGrid.ContextMenu>
               <DataGrid.Columns>
-                <DataGridCheckBoxColumn x:Name="ColPick" Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32"/>
+                <DataGridCheckBoxColumn x:Name="ColPick" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32">
+                  <DataGridCheckBoxColumn.Header>
+                    <CheckBox HorizontalAlignment="Center" VerticalAlignment="Center"
+                              ToolTip="全选 / 取消全选" Click="PickAll_Click"/>
+                  </DataGridCheckBoxColumn.Header>
+                </DataGridCheckBoxColumn>
                 <DataGridTextColumn x:Name="ColCleanRisk" Header="风险" Binding="{Binding RiskText}" SortMemberPath="Risk" Width="88" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">

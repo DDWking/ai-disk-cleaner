@@ -92,6 +92,7 @@ public partial class MainWindow : Window, IAnalystHost
     private int _liveExtShown;
     private CleanReport? _report;
     private int _rightTab; // 0 清理 1 扩展名 2 卸载
+    private bool _treeVisible; // 左树默认收起，需要时展开
     private Action? _confirmYes;
     private List<AppUninstallItem> _apps = new();
     private bool _listingApps;
@@ -149,6 +150,7 @@ public partial class MainWindow : Window, IAnalystHost
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
         ApplyUi();
+        ApplyTreeVisibility();
         ShowRightTab(0);
         // sidecar 的工具回调落到这里（this 实现了 IAnalystHost），
         // 勾选/删除等动作仍在 C# 侧执行。
@@ -160,8 +162,28 @@ public partial class MainWindow : Window, IAnalystHost
     void UpdateRightColLimit()
     {
         if (RightCol == null) return;
-        double max = ActualWidth - 420 - 12 - 40;   // 左列 MinWidth + splitter + 余量
+        double max = _treeVisible
+            ? ActualWidth - 420 - 12 - 40   // 左列 MinWidth + splitter + 余量
+            : ActualWidth - 40;             // 左树收起时右列铺满
         RightCol.MaxWidth = Math.Max(320, max);
+    }
+
+    void ApplyTreeVisibility()
+    {
+        if (LeftCol == null) return;
+        LeftCol.Width = _treeVisible ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        LeftCol.MinWidth = _treeVisible ? 420 : 0;
+        SplitterCol.Width = _treeVisible ? new GridLength(12) : new GridLength(0);
+        Splitter.Visibility = _treeVisible ? Visibility.Visible : Visibility.Collapsed;
+        LeftPanel.Visibility = _treeVisible ? Visibility.Visible : Visibility.Collapsed;
+        RightCol.Width = _treeVisible ? new GridLength(440) : new GridLength(1, GridUnitType.Star);
+        UpdateRightColLimit();
+    }
+
+    private void ToggleTree_Click(object sender, RoutedEventArgs e)
+    {
+        _treeVisible = !_treeVisible;
+        ApplyTreeVisibility();
     }
 
     void Window_Loaded(object sender, RoutedEventArgs e)
@@ -182,7 +204,6 @@ public partial class MainWindow : Window, IAnalystHost
         Title = Loc.AppName;
         TitleText.Text = Loc.AppName;
         ScanButton.Content = Loc.Scan;
-        SuggestBtn.Content = Loc.ReviewSuggestions;
         StopButton.Content = Loc.Stop;
         SettingsButton.Content = Loc.Settings;
         AboutButton.Content = Loc.About;
@@ -229,10 +250,14 @@ public partial class MainWindow : Window, IAnalystHost
         ColJunkConf.Header = Loc.ColConfidence;
         ColJunkPath.Header = Loc.Path;
         RefreshUninstallPaneText();
-        SelectAllBtn.Content = Loc.SelectAll;
-        SelectSafeBtn.Content = Loc.SelectSafe;
-        HighlightSelectMode();
-        RecycleSelBtn.Content = Loc.RecycleSelected;
+        SuggestLinkBtn.Content = Loc.ReviewSuggestionsShort;
+        TreeToggleBtn.Content = Loc.Folder;
+        RecycleSelBtn.Content = Loc.ConfirmDelete(0);
+        if (ColPick.Header is CheckBox pickAll)
+        {
+            pickAll.ToolTip = Loc.SelectAllTip;
+            _pickAllBox = pickAll;
+        }
         ColCleanRisk.Header = Loc.ColRisk;
         ColCleanName.Header = Loc.ColName;
         ColCleanSize.Header = Loc.Size;
@@ -297,6 +322,7 @@ public partial class MainWindow : Window, IAnalystHost
         _scanning = true;
         ScanButton.IsEnabled = false;
         StopButton.IsEnabled = true;
+        StopButton.Visibility = Visibility.Visible;
         if (AiAnalyzeCatBtn != null) AiAnalyzeCatBtn.IsEnabled = false;
         _scanStart = DateTime.Now;
         _cts = new CancellationTokenSource();
@@ -363,6 +389,7 @@ public partial class MainWindow : Window, IAnalystHost
             _scanning = false;
             ScanButton.IsEnabled = true;
             StopButton.IsEnabled = false;
+            StopButton.Visibility = Visibility.Collapsed;
             if (AiAnalyzeCatBtn != null) AiAnalyzeCatBtn.IsEnabled = true;
             ScanProgressPanel.Visibility = Visibility.Collapsed;
             ScanProgressBar.IsIndeterminate = false;
@@ -1913,57 +1940,32 @@ public partial class MainWindow : Window, IAnalystHost
     static string NormPath(string? p)
         => (p ?? "").Replace('/', '\\').Trim().TrimEnd('\\');
 
-    private void SelectAll_Click(object sender, RoutedEventArgs e)
+    private CheckBox? _pickAllBox;
+
+    /// <summary>表头复选框：全选 / 取消全选当前列表。</summary>
+    private void PickAll_Click(object sender, RoutedEventArgs e)
     {
-        bool on = !IsAllSelected();
+        _pickAllBox ??= sender as CheckBox;
+        bool on = (sender as CheckBox)?.IsChecked == true;
         foreach (var item in CurrentCleanList())
             item.Selected = on && item.CanDelete;
         UpdateCleanSelHint();
         CleanGrid.Items.Refresh();
     }
 
-    private void SelectSafe_Click(object sender, RoutedEventArgs e)
-    {
-        bool on = !IsSafeSelected();
-        foreach (var item in CurrentCleanList())
-            item.Selected = on && item.CanDelete && item.Risk == CleanRisk.Safe;
-        UpdateCleanSelHint();
-        CleanGrid.Items.Refresh();
-    }
-
-    private bool IsSafeSelected()
-    {
-        var list = CurrentCleanList().Where(x => x.CanDelete && x.Risk == CleanRisk.Safe).ToList();
-        return list.Count > 0 && list.All(x => x.Selected);
-    }
-
-    private bool IsAllSelected()
-    {
-        var list = CurrentCleanList().Where(x => x.CanDelete).ToList();
-        return list.Count > 0 && list.All(x => x.Selected);
-    }
-
-    private void HighlightSelectMode()
-    {
-        bool all = IsAllSelected();
-        bool safe = !all && IsSafeSelected();
-        MarkSelectBtn(SelectAllBtn, all);
-        MarkSelectBtn(SelectSafeBtn, safe);
-    }
-
-    private static void MarkSelectBtn(Button b, bool on)
-    {
-        b.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
-        b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
-    }
-
     private void UpdateCleanSelHint()
     {
-        var picked = CurrentCleanList().Where(x => x.Selected && x.CanDelete).ToList();
+        var list = CurrentCleanList();
+        var picked = list.Where(x => x.Selected && x.CanDelete).ToList();
         CleanSelHint.Text = picked.Count == 0
             ? ""
             : Loc.SelectedHint(picked.Count, FileEntry.FormatSize(picked.Sum(x => x.Size)));
-        HighlightSelectMode();
+        RecycleSelBtn.Content = Loc.ConfirmDelete(picked.Count);
+        RecycleSelBtn.IsEnabled = picked.Count > 0;
+
+        var deletable = list.Where(x => x.CanDelete).ToList();
+        if (_pickAllBox != null)
+            _pickAllBox.IsChecked = deletable.Count > 0 && deletable.All(x => x.Selected);
     }
 
     private void CleanGrid_Click(object sender, MouseButtonEventArgs e) => UpdateCleanSelHint();
