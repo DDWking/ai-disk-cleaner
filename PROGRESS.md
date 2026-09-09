@@ -55,6 +55,10 @@
 ```
 
 ### 2026-09-04  DDWking
+- **右列铺不满的真正原因**（上次诊断错了）：`RightPanel` 里三个 pane 的外层是 `DockPanel`，`CleanPane` 没写 `DockPanel.Dock`，作为非最后一个子元素默认按 `Dock=Left` 停靠，宽度取内容宽度；`UninstallPane` 才是 `LastChildFill` 的那个。右列固定 440 时被夹住看不出来，左树收起、右列变宽才露馅。改成 `Grid`（tabs 一行 Auto，三个 pane 同处 `Grid.Row="1"`，谁可见谁占满）。
+- 「说明」列默认收起，先只给「类型 / 名称 / 大小」；`ExplainItems` 里 AI 真写出说明（`applied > 0`）才展开。规则原因没丢——鼠标停在「类型」列有 tooltip。
+
+### 2026-09-04  DDWking
 - 修右列铺不满：`UpdateRightColLimit` 在构造函数里跑时窗口还没尺寸，算出 `MaxWidth=320`，而右列是 `Star` 宽——Star 列被 MaxWidth 卡住，右边就空一块。改成左树收起时 `MaxWidth=Infinity`，并在 `Window_Loaded` 用真实尺寸重算一次。
 - 风险列改成「类型」列（绑定 `Group`，不再下安全结论）：行只说「这是什么」（开发缓存 / 大文件 / 老文件…），安全与否由分组标题承担。起因：截图里 `weights.bin` 4 GB 被标成「可安全删除」但理由是「占用最大的文件之一」——`CleanAnalyzer.Item()` 让路径签名覆盖了风险档位，标签和理由自相矛盾。
 - 分类下拉从主视图移走，降级成「筛选」按钮 + 动态 `ContextMenu`（`FilterBtn_Click` / `SelectCategory`），`CatList` 和 `_catLock` 一起删掉。分类不再和风险分组叠成两层。

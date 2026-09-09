@@ -851,13 +851,20 @@
       <GridSplitter x:Name="Splitter" Grid.Column="1" Width="12" Cursor="SizeWE"/>
 
       <Border x:Name="RightPanel" Grid.Column="2" Background="{DynamicResource PanelRight}">
-        <DockPanel>
-          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,12,16,8">
+        <!-- 用 Grid 而不是 DockPanel：三个 pane 都放同一行，谁可见谁就占满。
+             之前用 DockPanel 时 CleanPane 没写 Dock，被当成 Dock=Left 按内容宽度停靠，
+             右列一放宽就只铺到一半。 -->
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+          <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="16,12,16,8">
             <Button x:Name="TabCleanBtn" Content="清理" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabClean_Click"/>
             <Button x:Name="TabExtBtn" Content="扩展名" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabExt_Click"/>
             <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource GhostButton}" Click="TabUninstall_Click"/>
           </StackPanel>
-          <DockPanel x:Name="CleanPane">
+          <DockPanel x:Name="CleanPane" Grid.Row="1">
             <StackPanel x:Name="CleanProgressPanel" DockPanel.Dock="Top" Margin="20,12,20,10" Visibility="Collapsed">
               <TextBlock x:Name="CleanProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
               <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
@@ -931,6 +938,7 @@
                     <Style TargetType="TextBlock">
                       <Setter Property="HorizontalAlignment" Value="Center"/>
                       <Setter Property="FontSize" Value="11"/>
+                      <Setter Property="ToolTip" Value="{Binding NoteText}"/>
                       <Style.Triggers>
                         <DataTrigger Binding="{Binding Risk}" Value="Safe">
                           <Setter Property="Foreground" Value="#5FD68A"/>
@@ -961,7 +969,9 @@
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
-                <DataGridTextColumn x:Name="ColCleanWhy" Header="说明" Binding="{Binding NoteText}" Width="2*" MinWidth="80" IsReadOnly="True">
+                <!-- 默认收起：先只给「类型 / 名称 / 大小」，说明等 AI 分析出来再展开。
+                     规则原因没丢，鼠标停「类型」列就能看到。 -->
+                <DataGridTextColumn x:Name="ColCleanWhy" Header="说明" Binding="{Binding NoteText}" Width="2*" MinWidth="80" IsReadOnly="True" Visibility="Collapsed">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
@@ -977,7 +987,7 @@
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>
-          <DockPanel x:Name="ExtPane" Visibility="Collapsed">
+          <DockPanel x:Name="ExtPane" Grid.Row="1" Visibility="Collapsed">
           <TextBlock x:Name="ExtTitle" DockPanel.Dock="Top" Margin="20,0,20,8" Text="扩展名 / 类型" Foreground="{DynamicResource TextDim}" FontSize="11"/>
           <DataGrid x:Name="ExtGrid" AutoGenerateColumns="False" IsReadOnly="True"
                     CanUserSortColumns="True" HeadersVisibility="Column" GridLinesVisibility="None"
@@ -1047,7 +1057,7 @@
             </DataGrid.Columns>
           </DataGrid>
           </DockPanel>
-          <DockPanel x:Name="UninstallPane" Visibility="Collapsed">
+          <DockPanel x:Name="UninstallPane" Grid.Row="1" Visibility="Collapsed">
             <StackPanel x:Name="UninstallProgressPanel" DockPanel.Dock="Top" Margin="20,0,20,10" Visibility="Collapsed">
               <TextBlock x:Name="UninstallProgressText" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,6"/>
               <ProgressBar x:Name="UninstallProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
@@ -1212,7 +1222,7 @@
             </DataGrid>
             </Grid>
           </DockPanel>
-        </DockPanel>
+        </Grid>
       </Border>
     </Grid>
 
