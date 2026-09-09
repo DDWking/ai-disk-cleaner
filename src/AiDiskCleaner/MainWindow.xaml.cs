@@ -34,6 +34,38 @@ public sealed class GroupExpandedConverter : IValueConverter
         => Binding.DoNothing;
 }
 
+/// <summary>清理列表：安全组默认展开，需确认组默认折叠。</summary>
+public sealed class CleanGroupExpandedConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is 0;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
+/// <summary>清理列表分组标题：建议清理 / 需要你确认，带条数和大小。</summary>
+public sealed class CleanGroupConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        int key = 0, n = 0;
+        long bytes = 0;
+        if (value is CollectionViewGroup g)
+        {
+            key = g.Name is int i ? i : 0;
+            n = g.ItemCount;
+            bytes = g.Items.OfType<CleanItem>().Sum(x => x.Size);
+        }
+        return key == 0
+            ? Loc.CleanGroupSafe(n, FileEntry.FormatSize(bytes))
+            : Loc.CleanGroupConfirm(n, FileEntry.FormatSize(bytes));
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
 public sealed class AppGroupConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -1873,12 +1905,20 @@ public partial class MainWindow : Window, IAnalystHost
             CleanGrid.ItemsSource = null;
             return;
         }
-        CleanGrid.ItemsSource = CurrentCleanList();
         var list = CurrentCleanList();
-        int safe = list.Count(x => x.Risk == CleanRisk.Safe);
-        int confirm = list.Count(x => x.Risk == CleanRisk.Confirm);
+        // 按风险分两组：建议清理（安全）默认展开，需要你确认默认折叠。
+        var view = CollectionViewSource.GetDefaultView(list);
+        using (view.DeferRefresh())
+        {
+            view.GroupDescriptions.Clear();
+            view.SortDescriptions.Clear();
+            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(CleanItem.RiskGroupKey)));
+            view.SortDescriptions.Add(new SortDescription(nameof(CleanItem.RiskGroupKey), ListSortDirection.Ascending));
+            view.SortDescriptions.Add(new SortDescription(nameof(CleanItem.Size), ListSortDirection.Descending));
+        }
+        CleanGrid.ItemsSource = view;
         string scope = InCurrentFolder(_current) ? Loc.FilterHere(_current.Name) : Loc.FilterAll;
-        CleanSummary.Text = scope + "   " + Loc.RiskSummary(safe, confirm);
+        CleanSummary.Text = scope + "   " + Loc.CleanScopeTotal(list.Count, FileEntry.FormatSize(list.Sum(x => x.Size)));
         UpdateCleanSelHint();
     }
 

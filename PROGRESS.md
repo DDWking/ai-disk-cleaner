@@ -55,6 +55,11 @@
 ```
 
 ### 2026-09-04  DDWking
+- 清理列表按风险分两组：`CleanItem.RiskGroupKey`（安全=0 / 需确认=1），`ShowCleanCat` 把 `CleanGrid.ItemsSource` 换成带 `GroupDescriptions` 的视图，配 `CleanGroupConverter`（组标题带条数+大小）和 `CleanGroupExpandedConverter`（安全组展开、需确认组折叠）。复用卸载页那套 `GroupStyle`+`Expander`。
+- 顶部摘要去重：「建议清理 554 项 · 需要你判断 225 项」→「共 779 项 · 254 GB」（分类计数挪到组标题里），`Loc.RiskSummary` 删掉。
+- 注意：`Jury.cs` 里那条「本主题下 GroupStyle 只渲染标题、行不显示」的坑只针对 ComboBox + GroupStyle，DataGrid 的 GroupStyle 正常。
+
+### 2026-09-04  DDWking
 - 继续减法：顶栏「关于」移进设置对话框（`AboutLinkBtn`，在 `SettingsBody` 滚动区里）；目录树 6 列砍到 3 列（去掉 分配 / 文件 / 文件夹，表头保留 16px 缩进列，行网格起点在树 padding 内，对齐不变）；清理面板「确认删除」挪到按钮行最前。
 - 顺手清死代码：`SortAlloc_Click` / `SortFiles_Click` / `SortFolders_Click` 和 `SortKey` 里已无列的 Allocated/Files/Folders/Modified 一起删掉；`Loc.Allocated` / `Loc.FoldersCol` 删（`Loc.FilesCol` 还被 AI 提示词用着，保留）。
 

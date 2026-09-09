@@ -74,6 +74,9 @@ public sealed class CleanItem : INotifyPropertyChanged
 
     public string SizeText => FileEntry.FormatSize(Size);
 
+    /// <summary>表格分组用：0 = 建议清理（安全），1 = 需要你确认。「别删」不进列表。</summary>
+    public int RiskGroupKey => Risk == CleanRisk.Safe ? 0 : 1;
+
     public string RiskText => Risk switch
     {
         CleanRisk.Safe => Loc.RiskSafe,

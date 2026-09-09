@@ -21,6 +21,8 @@
     <local:InvertBoolConverter x:Key="InvertBool"/>
     <local:GroupExpandedConverter x:Key="GroupExpanded"/>
     <local:AppGroupConverter x:Key="AppGroup"/>
+    <local:CleanGroupExpandedConverter x:Key="CleanGroupExpanded"/>
+    <local:CleanGroupConverter x:Key="CleanGroup"/>
     <Style TargetType="TextBlock">
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
     </Style>
@@ -895,6 +897,29 @@
                   <MenuItem x:Name="CleanOpenItem" Header="在资源管理器中打开" Click="CleanOpen_Click"/>
                 </ContextMenu>
               </DataGrid.ContextMenu>
+              <DataGrid.GroupStyle>
+                <GroupStyle>
+                  <GroupStyle.ContainerStyle>
+                    <Style TargetType="{x:Type GroupItem}">
+                      <Setter Property="Margin" Value="0,4,0,8"/>
+                      <Setter Property="Template">
+                        <Setter.Value>
+                          <ControlTemplate TargetType="{x:Type GroupItem}">
+                            <Expander IsExpanded="{Binding Name, Converter={StaticResource CleanGroupExpanded}, Mode=OneWay}"
+                                      Background="Transparent" BorderThickness="0" Padding="0">
+                              <Expander.Header>
+                                <TextBlock FontSize="12" Foreground="{DynamicResource TextDim}" Margin="4,2"
+                                           Text="{Binding Converter={StaticResource CleanGroup}}"/>
+                              </Expander.Header>
+                              <ItemsPresenter/>
+                            </Expander>
+                          </ControlTemplate>
+                        </Setter.Value>
+                      </Setter>
+                    </Style>
+                  </GroupStyle.ContainerStyle>
+                </GroupStyle>
+              </DataGrid.GroupStyle>
               <DataGrid.Columns>
                 <DataGridCheckBoxColumn x:Name="ColPick" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="32">
                   <DataGridCheckBoxColumn.Header>

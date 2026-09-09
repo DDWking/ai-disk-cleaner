@@ -648,9 +648,15 @@ public static class Loc
     public static string RiskConfirm => IsEn ? "Check first" : "需确认";
     public static string RiskKeep => IsEn ? "Do not delete" : "别删";
     public static string NoteCache => IsEn ? "cache data" : "缓存数据";
-    public static string RiskSummary(int safe, int confirm) => IsEn
-        ? $"suggested to clean {safe} · needs your call {confirm}"
-        : $"建议清理 {safe} 项 · 需要你判断 {confirm} 项";
+    public static string CleanGroupSafe(int n, string size) => IsEn
+        ? $"Suggested to clean ({n:N0} · {size})"
+        : $"建议清理（{n:N0} 项 · {size}）";
+    public static string CleanGroupConfirm(int n, string size) => IsEn
+        ? $"Needs your review ({n:N0} · {size})"
+        : $"需要你确认（{n:N0} 项 · {size}）";
+    public static string CleanScopeTotal(int n, string size) => IsEn
+        ? $"{n:N0} items · {size}"
+        : $"共 {n:N0} 项 · {size}";
     public static string SelectedHint(int n, string size) => IsEn
         ? $"{n:N0} selected · about {size}"
         : $"已勾选 {n:N0} 项 · 可释放约 {size}";
