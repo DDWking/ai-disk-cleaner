@@ -548,7 +548,14 @@ public static class Loc
     public static string UninstallRunning => IsEn ? "Uninstalling…" : "正在卸载…";
     public static string UninstallDone => IsEn ? "Done" : "完成";
     public static string UninstallFailed => IsEn ? "Failed" : "失败";
+    public static string UninstallSkipped => IsEn ? "Skipped" : "跳过";
     public static string UninstallWaiting => IsEn ? "Waiting" : "等待";
+    public static string UninstallRetry => IsEn ? "Retry uninstall" : "重试卸载";
+    public static string UninstallOpenOfficial => IsEn ? "Open official uninstaller" : "打开官方卸载程序";
+    public static string UninstallResultSummary(int ok, int fail, int skip, string freed) =>
+        IsEn ? $"Uninstall finished: {ok} done, {fail} failed, {skip} skipped · freed ≈ {freed}"
+             : $"卸载完成：成功 {ok}，失败 {fail}，跳过 {skip} · 释放约 {freed}";
+    public static string UninstallResultPending => IsEn ? "Still left:" : "未完成：";
     public static string JunkScanning => IsEn ? "Scanning leftovers…" : "正在扫描残留…";
     public static string JunkNone => IsEn ? "No leftovers found." : "没有发现残留。";
     public static string JunkHint(int n, int safe) =>

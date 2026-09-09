@@ -1064,6 +1064,12 @@
                       ColumnWidth="*"
                       MouseLeftButtonUp="UninstallGrid_Click"
                       MouseDoubleClick="UninstallGrid_DoubleClick">
+              <DataGrid.ContextMenu>
+                <ContextMenu>
+                  <MenuItem x:Name="UninstallRetryItem" Header="重试卸载" Click="UninstallRetry_Click"/>
+                  <MenuItem x:Name="UninstallOpenOfficialItem" Header="打开官方卸载程序" Click="UninstallOpenOfficial_Click"/>
+                </ContextMenu>
+              </DataGrid.ContextMenu>
               <DataGrid.GroupStyle>
                 <GroupStyle>
                   <GroupStyle.ContainerStyle>

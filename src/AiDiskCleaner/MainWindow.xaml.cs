@@ -99,6 +99,7 @@ public partial class MainWindow : Window, IAnalystHost
     private bool _aiAppsBusy;
     private CancellationTokenSource? _aiAppsStop;
     private string _uninstallAnalysisNote = "";
+    private string _uninstallResultNote = "";
     private BulkUninstallTask? _handledUninstallTask;
     private int _appInventoryVersion;
     private List<JunkItem> _junk = new();
@@ -213,6 +214,8 @@ public partial class MainWindow : Window, IAnalystHost
         UninstallAiAnalyzeBtn.Content = Loc.AiAppsAnalyze;
         UninstallAiSelectBtn.Content = Loc.AiAppsSelect;
         ColAppRecommendation.Header = Loc.AppRecommendationHeader;
+        UninstallRetryItem.Header = Loc.UninstallRetry;
+        UninstallOpenOfficialItem.Header = Loc.UninstallOpenOfficial;
         UninstallSearchHint.Text = Loc.UninstallSearchHint;
         JunkSafeBtn.Content = Loc.JunkSafe;
         JunkDeleteBtn.Content = Loc.JunkDelete;
@@ -2132,6 +2135,21 @@ public partial class MainWindow : Window, IAnalystHost
         OpenFolder(app.InstallLocation);
     }
 
+    AppUninstallItem? SelectedApp() => UninstallGrid.SelectedItem as AppUninstallItem;
+
+    private void UninstallOpenOfficial_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedApp() is not { Entry: not null } app) return;
+        try { UninstallManager.RunUninstaller(app.Entry); }
+        catch (Exception ex) { ShowAlert(Loc.TabUninstall, ex.Message); }
+    }
+
+    private void UninstallRetry_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedApp() is not { } app || !app.CanUninstall) return;
+        RunUninstall(new List<AppUninstallItem> { app });
+    }
+
     private void JunkGrid_DoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (JunkGrid.SelectedItem is not JunkItem junk) return;
@@ -2205,6 +2223,7 @@ public partial class MainWindow : Window, IAnalystHost
             }
             _uninstallTask?.Dispose();
             _handledUninstallTask = null;
+            _uninstallResultNote = "";
             _uninstallTask = BcuUninstallService.StartUninstall(picked);
             UninstallProgressPanel.Visibility = Visibility.Visible;
             UninstallProgressBar.IsIndeterminate = true;
@@ -2234,7 +2253,7 @@ public partial class MainWindow : Window, IAnalystHost
                 UninstallStatus.Completed => Loc.UninstallDone,
                 UninstallStatus.Failed => Loc.UninstallFailed,
                 UninstallStatus.Protected => Loc.UninstallProtected,
-                UninstallStatus.Skipped => Loc.UninstallFailed,
+                UninstallStatus.Skipped => Loc.UninstallSkipped,
                 _ => app.Status,
             };
         }
@@ -2248,6 +2267,11 @@ public partial class MainWindow : Window, IAnalystHost
         UninstallRunBtn.IsEnabled = true;
         int ok = task.AllUninstallersList.Count(x => x.CurrentStatus == UninstallStatus.Completed);
         int fail = task.AllUninstallersList.Count(x => x.CurrentStatus == UninstallStatus.Failed);
+        int skip = task.AllUninstallersList.Count(x => x.CurrentStatus is UninstallStatus.Skipped or UninstallStatus.Protected);
+        long freed = _apps
+            .Where(x => x.Status == Loc.UninstallDone)
+            .Sum(x => x.ActualSizeBytes > 0 ? x.ActualSizeBytes : x.SizeBytes);
+        _uninstallResultNote = BuildUninstallResultNote(task, ok, fail, skip, freed);
         HeaderStats.Text = fail == 0 ? Loc.UninstallDone : $"{Loc.UninstallDone} {ok}, {Loc.UninstallFailed} {fail}";
         var finished = task.AllUninstallersList
             .Where(x => x.CurrentStatus == UninstallStatus.Completed && x.UninstallerEntry != null)
@@ -2259,6 +2283,21 @@ public partial class MainWindow : Window, IAnalystHost
             UninstallProgressPanel.Visibility = Visibility.Collapsed;
             _ = RefreshAppsOnlyAsync();
         }
+    }
+
+    static string BuildUninstallResultNote(BulkUninstallTask task, int ok, int fail, int skip, long freed)
+    {
+        string summary = Loc.UninstallResultSummary(ok, fail, skip, FileEntry.FormatSize(freed));
+        var pending = task.AllUninstallersList
+            .Where(x => x.CurrentStatus is UninstallStatus.Failed or UninstallStatus.Skipped or UninstallStatus.Protected)
+            .Select(x => (x.UninstallerEntry?.DisplayName ?? "?").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .Take(12)
+            .ToList();
+        if (pending.Count == 0) return summary;
+        return summary + Environment.NewLine + Loc.UninstallResultPending + " "
+            + string.Join("、", pending);
     }
 
     private async Task RefreshAppsOnlyAsync()
@@ -2371,6 +2410,8 @@ public partial class MainWindow : Window, IAnalystHost
         else UninstallSummary.Text = Loc.UninstallFiltered(n, _apps.Count);
         if (_apps.Count > 0 && !string.IsNullOrWhiteSpace(_uninstallAnalysisNote))
             UninstallSummary.Text += "  ·  " + _uninstallAnalysisNote;
+        if (!string.IsNullOrWhiteSpace(_uninstallResultNote))
+            UninstallSummary.Text += "\n" + _uninstallResultNote;
         UpdateUninstallSelHint();
     }
 
