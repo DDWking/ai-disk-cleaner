@@ -254,43 +254,51 @@ public static class Loc
         ? """
           You write one-line explanations for a disk cleaner read by people who know nothing about computers.
 
-          For each listed item:
-          1. START with the consequence of deleting it: "Safe to delete, it rebuilds itself" / "You'd have to download it again" / "You'd lose data".
-          2. Then say in everyday words what it is. No jargon.
-          3. BANNED words: command names (pip, npm, yarn), package/file formats (wheel, source package), and tech terms
-             (hash, response body, P2P, content-addressed, dependency, index, cache directory).
-          4. You MAY name well-known apps (WeChat, NetEase Cloud Music, Chrome, Steam) but say what they do.
-          5. Max 30 words. No semicolons stacking clauses. Never explain how it works.
-          6. Do NOT judge deletion risk. Do NOT output risk words (safe / confirm / keep / delete / 危险).
-             The app already rates risk by rules.
-          7. Only use paths from the list. Never invent paths. No preamble, no summary, no markdown.
+          For each listed item, say in everyday words WHAT IT IS: which app made it, what it is for.
+
+          Only add a consequence at the end when deleting would actually surprise the user
+          ("you'd have to download it again", "you'd have to reinstall", "you'd lose data").
+          Do NOT write "harmless to delete" / "it rebuilds itself" for ordinary caches and temp files —
+          the group header already says that, and repeating it on every row turns into noise.
+
+          BANNED words: command names (pip, npm, yarn), package/file formats (wheel, source package), and tech terms
+          (hash, response body, P2P, content-addressed, dependency, index, cache directory).
+          You MAY name well-known apps (WeChat, NetEase Cloud Music, Chrome, Steam) but say what they do.
+          Max 20 words. No semicolons stacking clauses. Never explain how it works.
+          Do NOT judge deletion risk. Do NOT output risk words (safe / confirm / keep / delete / 危险).
+          The app already rates risk by rules.
+          Only use paths from the list. Never invent paths. No preamble, no summary, no markdown.
 
           Reply with exactly one line per item:
           GOTO <full path><TAB><one-line explanation>
 
           Example:
-          GOTO C:\Users\me\AppData\Local\npm-cache	Safe to delete, it re-downloads next time. Leftover installer files from a developer tool you installed
-          GOTO C:\Users\me\.npm	You'd have to reinstall it, needs internet. This is the developer tool itself
+          GOTO C:\Users\me\AppData\Local\npm-cache	Leftover installer files from the developer tool you installed
+          GOTO C:\Users\me\.npm	The developer tool itself — deleting means downloading it again
+          GOTO C:\Users\me\Documents\WeChat Files	Your WeChat chat history and received files — deleting loses them
           """
         : """
           你是磁盘清理软件里给普通人看的「文件说明员」。读者完全不懂电脑。
 
-          对每个条目：
-          1. 开头先说「删了会怎样」，用「删了没事」/「删了要重新下载」/「删了会丢东西」这类说法。
-          2. 再用大白话说清这是什么，像当面跟不懂电脑的人讲话。
-          3. 禁止出现的词：命令行名（pip、npm、yarn）、格式名（wheel、源码包）、技术词（哈希、响应体、P2P、内容寻址、依赖、索引、缓存区）。
-          4. 可以提大众软件名（微信、网易云音乐、Chrome、Steam），但要顺带说清它是干嘛的。
-          5. 整句不超过 30 个字，不要用分号堆砌，不要解释原理。
-          6. 不要判断能不能删，不要输出风险词（safe / confirm / keep / 危险 / 可删 / 别删）——风险由软件按规则判定。
-          7. 只能使用清单里的路径，不要编造路径。不要开场白，不要总结，不要 markdown。
+          对每个条目，用一句大白话说清**这是什么**：哪个软件弄出来的、用来干嘛的。
+
+          **只有删掉之后后果会让人意外时**（要重新下载、要重新安装、会丢数据），才在句尾补一句后果。
+          普通的缓存和临时文件**不要**写「删了没事」「会自动重建」——分组标题已经说过一遍了，
+          每行都重复就变成噪音。
+
+          禁止出现的词：命令行名（pip、npm、yarn）、格式名（wheel、源码包）、技术词（哈希、响应体、P2P、内容寻址、依赖、索引、缓存区）。
+          可以提大众软件名（微信、网易云音乐、Chrome、Steam），但要顺带说清它是干嘛的。
+          整句不超过 25 个字，不要用分号堆砌，不要解释原理。
+          不要判断能不能删，不要输出风险词（safe / confirm / keep / 危险 / 可删 / 别删）——风险由软件按规则判定。
+          只能使用清单里的路径，不要编造路径。不要开场白，不要总结，不要 markdown。
 
           每个条目严格回复一行：
           GOTO <完整路径><TAB><一句中文说明>
 
           例：
-          GOTO C:\Users\me\AppData\Local\npm-cache	删了没事，下次装东西时自动重下。你装的开发工具留下的安装包备份
-          GOTO C:\Users\me\.npm	删了要重新装一遍，得联网。是你装的开发工具本体
-          GOTO C:\Users\me\Documents\WeChat Files	删了会丢东西，聊天记录都在这里
+          GOTO C:\Users\me\AppData\Local\npm-cache	你装的开发工具留下的安装包备份
+          GOTO C:\Users\me\.npm	开发工具装好的组件，删了要重新下载
+          GOTO C:\Users\me\Documents\WeChat Files	微信的聊天记录和收到的文件，删了会丢东西
           """;
     public static string AiCatEmpty => IsEn ? "Nothing to analyze in this category." : "这个分类没有可分析的条目。";
     /// <summary>右键「问 AI 这是什么」用的提示词：只解释，不判风险。</summary>
@@ -669,9 +677,10 @@ public static class Loc
     // ===== 风险三档 =====
 
     public static string NoteCache => IsEn ? "cache data" : "缓存数据";
+    /// <summary>安全组的默认后果写进标题，行里就不用每行重复「删了没事」了。</summary>
     public static string CleanGroupSafe(int n, string size) => IsEn
-        ? $"Suggested to clean ({n:N0} · {size})"
-        : $"建议清理（{n:N0} 项 · {size}）";
+        ? $"Suggested to clean · rebuilds itself ({n:N0} · {size})"
+        : $"建议清理 · 删了会自动重建（{n:N0} 项 · {size}）";
     public static string CleanGroupConfirm(int n, string size) => IsEn
         ? $"Needs your review ({n:N0} · {size})"
         : $"需要你确认（{n:N0} 项 · {size}）";
@@ -699,14 +708,14 @@ public static class Loc
     public static string ReasonTempDir => IsEn ? $"In a temp folder · {ReasonUnknown}" : $"在临时目录里 · {ReasonUnknown}";
     public static string ReasonTempExt => IsEn ? $"Temp / log leftover · {ReasonUnknown}" : $"临时或日志残留 · {ReasonUnknown}";
     public static string ReasonDump => IsEn
-        ? "Deleting is harmless · program crash log"
-        : "删了没事 · 程序崩溃时留下的记录文件";
+        ? "Leftover log from a program crash"
+        : "程序崩溃时留下的记录文件";
     public static string ReasonWinUpdate => IsEn
-        ? "Deleting is harmless · downloaded files for Windows updates; updates already installed are unaffected"
-        : "删了没事 · Windows 更新下载的临时文件，已经装好的更新不受影响";
+        ? "Temp files for Windows updates; updates already installed are unaffected"
+        : "Windows 更新下载的临时文件，已经装好的更新不受影响";
     public static string ReasonInstaller => IsEn
-        ? "Usually fine to delete · installer you downloaded, probably already used"
-        : "一般可以删 · 你下载的安装包，装完通常就没用了";
+        ? "Installer you downloaded, probably already used"
+        : "你下载的安装包，装完通常就没用了";
     public static string ReasonOldInstaller => IsEn
         ? $"Untouched for months · installer or disk image, {ReasonUnknown}"
         : $"很久没动过 · 安装包或镜像文件，{ReasonUnknown}";
@@ -714,25 +723,27 @@ public static class Loc
         ? "Careful · this is a virtual machine's disk, real data lives inside"
         : "要小心 · 这是虚拟机的磁盘，里面的数据是真的";
     public static string AskAiFolder => IsEn ? "Ask AI what this is" : "问 AI 这是什么";
-    public static string ReasonRecycle => IsEn ? "Deleting frees space permanently" : "清掉就真没了 · 已删除但还没清空的东西";
+    public static string ReasonRecycle => IsEn
+        ? "Things you deleted earlier — clearing these loses them for good"
+        : "你之前删掉的东西，清掉就真没了";
     public static string ReasonRecycleNamed(string name) => IsEn
-        ? $"Deleting frees space permanently · you deleted “{name}” earlier"
-        : $"清掉就真没了 · 你之前删掉的「{name}」";
+        ? $"“{name}”, which you deleted earlier — clearing it loses it for good"
+        : $"你之前删掉的「{name}」，清掉就真没了";
     public static string ReasonLarge => IsEn ? $"Large file · {ReasonUnknown}" : $"大文件 · {ReasonUnknown}";
     public static string ReasonOld(string age) => IsEn ? $"Untouched for {age} · {ReasonUnknown}" : $"已 {age} 未改 · {ReasonUnknown}";
-    public static string ReasonEmpty => IsEn ? "Deleting is harmless · folder has nothing in it" : "删了没事 · 里面什么都没有的空文件夹";
+    public static string ReasonEmpty => IsEn ? "Empty folder" : "里面什么都没有的空文件夹";
     public static string ReasonBroken(string target) =>
-        IsEn ? "Deleting is harmless · shortcut points at something that no longer exists: " + target
-             : "删了没事 · 快捷方式指向的东西已经不存在了：" + target;
+        IsEn ? "Shortcut points at something that no longer exists: " + target
+             : "快捷方式指向的东西已经不存在了：" + target;
     public static string ReasonLong(int n) => IsEn
         ? $"Path is {n} characters · some programs can't open it"
         : $"路径有 {n} 个字 · 有些程序打不开它";
     public static string ReasonDupKeep => IsEn
         ? "Keep this one · identical to another file, but has the shortest path"
-        : "留着这个 · 和另一个文件内容完全一样，这个路径最短";
+        : "和另一个文件内容完全一样，这个路径最短，留它";
     public static string ReasonDupExtra(string keep) =>
-        IsEn ? "Deleting is harmless · byte-for-byte identical to " + keep
-             : "删了没事 · 和这个文件内容一模一样：" + keep;
+        IsEn ? "Byte-for-byte identical to " + keep
+             : "和这个文件内容一模一样：" + keep;
     public static string ReasonGrew(string size) => IsEn ? "Grew " + size : "多了 " + size;
     public static string ReasonShrunk(string size) => IsEn ? "Shrank " + size : "少了 " + size;
     public static string ReasonGone => IsEn ? "Gone since last scan" : "上次有，这次没了";
