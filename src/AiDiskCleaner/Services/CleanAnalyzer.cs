@@ -128,7 +128,7 @@ public static class CleanAnalyzer
             else if (AppSignatures.IsSafeCache(path))
             {
                 // 认得出来的应用缓存（60+ 条签名，带 Safe 标记）
-                reason = AppSignatures.Describe(path) ?? Loc.ReasonTempDir;
+                reason = AppSignatures.PlainNote(path) ?? Loc.ReasonTempDir;
                 group = Loc.GroupTemp;
                 risk = CleanRisk.Safe;
             }
@@ -177,7 +177,7 @@ public static class CleanAnalyzer
             if (path.EndsWith(@"\windows\temp") || path.EndsWith(@"\appdata\local\temp")
                 || AppSignatures.IsSafeCache(path))
             {
-                report.Cleanable.Add(Item(d, AppSignatures.Describe(path) ?? Loc.ReasonTempDir, Loc.GroupTemp, selected: false));
+                report.Cleanable.Add(Item(d, AppSignatures.PlainNote(path) ?? Loc.ReasonTempDir, Loc.GroupTemp, selected: false));
             }
         }
 
@@ -390,10 +390,10 @@ public static class CleanAnalyzer
         string category = cls?.Key ?? "";
         string groupName = cls?.Name ?? group;
         var finalRisk = cls?.Risk ?? risk;
-        string note = cls?.Note ?? "";
-        string finalReason = string.IsNullOrEmpty(note) || reason.Contains(note, StringComparison.Ordinal)
-            ? reason
-            : reason + " · " + note;
+        string plain = cls?.Plain ?? "";
+        // 签名认出来了就用它那句大白话。别把调用方那句「大文件 · 看不出用途」
+        // 再拼上去——「看不出用途」和「删了没事」会自相矛盾。
+        string finalReason = string.IsNullOrEmpty(plain) ? reason : plain;
 
         return new CleanItem
         {
@@ -401,6 +401,7 @@ public static class CleanAnalyzer
             FullPath = e.FullPath,
             Size = e.Size,
             Reason = finalReason,
+            Tech = AppSignatures.Describe(e.FullPath) ?? "",
             Group = groupName,
             Category = category,
             Risk = finalRisk,

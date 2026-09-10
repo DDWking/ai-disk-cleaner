@@ -63,7 +63,7 @@ public static class DiskAnalyst
                     SigRisk.Bloat => "bloatware, suggest uninstall",
                     _ => "",
                 };
-                string extra = string.IsNullOrEmpty(sig.Note) ? "" : "  " + sig.Note;
+                string extra = string.IsNullOrEmpty(sig.Plain) ? "" : "  " + sig.Plain;
                 if (!string.IsNullOrEmpty(sig.Migrate)) extra += "  migrate:" + sig.Migrate;
                 lines.Add($"  {FileEntry.FormatSize(size)}  {sig.Name}  [{risk}]{extra}  {sample}");
             }

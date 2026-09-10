@@ -938,7 +938,7 @@
                     <Style TargetType="TextBlock">
                       <Setter Property="HorizontalAlignment" Value="Center"/>
                       <Setter Property="FontSize" Value="11"/>
-                      <Setter Property="ToolTip" Value="{Binding NoteText}"/>
+                      <Setter Property="ToolTip" Value="{Binding HintText}"/>
                       <Style.Triggers>
                         <DataTrigger Binding="{Binding Risk}" Value="Safe">
                           <Setter Property="Foreground" Value="#5FD68A"/>
@@ -975,7 +975,7 @@
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-                      <Setter Property="ToolTip" Value="{Binding NoteText}"/>
+                      <Setter Property="ToolTip" Value="{Binding HintText}"/>
                       <Style.Triggers>
                         <DataTrigger Binding="{Binding HasAiNote}" Value="True">
                           <Setter Property="Foreground" Value="#7FC7E8"/>

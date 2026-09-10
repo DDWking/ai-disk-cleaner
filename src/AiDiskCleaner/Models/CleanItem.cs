@@ -64,10 +64,16 @@ public sealed class CleanItem : INotifyPropertyChanged
         }
     }
 
-    /// <summary>表格「说明」列：优先 AI，否则规则原因。</summary>
+    /// <summary>表格「说明」列：优先 AI，否则规则原因。两者都该是大白话。</summary>
     public string NoteText => !string.IsNullOrWhiteSpace(_aiNote) ? _aiNote : Reason;
 
     public bool HasAiNote => !string.IsNullOrWhiteSpace(_aiNote);
+
+    /// <summary>技术细节（命中了哪条签名等）。术语都留在悬停里，不进表格。</summary>
+    public string Tech { get; set; } = "";
+
+    /// <summary>悬停提示：完整路径 + 技术细节。</summary>
+    public string HintText => string.IsNullOrEmpty(Tech) ? FullPath : FullPath + "\n" + Tech;
 
     public FileEntry? Entry { get; set; }
     public bool IsDirectory { get; set; }

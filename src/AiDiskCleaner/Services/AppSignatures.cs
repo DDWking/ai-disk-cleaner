@@ -4,13 +4,17 @@ namespace AiDiskCleaner.Services;
 
 public enum SigRisk { Safe, Cautious, Keep, Bloat }
 
+/// <summary>
+/// 一条路径签名。Name 是术语（pip / npm / WinSxS），只出现在悬停提示里；
+/// Plain 是给普通人看的大白话，开头先说「删了会怎样」。
+/// </summary>
 public sealed record AppSig(
     string Name,
     string Category,
     SigRisk Risk,
     string[] Needles,
     string[]? Subs = null,
-    string? Note = null,
+    string? Plain = null,
     string? Migrate = null);
 
 public readonly record struct AppHit(AppSig Sig, string Needle, bool SubHit);
@@ -22,71 +26,71 @@ public static class AppSignatures
 
     public static readonly AppSig[] All =
     {
-        new("npm", "dev", SigRisk.Safe, N(@"\npm-cache", @"\appdata\roaming\npm"), Note: "开发缓存 · 删了会自动重建", Migrate: "npm_config_cache"),
-        new("pip", "dev", SigRisk.Safe, N(@"\pip\cache", @"\appdata\local\pip"), Note: "开发缓存 · 删了会自动重建", Migrate: "PIP_CACHE_DIR"),
-        new("Yarn", "dev", SigRisk.Safe, N(@"\yarn\cache"), Note: "开发缓存 · 删了会自动重建"),
-        new("pnpm", "dev", SigRisk.Safe, N(@"\pnpm\store", @"\pnpm\content-v2"), Note: "开发缓存 · 删了会自动重建"),
-        new("NuGet", "dev", SigRisk.Cautious, N(@"\.nuget\packages", @"\nuget\v3-cache"), Note: "删了下次会重新下"),
-        new("Cargo", "dev", SigRisk.Safe, N(@"\.cargo\registry", @"\.cargo\git"), Note: "开发缓存 · 删了会自动重建"),
-        new("Maven", "dev", SigRisk.Cautious, N(@"\.m2\repository"), Note: "清了构建会重新下"),
-        new("Gradle", "dev", SigRisk.Safe, N(@"\.gradle\caches"), Note: "开发缓存 · 删了会自动重建"),
-        new("Go modules", "dev", SigRisk.Safe, N(@"\go\pkg\mod"), Note: "开发缓存 · 删了会自动重建"),
-        new("conda", "dev", SigRisk.Safe, N(@"\miniconda3\pkgs", @"\anaconda3\pkgs", @"\conda\pkgs")),
-        new("node_modules", "dev", SigRisk.Cautious, N(@"\node_modules"), Note: "依赖目录，确认项目不用再删"),
-        new("Python venv", "dev", SigRisk.Cautious, N(@"\.venv", @"\venv\")),
-        new("Android SDK", "dev", SigRisk.Keep, N(@"\android\sdk", @"\android-sdk"), Note: "SDK，别整夹删", Migrate: "ANDROID_HOME"),
-        new("VS Code 缓存", "ide", SigRisk.Safe, N(@"\appdata\roaming\code"), CacheSubs),
-        new("Cursor 缓存", "ide", SigRisk.Safe, N(@"\appdata\roaming\cursor", @"\appdata\local\cursor"), CacheSubs),
-        new("JetBrains", "ide", SigRisk.Cautious, N(@"\jetbrains"), Note: "旧版本缓存可清"),
-        new("Chrome 缓存", "browser", SigRisk.Safe, N(@"\google\chrome\user data"), BrowserSubs),
-        new("Edge 缓存", "browser", SigRisk.Safe, N(@"\microsoft\edge\user data"), BrowserSubs),
-        new("Firefox 缓存", "browser", SigRisk.Safe, N(@"\mozilla\firefox"), new[] { @"\cache2", @"\offlinecache" }),
-        new("微信", "im", SigRisk.Cautious, N(@"\wechat files", @"\tencent\xwechat"), new[] { @"\cache", @"\log", @"\filestorage\video", @"\filestorage\image" }, "只清缓存/日志，别动聊天记录"),
-        new("QQ", "im", SigRisk.Cautious, N(@"\tencent files", @"\tencent\qq"), Note: "只清缓存，别动聊天记录"),
-        new("钉钉", "im", SigRisk.Cautious, N(@"\dingtalk", @"\dinglive"), new[] { @"\cache", @"\log" }, "只清 cache/log"),
-        new("飞书", "im", SigRisk.Safe, N(@"\larkshell"), CacheSubs),
-        new("企业微信", "im", SigRisk.Cautious, N(@"\wxwork"), Note: "别动聊天记录"),
-        new("Discord", "im", SigRisk.Safe, N(@"\discord"), CacheSubs),
-        new("Teams", "im", SigRisk.Safe, N(@"\microsoft\teams"), CacheSubs),
-        new("Telegram", "im", SigRisk.Safe, N(@"\telegram desktop"), new[] { @"\cache" }),
-        new("WPS", "office", SigRisk.Cautious, N(@"\kingsoft\office6", @"\kingsoft\wps"), new[] { @"\cache", @"\log" }),
-        new("Office 文件缓存", "office", SigRisk.Safe, N(@"\microsoft\office\officefilecache")),
-        new("搜狗输入法", "ime", SigRisk.Cautious, N(@"\sogouinput", @"\sogoupy"), Note: "别动词库"),
-        new("火绒", "security", SigRisk.Keep, N(@"\huorong"), Note: "杀毒数据，别删"),
-        new("Windows Defender", "security", SigRisk.Cautious, N(@"\windows defender"), Note: "只清旧日志"),
-        new("360", "bloat", SigRisk.Bloat, N(@"\360\360safe", @"\360\360zip", @"\360se"), Note: "可考虑卸载"),
-        new("2345", "bloat", SigRisk.Bloat, N(@"\2345soft", @"\2345explorer"), Note: "建议卸载"),
-        new("驱动精灵", "bloat", SigRisk.Bloat, N(@"\mydrivers\drivergenius")),
-        new("快压", "bloat", SigRisk.Bloat, N(@"\kzip", @"\kuaizip")),
-        new("好压", "bloat", SigRisk.Bloat, N(@"\haozip")),
-        new("鲁大师", "bloat", SigRisk.Bloat, N(@"\ludashi")),
-        new("Docker", "vm", SigRisk.Cautious, N(@"\docker\wsl", @"\appdata\local\docker"), Note: "可 prune 或迁盘", Migrate: "Docker Desktop 磁盘位置"),
-        new("WSL", "vm", SigRisk.Keep, N(@"\lxss", @"\wsl\"), Note: "vhdx 发行版，迁走别删", Migrate: "wsl --export"),
-        new("VMware", "vm", SigRisk.Keep, N(@"\virtual machines", @"\vmware"), Migrate: "挪到大盘"),
-        new("VirtualBox", "vm", SigRisk.Keep, N(@"\virtualbox vms")),
-        new("Steam 下载缓存", "game", SigRisk.Safe, N(@"\steamapps\downloading")),
-        new("Steam 游戏库", "game", SigRisk.Keep, N(@"\steamapps\common", @"\steamlibrary"), Note: "游戏本体，可在 Steam 里迁库"),
-        new("Epic", "game", SigRisk.Cautious, N(@"\epic games", @"\epic\epicgameslauncher")),
-        new("网易云缓存", "media", SigRisk.Safe, N(@"\netease\cloudmusic"), new[] { @"\cache", @"\webdata" }),
-        new("QQ 音乐缓存", "media", SigRisk.Safe, N(@"\qqmusic"), new[] { @"\cache" }),
-        new("Spotify 缓存", "media", SigRisk.Safe, N(@"\spotify\data")),
-        new("百度网盘缓存", "cloud", SigRisk.Safe, N(@"\baidunetdisk"), CacheSubs),
-        new("OneDrive", "cloud", SigRisk.Cautious, N(@"\onedrive"), Note: "开按需同步可减占用"),
-        new("Ollama 模型", "ai", SigRisk.Cautious, N(@"\.ollama"), Note: "删了要重新下模型", Migrate: "OLLAMA_MODELS"),
-        new("Trae 缓存", "ai", SigRisk.Safe, N(@"\trae"), CacheSubs),
-        new("Qoder 缓存", "ai", SigRisk.Safe, N(@"\qoder"), CacheSubs),
-        new("WinSxS", "system", SigRisk.Keep, N(@"\winsxs"), Note: "别删"),
-        new("Windows 更新下载", "system", SigRisk.Safe, N(@"\windows\softwaredistribution\download")),
-        new("NVIDIA 驱动缓存", "system", SigRisk.Safe, N(@"\programdata\nvidia corporation\downloader", @"\programdata\nvidia corporation\nv_cache"), Note: "驱动下载缓存，可清"),
-        new("软件安装包缓存", "system", SigRisk.Cautious, N(@"\programdata\package cache"), Note: "安装器缓存，清了修复/卸载可能要重下"),
-        new("传递优化", "system", SigRisk.Safe, N(@"\deliveryoptimization")),
-        new("Windows 错误报告", "system", SigRisk.Safe, N(@"\windows\wer")),
-        new("缩略图缓存", "system", SigRisk.Safe, N(@"\microsoft\windows\explorer")),
-        new("用户临时目录", "system", SigRisk.Safe, N(@"\appdata\local\temp")),
-        new("Windows 临时目录", "system", SigRisk.Safe, N(@"\windows\temp")),
-        new("回收站", "system", SigRisk.Cautious, N(@"\$recycle.bin")),
-        new("休眠文件", "system", SigRisk.Keep, N(@"\hiberfil.sys"), Note: "关休眠才释放"),
-        new("页面文件", "system", SigRisk.Keep, N(@"\pagefile.sys"), Note: "可迁到别的盘，别直接删"),
+        new("npm", "dev", SigRisk.Safe, N(@"\npm-cache", @"\appdata\roaming\npm"), Plain: "删了没事，下次装东西时自动重下。你装的开发工具留下的安装包备份", Migrate: "npm_config_cache"),
+        new("pip", "dev", SigRisk.Safe, N(@"\pip\cache", @"\appdata\local\pip"), Plain: "删了没事，下次装东西时自动重下。你装的开发工具留下的安装包备份", Migrate: "PIP_CACHE_DIR"),
+        new("Yarn", "dev", SigRisk.Safe, N(@"\yarn\cache"), Plain: "删了没事，下次装东西时自动重下。你装的开发工具留下的安装包备份"),
+        new("pnpm", "dev", SigRisk.Safe, N(@"\pnpm\store", @"\pnpm\content-v2"), Plain: "删了没事，下次装东西时自动重下。你装的开发工具留下的安装包备份"),
+        new("NuGet", "dev", SigRisk.Cautious, N(@"\.nuget\packages", @"\nuget\v3-cache"), Plain: "删了没事，下次要用时自动重下。开发工具下载的组件备份"),
+        new("Cargo", "dev", SigRisk.Safe, N(@"\.cargo\registry", @"\.cargo\git"), Plain: "删了没事，下次要用时自动重下。开发工具下载的组件备份"),
+        new("Maven", "dev", SigRisk.Cautious, N(@"\.m2\repository"), Plain: "删了没事，下次构建时自动重下。开发工具下载的组件备份"),
+        new("Gradle", "dev", SigRisk.Safe, N(@"\.gradle\caches"), Plain: "删了没事，下次构建时自动重下。开发工具下载的组件备份"),
+        new("Go modules", "dev", SigRisk.Safe, N(@"\go\pkg\mod"), Plain: "删了没事，下次要用时自动重下。开发工具下载的组件备份"),
+        new("conda", "dev", SigRisk.Safe, N(@"\miniconda3\pkgs", @"\anaconda3\pkgs", @"\conda\pkgs"), Plain: "删了没事，下次装东西时自动重下。你装的开发工具留下的安装包备份"),
+        new("node_modules", "dev", SigRisk.Cautious, N(@"\node_modules"), Plain: "删了要重新装一遍，项目得联网。项目用的组件都堆在这儿"),
+        new("Python venv", "dev", SigRisk.Cautious, N(@"\.venv", @"\venv\"), Plain: "删了要重新装一遍，项目才跑得起来。项目独立的运行环境"),
+        new("Android SDK", "dev", SigRisk.Keep, N(@"\android\sdk", @"\android-sdk"), Plain: "别删。做安卓开发用的工具包，删了要重装好几个 G", Migrate: "ANDROID_HOME"),
+        new("VS Code 缓存", "ide", SigRisk.Safe, N(@"\appdata\roaming\code"), CacheSubs, Plain: "删了没事，会自动重建。编辑器下次打开会慢一点"),
+        new("Cursor 缓存", "ide", SigRisk.Safe, N(@"\appdata\roaming\cursor", @"\appdata\local\cursor"), CacheSubs, Plain: "删了没事，会自动重建。编辑器下次打开会慢一点"),
+        new("JetBrains", "ide", SigRisk.Cautious, N(@"\jetbrains"), Plain: "删了没事。开发工具旧版本留下的缓存"),
+        new("Chrome 缓存", "browser", SigRisk.Safe, N(@"\google\chrome\user data"), BrowserSubs, Plain: "删了没事，网页下次打开重新加载。收藏夹和密码不受影响"),
+        new("Edge 缓存", "browser", SigRisk.Safe, N(@"\microsoft\edge\user data"), BrowserSubs, Plain: "删了没事，网页下次打开重新加载。收藏夹和密码不受影响"),
+        new("Firefox 缓存", "browser", SigRisk.Safe, N(@"\mozilla\firefox"), new[] { @"\cache2", @"\offlinecache" }, Plain: "删了没事，网页下次打开重新加载。收藏夹和密码不受影响"),
+        new("微信", "im", SigRisk.Cautious, N(@"\wechat files", @"\tencent\xwechat"), new[] { @"\cache", @"\log", @"\filestorage\video", @"\filestorage\image" }, "文字聊天记录不受影响，但收到的图片视频要重新下载"),
+        new("QQ", "im", SigRisk.Cautious, N(@"\tencent files", @"\tencent\qq"), Plain: "文字聊天记录不受影响，缓存删了会自动重建"),
+        new("钉钉", "im", SigRisk.Cautious, N(@"\dingtalk", @"\dinglive"), new[] { @"\cache", @"\log" }, "删了没事，会自动重建。聊天记录不受影响"),
+        new("飞书", "im", SigRisk.Safe, N(@"\larkshell"), CacheSubs, Plain: "删了没事，会自动重建。聊天记录不受影响"),
+        new("企业微信", "im", SigRisk.Cautious, N(@"\wxwork"), Plain: "聊天的文字记录别动。这里主要是缓存和收到的文件"),
+        new("Discord", "im", SigRisk.Safe, N(@"\discord"), CacheSubs, Plain: "删了没事，会自动重建"),
+        new("Teams", "im", SigRisk.Safe, N(@"\microsoft\teams"), CacheSubs, Plain: "删了没事，会自动重建"),
+        new("Telegram", "im", SigRisk.Safe, N(@"\telegram desktop"), new[] { @"\cache" }, Plain: "删了没事，下次打开重新加载"),
+        new("WPS", "office", SigRisk.Cautious, N(@"\kingsoft\office6", @"\kingsoft\wps"), new[] { @"\cache", @"\log" }, "删了没事。你的文档本身不在里面"),
+        new("Office 文件缓存", "office", SigRisk.Safe, N(@"\microsoft\office\officefilecache"), Plain: "删了没事，会自动重建。你的文档不在里面"),
+        new("搜狗输入法", "ime", SigRisk.Cautious, N(@"\sogouinput", @"\sogoupy"), Plain: "别删词库。缓存清掉没事，但你攒的词要重来"),
+        new("火绒", "security", SigRisk.Keep, N(@"\huorong"), Plain: "别删。杀毒软件自己的数据，删了防护会出问题"),
+        new("Windows Defender", "security", SigRisk.Cautious, N(@"\windows defender"), Plain: "别动主程序。里面只有旧日志是可以清的"),
+        new("360", "bloat", SigRisk.Bloat, N(@"\360\360safe", @"\360\360zip", @"\360se"), Plain: "这类软件一般用不上，可以在「卸载」里把它卸掉"),
+        new("2345", "bloat", SigRisk.Bloat, N(@"\2345soft", @"\2345explorer"), Plain: "这类软件一般用不上，可以在「卸载」里把它卸掉"),
+        new("驱动精灵", "bloat", SigRisk.Bloat, N(@"\mydrivers\drivergenius"), Plain: "这类软件一般用不上，可以在「卸载」里把它卸掉"),
+        new("快压", "bloat", SigRisk.Bloat, N(@"\kzip", @"\kuaizip"), Plain: "这类软件一般用不上，可以在「卸载」里把它卸掉"),
+        new("好压", "bloat", SigRisk.Bloat, N(@"\haozip"), Plain: "这类软件一般用不上，可以在「卸载」里把它卸掉"),
+        new("鲁大师", "bloat", SigRisk.Bloat, N(@"\ludashi"), Plain: "这类软件一般用不上，可以在「卸载」里把它卸掉"),
+        new("Docker", "vm", SigRisk.Cautious, N(@"\docker\wsl", @"\appdata\local\docker"), Plain: "里面的东西是真的，删了会丢。建议搬到别的盘", Migrate: "Docker Desktop 磁盘位置"),
+        new("WSL", "vm", SigRisk.Keep, N(@"\lxss", @"\wsl\"), Plain: "别删。这是 Linux 子系统，你的文件都在里面", Migrate: "wsl --export"),
+        new("VMware", "vm", SigRisk.Keep, N(@"\virtual machines", @"\vmware"), Plain: "别删。虚拟机里的系统和文件是真的，建议搬到别的盘", Migrate: "挪到大盘"),
+        new("VirtualBox", "vm", SigRisk.Keep, N(@"\virtualbox vms"), Plain: "别删。虚拟机里的系统和文件是真的，建议搬到别的盘"),
+        new("Steam 下载缓存", "game", SigRisk.Safe, N(@"\steamapps\downloading"), Plain: "删了没事。只是正在下载的进度会重来"),
+        new("Steam 游戏库", "game", SigRisk.Keep, N(@"\steamapps\common", @"\steamlibrary"), Plain: "别直接删。这是游戏本体，删了要重新下载几十个 G"),
+        new("Epic", "game", SigRisk.Cautious, N(@"\epic games", @"\epic\epicgameslauncher"), Plain: "游戏本体相关，删了要重新下载。确认一下再动"),
+        new("网易云缓存", "media", SigRisk.Safe, N(@"\netease\cloudmusic"), new[] { @"\cache", @"\webdata" }, Plain: "删了没事，下次听会重新加载。你的歌单和下载的歌不受影响"),
+        new("QQ 音乐缓存", "media", SigRisk.Safe, N(@"\qqmusic"), new[] { @"\cache" }, Plain: "删了没事，下次听会重新加载。你下载的歌不受影响"),
+        new("Spotify 缓存", "media", SigRisk.Safe, N(@"\spotify\data"), Plain: "删了没事，下次听会重新加载"),
+        new("百度网盘缓存", "cloud", SigRisk.Safe, N(@"\baidunetdisk"), CacheSubs, Plain: "删了没事，会自动重建。你网盘里的文件不受影响"),
+        new("OneDrive", "cloud", SigRisk.Cautious, N(@"\onedrive"), Plain: "别直接删。打开「按需同步」就能省下空间"),
+        new("Ollama 模型", "ai", SigRisk.Cautious, N(@"\.ollama"), Plain: "删了要重新下载。这是本地 AI 用的模型文件，很大", Migrate: "OLLAMA_MODELS"),
+        new("Trae 缓存", "ai", SigRisk.Safe, N(@"\trae"), CacheSubs, Plain: "删了没事，会自动重建"),
+        new("Qoder 缓存", "ai", SigRisk.Safe, N(@"\qoder"), CacheSubs, Plain: "删了没事，会自动重建"),
+        new("WinSxS", "system", SigRisk.Keep, N(@"\winsxs"), Plain: "千万别删。这是 Windows 自己的组件库，删了系统会坏"),
+        new("Windows 更新下载", "system", SigRisk.Safe, N(@"\windows\softwaredistribution\download"), Plain: "删了没事。已经装好的更新不受影响"),
+        new("NVIDIA 驱动缓存", "system", SigRisk.Safe, N(@"\programdata\nvidia corporation\downloader", @"\programdata\nvidia corporation\nv_cache"), Plain: "删了没事。显卡驱动的安装包，下次装驱动会重新下"),
+        new("软件安装包缓存", "system", SigRisk.Cautious, N(@"\programdata\package cache"), Plain: "删了没事，但以后修复或卸载软件可能要重新下载安装包"),
+        new("传递优化", "system", SigRisk.Safe, N(@"\deliveryoptimization"), Plain: "删了没事，会自动重建。Windows 更新用的中转文件"),
+        new("Windows 错误报告", "system", SigRisk.Safe, N(@"\windows\wer"), Plain: "删了没事。程序报错时留下的记录，基本没人看"),
+        new("缩略图缓存", "system", SigRisk.Safe, N(@"\microsoft\windows\explorer"), Plain: "删了没事。看图片时会重新生成缩略图"),
+        new("用户临时目录", "system", SigRisk.Safe, N(@"\appdata\local\temp"), Plain: "删了没事。程序运行时的临时文件，正在用的可能删不掉"),
+        new("Windows 临时目录", "system", SigRisk.Safe, N(@"\windows\temp"), Plain: "删了没事。程序运行时的临时文件，正在用的可能删不掉"),
+        new("回收站", "system", SigRisk.Cautious, N(@"\$recycle.bin"), Plain: "清掉就真没了。这是你还留在回收站里的东西"),
+        new("休眠文件", "system", SigRisk.Keep, N(@"\hiberfil.sys"), Plain: "和休眠功能绑在一起。关掉休眠才会释放这块空间"),
+        new("页面文件", "system", SigRisk.Keep, N(@"\pagefile.sys"), Plain: "别直接删，这是虚拟内存。可以搬到别的盘"),
     };
 
     static string[] N(params string[] x) => x;
@@ -110,6 +114,7 @@ public static class AppSignatures
         return best;
     }
 
+    /// <summary>悬停提示用的技术细节：命中哪条签名、风险词、能不能搬盘。术语都留在这里。</summary>
     public static string? Describe(string? path)
     {
         var hit = Match(path);
@@ -117,11 +122,13 @@ public static class AppSignatures
         var s = hit.Value.Sig;
         var bits = new List<string> { s.Name, RiskWord(s.Risk) };
         if (hit.Value.SubHit) bits.Add("cache");
-        if (!string.IsNullOrEmpty(s.Note)) bits.Add(s.Note);
         if (!string.IsNullOrEmpty(s.Migrate) && s.Risk is SigRisk.Cautious or SigRisk.Keep)
-            bits.Add("migrate: " + s.Migrate);
+            bits.Add("可以搬到别的盘：" + s.Migrate);
         return string.Join(" · ", bits);
     }
+
+    /// <summary>给普通人看的大白话说明（删了会怎样）。没命中签名就返回 null。</summary>
+    public static string? PlainNote(string? path) => Match(path)?.Sig.Plain;
 
     public static bool IsSafeCache(string? path)
     {
@@ -161,18 +168,18 @@ public static class AppSignatures
     };
 
     /// <summary>
-    /// 按路径识别用途分类、风险、一句说明。认不出来返回 null，由调用方兜底。
+    /// 按路径识别用途分类、风险、一句大白话说明。认不出来返回 null，由调用方兜底。
     /// </summary>
-    public static (string Key, string Name, CleanRisk Risk, string Note)? Classify(string? path)
+    public static (string Key, string Name, CleanRisk Risk, string Plain)? Classify(string? path)
     {
         var hit = Match(path);
         if (hit == null) return null;
         var s = hit.Value.Sig;
         string key = (s.Category ?? "").Trim().ToLowerInvariant();
         var risk = ToCleanRisk(s.Risk);
-        string note = s.Note ?? "";
-        if (string.IsNullOrEmpty(note) && hit.Value.SubHit) note = Loc.NoteCache;
-        return (key, CategoryName(key), risk, note);
+        string plain = s.Plain ?? "";
+        if (string.IsNullOrEmpty(plain) && hit.Value.SubHit) plain = Loc.NoteCache;
+        return (key, CategoryName(key), risk, plain);
     }
 
     public static IEnumerable<(AppSig Sig, string Sample, long Size)> HitsIn(IEnumerable<Models.FileEntry> dirs)
