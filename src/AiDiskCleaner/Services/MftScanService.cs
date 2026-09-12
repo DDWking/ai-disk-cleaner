@@ -11,22 +11,39 @@ namespace AiDiskCleaner.Services;
 /// <summary>
 /// 路线 A：直接读取 NTFS 的 MFT（主文件表），实现秒级扫盘，与 WizTree 同款技术。
 /// 优先直接读 $MFT 文件（走文件系统缓存 + 预读，最快）；失败则回退读卷偏移。
-/// 需要管理员权限；仅支持 NTFS。各阶段耗时实时写入 D:\ssssswiztree\scan-timing.log。
+/// 需要管理员权限；仅支持 NTFS。各阶段耗时实时写入用户本地应用数据目录。
 /// </summary>
 public sealed class MftScanService : IScanService
 {
     private const int BlockSize = 16 * 1024 * 1024; // 每次顺序读 16MB
     private const ulong RootRecordNumber = 5;       // NTFS 根目录（$Root）的记录号
-    private const string LogPath = @"D:\ssssswiztree\scan-timing.log";
+
+    /// <summary>最近一次扫描的质量报告：完整度、解析失败、孤儿记录、硬链接、耗时。</summary>
+    public ScanQuality? LastQuality { get; private set; }
+
+    /// <summary>
+    /// 最近一次扫描的内存估算。用来**先量再改** ——
+    /// 没有这组数字就不该去动 MFT 解析器。
+    /// </summary>
+    public static string LastMemoryReport { get; private set; } = "";
 
     public FileEntry Scan(string rootPath, IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
     {
         var total = Stopwatch.StartNew();
         var log = new StringBuilder();
+        var quality = new ScanQuality { Source = ScanSource.Mft };
+        int parseFailures = 0;
+        int orphanRecords = 0;
+
         void Flush(string msg)
         {
             log.AppendLine(msg);
-            try { File.WriteAllText(LogPath, log.ToString()); } catch { }
+            try
+            {
+                AppLog.EnsureDirectory();
+                File.WriteAllText(AppLog.ScanTimingPath, log.ToString());
+            }
+            catch { }
         }
 
         string devicePath = @"\\.\" + rootPath.TrimEnd('\\');            // \\.\C:
@@ -134,7 +151,8 @@ public sealed class MftScanService : IScanService
             while (pos + recordSize <= bytesRead)
             {
                 EnsureRecord(recordNumber);
-                var entry = ParseRecord(buffer, pos, recordSize, recordNumber, out ulong parentRef, out ulong baseRef, nameLinks);
+                var entry = ParseRecord(buffer, pos, recordSize, recordNumber, out ulong parentRef, out ulong baseRef, nameLinks, out bool parseError);
+                if (parseError) parseFailures++;
                 if (entry != null)
                 {
                     entries[recordNumber] = entry;
@@ -279,11 +297,17 @@ public sealed class MftScanService : IScanService
             var entry = entries[rec];
             if (entry == null || rec == RootRecordNumber) continue;
             ulong parentRec = parents[rec];
-            if (parentRec == rec) continue;
+            if (parentRec == rec) { orphanRecords++; continue; }
             if (parentRec == RootRecordNumber)
                 root.Children.Add(entry);
             else if (parentRec < (ulong)recordCount && entries[parentRec] is { Kind: EntryKind.Directory } parent)
                 parent.Children.Add(entry);
+            else
+            {
+                // 父目录记录缺失（被删/损坏）：这条记录挂不上去，如实计数而不是静默丢掉
+                orphanRecords++;
+                continue;
+            }
             placed[rec] = true;
         }
 
@@ -318,7 +342,84 @@ public sealed class MftScanService : IScanService
         total.Stop();
         Flush($"MFT 扫描总耗时 {total.ElapsedMilliseconds}ms ({total.Elapsed.TotalSeconds:0.00}s), 文件/目录数 {fileCount:N0}");
 
+        // ---- 扫描质量报告 ----
+        int dirsRead = 0, filesRead = 0, reparse = 0;
+        var stack = new Stack<FileEntry>();
+        var visited = new HashSet<FileEntry>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var n = stack.Pop();
+            foreach (var c in n.ChildList)
+            {
+                if (c.IsReparsePoint) reparse++;
+                if (c.IsDirectory)
+                {
+                    dirsRead++;
+                    if (visited.Add(c)) stack.Push(c);
+                }
+                else filesRead++;
+            }
+        }
+        quality.FilesRead = filesRead;
+        quality.DirsRead = dirsRead;
+        quality.HardLinks = extraLinks;
+        quality.ReparsePoints = reparse;
+        quality.UnparsedRecords = parseFailures;
+        quality.OrphanRecords = orphanRecords;
+        quality.DurationMs = total.ElapsedMilliseconds;
+        quality.Canceled = ct.IsCancellationRequested;
+        quality.Complete = parseFailures == 0 && orphanRecords == 0 && !quality.Canceled;
+        if (parseFailures > 0) quality.Note = $"有 {parseFailures:N0} 条 MFT 记录解析失败";
+        if (orphanRecords > 0)
+            quality.Note = (quality.Note.Length > 0 ? quality.Note + "；" : "") + $"{orphanRecords:N0} 条记录找不到父目录";
+        LastQuality = quality;
+        Flush($"质量: 解析失败 {parseFailures:N0}, 孤儿 {orphanRecords:N0}, 硬链接 {extraLinks:N0}, 重解析点 {reparse:N0}, 完整={quality.Complete}");
+
+        // ---- 内存统计：先量再改 ----
+        LastMemoryReport = MeasureMemory(entries, parents, bases, nameLinks, fileCount, recordCount);
+        Flush(LastMemoryReport);
+        AppLog.Info("Scan", LastMemoryReport);
+
         return root;
+    }
+
+    /// <summary>
+    /// 估算这次扫描占了多少内存。抽样统计 FileEntry 自己的字段（抽样是为了别为了量内存再跑一遍全表）。
+    /// 结论通常很直接：**FullPath 字符串是大头**，entries 数组和 nameLinks 反而是小头。
+    /// </summary>
+    private static string MeasureMemory(
+        FileEntry?[] entries, ulong[] parents, ulong[] bases,
+        List<FileNameLink> nameLinks, int fileCount, int recordCount)
+    {
+        long managed = GC.GetTotalMemory(false);
+
+        // 抽样：每 512 条取一条，估算平均值再乘回去
+        const int step = 512;
+        long sampled = 0;
+        int sampledCount = 0;
+        long pathChars = 0;
+        for (int i = 0; i < entries.Length; i += step)
+        {
+            var e = entries[i];
+            if (e == null) continue;
+            sampled += e.EstimatedBytes;
+            pathChars += e.FullPath?.Length ?? 0;
+            sampledCount++;
+        }
+        long avgEntry = sampledCount > 0 ? sampled / sampledCount : 0;
+        long avgPathChars = sampledCount > 0 ? pathChars / sampledCount : 0;
+        long entryBytes = avgEntry * fileCount;
+
+        long arrayBytes = (long)entries.Length * IntPtr.Size
+                          + (long)parents.Length * 8 + (long)bases.Length * 8;
+        long linkBytes = (long)nameLinks.Count * 64;
+
+        return "内存: 托管堆 " + managed / 1048576 + "MB"
+             + " | 已用记录 " + fileCount.ToString("N0") + "/" + recordCount.ToString("N0")
+             + " | 对象估算 " + entryBytes / 1048576 + "MB (均 " + avgEntry + "B/条, 路径均 " + avgPathChars + " 字符)"
+             + " | entries+parents+bases 数组 " + arrayBytes / 1048576 + "MB"
+             + " | nameLinks " + nameLinks.Count.ToString("N0") + " 条约 " + linkBytes / 1048576 + "MB";
     }
 
     // NTFS 固定记录：0–11。12 以后是普通文件。
@@ -340,10 +441,11 @@ public sealed class MftScanService : IScanService
         public DateTime Modified;
     }
 
-    private static FileEntry? ParseRecord(byte[] b, int offset, int recordSize, ulong recordNumber, out ulong parentRef, out ulong baseRef, List<FileNameLink> names)
+    private static FileEntry? ParseRecord(byte[] b, int offset, int recordSize, ulong recordNumber, out ulong parentRef, out ulong baseRef, List<FileNameLink> names, out bool parseError)
     {
         parentRef = 0;
         baseRef = 0;
+        parseError = false;
         try
         {
             if (offset + 4 > b.Length || offset + recordSize > b.Length) return null;
@@ -474,6 +576,7 @@ public sealed class MftScanService : IScanService
 
             bool hidden = (fileAttrs & 0x2) != 0;
             bool system = (fileAttrs & 0x4) != 0 || name.StartsWith('$');
+            bool reparse = (fileAttrs & 0x400) != 0; // FILE_ATTRIBUTE_REPARSE_POINT
             if (allocated <= 0) allocated = size;
             return new FileEntry
             {
@@ -485,12 +588,14 @@ public sealed class MftScanService : IScanService
                 Kind = isDirectory ? EntryKind.Directory : EntryKind.File,
                 IsHidden = hidden,
                 IsSystem = system,
+                IsReparsePoint = reparse,
             };
         }
         catch
         {
             parentRef = 0;
             baseRef = 0;
+            parseError = true;
             return null;
         }
     }
@@ -736,7 +841,7 @@ public sealed class MftScanService : IScanService
     /// <summary>根下散文件收成一组，和 WizTree「N 文件在 C:\」一样，不跟文件夹混排。</summary>
     private static void GroupLooseFiles(FileEntry root)
     {
-        var files = root.Children.Where(c => !c.IsDirectory).ToList();
+        var files = root.ChildList.Where(c => !c.IsDirectory).ToList();
         if (files.Count == 0) return;
         root.Children.RemoveAll(c => !c.IsDirectory);
         var group = new FileEntry
@@ -745,8 +850,8 @@ public sealed class MftScanService : IScanService
             Kind = EntryKind.Directory,
             IsFilesGroup = true,
             IsHidden = true,
-            Children = files,
         };
+        group.Children.AddRange(files);
         root.Children.Add(group);
     }
 
@@ -762,7 +867,7 @@ public sealed class MftScanService : IScanService
             var node = stack.Pop();
             if (!visited.Add(node)) continue; // 环，跳过
             order.Add(node);
-            foreach (var c in node.Children)
+            foreach (var c in node.ChildList)
             {
                 c.Parent = node;
                 c.FullPath = node.FullPath.TrimEnd('\\') + "\\" + c.Name;
@@ -776,7 +881,7 @@ public sealed class MftScanService : IScanService
             long total = 0;
             long allocated = 0;
             int files = 0, folders = 0;
-            foreach (var c in node.Children)
+            foreach (var c in node.ChildList)
             {
                 total += c.Size;
                 allocated += c.Allocated;

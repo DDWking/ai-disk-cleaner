@@ -20,6 +20,8 @@ public sealed class ThemePalette
     public required Color Placeholder { get; init; }
     public required Color Overlay { get; init; }
     public required string Font { get; init; }
+    /// <summary>等宽字体：只用于路径与技术信息，正文不用它。</summary>
+    public required string MonoFont { get; init; }
 }
 
 public static class ThemeService
@@ -40,7 +42,9 @@ public static class ThemeService
         CloseHoverBg = C(0x4A, 0x00, 0x00),
         Placeholder = C(0x5A, 0x5A, 0x5A),
         Overlay = Color.FromArgb(0xD0, 0x00, 0x00, 0x00),
-        Font = "Cascadia Mono, Consolas, Courier New",
+        // 正文用正常可读的界面字体（中文优先微软雅黑）；等宽只留给路径/技术信息。
+        Font = "Microsoft YaHei UI, Segoe UI, Microsoft YaHei, sans-serif",
+        MonoFont = "Cascadia Mono, Consolas, Courier New",
     };
 
     public static ThemePalette Current { get; private set; } = Mono;
@@ -66,8 +70,17 @@ public static class ThemeService
         Set(app, "Placeholder", p.Placeholder);
         Set(app, "Overlay", p.Overlay);
         app.Resources["AppFont"] = new FontFamily(p.Font);
+        app.Resources["MonoFont"] = new FontFamily(p.MonoFont);
         Set(app, "RowAlt", Darken(p.PanelRight, 8));
         Set(app, "GridLine", Lighten(p.PanelRight, 18));
+
+        // 风险分区的独立视觉区域。刻意克制：不铺大面积刺眼色，
+        // 只用左侧色带 + 略微不同的背景层级 + 文字/图标共同表达（不单靠颜色）。
+        Set(app, "SectionSafeAccent", C(0x3E, 0x9E, 0x7A));       // 绿松石
+        Set(app, "SectionConfirmAccent", C(0xC2, 0x7B, 0x2E));    // 暗橙
+        Set(app, "SectionSafeSurface", Lighten(p.Bg, 6));
+        Set(app, "SectionConfirmSurface", Lighten(p.Bg, 3));
+        Set(app, "SidebarScrim", C(0x00, 0x00, 0x00));
     }
 
     public static SolidColorBrush Brush(string key)

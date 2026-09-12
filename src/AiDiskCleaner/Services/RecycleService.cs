@@ -4,30 +4,17 @@ using AiDiskCleaner.Native;
 
 namespace AiDiskCleaner.Services;
 
+/// <summary>
+/// 回收站操作。清单侧的「受保护」判定已挪到 <see cref="ProtectedPaths"/>（老口径原样保留），
+/// 删除时的完整预检在 <see cref="DeletionPreflight"/> / <see cref="DeletionExecutor"/>。
+/// </summary>
 public static class RecycleService
 {
-    private static readonly string[] ProtectedNames =
-    {
-        "windows", "system32", "syswow64", "system volume information",
-        "$mft", "$logfile", "$volume", "$attrdef", "$bitmap", "$boot",
-        "$badclus", "$secure", "$upcase", "$extend", "pagefile.sys",
-        "hiberfil.sys", "swapfile.sys", "bootmgr",
-    };
-
-    public static bool IsProtected(FileEntry e)
-    {
-        if (e.IsFilesGroup) return true;
-        if (e.Parent == null) return true; // 盘符根
-        string name = e.Name.TrimEnd('\\');
-        if (ProtectedNames.Contains(name, StringComparer.OrdinalIgnoreCase)) return true;
-        string path = (e.FullPath ?? "").Replace('/', '\\');
-        var parts = path.Split('\\', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 2 && parts[1].Equals("Windows", StringComparison.OrdinalIgnoreCase)
-            && parts.Length <= 3)
-            return true;
-        if (name.StartsWith('$') && e.Parent?.Parent == null) return true;
-        return false;
-    }
+    /// <summary>
+    /// 清理列表口径的保护判定。行为与历史版本一致 —— CleanAnalyzer 的 CanDelete
+    /// 与默认勾选策略都依赖它，不要在这里加严，加严会让老用户看到的面板变小。
+    /// </summary>
+    public static bool IsProtected(FileEntry? e) => ProtectedPaths.IsProtectedEntry(e);
 
     public static void SendToRecycle(string path)
     {
@@ -53,7 +40,7 @@ public static class RecycleService
             };
             int rc = ShellNative.SHFileOperation(ref op);
             if (rc != 0 || op.fAnyOperationsAborted)
-                throw new IOException("SHFileOperation " + rc);
+                throw new IOException("SHFileOperation " + rc) { HResult = rc };
         }
     }
 }

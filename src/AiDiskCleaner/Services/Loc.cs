@@ -16,6 +16,7 @@ public static class Loc
     public static string Stop => IsEn ? "Stop" : "停止";
     public static string Settings => IsEn ? "Settings" : "设置";
     public static string About => IsEn ? "About" : "关于";
+    public static string AboutDashaoHuo => IsEn ? "About Dashao Huo" : "关于大扫货";
     public static string Ready => IsEn ? "Ready" : "就绪";
     public static string Scanning => IsEn ? "Scanning" : "扫描中";
     public static string Preparing => IsEn ? "Preparing…" : "准备中…";
@@ -24,7 +25,6 @@ public static class Loc
     public static string Path => IsEn ? "Path" : "路径";
     public static string Pct => IsEn ? "Share" : "占比";
     public static string Size => IsEn ? "Size" : "大小";
-    public static string ExtType => IsEn ? "Extension / Type" : "扩展名 / 类型";
     public static string Ext => IsEn ? "Ext" : "扩展名";
     public static string Type => IsEn ? "Type" : "类型";
     public static string Files(int n) => IsEn ? $"{n:N0} files" : $"{n:N0} 个文件";
@@ -43,8 +43,63 @@ public static class Loc
         IsEn ? $"{pct}%  {stage}  {files:N0} files" : $"{pct}%  {stage}  {files:N0} 个文件";
     public static string ProgressIndeterminate(string stage, int files) =>
         IsEn ? $"{stage}  {files:N0} files" : $"{stage}  {files:N0} 个文件";
+    /// <summary>分析阶段：第几步 / 共几步 + 当前动作。</summary>
+    public static string AnalyzeStep(int step, int total, string action) =>
+        IsEn ? $"Analyze {step}/{total}  {action}" : $"分析 {step}/{total}  {action}";
+    public static string FilterAll => IsEn ? "whole disk" : "全盘";
     public static string MftFail => IsEn ? "MFT failed, falling back" : "MFT 失败，改用递归扫描";
+    public static string MftFallbackStarting(string reason) => IsEn
+        ? $"MFT unavailable ({reason}); using compatibility scan…"
+        : $"高速 MFT 扫描不可用（{reason}），正在使用兼容递归扫描…";
+    public static string ScanFallbackProgress(int pct, string stage, int files, string reason) => IsEn
+        ? $"Compatibility scan · {stage} · {files:N0} files · MFT: {reason}"
+        : $"兼容递归扫描 · {stage} · {files:N0} 个文件 · MFT 原因：{reason}";
+    public static string ScanMftFinished(int files) => IsEn
+        ? $"MFT scan complete · {files:N0} files"
+        : $"高速 MFT 扫描完成 · {files:N0} 个文件";
+    public static string ScanFallbackFinished(int files, string reason) => IsEn
+        ? $"Compatibility scan complete · {files:N0} files · MFT: {reason}"
+        : $"兼容递归扫描完成 · {files:N0} 个文件 · MFT 原因：{reason}";
     public static string Aborted => IsEn ? "Stopped" : "已停止";
+
+    // ---- 扫描质量报告：不让用户把「跳了一堆目录」当成完整扫描 ----
+    public static string ScanSourceMft => IsEn ? "fast MFT scan" : "高速 MFT 扫描";
+    public static string ScanSourceRecursive => IsEn ? "compatibility scan" : "兼容递归扫描";
+    public static string ScanSourceUnknown => IsEn ? "unknown" : "未知";
+    public static string ScanQualityComplete => IsEn ? "complete" : "完整";
+    public static string ScanQualityPartial => IsEn ? "INCOMPLETE" : "不完整";
+    public static string ScanQualityCanceled => IsEn ? "stopped early" : "中途停止";
+
+    /// <summary>一行摘要：来源 · 完整度 · 数量 · 耗时。</summary>
+    public static string ScanQualitySummary(string source, string completeness, int files, int dirs, double seconds)
+        => IsEn
+            ? $"Scan source: {source} · {completeness} · {files:N0} files / {dirs:N0} folders · {seconds:0.0}s"
+            : $"扫描来源：{source} · {completeness} · {files:N0} 个文件 / {dirs:N0} 个文件夹 · 耗时 {seconds:0.0} 秒";
+
+    /// <summary>不完整时补一行明细，说清「哪里没扫到」。</summary>
+    public static string ScanQualityProblems(int skippedDirs, int perm, int pathErrors, int read, int reparse)
+    {
+        var bits = new List<string>();
+        if (skippedDirs > 0) bits.Add(IsEn ? $"{skippedDirs:N0} folders skipped" : $"跳过 {skippedDirs:N0} 个目录");
+        if (perm > 0) bits.Add(IsEn ? $"{perm:N0} permission errors" : $"{perm:N0} 个权限不足");
+        if (pathErrors > 0) bits.Add(IsEn ? $"{pathErrors:N0} path errors" : $"{pathErrors:N0} 个路径问题");
+        if (read > 0) bits.Add(IsEn ? $"{read:N0} read failures" : $"{read:N0} 个读取失败");
+        if (reparse > 0) bits.Add(IsEn ? $"{reparse:N0} links skipped" : $"{reparse:N0} 个链接未跟随");
+        if (bits.Count == 0) return "";
+        string head = IsEn ? "Not everything was scanned: " : "有内容没扫到：";
+        return head + string.Join(IsEn ? ", " : "、", bits);
+    }
+
+    /// <summary>MFT 记录级的问题（解析失败 / 孤儿记录 / 硬链接）。</summary>
+    public static string ScanQualityRecords(int unparsed, int orphan, int hardLinks)
+    {
+        var bits = new List<string>();
+        if (unparsed > 0) bits.Add(IsEn ? $"{unparsed:N0} unparsable records" : $"{unparsed:N0} 条记录读不出来");
+        if (orphan > 0) bits.Add(IsEn ? $"{orphan:N0} orphan records" : $"{orphan:N0} 条找不到父目录");
+        if (hardLinks > 0) bits.Add(IsEn ? $"{hardLinks:N0} hard links" : $"{hardLinks:N0} 个硬链接");
+        return bits.Count == 0 ? "" : string.Join(IsEn ? ", " : "、", bits);
+    }
+
     public static string ScanFailed => IsEn ? "Scan failed" : "扫描失败";
     public static string ScanFailedMsg(string msg) => IsEn ? "Scan failed: " + msg : "扫描失败：" + msg;
     public static string AnalyzeAfterScan => IsEn ? "Scan to analyze" : "扫描后分析";
@@ -53,6 +108,18 @@ public static class Loc
         IsEn ? $"Hint: {count} temp/log files, about {size}"
              : $"建议：{count} 个临时/日志文件，约 {size}";
     public static string Language => IsEn ? "Language" : "语言";
+    // ---- 诊断导出 ----
+    public static string DiagExport => IsEn ? "Export diagnostics" : "导出诊断信息";
+    public static string DiagHint => IsEn
+        ? "Writes a redacted log bundle. No API key, no unredacted paths."
+        : "导出一份脱敏后的日志包，不含 API 密钥，也不含未脱敏的路径。";
+    public static string DiagExportTitle => IsEn ? "Diagnostics" : "诊断信息";
+    public static string DiagExportOk(string path) => IsEn
+        ? "Saved to:\n" + path
+        : "已保存到：\n" + path;
+    public static string DiagExportFail => IsEn
+        ? "Could not write the diagnostics file."
+        : "诊断文件写不出来。";
     public static string AiSection => IsEn ? "Providers" : "提供方";
     public static string AiSectionHint => IsEn
         ? "Add providers, then pick a model in the chat pane."
@@ -69,6 +136,20 @@ public static class Loc
     public static string AiProtocolTitle => IsEn ? "API protocol" : "API 协议";
     public static string AiModel => IsEn ? "Model catalog" : "模型目录";
     public static string AiApiKey => IsEn ? "API key" : "API 密钥";
+    public static string AiKeyStoreHint => IsEn
+        ? "Encrypted with Windows DPAPI and kept out of settings.json. Never written to logs."
+        : "用 Windows 加密保存，不写进 settings.json，也不会进日志。";
+    public static string AiKeyClear => IsEn ? "Clear key" : "清除密钥";
+    public static string AiKeyCleared => IsEn ? "Stored API key cleared." : "已清除保存的 API 密钥。";
+    public static string AiKeyUnavailable => IsEn
+        ? "Windows encryption is unavailable; the key will only last this session."
+        : "系统加密不可用，密钥只在本次运行期间有效。";
+    public static string AiKeyStored => IsEn ? "Saved (encrypted)" : "已加密保存";
+    public static string AiKeyMissing => IsEn ? "Not saved" : "未保存";
+    public static string AiSendFullPaths => IsEn ? "Send full local paths to the AI" : "把完整本地路径发给 AI";
+    public static string AiSendFullPathsHint => IsEn
+        ? "Off by default: paths go out as <UserProfile>\\AppData\\... so usernames stay local."
+        : "默认关闭：路径会以 <UserProfile>\\AppData\\… 的形式发出，用户名不出本机。";
     public static string AiTest => IsEn ? "Test" : "测试连接";
     public static string AiFetchModels => IsEn ? "Fetch models" : "获取可用模型";
     public static string AiNeedUrl => IsEn ? "Fill in the API URL first." : "先填 API 地址。";
@@ -102,7 +183,50 @@ public static class Loc
     public static string AiAddProvider => IsEn ? "Add" : "添加";
     public static string AiDelProvider => IsEn ? "Remove" : "删除";
     public static string AiProviderList => IsEn ? "Providers" : "提供方";
-    public static string AiPickModel => IsEn ? "Model" : "模型";
+    public static string AiPickModel => IsEn ? "Model used for Analyze" : "分析用的模型";
+    public static string AiAppsAnalyzing => IsEn ? "AI is reviewing installed apps…" : "AI 正在分析已安装软件…";
+    public static string AiAppsDone(int n) => IsEn ? $"AI reviewed {n:N0} apps. Suggestions are for review only." : $"AI 已分析 {n:N0} 个软件。建议仅供核对，不会自动卸载。";
+    public static string AiAppsLocal => IsEn ? "Local rules are active. Configure AI for deeper suggestions." : "当前使用本地规则。配置 AI 后可获得更深入的建议。";
+    public static string AiAppsFailed(string error) => IsEn ? "AI unavailable: " + error + ". Local rules remain active." : "AI 暂不可用：" + error + "。已保留本地规则建议。";
+    public static string AiAppsStale => IsEn ? "The app list changed during analysis. Results were discarded." : "分析期间软件清单已更新，已丢弃本次结果。";
+    public static string AiAppsPrivacy => IsEn
+        ? "Remote AI receives app name, publisher, version, installed date, size and usage signals. Paths and API keys are not sent.\n\nContinue with remote analysis?"
+        : "远程 AI 只接收软件名称、发布者、版本、安装日期、大小和使用状态，不发送路径和密钥。\n\n是否继续发送给远程 AI 分析？";
+    public static string AiAppsAnalyze => IsEn ? "Analyze apps" : "分析软件";
+    public static string AiAppsSelect => IsEn ? "Select suggestions" : "勾选建议项";
+    public static string AppRecommendationHeader => IsEn ? "Recommendation" : "建议";
+    public static string AppScannedSize => IsEn ? "Scanned size" : "扫描占用";
+    public static string AppSizeEstimated => IsEn ? " est." : "（估算）";
+
+    // ---- 软件占用拆分（都在「扫描占用」这棵树里）----
+    public static string FootprintInstall(string size) => IsEn ? $"Program files: {size}" : $"程序本体：{size}";
+    public static string FootprintUserData(string size) => IsEn ? $"Saved data: {size}" : $"保存的数据：{size}";
+    public static string FootprintCache(string size) => IsEn ? $"Caches: {size}" : $"缓存：{size}";
+    public static string FootprintReclaimable(string size) => IsEn
+        ? $"Cleanable without uninstalling: {size}"
+        : $"不卸载就能清掉的：{size}";
+    public static string AiAppsSystem => IsEn
+        ? """
+          You analyze an installed-app inventory. Give advice only; never uninstall anything and never invent facts.
+          Return JSON only, with this shape: {"items":[{"appId":"...", "decision":"recommend|consider|keep", "confidence":0.0, "reason":"short reason", "dataWarning":"short warning"}]}.
+          Use only appId values from the input. Include at most one item per appId. Recommend only apps that are plausibly unwanted,
+          redundant, obsolete, or known bloatware. Keep Windows features, system components, protected items, security software,
+          drivers, runtimes, SDKs, virtualization tools, and apps with unclear ownership. runningState is running, not-running,
+          or unknown. Apps that are running or whose running state is unknown must not be recommended.
+          Do not infer personal preference. Keep reasons short and written in the user's language.
+          """
+        : """
+          你是安装软件清单分析员，只提供建议和解释，绝不卸载软件，也不要编造事实。
+          只能回复 JSON，格式必须是：{"items":[{"appId":"...", "decision":"recommend|consider|keep", "confidence":0.0, "reason":"简短原因", "dataWarning":"简短提醒"}]}。
+          只能使用输入里的 appId，每个 appId 最多输出一次。只有明显可能是不需要、重复、过时或常见捆绑软件时才建议卸载。
+          Windows 功能、系统组件、受保护项、安全软件、驱动、运行库、SDK、虚拟化工具以及归属不清的软件必须保留。
+          runningState 的值是 running、not-running 或 unknown。正在运行或运行状态无法确认的软件都不能建议卸载。
+          不要猜测用户偏好。原因简短，用用户的语言。
+          """;
+    public static string AiAppsPrompt(string json) =>
+        IsEn ? "Installed app inventory:\n" + json : "已安装软件清单：\n" + json;
+    /// <summary>模型选择按钮上，还没选任何模型时的占位。</summary>
+    public static string AiNoModel => IsEn ? "no model selected" : "未选模型";
     public static string AiNeedScanFirst => IsEn ? "Scan the disk first." : "先扫描磁盘。";
     public static string AiRound(int n) => IsEn ? $"round {n}" : $"第 {n} 轮";
     public static string AiToolResult(string name, string preview) =>
@@ -115,13 +239,13 @@ public static class Loc
         string name = (App.Settings.AiModel ?? "").Trim();
         return string.IsNullOrEmpty(name) ? "AI" : name;
     }
-    public static string AiLampOff => IsEn ? "not configured" : "未配置";
-    public static string AiReady => IsEn ? "ready" : "已配置";
+    public static string AiLampOff => IsEn ? "AI not configured" : "AI 未配置";
+    public static string AiReady => IsEn ? "AI ready" : "AI 已配置";
     public static string AiMark => IsEn ? "AI suggested" : "AI 建议";
     public static string AiInside(string note) => IsEn ? "inside: " + note : "内有 · " + note;
-    public static string AiLampOn => IsEn ? "connected" : "已连接";
-    public static string AiLampBusy => IsEn ? "reading…" : "正在分析…";
-    public static string AiLampFail => IsEn ? "failed" : "失败";
+    public static string AiLampOn => IsEn ? "AI connected" : "AI 已连接";
+    public static string AiLampBusy => IsEn ? "AI reading…" : "AI 正在分析…";
+    public static string AiLampFail => IsEn ? "AI failed" : "AI 失败";
     public static string AiExtraPrompt => IsEn ? "Extra instructions (optional)" : "额外提示词（可选）";
     public static string AiExtraHint => IsEn
         ? "e.g. Always ask what I want before suggesting deletes."
@@ -201,6 +325,98 @@ public static class Loc
     public static string AiScanHeader => IsEn
         ? "Scan finished. Reply in the exact format below. Do not invent files."
         : "扫描结束。必须按下述格式回复。不要编造文件。";
+    /// <summary>清单标题：告诉模型下面这些就是要它解释的路径。</summary>
+    public static string AiCatListHeader => IsEn
+        ? "Explain each of these items:"
+        : "逐条解释下面这些条目：";
+    /// <summary>
+    /// AI 只做一件事：告诉用户「这是什么」。风险档位由规则（AppSignatures / CleanAnalyzer）判定，
+    /// 可审计、可复现，不让模型来回改，也省得它一本正经地把系统文件标成可删。
+    /// </summary>
+    public static string AiExplainBtn => IsEn ? "Ask AI what these are" : "让 AI 看看这些是什么";
+    public static string AiCatSystem => IsEn
+        ? """
+          You write one-line explanations for a disk cleaner read by people who know nothing about computers.
+
+          For each listed item, say in everyday words WHAT IT IS: which app made it, what it is for.
+
+          Only add a consequence at the end when deleting would actually surprise the user
+          ("you'd have to download it again", "you'd have to reinstall", "you'd lose data").
+          Do NOT write "harmless to delete" / "it rebuilds itself" for ordinary caches and temp files —
+          the group header already says that, and repeating it on every row turns into noise.
+
+          BANNED words: command names (pip, npm, yarn), package/file formats (wheel, source package), and tech terms
+          (hash, response body, P2P, content-addressed, dependency, index, cache directory).
+          You MAY name well-known apps (WeChat, NetEase Cloud Music, Chrome, Steam) but say what they do.
+          Max 20 words. No semicolons stacking clauses. Never explain how it works.
+          Do NOT judge deletion risk. Do NOT output risk words (safe / confirm / keep / delete / 危险).
+          The app already rates risk by rules.
+          Only use paths from the list. Never invent paths. No preamble, no summary, no markdown.
+
+          Reply with exactly one line per item:
+          GOTO <full path><TAB><one-line explanation>
+
+          Example:
+          GOTO C:\Users\me\AppData\Local\npm-cache	Leftover installer files from the developer tool you installed
+          GOTO C:\Users\me\.npm	The developer tool itself — deleting means downloading it again
+          GOTO C:\Users\me\Documents\WeChat Files	Your WeChat chat history and received files — deleting loses them
+          """
+        : """
+          你是磁盘清理软件里给普通人看的「文件说明员」。读者完全不懂电脑。
+
+          对每个条目，用一句大白话说清**这是什么**：哪个软件弄出来的、用来干嘛的。
+
+          **只有删掉之后后果会让人意外时**（要重新下载、要重新安装、会丢数据），才在句尾补一句后果。
+          普通的缓存和临时文件**不要**写「删了没事」「会自动重建」——分组标题已经说过一遍了，
+          每行都重复就变成噪音。
+
+          禁止出现的词：命令行名（pip、npm、yarn）、格式名（wheel、源码包）、技术词（哈希、响应体、P2P、内容寻址、依赖、索引、缓存区）。
+          可以提大众软件名（微信、网易云音乐、Chrome、Steam），但要顺带说清它是干嘛的。
+          整句不超过 25 个字，不要用分号堆砌，不要解释原理。
+          不要判断能不能删，不要输出风险词（safe / confirm / keep / 危险 / 可删 / 别删）——风险由软件按规则判定。
+          只能使用清单里的路径，不要编造路径。不要开场白，不要总结，不要 markdown。
+
+          每个条目严格回复一行：
+          GOTO <完整路径><TAB><一句中文说明>
+
+          例：
+          GOTO C:\Users\me\AppData\Local\npm-cache	你装的开发工具留下的安装包备份
+          GOTO C:\Users\me\.npm	开发工具装好的组件，删了要重新下载
+          GOTO C:\Users\me\Documents\WeChat Files	微信的聊天记录和收到的文件，删了会丢东西
+          """;
+    public static string AiCatEmpty => IsEn ? "Nothing to analyze in this category." : "这个分类没有可分析的条目。";
+    /// <summary>右键「问 AI 这是什么」用的提示词：只解释，不判风险。</summary>
+    public static string AiFolderAskSystem => IsEn
+        ? """
+          You explain a folder to someone who knows nothing about computers.
+          First sentence: what happens if they delete it. Then, in everyday words, what this folder is and which app made it.
+          BANNED words: command names (pip, npm, yarn), package/file formats (wheel, source package), and tech terms
+          (hash, response body, P2P, content-addressed, dependency, index, cache directory).
+          You MAY name well-known apps (WeChat, NetEase Cloud Music, Chrome, Steam) but say what they do.
+          Do NOT judge deletion risk and do NOT tell the user to delete or keep it — the app rates risk by rules.
+          No markdown, no preamble, no bullet list. Two or three plain sentences, no jargon.
+          """
+        : """
+          你要向一个完全不懂电脑的人解释一个文件夹。
+          第一句先说「删了会怎样」，然后用大白话说清这是什么、哪个软件弄出来的。
+          禁止出现的词：命令行名（pip、npm、yarn）、格式名（wheel、源码包）、技术词（哈希、响应体、P2P、内容寻址、依赖、索引、缓存区）。
+          可以提大众软件名（微信、网易云音乐、Chrome、Steam），但要顺带说清它是干嘛的。
+          不要判断能不能删，不要劝用户删或留——风险由软件按规则判定。
+          不要 markdown，不要开场白，不要列点。两三句白话，不要术语。
+          """;
+    /// <summary>问 AI 单个文件夹时的用户消息模板。</summary>
+    public static string AiFolderAskUser(string path, string listing) => IsEn
+        ? $"Folder: {path}\nTop items:\n{listing}"
+        : $"文件夹：{path}\n里面的条目：\n{listing}";
+    public static string AiFolderAskFail(string err) => IsEn
+        ? "AI did not answer: " + err
+        : "AI 没答上来：" + err;
+    public static string AiCatDone(int n) => IsEn ? $"AI explained {n} items" : $"AI 说明了 {n} 条";
+    public static string AiCatStopped => IsEn ? "Stopped." : "已停止。";
+    public static string AiNoItems => IsEn ? "AI returned nothing usable." : "AI 没给出可用的说明。";
+    /// <summary>清理表格里 AI 说明列的表头。</summary>
+    public static string AiColNote => IsEn ? "What it is" : "这是什么";
+
     public static string AiAnalystSystem => IsEn
         ? """
           You are a file analyst in a disk cleaner. Never delete. Never invent paths.
@@ -254,12 +470,9 @@ public static class Loc
         ? "A fast NTFS disk scanner. MIT. Uninstall list uses Bulk Crap Uninstaller (Apache 2.0, Marcin Szeniak)."
         : "NTFS 磁盘秒扫。MIT。卸载列表使用 Bulk Crap Uninstaller（Apache 2.0，Marcin Szeniak）。";
     public static string Repo => "https://github.com/DDWking/ai-disk-cleaner";
-    public static string NoExt => IsEn ? "(no extension)" : "(无扩展名)";
     public static string Folder => IsEn ? "Folder" : "文件夹";
-    public static string Allocated => IsEn ? "Allocated" : "分配";
     public static string Items => IsEn ? "Items" : "项目";
     public static string FilesCol => IsEn ? "Files" : "文件";
-    public static string FoldersCol => IsEn ? "Folders" : "文件夹";
     public static string OpenInExplorer => IsEn ? "Open in Explorer" : "在资源管理器中打开";
     public static string CopyPath => IsEn ? "Copy path" : "复制路径";
     public static string CopyName => IsEn ? "Copy name" : "复制名称";
@@ -270,6 +483,53 @@ public static class Loc
         IsEn ? $"Move “{name}” ({size}) to Recycle Bin?" : $"把「{name}」（{size}）删到回收站？";
     public static string DeleteFailed(string msg) => IsEn ? "Delete failed: " + msg : "删除失败：" + msg;
     public static string DeleteOk => IsEn ? "Moved to Recycle Bin" : "已移到回收站";
+
+    // ---- 删除逐项结果报告 ----
+    public static string DeleteResultTitle => IsEn ? "Delete result" : "删除结果";
+
+    /// <summary>首行：成功几项、释放多少、总共处理多少项。</summary>
+    public static string DeleteResultHead(int recycled, string freed, int total)
+        => IsEn
+            ? $"{recycled:N0} of {total:N0} moved to Recycle Bin · freed about {freed}"
+            : $"已移入回收站 {recycled:N0} / {total:N0} 项 · 释放约 {freed}";
+
+    /// <summary>按结局分组的明细行：原因 · 条数 · 前几个名字。</summary>
+    public static string DeleteResultGroup(DeletionOutcome outcome, int count, string names)
+    {
+        string label = outcome switch
+        {
+            DeletionOutcome.NotFound => IsEn ? "already gone" : "已经不在了",
+            DeletionOutcome.PathChanged => IsEn ? "path changed" : "路径已变化",
+            DeletionOutcome.Modified => IsEn ? "changed since scan" : "扫描后被改过",
+            DeletionOutcome.AccessDenied => IsEn ? "no permission" : "权限不足",
+            DeletionOutcome.Protected => IsEn ? "protected" : "受保护",
+            DeletionOutcome.InUse => IsEn ? "in use" : "正在使用",
+            DeletionOutcome.SkippedByUser => IsEn ? "skipped" : "已跳过",
+            DeletionOutcome.RedundantChild => IsEn ? "already covered by parent" : "父目录已包含",
+            DeletionOutcome.Failed => IsEn ? "failed" : "失败",
+            DeletionOutcome.Recycled => IsEn ? "deleted" : "已删除",
+            _ => DeletionText.Outcome(outcome),
+        };
+        return IsEn
+            ? $"{label} ({count:N0}): {names}"
+            : $"{label}（{count:N0}）：{names}";
+    }
+
+    /// <summary>预检摘要：确认框里告诉用户「这一批里有多少项其实删不了/要小心」。</summary>
+    public static string DeletePreflightNote(int ready, int blocked, int missing, int changed, int inUse, int sensitive)
+    {
+        var bits = new List<string>();
+        if (blocked > 0) bits.Add(IsEn ? $"{blocked:N0} protected" : $"{blocked:N0} 项受保护");
+        if (missing > 0) bits.Add(IsEn ? $"{missing:N0} already gone" : $"{missing:N0} 项已不存在");
+        if (changed > 0) bits.Add(IsEn ? $"{changed:N0} changed" : $"{changed:N0} 项已变化");
+        if (inUse > 0) bits.Add(IsEn ? $"{inUse:N0} in use" : $"{inUse:N0} 项正在使用");
+        if (sensitive > 0) bits.Add(IsEn ? $"{sensitive:N0} in sensitive folders" : $"{sensitive:N0} 项在敏感位置");
+        if (bits.Count == 0)
+            return IsEn ? $"\nPre-check: all {ready:N0} items ready." : $"\n删前检查：{ready:N0} 项都可以删。";
+        string head = IsEn ? $"\nPre-check: {ready:N0} ready, " : $"\n删前检查：{ready:N0} 项可删，";
+        return head + string.Join(IsEn ? ", " : "、", bits) + (IsEn ? "." : "。");
+    }
+
     public static string SortBySize => IsEn ? "Sort by size" : "按大小排序";
     public static string SortByName => IsEn ? "Sort by name" : "按名称排序";
     public static string SortByModified => IsEn ? "Sort by date" : "按修改时间排序";
@@ -294,107 +554,15 @@ public static class Loc
         return string.Join(Environment.NewLine, lines.Where(s => s != null));
     }
 
-    public static string TypeName(string ext)
-    {
-        ext = ext.ToLowerInvariant();
-        if (IsEn)
-        {
-            return ext switch
-            {
-                ".dll" => "App extension",
-                ".exe" => "Application",
-                ".sys" or ".mui" => "System file",
-                ".log" or ".etl" => "Log",
-                ".txt" => "Text",
-                ".tmp" or ".temp" or ".cache" or ".bak" or ".old" => "Temporary",
-                ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp" or ".webp" => "Image",
-                ".mp4" or ".mkv" or ".mov" or ".avi" or ".wmv" => "Video",
-                ".mp3" or ".wav" or ".flac" or ".aac" => "Audio",
-                ".doc" or ".docx" or ".xls" or ".xlsx" or ".pdf" or ".ppt" or ".pptx" => "Document",
-                ".py" or ".js" or ".ts" or ".json" or ".cs" or ".cpp" or ".c" or ".h"
-                    or ".java" or ".go" or ".rs" or ".html" or ".css" => "Code",
-                ".zip" or ".rar" or ".7z" or ".tar" or ".gz" or ".tgz" => "Archive",
-                ".msi" or ".iso" => "Installer",
-                ".db" or ".sqlite" or ".dat" or ".bin" => "Data",
-                ".vhd" or ".vhdx" => "Disk image",
-                ".img" => "Optical image",
-                ".jar" => "Java archive",
-                ".pak" => "Game pack",
-                ".dmp" => "Dump",
-                ".nvph" => "NVIDIA cache",
-                ".bundl" => "Bundle",
-                ".ppkg" => "Provisioning",
-                ".ress" => "Unity resource",
-                ".body" => "Resource body",
-                ".assets" => "Assets",
-                "" or "(无扩展名)" or "(no extension)" => NoExt,
-                "$mft" => "Master file table",
-                "$mftmirr" => "MFT mirror",
-                "$logfile" => "Log file",
-                "$volume" => "Volume",
-                "$attrdef" => "Attribute defs",
-                "$bitmap" => "Cluster bitmap",
-                "$boot" => "Boot",
-                "$badclus" => "Bad clusters",
-                "$secure" => "Security",
-                "$upcase" => "Upcase table",
-                "$extend" => "Extend",
-                _ => "Other",
-            };
-        }
-        return ext switch
-        {
-            ".dll" => "应用程序扩展",
-            ".exe" => "应用程序",
-            ".sys" or ".mui" => "系统文件",
-            ".log" or ".etl" => "日志",
-            ".txt" => "文本",
-            ".tmp" or ".temp" or ".cache" or ".bak" or ".old" => "临时",
-            ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp" or ".webp" => "图片",
-            ".mp4" or ".mkv" or ".mov" or ".avi" or ".wmv" => "视频",
-            ".mp3" or ".wav" or ".flac" or ".aac" => "音频",
-            ".doc" or ".docx" or ".xls" or ".xlsx" or ".pdf" or ".ppt" or ".pptx" => "文档",
-            ".py" or ".js" or ".ts" or ".json" or ".cs" or ".cpp" or ".c" or ".h"
-                or ".java" or ".go" or ".rs" or ".html" or ".css" => "代码",
-            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" or ".tgz" => "压缩包",
-            ".msi" or ".iso" => "安装包",
-            ".db" or ".sqlite" or ".dat" or ".bin" => "数据",
-            ".vhd" or ".vhdx" => "硬盘映像",
-            ".img" => "光盘映像",
-            ".jar" => "Java 压缩包",
-            ".pak" => "游戏资源包",
-            ".dmp" => "转储文件",
-            ".nvph" => "NVIDIA 缓存",
-            ".bundl" => "资源包",
-            ".ppkg" => "配置包",
-            ".ress" => "Unity 资源",
-            ".body" => "资源体",
-            ".assets" => "资源文件",
-            "" or "(无扩展名)" or "(no extension)" => NoExt,
-            "$mft" => "主文件表",
-            "$mftmirr" => "主文件表镜像",
-            "$logfile" => "日志文件",
-            "$volume" => "卷",
-            "$attrdef" => "属性定义",
-            "$bitmap" => "簇位图",
-            "$boot" => "引导",
-            "$badclus" => "坏簇",
-            "$secure" => "安全描述符",
-            "$upcase" => "大小写表",
-            "$extend" => "扩展",
-            _ => "其他",
-        };
-    }
 
-    public static string TabExt => IsEn ? "Types" : "扩展名";
-    public static string TabClean => IsEn ? "Clean" : "清理";
+    public static string TabClean => IsEn ? "Clean center" : "清理中心";
     public static string TabUninstall => IsEn ? "Uninstall" : "卸载";
     public static string UninstallRefresh => IsEn ? "Refresh" : "刷新";
     public static string UninstallRun => IsEn ? "Uninstall selected" : "卸载勾选项";
     public static string UninstallListing => IsEn ? "Listing installed apps…" : "正在列出已装软件…";
     public static string UninstallHint => IsEn
-        ? "Refresh to list installed apps. Uninstall uses each app's own uninstaller (BCU engine)."
-        : "点刷新列出已装软件。卸载走各软件自己的卸载程序（BCU 引擎）。";
+        ? "Suggestions are analysis only. Review and check apps yourself; uninstall runs each app's own uninstaller."
+        : "建议仅供分析。请自行核对并勾选，确认后才会调用软件自己的卸载程序。";
     public static string UninstallSearchHint => IsEn ? "Search apps…" : "搜索软件…";
     public static string UninstallFiltered(int shown, int total) =>
         IsEn ? $"{shown:N0} / {total:N0} apps" : $"{shown:N0} / {total:N0} 个软件";
@@ -402,6 +570,12 @@ public static class Loc
     public static string UninstallConfirm(int n) =>
         IsEn ? $"Run the official uninstaller for {n:N0} apps? Each may show its own window."
              : $"对 {n:N0} 个软件运行官方卸载程序？每个都可能弹出自己的窗口。";
+    public static string UninstallConfirmDetails(IEnumerable<string> names, int n, string size, bool warning) =>
+        IsEn
+            ? $"You are about to run official uninstallers for {n:N0} apps ({size}).\n\n{string.Join("\n", names)}"
+              + (warning ? "\n\nSome selected apps have warnings. Review them before confirming." : "")
+            : $"即将对 {n:N0} 个软件运行官方卸载程序，预计释放 {size}。\n\n{string.Join("\n", names)}"
+              + (warning ? "\n\n部分软件有提醒，请确认后再继续。" : "");
     public static string UninstallProtected => IsEn ? "Protected" : "受保护";
     public static string UninstallGroupOk => IsEn ? "Can uninstall" : "可卸载";
     public static string UninstallGroupSteam(int n) => IsEn ? $"Steam ({n:N0})" : $"Steam（{n:N0}）";
@@ -414,10 +588,57 @@ public static class Loc
         IsEn ? $"Run uninstallers for {n:N0} items, including {features:N0} Windows features? Features use DISM and may need a reboot."
              : $"对 {n:N0} 项运行卸载（含 {features:N0} 个 Windows 功能）？功能走 DISM，可能要重启。";
     public static string UninstallNoWay => IsEn ? "No uninstaller" : "无法卸载";
+    public static string UninstallGroupRecommend(int n) => IsEn ? $"Suggested to uninstall ({n:N0})" : $"建议卸载（{n:N0}）";
+    public static string UninstallGroupConsider(int n) => IsEn ? $"Consider ({n:N0})" : $"可以考虑（{n:N0}）";
+    public static string UninstallGroupKeep(int n) => IsEn ? $"Suggested to keep ({n:N0})" : $"建议保留（{n:N0}）";
+    public static string AppRecommendationLabel(AppRecommendationDecision decision) => decision switch
+    {
+        AppRecommendationDecision.Recommend => IsEn ? "Recommend uninstall" : "建议卸载",
+        AppRecommendationDecision.Keep => IsEn ? "Keep" : "建议保留",
+        _ => IsEn ? "Consider" : "可以考虑",
+    };
+    public static string AppKeepSystem => IsEn ? "System or protected component" : "系统或受保护组件";
+    public static string AppKeepNoUninstaller => IsEn ? "No usable uninstaller was found" : "没有可用的卸载程序";
+    public static string AppKeepCritical => IsEn ? "Runtime, driver, security, or virtualization component" : "运行库、驱动、安全或虚拟化组件";
+    public static string AppConsiderRunning => IsEn ? "Currently running" : "当前正在运行";
+    public static string AppRunningWarning => IsEn ? "Close it before uninstalling" : "卸载前请先退出软件";
+    public static string AppConsiderRunningUnknown => IsEn ? "Running state could not be verified" : "无法确认是否正在运行";
+    public static string AppRunningUnknownWarning => IsEn ? "Verify it is closed before uninstalling" : "卸载前请确认软件已退出";
+    public static string AppRecommendBloat => IsEn ? "Known bundled or unwanted software pattern" : "符合常见捆绑或不需要软件特征";
+    public static string AppConsiderLarge => IsEn ? "Large install footprint; confirm that you no longer need it" : "占用空间较大，请确认是否还需要";
+    public static string AppConsiderStartup => IsEn ? "Starts with Windows; review whether it is needed" : "会随系统启动，请确认是否还需要";
+    public static string AppConsiderUnknown => IsEn ? "No strong uninstall signal; review manually" : "没有足够依据自动判断，请自行核对";
+    public static string UninstallAiNotConfigured => IsEn
+        ? "Local rules are being used. AI is optional and never controls uninstall."
+        : "当前使用本地规则。AI 可选，且永远不会直接控制卸载。";
     public static string UninstallRunning => IsEn ? "Uninstalling…" : "正在卸载…";
     public static string UninstallDone => IsEn ? "Done" : "完成";
     public static string UninstallFailed => IsEn ? "Failed" : "失败";
+    public static string UninstallSkipped => IsEn ? "Skipped" : "跳过";
     public static string UninstallWaiting => IsEn ? "Waiting" : "等待";
+    public static string UninstallRetry => IsEn ? "Retry uninstall" : "重试卸载";
+    public static string UninstallOpenOfficial => IsEn ? "Open official uninstaller" : "打开官方卸载程序";
+    public static string UninstallResultSummary(int ok, int fail, int skip, string freed) =>
+        IsEn ? $"Uninstall finished: {ok} done, {fail} failed, {skip} skipped · freed ≈ {freed}"
+             : $"卸载完成：成功 {ok}，失败 {fail}，跳过 {skip} · 释放约 {freed}";
+    public static string UninstallResultPending => IsEn ? "Still left:" : "未完成：";
+    /// <summary>只按建议勾选并展示，绝不代替用户删除——AI 只负责分析，删不删由用户确认。</summary>
+    public static string ReviewSuggestions => IsEn ? "Review suggestions" : "看 AI 建议";
+    public static string ReviewSuggestionsShort => IsEn ? "Pre-check by suggestion" : "按 AI 建议勾选";
+    public static string SelectAllTip => IsEn ? "Select all / clear" : "全选 / 取消全选";
+    public static string ConfirmDelete(int n) => n > 0
+        ? (IsEn ? $"Delete {n:N0} item(s)" : $"确认删除 {n:N0} 项")
+        : (IsEn ? "Delete selected" : "确认删除");
+    public static string ReviewScanFirst =>
+        IsEn ? "Scan the disk first, then review suggestions." : "请先扫描磁盘，再看建议。";
+    public static string ReviewScanning =>
+        IsEn ? "Scanning in progress, please wait." : "正在扫描，请稍候。";
+    public static string ReviewNothing =>
+        IsEn ? "No suggestions right now." : "暂时没有可以建议清理的内容。";
+    public static string ReviewHint(int junkCount, string junkSize, int appCount, string appSize) =>
+        IsEn
+            ? $"Pre-checked by suggestion: {junkCount:N0} item(s) ({junkSize}) and {appCount:N0} app(s) (≈{appSize}). Nothing has been deleted — review each group, then confirm."
+            : $"已按建议勾选：可清理 {junkCount:N0} 项（{junkSize}），软件 {appCount:N0} 个（约 {appSize}）。还没有删除任何东西——请逐组核对后再确认。";
     public static string JunkScanning => IsEn ? "Scanning leftovers…" : "正在扫描残留…";
     public static string JunkNone => IsEn ? "No leftovers found." : "没有发现残留。";
     public static string JunkHint(int n, int safe) =>
@@ -448,15 +669,22 @@ public static class Loc
     public static string Analyzing => IsEn ? "Analyzing…" : "正在分析…";
     public static string RecycleSelected => IsEn ? "Recycle selected" : "删除勾选项";
     public static string SelectAll => IsEn ? "Select all" : "全选";
-    public static string SelectSafe => IsEn ? "Select safe" : "勾选安全项";
+    public static string SelectSafe => IsEn ? "Select safe to delete" : "勾选可安全删除";
     public static string SelectNone => IsEn ? "Clear checks" : "取消勾选";
     public static string CleanHintReady(int n, string size) =>
         IsEn ? $"Cleanable: {n:N0} items, about {size}" : $"可清理：{n:N0} 项，约 {size}";
     public static string RecycleManyConfirm(int n, string size) =>
         IsEn ? $"Move {n:N0} items ({size}) to Recycle Bin?" : $"把 {n:N0} 项（{size}）删到回收站？";
     public static string RecycleManyOk(int n) => IsEn ? $"Moved {n:N0} items" : $"已移到回收站 {n:N0} 项";
+    public static string RecycleManySummary(int ok, int failed, int skipped, string freed) => IsEn
+        ? $"Recycle Bin: {ok:N0} moved, {failed:N0} failed, {skipped:N0} protected/skipped, freed {freed}"
+        : $"回收站操作：成功 {ok:N0} 项，失败 {failed:N0} 项，保护/跳过 {skipped:N0} 项，释放 {freed}";
     public static string NothingSelected => IsEn ? "Nothing selected." : "没有勾选项。";
-    public static string ColReason => IsEn ? "Why" : "原因";
+    /// <summary>清理表格说明列：规则原因，分析后被 AI 覆盖。</summary>
+    public static string ColReason => IsEn ? "Note" : "说明";
+    /// <summary>只说「这是什么」，不下安全结论——安全与否由分组标题承担。</summary>
+    public static string ColType => IsEn ? "Type" : "类型";
+    public static string FilterLabel => IsEn ? "Filter" : "筛选";
     public static string ColName => IsEn ? "Name" : "名称";
 
     public static string CatAi => IsEn ? "AI suggested" : "AI 建议";
@@ -468,6 +696,41 @@ public static class Loc
     public static string CatShortcut => IsEn ? "Broken shortcuts" : "失效快捷方式";
     public static string CatLong => IsEn ? "Long paths" : "超长路径";
     public static string CatCompare => IsEn ? "Since last scan" : "和上次比";
+
+    // ===== 按用途分类（来自 AppSignatures.Category）=====
+    public static string CatSystem => IsEn ? "System" : "系统";
+    public static string CatBrowser => IsEn ? "Browsers" : "浏览器";
+    public static string CatDev => IsEn ? "Dev tools" : "开发工具";
+    public static string CatChat => IsEn ? "Chat apps" : "聊天软件";
+    public static string CatGame => IsEn ? "Games" : "游戏";
+    public static string CatMedia => IsEn ? "Media" : "影音";
+    public static string CatCloud => IsEn ? "Cloud drives" : "网盘";
+    public static string CatVm => IsEn ? "Virtual machines" : "虚拟机";
+    public static string CatIde => IsEn ? "IDE / editors" : "IDE / 编辑器";
+    public static string CatAiTool => IsEn ? "AI tools" : "AI 工具";
+    public static string CatOffice => IsEn ? "Office" : "办公";
+    public static string CatSecurity => IsEn ? "Security" : "安全软件";
+    public static string CatBloat => IsEn ? "Bloatware" : "卸载残留";
+    public static string CatIme => IsEn ? "Input methods" : "输入法";
+    public static string CatOther => IsEn ? "Other" : "其他";
+    public static string CatAll => IsEn ? "All" : "全部";
+
+    // ===== 风险三档 =====
+
+    public static string NoteCache => IsEn ? "cache data" : "缓存数据";
+    /// <summary>候选组的默认后果写进标题，行里就不用每行重复「删了没事」了。</summary>
+    public static string CleanGroupSafe(int n, string size) => IsEn
+        ? $"Cleanup candidates · rebuilds itself ({n:N0} · {size})"
+        : $"清理候选 · 删了会自动重建（{n:N0} 项 · {size}）";
+    public static string CleanGroupConfirm(int n, string size) => IsEn
+        ? $"Needs your review ({n:N0} · {size})"
+        : $"需要你确认（{n:N0} 项 · {size}）";
+    public static string CleanScopeTotal(int total, int shown, string size) => IsEn
+        ? $"{total:N0} total · {shown:N0} shown · {size}"
+        : $"共 {total:N0} 项 · 当前显示 {shown:N0} 项 · {size}";
+    public static string SelectedHint(int n, string size) => IsEn
+        ? $"{n:N0} selected · about {size}"
+        : $"已勾选 {n:N0} 项 · 可释放约 {size}";
 
     public static string GroupTemp => IsEn ? "Temp / cache" : "临时/缓存";
     public static string GroupDump => IsEn ? "Crash dumps" : "崩溃转储";
@@ -481,26 +744,835 @@ public static class Loc
     public static string GroupLong => IsEn ? "Long path" : "超长路径";
     public static string GroupCompare => IsEn ? "Delta" : "变化";
 
-    public static string ReasonTempDir => IsEn ? "In a temp/cache folder" : "在临时/缓存目录里";
-    public static string ReasonTempExt => IsEn ? "Temp / log leftover" : "临时或日志残留";
-    public static string ReasonDump => IsEn ? "Crash dump" : "崩溃转储";
-    public static string ReasonWinUpdate => IsEn ? "Windows update leftover" : "Windows 更新残留";
-    public static string ReasonInstaller => IsEn ? "Installer in Downloads, likely safe" : "下载里的安装包，可考虑删";
-    public static string ReasonOldInstaller => IsEn ? "Old disk image / installer, unused for months" : "很久没动的镜像/安装包";
-    public static string ReasonVmDisk => IsEn ? "VM / WSL / emulator disk image" : "虚拟机 / WSL / 模拟器磁盘";
+    /// <summary>位置行第二行的短标记：只在认不出用途时出现，不再每行挂一句长解释。</summary>
+    public static string PurposeUnclear => IsEn ? "purpose unclear" : "用途待确认";
+    /// <summary>聚合位置找不到唯一真实目录时的提示。</summary>
+    public static string RevealNoFolder => IsEn
+        ? "This entry has no single real folder to open"
+        : "这一项没有对应的真实文件夹可以打开";
+
+    // ---- 本地候选项分组（按真实子目录/应用/规则把位置拆成可选子组） ----
+    public static string GroupBySubdir => IsEn ? "by folder" : "按子目录分";
+    public static string GroupByApp => IsEn ? "by app" : "按应用分";
+    public static string GroupByRule => IsEn ? "by rule" : "按规则分";
+    public static string GroupByKind => IsEn ? "by file type" : "按文件类型分";
+    public static string GroupUnspecified => IsEn ? "(no rule label)" : "（未标注）";
+    public static string GroupOthers(int hidden) => IsEn
+        ? $"Others ({hidden} more groups merged here)"
+        : $"其它（{hidden} 个小组并到这里）";
+    public static string GroupFolders => IsEn ? "folders" : "文件夹";
+    public static string GroupFiles => IsEn ? "files" : "文件";
+    public static string GroupNoExtension => IsEn ? "(no extension)" : "（无扩展名）";
+
+    public static string GroupRiskMix(int candidates, int confirm) => IsEn
+        ? $"{candidates} eligible · {confirm} need confirmation"
+        : $"{candidates} 项符合清理资格 · {confirm} 项需确认";
+    public static string GroupProtectedCount(int n) => IsEn
+        ? $"{n} protected item(s) — cannot be cleaned"
+        : $"{n} 项受保护，不能清理";
+
+    /// <summary>「选择本组候选」按钮：必须写明会新增多少项、多少空间。</summary>
+    public static string SelectGroupCandidates(int count, string size) => IsEn
+        ? $"Select this group ({count:N0} · {size})"
+        : $"选择本组候选（{count:N0} 项 · {size}）";
+    public static string GroupAllSelected => IsEn ? "all already selected" : "本组已全部选中";
+    public static string GroupNeedsReview => IsEn
+        ? "mixed — review the files first"
+        : "混合风险，请先查看再选";
+    public static string GroupViewFiles => IsEn ? "View its files" : "查看对应文件";
+    public static string GroupLocalOnlyTag => IsEn ? "[local rules] " : "［本地规则］";
+    public static string GroupsHead(int groups, int candidates, string size) => IsEn
+        ? $"{groups} group(s) · {candidates:N0} eligible · {size}"
+        : $"{groups} 组 · 符合清理资格 {candidates:N0} 项 · {size}";
+    public static string GroupsTruncated(int hidden) => IsEn
+        ? $"{hidden} more group(s) merged into Others"
+        : $"另有 {hidden} 个小组已并入「其它」";
+    /// <summary>发给模型的分组说明：只发汇总数字，不发逐条记录。</summary>
+    public static string AiGroupsUserHeader(int groups) => IsEn
+        ? $"local groups ({groups}). For EACH group write one line: '#N <one short sentence>'. "
+          + "Judge groups separately; never say the whole folder is safe."
+        : $"本地分组（{groups} 组）。**每一组**写一行：'#N <一句短建议>'。"
+          + "分组要分开判断，绝不能说「整个文件夹都安全」。";
+    public static string GroupScopeSampled(int shown, int total) => IsEn
+        ? $"analysis covered {shown} of {total} items"
+        : $"分析范围：{total} 项中的 {shown} 项";
+
+    /// <summary>组的一行本地摘要。</summary>
+    public static string GroupSummaryLine(int items, int candidates, string size, string source) => IsEn
+        ? $"{items:N0} item(s) · {candidates:N0} eligible · {size} · {source}"
+        : $"{items:N0} 项 · 符合清理资格 {candidates:N0} 项 · 候选空间 {size} · {source}";
+    public static string GroupAiTag => IsEn ? "[AI] " : "［AI］";
+    public static string GroupProtectedOnly => IsEn
+        ? "protected — cannot be cleaned"
+        : "受保护，不能清理";
+    public static string GroupFilterHint(string what) => IsEn
+        ? "will filter the file list to " + what
+        : "会在文件列表里过滤到 " + what;
+    /// <summary>AI 没配置时：如实说不可以，但强调本地查看与手动选择仍然能用。</summary>
+    public static string AiNeedConfigLocalStillWorks => IsEn
+        ? "AI is not configured here — you can still open the files and pick them yourself."
+        : "这里没有配置 AI，但你仍然可以自己查看文件并手动选择。";
+
+    // ---- AI 结果界面：一句结论 + 一句说明 + 下一步（面向普通用户，不出现技术词） ----
+    public static string AiHeadlineClean(int count, string size) => IsEn
+        ? $"Suggest cleaning {count:N0} item(s) — about {size} can be freed"
+        : $"建议清理其中 {count:N0} 项，可释放 {size}";
+    public static string AiHeadlineReview(int count, string size) => IsEn
+        ? $"{count:N0} item(s) need your confirmation ({size}) — can't be called safe yet"
+        : $"有 {count:N0} 项需要你确认（{size}），暂时不能确定是否安全";
+    public static string AiHeadlineNothing => IsEn
+        ? "Nothing here is worth cleaning right now"
+        : "这里暂时没有建议清理的内容";
+
+    public static string AiBucketCleanable => IsEn ? "Could be considered" : "可考虑清理";
+    public static string AiBucketKeep => IsEn ? "Better kept" : "建议保留";
+    public static string AiBucketReview => IsEn ? "Needs confirmation" : "需要确认";
+
+    public static string AiReasonCleanable => IsEn
+        ? "These matched the local cache/temp rules; apps usually rebuild them."
+        : "这些文件命中了本地的缓存/临时规则，程序通常会自己重建。";
+    public static string AiReasonReview => IsEn
+        ? "Open the files before deciding — the impact can't be confirmed yet."
+        : "建议查看具体文件后再决定，暂时无法确认删除影响。";
+    public static string AiReasonKeep => IsEn
+        ? "Protected or marked to keep — not offered for cleaning."
+        : "受保护或本地判定为保留，不提供清理。";
+
+    public static string AiBucketStat(int count, string size) => IsEn
+        ? $"{count:N0} item(s) · {size}"
+        : $"{count:N0} 项 · {size}";
+
+    public static string AiSelectTheseFiles => IsEn ? "Select these files" : "选择这些文件";
+    public static string AiViewFiles => IsEn ? "View files" : "查看文件";
+    public static string AiWhyToggle => IsEn ? "Why this suggestion?" : "为什么这样建议？";
+    /// <summary>重新扫描后旧结果过期：不给旧结论，也不给操作。</summary>
+    // ---- 详情列表的分组表头 ----
+    public static string GroupStatLine(int count, string size) => IsEn
+        ? $"{count:N0} item(s) · {size}"
+        : $"{count:N0} 项 · {size}";
+    public static string GroupSelectedLine(int count, string size) => IsEn
+        ? $"selected {count:N0} · {size}"
+        : $"已选 {count:N0} · {size}";
+    /// <summary>分组标题兜底：中性说法，不用「未标注」这类技术标签。</summary>
+    public static string OtherFilesTitle => IsEn ? "Other files" : "其它文件";
+    public static string AiResultExpired => IsEn
+        ? "The scan changed — run the analysis again"
+        : "扫描内容已变化，请重新分析";
+    /// <summary>请求结束但没有可用结论时如实说，并给重试。</summary>
+    public static string AiNoResultRetry => IsEn
+        ? "Could not produce a usable result — try again"
+        : "未能生成分析结果，可以重试";
+    public static string AiAnalyzing => IsEn ? "Analysing…" : "正在分析中…";
+    public static string AiFilteredToCount(int n) => IsEn
+        ? $"Showing only these {n:N0} item(s)"
+        : $"只显示这 {n:N0} 项";
+    public static string DetailShowingAll => IsEn ? "Showing all items" : "显示全部";
+    public static string AiEverythingSelected => IsEn ? "All of these are already selected" : "这些都已经选好了";
+
+    public static string AiNoteBelongs(string what) => IsEn ? $"These are {what}" : $"这些文件属于{what}";
+    /// <summary>只有本地规则这一条依据时，就只说规则，不替用户下「没被占用」的结论。</summary>
+    public static string AiNoteByLocalRule => IsEn ? "matched the local cleanup rules" : "命中了本地清理规则";
+    public static string AiNoteUnknown => IsEn
+        ? "we could not confirm what they are for"
+        : "暂时无法确认它们的用途";
+
+    public static string AiWhyLocation(string where) => IsEn ? $"Located in {where}" : $"文件位于 {where}";
+    public static string AiWhyModified(string age) => IsEn ? $"Last changed {age}" : $"最后修改于{age}";
+    public static string AiWhyMatched(string tech) => IsEn ? $"Matched rule: {tech}" : $"匹配到的规则：{tech}";
+    /// <summary>没有做占用检查 —— 必须如实说，不能拿它当「安全」的依据。</summary>
+    public static string AiWhyNoLockCheck => IsEn
+        ? "File locks were not checked"
+        : "没有检查文件是否正在被占用";
+    public static string AiWhyNoContentRead => IsEn
+        ? "File contents were not read or uploaded"
+        : "没有读取或上传文件内容";
+    public static string AiWhySomeUncertain(int n) => IsEn
+        ? $"{n:N0} item(s) still cannot be confirmed"
+        : $"仍有 {n:N0} 项无法确认";
+    public static string AiWhyProtected(int n) => IsEn
+        ? $"{n:N0} item(s) are protected and never offered"
+        : $"{n:N0} 项受保护，不会进入清理";
+    public static string AiWhyNothingSafe => IsEn
+        ? "No item here passed the local safety rules"
+        : "这里没有通过本地安全规则的项";
+    public static string AiWhyNoModel => IsEn
+        ? "This is the local summary — no model advice was used"
+        : "这是本地判断结果，本次没有模型建议";
+
+    public static string AiAgeToday => IsEn ? "today" : "今天";
+    public static string AiAgeDays(int d) => IsEn ? $"{d} day(s) ago" : $"{d} 天前";
+    public static string AiAgeMonths(int m) => IsEn ? $"{m} month(s) ago" : $"{m} 个月前";
+    public static string AiAgeYears(int y) => IsEn ? $"{y} year(s) ago" : $"{y} 年前";
+
+    public static string GroupViewNeedsLocation => IsEn
+        ? "Cannot locate the folder for this group"
+        : "找不到这一组对应的位置";
+    public static string GroupFilterApplied(string what, int n) => IsEn
+        ? $"Filtered to {n:N0} item(s) under {what}"
+        : $"已过滤到 {what} 下的 {n:N0} 项";
+    public static string GroupsPanelTitle => IsEn
+        ? "Pick by group (split locally)"
+        : "按组挑（本地拆分）";
+    public static string GroupsPanelHint => IsEn
+        ? "Counts and eligibility come from local rules. AI only adds a note."
+        : "数量和清理资格来自本地规则，AI 只补充说明。";
+    public static string SelectAdded(int count, string size) => IsEn
+        ? $"Added {count:N0} item(s) · {size}"
+        : $"已新增选择 {count:N0} 项 · {size}";
+    public static string SelectNothingNew => IsEn ? "Nothing new to select in this group" : "这一组没有新的可选项";
+    public static string SelectBlockedByRule => IsEn
+        ? "This group needs your review — open its files first"
+        : "这一组需要你先看过文件才能选";
+
+    // ---- 页头导航 ----
+    public static string BackToCleanCenter => IsEn ? "Back to clean center" : "返回清理中心";
+    public static string BackToLocations => IsEn ? "Back to locations" : "返回位置列表";
+    /// <summary>
+    /// 首页第二行：这一页的候选规模。
+    /// 用「候选空间」而不是「预计处理空间」—— 用户还没选任何东西，
+    /// 说「预计处理」会让人以为程序要动这些文件。
+    /// </summary>
+    public static string CandidateScopeLine(int locations, string size) => IsEn
+        ? $"{locations:N0} location(s) · {size} of candidates"
+        : $"{locations:N0} 个位置 · 候选空间 {size}";
+    /// <summary>「看不出用途」是刻意写的：启发式只认得出体积/位置，认不出这是什么。</summary>
+    public static string ReasonUnknown => IsEn ? "can't tell what it is" : "看不出用途";
+    public static string ReasonTempDir => IsEn ? $"In a temp folder · {ReasonUnknown}" : $"在临时目录里 · {ReasonUnknown}";
+    public static string ReasonTempExt => IsEn ? $"Temp / log leftover · {ReasonUnknown}" : $"临时或日志残留 · {ReasonUnknown}";
+    public static string ReasonDump => IsEn
+        ? "Leftover log from a program crash"
+        : "程序崩溃时留下的记录文件";
+    public static string ReasonWinUpdate => IsEn
+        ? "Temp files for Windows updates; updates already installed are unaffected"
+        : "Windows 更新下载留下的临时文件；已安装的更新文件不在这个目录里";
+    public static string ReasonInstaller => IsEn
+        ? "Installer you downloaded, probably already used"
+        : "你下载的安装包，装完通常就没用了";
+    public static string ReasonOldInstaller => IsEn
+        ? $"Untouched for months · installer or disk image, {ReasonUnknown}"
+        : $"很久没动过 · 安装包或镜像文件，{ReasonUnknown}";
+    public static string ReasonVmDisk => IsEn
+        ? "Careful · this is a virtual machine's disk, real data lives inside"
+        : "要小心 · 这是虚拟机的磁盘，里面的数据是真的";
     public static string AskAiFolder => IsEn ? "Ask AI what this is" : "问 AI 这是什么";
-    public static string ReasonRecycle => IsEn ? "Already in Recycle Bin" : "已在回收站";
-    public static string ReasonLarge => IsEn ? "Among the largest files" : "占用最大的文件之一";
-    public static string ReasonOld(string age) => IsEn ? $"Not modified for {age}" : $"已 {age} 未改";
-    public static string ReasonEmpty => IsEn ? "Folder has no files" : "空文件夹";
+    public static string ReasonRecycle => IsEn
+        ? "Things you deleted earlier — clearing these loses them for good"
+        : "你之前删掉的东西，清掉就真没了";
+    public static string ReasonRecycleNamed(string name) => IsEn
+        ? $"“{name}”, which you deleted earlier — clearing it loses it for good"
+        : $"你之前删掉的「{name}」，清掉就真没了";
+    public static string ReasonLarge => IsEn ? $"Large file · {ReasonUnknown}" : $"大文件 · {ReasonUnknown}";
+    public static string ReasonOld(string age) => IsEn ? $"Untouched for {age} · {ReasonUnknown}" : $"已 {age} 未改 · {ReasonUnknown}";
+    public static string ReasonEmpty => IsEn ? "Empty folder" : "里面什么都没有的空文件夹";
     public static string ReasonBroken(string target) =>
-        IsEn ? "Target missing: " + target : "目标不存在：" + target;
-    public static string ReasonLong(int n) => IsEn ? $"Path {n} chars" : $"路径 {n} 字";
-    public static string ReasonDupKeep => IsEn ? "Keep (shortest path)" : "保留（路径最短）";
+        IsEn ? "Shortcut points at something that no longer exists: " + target
+             : "快捷方式指向的东西已经不存在了：" + target;
+    public static string ReasonLong(int n) => IsEn
+        ? $"Path is {n} characters · some programs can't open it"
+        : $"路径有 {n} 个字 · 有些程序打不开它";
+    public static string ReasonDupKeep => IsEn
+        ? "Keep this one · identical to another file, but has the shortest path"
+        : "和另一个文件内容完全一样，这个路径最短，留它";
     public static string ReasonDupExtra(string keep) =>
-        IsEn ? "Same content as " + keep : "与此项相同：" + keep;
-    public static string ReasonGrew(string size) => IsEn ? "Grew " + size : "多了 " + size;
-    public static string ReasonShrunk(string size) => IsEn ? "Shrank " + size : "少了 " + size;
+        IsEn ? "Byte-for-byte identical to " + keep
+             : "和这个文件内容一模一样：" + keep;
+
+    // ---- 重复检测没跑完时的明确标注（不能让用户以为已经查全了）----
+    public static string DupIncompleteBudget => IsEn
+        ? "Duplicate check stopped early (read budget used up) — only verified groups are listed, nothing is pre-ticked"
+        : "重复检测没跑完（读盘预算用完）· 只列出已核实的组，没有预先勾选";
+    public static string DupIncompletePartial => IsEn
+        ? "Duplicate check was cut short — only verified groups are listed, nothing is pre-ticked"
+        : "重复检测中途收手 · 只列出已核实的组，没有预先勾选";
+    public static string DupStage(string phase, int done, int total, string bytes) => IsEn
+        ? $"Duplicate check · {phase} · {done:N0}/{total:N0} · read {bytes}"
+        : $"重复检测 · {phase} · {done:N0}/{total:N0} · 已读 {bytes}";
+    public static string DupDone(int groups, int files, string bytes, double seconds) => IsEn
+        ? $"Duplicates: {groups:N0} groups / {files:N0} files · read {bytes} · {seconds:0.0}s"
+        : $"重复文件：{groups:N0} 组 / {files:N0} 个 · 已读 {bytes} · {seconds:0.0} 秒";
+    public static string DupFound(int n, string size) => IsEn
+        ? $"Found {n:N0} duplicate items · about {size}"
+        : $"找到 {n:N0} 个重复项 · 约 {size}";
+    public static string DupNone => IsEn ? "No duplicates found." : "没有找到重复文件。";
+    public static string Canceling => IsEn ? "Canceling…" : "正在取消…";
+
+    // ================= 清理结果分层归类（首页 / 位置 / 明细） =================
+
+    // ---- 用途分类名 ----
+    public static string PurposeTemp => IsEn ? "Temporary files" : "临时文件";
+    public static string PurposeBrowserCache => IsEn ? "Browser cache" : "浏览器缓存";
+    public static string PurposeAppCache => IsEn ? "App cache" : "应用缓存";
+    public static string PurposeDevCache => IsEn ? "Dev tool cache" : "开发工具缓存";
+    public static string PurposeAppLog => IsEn ? "App logs" : "应用日志";
+    public static string PurposeRecycle => IsEn ? "Recycle Bin" : "回收站";
+    public static string PurposeDump => IsEn ? "Crash dumps" : "崩溃转储";
+    public static string PurposeInstaller => IsEn ? "Installers" : "安装包";
+    public static string PurposeDuplicate => IsEn ? "Duplicate files" : "重复文件";
+    public static string PurposeLarge => IsEn ? "Large files" : "大文件";
+    public static string PurposeOld => IsEn ? "Old files" : "很久没动的文件";
+    public static string PurposeEmpty => IsEn ? "Empty folders" : "空文件夹";
+    public static string PurposeShortcut => IsEn ? "Broken shortcuts" : "失效快捷方式";
+    public static string PurposeLongPath => IsEn ? "Very long paths" : "超长路径";
+    public static string PurposeDelta => IsEn ? "Changed since last scan" : "和上次相比的变化";
+    public static string PurposeOther => IsEn ? "Other" : "其他";
+
+    // ---- 用途影响：回答「清掉会怎样」 ----
+    public static string ImpactTemp => IsEn
+        ? "Apps recreate these as needed. Nothing you saved is in here."
+        : "程序下次用的时候会自己重建，你自己存的东西不在里面。";
+    public static string ImpactBrowserCache => IsEn
+        ? "Pages reload a bit slower next time. Bookmarks and passwords are untouched."
+        : "只清理缓存子目录；网页下次打开会重新加载，书签和密码不在这个范围内。";
+    public static string ImpactAppCache => IsEn
+        ? "Apps rebuild these. Your documents, chats and settings are untouched."
+        : "只清理缓存子目录；软件会自己重建，文档、聊天记录和设置不在这个范围内。";
+    public static string ImpactDevCache => IsEn
+        ? "Next build downloads them again (needs network)."
+        : "下次构建时会重新下载，需要联网。";
+    public static string ImpactAppLog => IsEn
+        ? "Only past log records. Useful only when troubleshooting."
+        : "只是过去留下的日志记录，排查问题时才有用。";
+    public static string ImpactRecycle => IsEn
+        ? "Gone for good. Check what is inside before clearing."
+        : "清掉就真没了。清之前先看一眼里面是什么。";
+    public static string ImpactDump => IsEn
+        ? "Crash records. Only useful if you are debugging a crash."
+        : "程序崩溃时留下的记录，不排查崩溃就用不上。";
+    public static string ImpactInstaller => IsEn
+        ? "You would need to download them again to reinstall."
+        : "以后要重装得重新下载。";
+    public static string ImpactDuplicate => IsEn
+        ? "One copy of each duplicate group is kept; the rest are removed."
+        : "每组重复文件里留一份，其余删掉。";
+    public static string ImpactLarge => IsEn
+        ? "Large does not mean useless. Check each one yourself."
+        : "大不等于没用，需要你自己一个个看。";
+    public static string ImpactOld => IsEn
+        ? "Untouched for a long time, but that does not mean unused."
+        : "很久没动过，但很久没动不等于没用。";
+    public static string ImpactEmpty => IsEn
+        ? "These folders hold nothing at all."
+        : "这些文件夹里面什么都没有。";
+    public static string ImpactShortcut => IsEn
+        ? "The shortcut target no longer exists, so the shortcut does nothing."
+        : "快捷方式指向的东西已经不在了，点了也没反应。";
+    public static string ImpactLongPath => IsEn
+        ? "Some programs cannot open these. Moving them usually fixes it."
+        : "有些程序打不开它们，通常是挪个位置就好了。";
+    public static string ImpactDelta => IsEn
+        ? "Information only. Nothing here can be deleted."
+        : "只是告诉你变化，这里的东西不能删。";
+
+    // ---- 首页摘要：先说「几处、多少空间」 ----
+    public static string SummaryLocations(int locations, string size) => IsEn
+        ? $"Found {locations:N0} cleanable location(s), about {size} to reclaim"
+        : $"找到 {locations:N0} 处可清理位置，预计可清理 {size}";
+
+    // ---- 位置行 / 明细 ----
+    public static string LocationsIn(string purpose) => IsEn ? $"Locations · {purpose}" : $"清理位置 · {purpose}";
+    public static string LocationFiles(int files) => IsEn ? $"{files:N0} files" : $"{files:N0} 个文件";
+    public static string ViewFiles => IsEn ? "View files" : "查看文件";
+    public static string Collapse => IsEn ? "Collapse" : "收起";
+    public static string UnknownLocation => IsEn ? "(unrecognised location)" : "（认不出的位置）";
+    public static string NoSoftwareName => IsEn ? "Folder (app not identified)" : "文件夹（没认出是哪个软件）";
+    public static string DetailShowing(int shown, int total) => IsEn
+        ? $"Showing {shown:N0} / {total:N0} files"
+        : $"当前显示 {shown:N0} / {total:N0} 个文件";
+    public static string LoadMore => IsEn ? "Load more" : "加载更多";
+    public static string SearchInScope => IsEn ? "Search name / path" : "搜索文件名 / 路径";
+    public static string SearchScopeHint(string scope) => IsEn
+        ? $"Search covers all {scope} in this selection, not just loaded rows."
+        : $"搜索针对{scope}的全部候选，不只是已显示的部分。";
+    public static string SelectGroupHint(int count, int total) => IsEn
+        ? $"Tick this group = {count:N0} of {total:N0} candidates (only ones the rules already allow)"
+        : $"勾选本组 = 选中 {count:N0} / {total:N0} 个候选（只含规则本来就允许删的）";
+    public static string DeselectAll => IsEn ? "Clear selection" : "全部取消勾选";
+    public static string OverlapNotice(int n) => IsEn
+        ? $"{n:N0} item(s) sit inside a folder that is also selected — counted once."
+        : $"{n:N0} 项在已被选中的文件夹里，空间只算了一次。";
+    public static string DupHitsNotice(int n) => IsEn
+        ? $"{n:N0} duplicate path hit(s) merged."
+        : $"{n:N0} 条重复路径已合并。";
+    public static string SelectAllInGroup => IsEn ? "Select the whole group" : "选中整组";
+    public static string SelectAllInSearch => IsEn ? "Select everything matching this search" : "选中搜索结果全部";
+    public static string SelectCurrentPage => IsEn ? "Select this page only" : "只选中当前页";
+    public static string GroupSelectionTitle => IsEn ? "How much to select" : "选择范围";
+    public static string KeepCandidate => IsEn ? "keep" : "保留";
+    public static string ExtraCandidate => IsEn ? "duplicate" : "多余副本";
+    public static string DuplicateKeepPath => IsEn
+        ? "Shortest path in this group — kept, cannot be selected"
+        : "本组里路径最短的那个，留着不动，也选不中";
+    public static string DuplicateExtraPath(int copies, int folders) => IsEn
+        ? $"{copies:N0} copies of the same content across {folders:N0} folder(s)"
+        : $"同一份内容共 {copies:N0} 个，分散在 {folders:N0} 个文件夹";
+    public static string EstUnknown => IsEn ? "size unknown" : "空间未知";
+    /// <summary>风险分区标题。**叫「清理候选」而不是「建议清理」** —— 改个名字不等于规则没问题，
+    /// 但至少不要再让界面替用户下「可以删」的结论。</summary>
+    public static string LayerSafe => IsEn ? "Cleanup candidates" : "清理候选";
+    public static string LayerConfirm => IsEn ? "review first" : "需要你确认";
+    public static string PurposeHeader => IsEn
+        ? "Pick a purpose to see where it lives. Files are listed only when you ask."
+        : "先选用途，再选具体位置。要看具体文件时再点「查看文件」。";
+    public static string LocationHeaderFormat(string purpose, int locations) => IsEn
+        ? $"{purpose} · {locations:N0} location(s) — tick a location, or open it to see files"
+        : $"{purpose} · {locations:N0} 处位置 —— 可以勾选整处，也可以打开看具体文件";
+    public static string DetailHeaderFormat(string name, int files) => IsEn
+        ? $"Files · {name} · {files:N0} in this selection"
+        : $"文件明细 · {name} · 本次范围共 {files:N0} 个";
+
+    // ============ 页面层级 / 导航（一次只显示一层） ============
+    public static string PagePurposeTitle => IsEn ? "Clean center" : "清理中心";
+    public static string ViewLocations => IsEn ? "View locations ›" : "查看位置 ›";
+    public static string ViewFilesArrow => IsEn ? "View files ›" : "查看文件 ›";
+    public static string ShowPathAction => IsEn ? "Show path" : "查看路径";
+    public static string HidePathAction => IsEn ? "Hide path" : "收起路径";
+    public static string PathCopied => IsEn ? "Path copied." : "路径已复制。";
+    public static string OpenHere => IsEn ? "Open in Explorer" : "在资源管理器中打开";
+    public static string CloseDetail => IsEn ? "Close" : "关闭";
+    public static string MoreMenu => IsEn ? "More" : "更多";
+    public static string AiExplainHere => IsEn ? "AI: explain what these are" : "AI 解释这些是什么";
+    public static string ScanDetails => IsEn ? "Scan details" : "扫描详情";
+    public static string ScanDetailsTitle => IsEn ? "Scan details" : "扫描详情";
+
+    /// <summary>
+    /// 分区标题的右侧统计：「8 类 · 82 个位置 · 约 131 GB」。
+    /// 空间按「约」表达 —— 分组空间是估算，不代表整组都能放心删。
+    /// 量词必须写出来，别把「类」和「个位置」混成一个数字。
+    /// 空间未知时不硬套「约」，直接照实说未知。
+    /// </summary>
+    public static string SectionStats(int kinds, int locations, string size) => IsEn
+        ? $"{kinds:N0} kinds · {locations:N0} location(s) · {(size == EstUnknown ? size : "about " + size)}"
+        : $"{kinds:N0} 类 · {locations:N0} 个位置 · {(size == EstUnknown ? size : "约 " + size)}";
+
+    /// <summary>折叠的分区里仍有已选项时的提示。</summary>
+    public static string CollapsedSelected(int selected, int locations) => IsEn
+        ? $"({selected:N0} item(s) in {locations:N0} location(s) are already selected)"
+        : $"（已选 {selected:N0} 项，分布在 {locations:N0} 个位置）";
+
+    // ---- 风险分区的副标题（说清这一组是什么性质，不只靠颜色） ----
+    /// <summary>候选组：**不下「可以优先处理」的结论**，只说明它是规则命中的候选，
+    /// 且默认没有勾选。用户仍然要自己决定。</summary>
+    public static string SectionSubtitleSafe => IsEn
+        ? "Matched by rules · nothing is ticked for you — pick what you want"
+        : "规则命中的候选 · 默认没有勾选，需要你自己选";
+    public static string SectionSubtitleConfirm => IsEn
+        ? "These may still be valuable — open them and decide"
+        : "这些内容可能仍有价值，请查看后决定";
+    /// <summary>分区图标：用文字符号也能读出状态，不依赖颜色。</summary>
+    public static string SectionIconSafe => "✓";
+    public static string SectionIconConfirm => "!";
+
+    // ---- 清理前检查页 ----
+    public static string PreflightTitle => IsEn ? "Before cleaning" : "清理前检查";
+    public static string PreflightSub => IsEn
+        ? "Nothing has been deleted yet. Review, then confirm."
+        : "还没有删除任何东西。确认下面的范围后再执行。";
+    public static string PreflightLocations(int n) => IsEn
+        ? $"{n:N0} location(s) will be handled" : $"将处理 {n:N0} 个位置";
+    public static string PreflightItems(int n) => IsEn
+        ? $"{n:N0} candidate item(s)" : $"将处理 {n:N0} 个候选项";
+    public static string PreflightSize(string size) => IsEn
+        ? $"About {size} to handle (estimate)" : $"预计处理空间 约 {size}（估算）";
+    public static string PreflightNeedsConfirm(int n) => IsEn
+        ? $"{n:N0} item(s) are in “review first” and will be handled too"
+        : $"其中 {n:N0} 项属于「需要你确认」，也会一并处理";
+    public static string PreflightNoConfirm => IsEn
+        ? "All selected items are in “cleanup candidates”."
+        : "所选内容都在「清理候选」里。";
+    /// <summary>程序会再做一遍的检查。说清是「再检查」，不是保证。</summary>
+    public static string PreflightRecheck => IsEn
+        ? "Before each item is handled, the app checks again: whether the file still exists, "
+          + "whether it changed since the scan, and whether it is protected or in use. "
+          + "Items that fail stay where they are and are listed with a reason."
+        : "每一项在真正处理前，程序会再检查一遍：文件是否还存在、扫描后是否被改动过、"
+          + "是否受系统保护或正在被占用。没通过的项会留在原处，并在结果里写明原因。";
+    public static string BackToEdit => IsEn ? "Back and adjust" : "返回修改";
+    public static string ConfirmClean => IsEn ? "Confirm and clean" : "确认清理";
+    public static string CleaningNow => IsEn ? "Cleaning…" : "正在清理……";
+    public static string StopNow => IsEn ? "Stop" : "停止";
+    public static string DoneItems(int ok, int failed) => IsEn
+        ? $"Done {ok:N0}, {failed:N0} not handled" : $"已完成 {ok:N0} 项，{failed:N0} 项未处理";
+    public static string ViewResults => IsEn ? "View results" : "查看结果";
+    public static string NothingToPreflight => IsEn
+        ? "Nothing is selected, so there is nothing to check."
+        : "没有选中内容，无需检查。";
+
+    // ---- AI 分析面板（清理中心的核心区域） ----
+    public static string AiPanelTitle => IsEn ? "AI analysis" : "AI 分析";
+    public static string AiPanelIntro => IsEn
+        ? "Helps you understand the scan and see what is worth handling first."
+        : "帮你理解扫描结果，并判断哪些内容值得优先处理。";
+    public static string AiNotConfiguredTitle => IsEn ? "AI analysis is not configured" : "AI 分析尚未配置";
+    public static string AiNotConfiguredSub => IsEn
+        ? "Configure it to get explanations and priority suggestions for the cleanup list."
+        : "配置后可获得清理内容的解释和优先级建议。";
+    public static string AiConfigure => IsEn ? "Configure AI" : "配置 AI";
+    public static string AiWorkingTitle => IsEn ? "AI is analysing the scan…" : "AI 正在分析当前扫描结果……";
+    public static string AiDoneTitle => IsEn ? "AI analysis finished" : "AI 已完成分析";
+    public static string AiIdleTitle => IsEn ? "AI analysis has not run yet" : "尚未进行 AI 分析";
+    public static string AiIdleSub => IsEn
+        ? "Run it to get per-item explanations for the candidates."
+        : "运行后会为候选项补充说明，帮助你判断。";
+    public static string AiStoppedTitle => IsEn ? "AI analysis stopped" : "AI 分析已停止";
+    public static string AiFailedTitle => IsEn ? "AI analysis failed" : "AI 分析失败";
+    public static string AiRecommendLabel => IsEn ? "Handle first: " : "优先建议：";
+    public static string AiCautionLabel => IsEn ? "Decide carefully: " : "谨慎判断：";
+    public static string ViewAiAnalysis => IsEn ? "View AI analysis" : "查看 AI 分析";
+    public static string Reanalyze => IsEn ? "Analyse again" : "重新分析";
+    public static string AiPanelNoLists => IsEn ? "no recognizable groups" : "没有可归类的分组";
+    /// <summary>AI 建议选择：文案必须说清「只是建议」且仍要用户确认。</summary>
+    public static string AiSelectByAdvice => IsEn ? "Select by AI advice" : "按 AI 建议选择";
+    public static string AiAdviceHint => IsEn
+        ? "Only ticks items local rules already allow. You still confirm before anything is cleaned."
+        : "只勾选本地规则已经允许的项；执行前仍然由你确认。";
+    public static string AiAnalysisTitle => IsEn ? "AI analysis" : "AI 分析详情";
+    public static string AiAnalysisNoResult => IsEn
+        ? "AI has not produced a result yet. Run the analysis first."
+        : "AI 还没有产出结果，请先运行一次分析。";
+    public static string RunAiAnalysis => IsEn ? "Run AI analysis" : "开始 AI 分析";
+    public static string AiAnalyzingShort => IsEn ? "Analysing…" : "分析中…";
+    public static string AiNoKeepGroup => IsEn ? "nothing is marked keep-only" : "没有被标为「保留」的分组";
+    public static string AiAdviceApplied(int n) => IsEn
+        ? $"Selected {n:N0} item(s) that local rules already allow. Review, then confirm."
+        : $"已按建议勾选 {n:N0} 项（都在本地规则允许范围内）。请核对后再确认执行。";
+    public static string AiAdviceNothing => IsEn
+        ? "Nothing new to select by advice." : "按建议没有可新增勾选的内容。";
+    public static string AiScopeLine(int analysed, int total) => IsEn
+        ? $"Scope: {analysed:N0} of {total:N0} candidate item(s) were sent for analysis"
+        : $"分析依据范围：本次送出 {analysed:N0} 项，共 {total:N0} 个候选项";
+    public static string AiScopePartial => IsEn
+        ? "Note: only part of the candidates was analysed (batch limit). The rest keep their local rule descriptions."
+        : "注意：受单次上限影响，只分析了部分候选项；其余保留本地规则给出的说明。";
+    public static string AiDetailWhy => IsEn ? "Why these are suggested:" : "为什么推荐这些：";
+    public static string AiDetailImpact => IsEn ? "What cleaning may affect:" : "清理后可能产生的影响：";
+    public static string AiDetailAvoid => IsEn ? "What is NOT suggested for handling:" : "哪些内容不建议处理：";
+    public static string AiDetailAsk => IsEn ? "What needs your decision:" : "哪些内容需要你确认：";
+    public static string AiDetailBoundary => IsEn
+        ? "AI only explains and suggests. Risk levels, deletable scope and the final choice all stay with the local rules and with you."
+        : "AI 只做解释和建议。风险等级、可删除范围与最终选择仍由本地规则和你决定。";
+
+    // ---- 逐项 AI（按需分析单个文件 / 单个清理位置） ----
+    public static string ItemAiAnalyze => IsEn ? "Analyse" : "AI 分析";
+    public static string ItemAiQueued => IsEn ? "Queued…" : "排队中…";
+    public static string ItemAiRunning => IsEn ? "Analysing…" : "分析中…";
+    public static string ItemAiViewResult => IsEn ? "View result" : "查看结果";
+    public static string ItemAiRetry => IsEn ? "Analyse again" : "重新分析";
+    public static string ItemAiFailed => IsEn ? "Analysis failed" : "分析失败";
+    public static string ItemAiTimeout => IsEn ? "Analysis timed out" : "分析超时";
+    public static string ItemAiCanceled => IsEn ? "Analysis canceled" : "分析已取消";
+    public static string ItemAiStopped => IsEn ? "Stopped" : "已停止";
+    public static string ItemAiNoUseful => IsEn
+        ? "AI replied but gave nothing usable"
+        : "AI 有回复，但没有可用的结论";
+    public static string ItemAiStopHint => IsEn ? "Stop this analysis" : "停止这一项的分析";
+    public static string ItemAiTip => IsEn
+        ? "Ask AI about just this item (one request, does not change selection or risk)"
+        : "只就这一项问 AI（发一次请求；不改勾选、不改风险）";
+
+    public static string ItemAiSuggestionLabel => IsEn ? "Suggestion: " : "建议：";
+    public static string ItemAiPurposeLabel => IsEn ? "What it is: " : "用途：";
+    public static string ItemAiImpactLabel => IsEn ? "If removed: " : "删除影响：";
+    public static string ItemAiBasisLabel => IsEn ? "Based on: " : "判断依据：";
+    public static string ItemAiMissingLabel => IsEn ? "Missing: " : "缺少的信息：";
+    public static string ItemAiFromCache => IsEn ? "cached" : "来自缓存";
+    public static string ItemAiLocalOnly => IsEn
+        ? "[local rules] not an AI conclusion: " : "［本地规则］不是 AI 结论：";
+
+    /// <summary>建议档位：**允许「信息不足」**，不强迫模型给可删结论。</summary>
+    public static string AiSuggestCanConsider => IsEn ? "could be considered" : "可考虑清理";
+    public static string AiSuggestNeedsConfirm => IsEn ? "needs your confirmation" : "需要确认";
+    public static string AiSuggestKeep => IsEn ? "better kept" : "建议保留";
+    public static string AiSuggestUnknown => IsEn ? "not enough information" : "信息不足";
+
+    public static string AiItemFileHeader => IsEn
+        ? "Analyse ONE file. Use only the metadata below; you cannot read its content."
+        : "分析**一个文件**。只用下面的元数据；你无法读取文件内容。";
+    public static string AiItemFolderHeader => IsEn
+        ? "Analyse ONE cleanup location (folder). Use only the metadata and the bounded summary below. "
+          + "You have NOT seen every file in it — say so when it matters."
+        : "分析**一个清理位置（文件夹）**。只用下面的元数据和有上限的摘要。"
+          + "你**没有**看过里面的全部文件 —— 这一点在需要时要说出来。";
+    public static string AiItemSummaryScope(int shown, int total) => IsEn
+        ? $"summary covers the {shown} largest of {total} direct child item(s) — NOT the whole folder"
+        : $"摘要只覆盖 {total} 个直接子项里最大的 {shown} 个 —— 不是整个文件夹";
+    public static string AiItemSystem => IsEn
+        ? """
+          You judge ONE disk-cleanup item for a non-technical Windows user.
+
+          Reply with exactly these five lines, nothing else. Keep each value short (<= 20 words):
+          SUGGEST: <one of: could be considered | needs your confirmation | better kept | not enough information>
+          PURPOSE: <what this is, in plain words>
+          IMPACT: <what the user would notice if it were removed; "probably nothing" is allowed>
+          BASIS: <which facts above you based this on>
+          MISSING: <what you could not see and cannot know>
+
+          Rules:
+          - Never say it is safe to delete. You are not allowed to promise anything.
+          - If the evidence is weak, use "not enough information" instead of guessing.
+          - Do not mention commands, package formats or internal terms.
+          - Do not output tool calls, markdown, or any extra lines.
+          """
+        : """
+          你要为一个不懂电脑的 Windows 用户判断**一个**清理项目。
+
+          只回下面五行，不要有别的内容。每行尽量短（不超过 20 个字）：
+          SUGGEST: <从这四个里选一个：可考虑清理 | 需要确认 | 建议保留 | 信息不足>
+          PURPOSE: <用大白话说这是什么>
+          IMPACT: <如果删掉，用户会察觉到什么；「大概没影响」也可以>
+          BASIS: <你是根据上面哪条信息判断的>
+          MISSING: <你没看到、也无法知道的是什么>
+
+          规则：
+          - 绝不要说「可以安全删除」。你没有资格做任何保证。
+          - 证据不足就用「信息不足」，不要猜。
+          - 不要提命令、包格式或技术术语。
+          - 不要输出工具调用、markdown 或任何多余的行。
+          """;
+
+    public static string AiBtnTip => IsEn ? "Analyse this item with AI" : "用 AI 分析这一项";
+    /// <summary>「更多」菜单里的说明：AI 入口已经挪到每一项旁边。</summary>
+    public static string AiPerItemHint => IsEn
+        ? "AI analysis now lives on each item (the ✦ button on a row)"
+        : "AI 分析已改为按需：点某一行的 AI 按钮";
+
+    /// <summary>进行中的诚实提示：没有真实百分比就不编，只报已等待时间。</summary>
+    public static string AiRunningHint(TimeSpan waited) => IsEn
+        ? $"Waiting for the model… {waited.TotalSeconds:0}s elapsed. It can take a while; you can stop at any time."
+        : $"正在等待模型返回……已等待 {waited.TotalSeconds:0} 秒。可能较慢，随时可以停止。";
+    public static string AiStopShort => IsEn ? "Stop analysis" : "停止分析";
+    public static string AiStopping => IsEn ? "Stopping AI analysis…" : "正在停止 AI 分析…";
+    /// <summary>「提交 60 项 · 生成 15 条可用说明 · 45 项无说明」—— 三个数分开说。</summary>
+    public static string AiCountLine(int sent, int applied, int without) => IsEn
+        ? $"Submitted {sent:N0} · usable notes {applied:N0} · no note {without:N0}"
+        : $"提交 {sent:N0} 项 · 生成可用说明 {applied:N0} 条 · 无说明 {without:N0} 项";
+    public static string AiDoneSub(int applied, int sent, int without) => IsEn
+        ? $"Generated {applied:N0} usable note(s) from {sent:N0} submitted item(s)"
+          + (without > 0 ? $"; {without:N0} item(s) got no note." : ".")
+        : $"从提交的 {sent:N0} 项中生成 {applied:N0} 条可用说明"
+          + (without > 0 ? $"；另有 {without:N0} 项没有拿到说明。" : "。");
+    public static string AiNoUsefulTitle => IsEn ? "AI replied, but no usable notes" : "AI 有回复，但没有可用说明";
+    public static string AiNoUsefulSub(int sent) => IsEn
+        ? $"{sent:N0} item(s) were submitted but none came back in a usable format. Local rule descriptions are unchanged."
+        : $"提交了 {sent:N0} 项，但没有一条能按格式解析成说明。本地规则的说明保持不变。";
+    public static string AiResultUnusable => IsEn
+        ? "AI replied but produced no usable note; local rules still apply."
+        : "AI 有回复但没有产出可用说明；本地规则仍然有效。";
+    public static string AiNoNotesBody => IsEn
+        ? "No usable per-item AI note was produced. Nothing here is an AI conclusion."
+        : "本次没有产出可用的逐项 AI 说明。下面显示的都是本地规则结果，不是 AI 结论。";
+    public static string AiNotesHead(int n) => IsEn
+        ? $"AI notes for {n:N0} item(s) (real model output):"
+        : $"AI 逐项说明（真实模型输出，共 {n:N0} 条）：";
+    public static string AiNotesMore(int n) => IsEn
+        ? $"…plus {n:N0} more (open the file detail to read them all)."
+        : $"……另有 {n:N0} 条（在文件详情里可以逐条查看）。";
+    /// <summary>本地规则摘要必须打标签，不能冒充 AI 结论。</summary>
+    public static string AiLocalTag => IsEn ? "[local rules]" : "［本地规则］";
+    public static string AiLocalHead => IsEn
+        ? "From local rules (not an AI conclusion):"
+        : "以下来自本地规则，不是 AI 结论：";
+    public static string AiTimingLine(double buildMs, double sendMs, double parseMs) => IsEn
+        ? $"Timing: prepare {buildMs:0}ms · request {sendMs:0}ms · parse {parseMs:0}ms"
+        : $"耗时：组装 {buildMs:0} 毫秒 · 请求 {sendMs:0} 毫秒 · 解析 {parseMs:0} 毫秒";
+    public static string AiParseLine(int lines, int candidates, int hits, int noise) => IsEn
+        ? $"Response: {lines:N0} line(s) · {candidates:N0} list-like · {hits:N0} matched a submitted path · {noise:N0} noise cell(s) skipped"
+        : $"响应解析：{lines:N0} 行 · 像清单的 {candidates:N0} 行 · 命中提交路径 {hits:N0} 行 · 跳过噪音列 {noise:N0} 次";
+    public static string AiChannelLine(string channel, int attempts) => IsEn
+        ? $"Channel: {channel} · attempt(s): {attempts}"
+        : $"通道：{channel} · 尝试次数：{attempts}";
+
+    /// <summary>
+    /// 估算口径改成悬停提示（不再单独占一整行）。
+    /// 措辞不能承诺「立刻多出等量空间」—— 回收站清空后空间才真正回来。
+    /// </summary>
+    public static string EstimateTip => IsEn
+        ? "“About” is an estimate, not a promise. Actual free space grows after the Recycle Bin is emptied."
+        : "「预计」是估算值，不是承诺。实际可用空间会在回收站清空后才增加。";
+    public static string NeedsConfirmTip => IsEn
+        ? "Items in “review first” are included and are not auto-chosen for you."
+        : "「需要你确认」的项目也会被处理，程序不会替你自动勾选它们。";
+
+    /// <summary>位置页标题区：「临时文件 / 23 个位置 · 预计处理 18.1 GB」。</summary>
+    public static string LocationPageHead(string purpose, int locations, string size) => IsEn
+        ? $"{locations:N0} location(s) · about {size} to handle"
+        : $"{locations:N0} 个位置 · 预计处理 {size}";
+
+    // ---- 底部固定操作栏（唯一主要执行入口） ----
+    public static string NothingSelectedYet => IsEn ? "Nothing selected yet." : "尚未选择清理内容";
+    /// <summary>「已选 2 个位置，包含 N 个候选项 · 预计处理 2.6 GB」。</summary>
+    public static string SelectionSummary(int locations, int items, string size) => IsEn
+        ? $"{locations:N0} location(s) selected · {items:N0} candidate item(s) · about {size} to handle"
+        : $"已选 {locations:N0} 个位置，包含 {items:N0} 个候选项 · 预计处理 {size}";
+    public static string ClearSelection => IsEn ? "Clear selection" : "清空选择";
+    /// <summary>
+    /// 底部唯一主按钮。**不再叫「检查并清理」** —— 那个词说不清点了会发生什么。
+    /// 点它进入清理前检查页，不是直接删。
+    /// </summary>
+    public static string CleanSelectedItems => IsEn ? "Clean selected items" : "清理已选项目";
+    public static string GlobalSelectionNote => IsEn
+        ? "Selection is global and includes items not on this page."
+        : "选择是全局的，包含不在当前页面的已选项。";
+    public static string ViewSelected => IsEn ? "View selected" : "查看已选";
+    public static string ViewSelectedTip(int n) => IsEn
+        ? $"Review the {n:N0} selected candidate(s) — this only opens a list, it does not clear the selection."
+        : $"核对已选的 {n:N0} 个候选项 —— 只是打开清单，不会清空选择。";
+    /// <summary>清单口径说明：明确「候选项」与「位置」是两种计数，不与文件数混用。</summary>
+    public static string ViewSelectedSub => IsEn
+        ? "Grouped by cleanup location. “Items” counts candidate items, not files. "
+          + "Sizes are estimates. Closing this list does not change the selection."
+        : "按清理位置分组。表格里的「候选项」计的是候选项数量，不是文件数；空间为估算值。"
+          + "关闭本清单不会改动选择。";
+    /// <summary>没归到任何已建位置的已选项，单独归一行，避免清单漏数。</summary>
+    public static string OtherSelected => IsEn ? "(other selected items)" : "（其它已选项）";
+    public static string ViewSelectedTitle => IsEn ? "Selected for cleaning" : "已选中的清理内容";
+    public static string SelectedRatio(int selected, int total) => IsEn
+        ? $"{selected:N0} / {total:N0} selected"
+        : $"已选 {selected:N0} / {total:N0} 项";
+    public static string NothingSelectable => IsEn ? "nothing selectable" : "无可选项";
+    public static string SelectSectionAll => IsEn ? "Select this section" : "选中本分区";
+    public static string SelectLocationAll => IsEn ? "Select this location" : "选中本位置";
+    /// <summary>组选择范围提示：说清是整组而不是当前页。</summary>
+    public static string SelectWholeGroup(int n) => IsEn
+        ? $"This selects the whole group ({n:N0} items), not just this page."
+        : $"将选中整组（{n:N0} 项），不是只选当前页。";
+
+    // ---- 空 / 进行中 / 部分完成 / 取消 / 失败 ----
+    public static string EmptyAfterScan => IsEn
+        ? "Nothing worth cleaning was found on this drive."
+        : "这个盘没找到值得清理的内容。";
+    public static string StateScanning => IsEn ? "Scanning the drive…" : "正在扫描磁盘…";
+    public static string StateAnalyzing => IsEn ? "Checking what can be cleaned…" : "正在分析可清理内容…";
+    public static string StateDup => IsEn ? "Comparing duplicate files…" : "正在核对重复文件…";
+    public static string StateCanceledTitle => IsEn ? "Stopped" : "已停止";
+    public static string StateCanceledBody => IsEn
+        ? "Partial results are kept below. Nothing was deleted."
+        : "下面是已经算出来的部分结果，没有删除任何东西。";
+    public static string StateFailedTitle => IsEn ? "Scan failed" : "扫描失败";
+    public static string StatePartialTitle => IsEn ? "Not everything was checked" : "有内容没检测完";
+    public static string PartialBadge => IsEn ? "incomplete" : "未跑完";
+
+    // ---- 扫描诊断收敛（细节进「扫描详情」） ----
+    public static string ScanOkShort => IsEn ? "Scan finished" : "扫描完成";
+    /// <summary>
+    /// 异常路径的短警告。**不带「扫描完成」前缀** —— 那一句在成功时已经不显示了，
+    /// 异常时再说一遍只是噪音；这里只讲真正有问题的那半句。
+    /// </summary>
+    public static string ScanPartialShort => IsEn
+        ? "Some content was not checked — click for details"
+        : "部分内容未检测 · 点这里看原因";
+    public static string ScanStoppedShort => IsEn ? "Scan stopped early" : "扫描中途停止";
+    public static string ScanDone => IsEn ? "Scan finished" : "扫描完成";
+    /// <summary>兼容模式（没走 MFT）：不重复「扫描完成」，因为状态行里还有覆盖度那句。</summary>
+    public static string ScanDoneFallback => IsEn ? "Compatibility mode" : "兼容模式扫描";
+    public static string ScanElapsedLine(double seconds) => IsEn
+        ? $"Scan took {seconds:0.0}s" : $"扫描耗时 {seconds:0.0} 秒";
+
+    // ---- 清理范围（与文件浏览器状态分离） ----
+    public static string ScopeToFolder => IsEn ? "Only clean in this folder" : "只看此文件夹的清理项";
+    public static string ScopeToFolderHint(string path) => IsEn
+        ? "Limit the cleanup view to:\n" + path
+        : "把清理视图限制在：\n" + path;
+    public static string ScopeNeedFolder => IsEn
+        ? "Pick a folder in the file browser first."
+        : "先在文件浏览器里选一个文件夹。";
+    public static string ClearScope => IsEn ? "Stop limiting to this folder" : "取消只看此文件夹";
+    public static string ClearScopeAction => IsEn ? "Clear range" : "清除范围";
+
+    // ---- 侧栏开关 ----
+    public static string ShowSidebar => IsEn ? "Show file browser" : "显示文件浏览器";
+    public static string HideSidebar => IsEn ? "Hide file browser" : "隐藏文件浏览器";
+    /// <summary>齿轮按钮的可访问名称（比「设置」更清楚点了会发生什么）。</summary>
+    public static string OpenSettings => IsEn ? "Open settings" : "打开设置";
+
+    // ---- 候选统计（进扫描详情，不在主页面刷屏） ----
+    public static string CandidateTotalLine(int files, int dupGroups) => IsEn
+        ? $"Candidates: {files:N0} · duplicate groups: {dupGroups:N0}"
+        : $"候选总数：{files:N0} · 重复组：{dupGroups:N0}";
+    public static string CandidateDedupLine(int overlap, int dupHits) => IsEn
+        ? $"Inside an already-selected folder: {overlap:N0} · duplicate path hits merged: {dupHits:N0}"
+        : $"已被选中文件夹包含：{overlap:N0} · 重复路径合并：{dupHits:N0}";
+    public static string DupFinished => IsEn ? "Duplicate check: finished." : "重复检测：已跑完。";
+    public static string DupNotFinished => IsEn
+        ? "Duplicate check: NOT finished (budget/limit) — some duplicates may be missing."
+        : "重复检测：没跑完（预算/上限）——可能还有重复文件没找出来。";
+
+    /// <summary>范围提示。范围外仍有已选项时必须说明，否则会被静默执行。</summary>
+    public static string ScopeChip(string path, int selectedOutside) => IsEn
+        ? $"Range: {path}"
+          + (selectedOutside > 0
+              ? $"   ·   {selectedOutside:N0} selected item(s) are OUTSIDE this range and will still be handled"
+              : "")
+        : $"当前范围：{path}"
+          + (selectedOutside > 0
+              ? $"   ·   范围外还有 {selectedOutside:N0} 个已选项，仍会被处理"
+              : "");
+
+    // ---- 分层视图补充 ----
+    public static string DetailScopeCount(int n, string size) => IsEn
+        ? $"{n:N0} item(s) in this scope · about {size}"
+        : $"本位置共 {n:N0} 项 · 预计 {size}";
+    public static string AllLoaded => IsEn ? "all loaded" : "已全部加载";
+    public static string LargestSelected => IsEn ? "Largest selected:" : "占用最大的已选项：";
+    public static string NoScanYet => IsEn ? "No scan yet." : "还没扫描。";
+    public static string CleanStateFailedBody => IsEn
+        ? "Nothing was changed. Try again, or check the log for details."
+        : "没有改动任何东西。可以重试，细节见诊断日志。";
+    public static string CleanStatePartialBody => IsEn
+        ? "Counts below are a lower bound. See scan details for what was skipped."
+        : "下面的数字只是下限。哪些内容没检测到，见「扫描详情」。";
+
+    // 选择范围菜单：文案必须带范围与条数
+    public static string SelectCurrentPageCount(int n) => IsEn
+        ? $"This page only ({n:N0} items)" : $"只选当前页（{n:N0} 项）";
+    public static string SelectAllInSearchCount(int n) => IsEn
+        ? $"Everything matching the search ({n:N0} items)" : $"搜索结果全部（{n:N0} 项）";
+    public static string SelectWholeGroupCount(int n) => IsEn
+        ? $"Whole location ({n:N0} items)" : $"整个位置（{n:N0} 项）";
+    public static string DeselectAllCount(int n) => IsEn
+        ? $"Clear selection ({n:N0} items)" : $"全部取消勾选（{n:N0} 项）";
+
+    // ---- 扫描详情（细节从页头收进来，数据一条不删） ----
+    public static string ScanSourceLine(string source) => IsEn ? "Scan source: " + source : "扫描来源：" + source;
+    public static string ScanDurationLine(double seconds) => IsEn
+        ? $"Duration: {seconds:0.0}s" : $"耗时：{seconds:0.0} 秒";
+    public static string ScanCountLine(int files, int dirs) => IsEn
+        ? $"Read: {files:N0} files / {dirs:N0} folders" : $"读到：{files:N0} 个文件 / {dirs:N0} 个文件夹";
+    public static string ScanSkipLine(int skipped, int perm, int path, int read) => IsEn
+        ? $"Skipped: {skipped:N0} folders · permission errors {perm:N0} · path errors {path:N0} · read failures {read:N0}"
+        : $"跳过：{skipped:N0} 个目录 · 权限不足 {perm:N0} · 路径问题 {path:N0} · 读取失败 {read:N0}";
+    public static string ScanReparseLine(int reparse) => IsEn
+        ? $"Links not followed: {reparse:N0} (junctions / symlinks / cloud placeholders)"
+        : $"未跟随的链接：{reparse:N0}（快捷方式/符号链接/云占位）";
+    public static string ScanRecordLine(int unparsed, int orphan, int hardLinks) => IsEn
+        ? $"MFT records: unparsable {unparsed:N0} · orphan {orphan:N0} · hard links {hardLinks:N0}"
+        : $"MFT 记录：读不出 {unparsed:N0} · 找不到父目录 {orphan:N0} · 硬链接 {hardLinks:N0}";
+    public static string ScanCompleteLine => IsEn
+        ? "Result: this scan is complete." : "结论：这次扫描是完整的。";
+    public static string ScanIncompleteLine => IsEn
+        ? "Result: this scan is INCOMPLETE — some content was not checked."
+        : "结论：这次扫描不完整 —— 有内容没检测到。";
+    public static string LocationsNotShown(int n) => IsEn
+        ? $"+{n:N0} more location(s) not listed (totals above still include them)"
+        : $"另有 {n:N0} 处位置未逐条列出（上面的总数已包含它们）";
+
+    /// <summary>确认框：说清位置数 / 候选数 / 预计空间 / 需要确认的风险。</summary>
+    public static string DeleteScopeConfirm(int locations, int files, string size, int sensitive)
+    {
+        string head = IsEn
+            ? $"Delete from {locations:N0} location(s): {files:N0} files, about {size}."
+            : $"将从 {locations:N0} 处位置删除：{files:N0} 个文件，预计 {size}。";
+        if (sensitive <= 0) return head;
+        string tail = IsEn
+            ? $"\n{sensitive:N0} of them picked from the “needs your review” group."
+            : $"\n其中 {sensitive:N0} 个来自「需要你确认」那一组。";
+        return head + tail;
+    }    public static string CanceledPartial => IsEn
+        ? "Stopped. Results so far are still shown; duplicate check did not finish."
+        : "已停止。已有结果仍可查看，重复检测没有跑完。";
+    public static string AnalyzingPartial => IsEn
+        ? "Stopped. Partial results are shown below."
+        : "已停止。下面是已经算出来的部分结果。";
+    public static string ReasonGrew(string size) => IsEn ? "Grew " + size : "多了 " + size;    public static string ReasonShrunk(string size) => IsEn ? "Shrank " + size : "少了 " + size;
     public static string ReasonGone => IsEn ? "Gone since last scan" : "上次有，这次没了";
     public static string CompareFirst => IsEn ? "First scan of this drive — next scan can compare." : "这盘第一次扫，下次才能对比。";
     public static string CompareSince(DateTime when, string delta) =>
@@ -514,13 +1586,5 @@ public static class Loc
     public static string CleanShortcuts => IsEn ? "Checking shortcuts…" : "正在检查快捷方式…";
     public static string CleanDups => IsEn ? "Checking duplicates…" : "正在核对重复文件…";
     public static string CleanCompare => IsEn ? "Comparing with last scan…" : "正在和上次扫描对比…";
-
-    public static string Category(string fileName)
-    {
-        if (fileName.StartsWith('$')) return IsEn ? "System" : "系统";
-        var t = TypeName(System.IO.Path.GetExtension(fileName));
-        if (t is "日志" or "Log") return IsEn ? "Log" : "日志";
-        if (t is "临时" or "Temporary") return IsEn ? "Temporary" : "临时";
-        return t;
-    }
+    public const int AnalyzeSteps = 6;
 }

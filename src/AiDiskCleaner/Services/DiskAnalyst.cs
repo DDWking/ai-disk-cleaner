@@ -3,12 +3,15 @@ using AiDiskCleaner.Models;
 
 namespace AiDiskCleaner.Services;
 
+/// <summary>
+/// AI 能看到的宿主信息。**只有只读入口** ——
+/// 以前这里还有 OnChecksChanged / OnSuggest，让模型能直接改勾选；
+/// 那违反「AI 只解释和建议，选择由用户做」，已删除。
+/// </summary>
 public interface IAnalystHost
 {
     FileEntry? Root { get; }
     CleanReport? Report { get; }
-    void OnChecksChanged(bool showLarge);
-    void OnSuggest(string path, string note);
 }
 
 public static class DiskAnalyst
@@ -48,7 +51,7 @@ public static class DiskAnalyst
         lines.Add($"duplicates: {report.Duplicates.Count:N0} in {report.DupGroupCount:N0} groups, {Sum(report.Duplicates)}");
         if (!string.IsNullOrWhiteSpace(report.CompareNote))
             lines.Add("compare: " + report.CompareNote);
-        var known = AppSignatures.HitsIn(RootFolders(root).Concat(root.Children)).Take(6).ToList();
+        var known = AppSignatures.HitsIn(RootFolders(root).Concat(root.ChildList)).Take(6).ToList();
         if (known.Count > 0)
         {
             lines.Add("");
@@ -63,7 +66,7 @@ public static class DiskAnalyst
                     SigRisk.Bloat => "bloatware, suggest uninstall",
                     _ => "",
                 };
-                string extra = string.IsNullOrEmpty(sig.Note) ? "" : "  " + sig.Note;
+                string extra = string.IsNullOrEmpty(sig.Plain) ? "" : "  " + sig.Plain;
                 if (!string.IsNullOrEmpty(sig.Migrate)) extra += "  migrate:" + sig.Migrate;
                 lines.Add($"  {FileEntry.FormatSize(size)}  {sig.Name}  [{risk}]{extra}  {sample}");
             }
@@ -71,23 +74,20 @@ public static class DiskAnalyst
         return string.Join(Environment.NewLine, lines);
     }
 
+    /// <summary>
+    /// 右键「问 AI 这是什么」的提问内容：只给路径指纹，让模型解释这个文件夹。
+    /// 不再问「哪些子项能删」——风险由规则判定，AI 只负责说明。
+    /// </summary>
     public static string FolderAsk(FileEntry dir)
     {
-        var lines = new List<string>
-        {
-            Loc.IsEn
-                ? "Explain this folder only. What is it? Which children look deletable? Do not invent files."
-                : "只解释这个文件夹：它是什么、哪些子项可能能删。不要编造。",
-            Line(dir),
-            "children (top 20):",
-        };
-        foreach (var c in dir.Children
+        var kids = new List<string>();
+        foreach (var c in dir.ChildList
                      .Where(x => !x.IsFilesGroup && !string.IsNullOrEmpty(x.FullPath))
                      .OrderByDescending(x => x.Size)
                      .Take(20))
-            lines.Add("  " + Line(c));
+            kids.Add("  " + Line(c));
         Listed.Add(Norm(dir.FullPath));
-        return string.Join(Environment.NewLine, lines);
+        return Loc.AiFolderAskUser(Line(dir), string.Join(Environment.NewLine, kids));
     }
 
     public static void ResetSession() => Listed.Clear();
@@ -105,51 +105,11 @@ public static class DiskAnalyst
             ("search_clean",
                 "Search the cleanable and largest-file lists by name, path, reason, or group. Returns up to 30 items.",
                 Props(("query", "Text to search"))),
-            ("set_checked",
-                "Check or uncheck items on the clean list. Cannot delete. Only safe cleanable items (temp/cache, dumps, recycle) and large files outside Windows/Program Files/system. Pass full paths.",
-                new Dictionary<string, object>
-                {
-                    ["type"] = "object",
-                    ["properties"] = new Dictionary<string, object>
-                    {
-                        ["paths"] = new Dictionary<string, object>
-                        {
-                            ["type"] = "array",
-                            ["items"] = new Dictionary<string, object> { ["type"] = "string" },
-                            ["description"] = "Full paths",
-                        },
-                        ["checked"] = new Dictionary<string, object>
-                        {
-                            ["type"] = "boolean",
-                            ["description"] = "true to check, false to uncheck",
-                        },
-                    },
-                    ["required"] = new[] { "paths", "checked" },
-                }),
-            ("suggest",
-                "Mark files the user might delete. Checks them on the right clean list. Does not delete. Call this for every recommended FILE path, not Windows/Program Files/Users as a whole. note = specific reason in the user's language.",
-                new Dictionary<string, object>
-                {
-                    ["type"] = "object",
-                    ["properties"] = new Dictionary<string, object>
-                    {
-                        ["items"] = new Dictionary<string, object>
-                        {
-                            ["type"] = "array",
-                            ["items"] = new Dictionary<string, object>
-                            {
-                                ["type"] = "object",
-                                ["properties"] = new Dictionary<string, object>
-                                {
-                                    ["path"] = new Dictionary<string, object> { ["type"] = "string" },
-                                    ["note"] = new Dictionary<string, object> { ["type"] = "string", ["description"] = "Short reason, one line" },
-                                },
-                                ["required"] = new[] { "path", "note" },
-                            },
-                        },
-                    },
-                    ["required"] = new[] { "items" },
-                }),
+            // 只保留**只读**工具。以前这里还有 set_checked / suggest，它们能让模型
+            // 直接勾选清理项 —— 那是用户才能做的决定，已经删除。
+            ("report_finding",
+                "Report what you found about one item. Text only; this never changes selection or risk.",
+                Props(("path", "The item path"), ("note", "One-line finding in the user's language"))),
         };
         if (proto == AiProtocol.Anthropic)
             return list.Select(t => (object)new { name = t.Name, description = t.Desc, input_schema = t.Schema }).ToList();
@@ -171,8 +131,9 @@ public static class DiskAnalyst
         {
             "list_folder" => ListFolder(Str(args, "path"), host),
             "search_clean" => Search(Str(args, "query"), host),
-            "set_checked" => SetChecked(args, host),
-            "suggest" => Suggest(args, host),
+            // set_checked / suggest 已移除：它们会让模型直接改勾选。
+            // AI 只解释和建议，选择永远由用户自己做（见 PROGRESS 第十三/十四阶段）。
+            "set_checked" or "suggest" => "tool removed: the app never lets AI change the selection",
             _ => "unknown tool",
         };
     }
@@ -196,7 +157,7 @@ public static class DiskAnalyst
         string key = Norm(dir.FullPath);
         if (!Listed.Add(key))
             return "already listed this folder; use the previous result";
-        var kids = dir.Children
+        var kids = dir.ChildList
             .Where(c => !c.IsFilesGroup && !string.IsNullOrEmpty(c.FullPath))
             .OrderByDescending(c => c.Size)
             .Take(40)
@@ -222,52 +183,7 @@ public static class DiskAnalyst
         return hits.Count == 0 ? "no matches" : string.Join(Environment.NewLine, hits);
     }
 
-    static string SetChecked(JsonElement args, IAnalystHost host)
-    {
-        var report = host.Report;
-        if (report == null) return "no scan";
-        bool on = args.TryGetProperty("checked", out var c) && c.ValueKind is JsonValueKind.True;
-        var paths = new List<string>();
-        if (args.TryGetProperty("paths", out var arr) && arr.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var p in arr.EnumerateArray())
-                if (p.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(p.GetString()))
-                    paths.Add(p.GetString()!);
-        }
-        if (paths.Count == 0) return "no paths";
-        int ok = 0, blocked = 0, missing = 0;
-        bool large = false;
-        var items = AllItems(report).ToList();
-        foreach (var path in paths.Take(80))
-        {
-            var item = items.FirstOrDefault(x => PathEq(x.FullPath, path))
-                       ?? items.FirstOrDefault(x => x.Name.Equals(path, StringComparison.OrdinalIgnoreCase));
-            if (item == null) { missing++; continue; }
-            if (!CanAiCheck(item)) { blocked++; continue; }
-            item.Selected = on;
-            ok++;
-            if (on) host.OnSuggest(item.FullPath, item.Reason);
-            if (item.Group == Loc.GroupLarge || item.Group == Loc.GroupInstaller) large = true;
-        }
-        if (ok > 0) host.OnChecksChanged(large);
-        return $"checked={on} ok={ok} blocked={blocked} missing={missing}";
-    }
 
-    static string Suggest(JsonElement args, IAnalystHost host)
-    {
-        if (!args.TryGetProperty("items", out var arr) || arr.ValueKind != JsonValueKind.Array)
-            return "no items";
-        int n = 0;
-        foreach (var it in arr.EnumerateArray().Take(40))
-        {
-            string path = Str(it, "path");
-            string note = Str(it, "note");
-            if (string.IsNullOrWhiteSpace(path)) continue;
-            host.OnSuggest(path, string.IsNullOrWhiteSpace(note) ? "AI" : note.Trim());
-            n++;
-        }
-        return $"marked {n}";
-    }
 
     static IEnumerable<CleanItem> AllItems(CleanReport r)
         => r.Cleanable.Concat(r.LargeFiles);
@@ -279,7 +195,7 @@ public static class DiskAnalyst
            || (x.Group ?? "").Contains(q, StringComparison.OrdinalIgnoreCase);
 
     static IEnumerable<FileEntry> RootFolders(FileEntry root)
-        => root.Children
+        => root.ChildList
             .Where(c => c.IsDirectory && !c.IsFilesGroup && !string.IsNullOrEmpty(c.FullPath))
             .OrderByDescending(c => c.Size);
 
@@ -292,7 +208,7 @@ public static class DiskAnalyst
         while (stack.Count > 0)
         {
             var n = stack.Pop();
-            foreach (var c in n.Children)
+            foreach (var c in n.ChildList)
             {
                 if (PathEq(c.FullPath, path)) return c;
                 if (c.IsDirectory) stack.Push(c);

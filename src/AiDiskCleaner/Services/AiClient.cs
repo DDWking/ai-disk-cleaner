@@ -6,41 +6,19 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using AiDiskCleaner.Models;
 using OpenAI;
 using OpenAI.Chat;
 
 namespace AiDiskCleaner.Services;
-
-public enum AiProtocol { Completions, Responses, Anthropic }
-
-public sealed class AiToolCall
-{
-    public string Id { get; set; } = "";
-    public string Name { get; set; } = "";
-    public string Arguments { get; set; } = "{}";
-}
-
-public sealed class AiMsg
-{
-    public string Role { get; set; } = "";
-    public string Text { get; set; } = "";
-    public List<AiToolCall>? Calls { get; set; }
-    public string? CallId { get; set; }
-    public string? ToolName { get; set; }
-}
-
-public sealed class AiReply
-{
-    public string Text { get; set; } = "";
-    public List<AiToolCall> Calls { get; set; } = new();
-    public bool HasTools => Calls.Count > 0;
-}
 
 public static class AiClient
 {
     static AiClient()
     {
         AppContext.SetSwitch("OpenAI.DisableTelemetry", true);
+        // 组合根接线：把 sidecar / 内置 HTTP 接到统一入口上
+        AiGateways.Register();
     }
 
     static readonly HttpClient Http = CreateHttp();
@@ -79,31 +57,41 @@ public static class AiClient
 
     public static async Task<string> ChatAsync(string system, IReadOnlyList<AiMsg> turns, CancellationToken ct)
     {
-        var reply = await TurnAsync(system, turns, tools: null, ct);
+        // 走统一网关：选路（sidecar → 内置 HTTP）、超时、重试、限流、fallback 都在那一层。
+        var reply = await AiGateway.SendAsync(new AiRequest
+        {
+            Provider = App.Settings.CurrentProvider(),
+            Model = App.Settings.AiModel,
+            System = system,
+            Turns = turns,
+            MaxTurns = 1,
+        }, null, ct);
         return reply.Text;
     }
 
     public static Task<AiReply> TurnAsync(string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
         => TurnAsync(App.Settings.CurrentProvider(), App.Settings.AiModel, system, turns, tools, ct);
 
-    public static async Task<AiReply> StreamAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, Action<string> onDelta, CancellationToken ct)
-    {
-        var proto = ParseProtocol(p?.Protocol);
-        if (proto == AiProtocol.Completions)
+    /// <summary>
+    /// 「给每一条写一句话」的批注任务。
+    ///
+    /// <paramref name="maxTurns"/> 默认 **1**：这纯粹是一次文本转换，不需要多轮工具调查。
+    /// 以前这里硬编码 4，sidecar 的 agent 会拿着工具跑最多 4 轮，然后在超轮数后
+    /// 额外发一次「兜底总结」请求 —— 实测一次批注要 111 秒，而且循环把预算花在
+    /// 调查上，最终只产出部分条目（实测 60 条里只回来 15 条可用说明）。
+    /// 单轮就能让模型直接把清单写完，既不浪费请求也不容易截断。
+    /// </summary>
+    public static Task<AiReply> StreamAsync(
+        AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns,
+        Action<string> onDelta, CancellationToken ct, int maxTurns = 1)
+        => AiGateway.SendAsync(new AiRequest
         {
-            try
-            {
-                return await StreamCompletions(p, modelId, system, turns, onDelta, ct);
-            }
-            catch (Exception ex)
-            {
-                if (LooksLikeHardFail(ex)) throw new InvalidOperationException(Pretty(ex), ex);
-            }
-        }
-        var reply = await TurnAsync(p, modelId, system, turns, null, ct);
-        if (!string.IsNullOrEmpty(reply.Text)) onDelta(reply.Text);
-        return reply;
-    }
+            Provider = p,
+            Model = modelId,
+            System = system,
+            Turns = turns,
+            MaxTurns = maxTurns,
+        }, onDelta, ct);
 
     static bool LooksLikeHardFail(Exception ex)
     {
@@ -112,7 +100,36 @@ public static class AiClient
             || t.Contains("401") || t.Contains("403");
     }
 
-    public static async Task<AiReply> TurnAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
+    /// <summary>
+    /// 内置通道的一次完整发送（含 completions 的流式优先）。
+    /// 只给 <see cref="DirectHttpAiGateway"/> 用 —— 外面请走 <see cref="AiGateway"/>，
+    /// 否则会绕过重试 / 限流 / fallback。
+    /// </summary>
+    internal static async Task<AiReply> SendDirectAsync(AiRequest request, Action<string>? onDelta, CancellationToken ct)
+    {
+        var p = request.Provider;
+        string? modelId = request.Model;
+        var proto = ParseProtocol(p?.Protocol);
+
+        if (proto == AiProtocol.Completions && onDelta != null)
+        {
+            try
+            {
+                return await StreamCompletions(p, modelId, request.System, request.Turns, onDelta, ct);
+            }
+            catch (Exception ex)
+            {
+                if (LooksLikeHardFail(ex)) throw new InvalidOperationException(Pretty(ex), ex);
+            }
+        }
+
+        var reply = await SendDirectOnceAsync(p, modelId, request.System, request.Turns, request.Tools, ct);
+        if (!string.IsNullOrEmpty(reply.Text) && onDelta != null) onDelta(reply.Text);
+        return reply;
+    }
+
+    /// <summary>内置通道的协议分发（不做选路、不重试）。</summary>
+    internal static async Task<AiReply> SendDirectOnceAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
     {
         string baseUrl = (p?.BaseUrl ?? "").Trim().TrimEnd('/');
         string model = (modelId ?? "").Trim();
@@ -143,6 +160,16 @@ public static class AiClient
             throw new InvalidOperationException(Pretty(ex), ex);
         }
     }
+
+    public static Task<AiReply> TurnAsync(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, IReadOnlyList<object>? tools, CancellationToken ct)
+        => AiGateway.SendAsync(new AiRequest
+        {
+            Provider = p,
+            Model = modelId,
+            System = system,
+            Turns = turns,
+            Tools = tools,
+        }, null, ct);
 
     public static string Pretty(Exception ex)
     {
@@ -340,7 +367,12 @@ public static class AiClient
         {
             string raw = "";
             try { raw = result.GetRawResponse()?.Content?.ToString() ?? ""; }
-            catch { }
+            catch (Exception ex)
+            {
+                // SDK 内部对象取不到原始体：只是少了一条兜底解析路径，记一笔继续。
+                AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "Ai", "", "raw-response",
+                    ex.GetType().Name + " " + LogRedactor.Scrub(AppError.RootMessage(ex))));
+            }
             if (!string.IsNullOrWhiteSpace(raw))
             {
                 try
@@ -352,7 +384,13 @@ public static class AiClient
                         reply.Text = MessageText(msg);
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 兜底解析失败是可预期的（有的中转返回的不是标准 JSON），
+                    // 上层会用 ClipBody(raw) 报错，这里只留技术痕迹。
+                    AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "Ai", "", "raw-parse",
+                        ex.GetType().Name));
+                }
             }
             if (string.IsNullOrWhiteSpace(reply.Text))
                 throw Fail(ClipBody(raw), "empty");
@@ -454,7 +492,12 @@ public static class AiClient
                 {
                     object input = new Dictionary<string, object>();
                     try { input = JsonSerializer.Deserialize<Dictionary<string, object>>(c.Arguments) ?? input; }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        // 模型给的 tool 参数不是合法 JSON：退回空对象，别把整轮对话炸掉。
+                        AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "Ai", "", "tool-args",
+                            "tool=" + c.Name + " " + ex.GetType().Name));
+                    }
                     parts.Add(new { type = "tool_use", id = c.Id, name = c.Name, input });
                 }
                 messages.Add(new { role = "assistant", content = parts });

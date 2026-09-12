@@ -29,7 +29,12 @@ public sealed class ScanSnapshot
             if (!File.Exists(path)) return null;
             return JsonSerializer.Deserialize<ScanSnapshot>(File.ReadAllText(path));
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            // 上一次扫描快照坏了只是少了「和上次对比」这一条规则，不该打断扫描。
+            AppLog.Record("Snapshot", ex, "load " + LogRedactor.ScrubPath(FilePath(drive)));
+            return null;
+        }
     }
 
     public static ScanSnapshot Capture(FileEntry root)
@@ -40,7 +45,7 @@ public sealed class ScanSnapshot
             ScannedAt = DateTime.Now,
             RootSize = root.Size,
         };
-        foreach (var c in root.Children)
+        foreach (var c in root.ChildList)
         {
             if (c.IsFilesGroup) continue;
             snap.Folders[c.Name] = c.Size;
@@ -50,7 +55,7 @@ public sealed class ScanSnapshot
         while (stack.Count > 0)
         {
             var n = stack.Pop();
-            foreach (var c in n.Children)
+            foreach (var c in n.ChildList)
             {
                 if (c.IsDirectory) { stack.Push(c); continue; }
                 if (c.IsFilesGroup) { stack.Push(c); continue; }
@@ -61,14 +66,43 @@ public sealed class ScanSnapshot
         return snap;
     }
 
-    public void Save()
+    /// <summary>
+    /// 存盘。**原子替换**：先写 .tmp 再 Move 覆盖，
+    /// 中断（取消 / 崩 / 断电）只会留下临时文件，不会留下半截损坏的 json 让下次读取报错。
+    /// </summary>
+    public void Save(CancellationToken ct = default)
     {
+        string path = FilePath(Drive);
+        string tmp = path + ".tmp";
         try
         {
-            string path = FilePath(Drive);
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = false }));
+            ct.ThrowIfCancellationRequested();
+            string dir = Path.GetDirectoryName(path)!;
+            Directory.CreateDirectory(dir);
+
+            string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = false });
+            ct.ThrowIfCancellationRequested();
+            File.WriteAllText(tmp, json);
+
+            // File.Move(overwrite) 在同一卷上是原子的
+            File.Move(tmp, path, overwrite: true);
         }
-        catch { }
+        catch (OperationCanceledException)
+        {
+            TryDelete(tmp);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            TryDelete(tmp);
+            // 快照存不下来不影响本次结果，只影响下次的「和上次对比」。
+            AppLog.Record("Snapshot", ex, "save " + LogRedactor.ScrubPath(path));
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch { /* 清临时文件失败不值得再记一笔 */ }
     }
 }

@@ -32,8 +32,19 @@ public partial class App : Application
         base.OnStartup(e);
     }
 
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // 不关的话，用户退出大扫货后 sidecar 进程会残留
+        try { SidecarClient.Stop(); } catch { }
+        base.OnExit(e);
+    }
+
     static void Crash(Exception ex)
     {
+        // 统一日志（已脱敏）先写一笔，crash.log 是日志本身坏掉时的兜底。
+        try { AppLog.Error("Crash", "unhandled exception", ex); }
+        catch { /* 崩溃路径里日志失败不能再抛 */ }
+
         try
         {
             string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DashaoHuo");
@@ -44,17 +55,26 @@ public partial class App : Application
                 var fi = new FileInfo(log);
                 if (fi.Exists && fi.Length > 512 * 1024) fi.Delete();
             }
-            catch { }
+            catch
+            {
+                // 滚动失败就继续往原文件追加，别因为清理旧日志而丢掉这次崩溃记录。
+            }
             File.AppendAllText(log,
                 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + Environment.NewLine + ex + Environment.NewLine + Environment.NewLine);
         }
-        catch { }
+        catch
+        {
+            // 连兜底文件都写不了（磁盘满 / 无权限）：只能放弃记录，绝不能在这里再抛。
+        }
         try
         {
             if (Current?.MainWindow is MainWindow w)
                 w.Dispatcher.BeginInvoke(() => w.ShowCrash(ex.Message));
         }
-        catch { }
+        catch
+        {
+            // 主窗口已经没了（退出过程中崩溃）：没地方弹提示，忽略。
+        }
     }
 
     public static void SaveUi(AppLang lang)

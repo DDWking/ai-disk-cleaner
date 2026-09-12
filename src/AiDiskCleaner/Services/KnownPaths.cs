@@ -66,6 +66,28 @@ public static class KnownPaths
     static readonly HashSet<string> InstallExt = new(StringComparer.OrdinalIgnoreCase)
         { ".msi", ".iso", ".msu", ".exe", ".zip", ".7z", ".rar" };
 
+    /// <summary>
+    /// 去掉标签里的括号说明（「（别删）」「（别乱删）」这类保护/风险措辞）。
+    /// **身份与风险要分开表达**：名字只说这是什么，能不能删由风险档位说。
+    /// </summary>
+    public static string StripWarning(string? label)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return "";
+        string s = label.Trim();
+        int i = s.IndexOfAny(new[] { '（', '(' });
+        if (i > 0)
+        {
+            string head = s[..i].Trim();
+            if (head.Length > 0) return head;
+        }
+        return s;
+    }
+
+    /// <summary>标签里是否带了保护类措辞（用于测试与诊断，不作为过滤依据）。</summary>
+    public static bool HasWarning(string? label)
+        => !string.IsNullOrEmpty(label)
+           && (label.Contains("别删") || label.Contains("别乱删") || label.Contains("别整夹删"));
+
     public static string? Describe(string? path)
     {
         string? sig = AppSignatures.Describe(path);
@@ -132,7 +154,7 @@ public static class KnownPaths
     static void Walk(FileEntry n, Dictionary<string, long> map, int depth)
     {
         if (depth > 4) return;
-        foreach (var c in n.Children)
+        foreach (var c in n.ChildList)
         {
             if (c.IsFilesGroup || c.IsDirectory) { Walk(c, map, depth + (c.IsDirectory ? 1 : 0)); continue; }
             string ext = Path.GetExtension(c.Name);

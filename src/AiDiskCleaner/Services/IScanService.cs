@@ -9,4 +9,10 @@ public record ScanProgress(int FileCount, string CurrentDirectory, int Percent =
 public interface IScanService
 {
     FileEntry Scan(string rootPath, IProgress<ScanProgress>? progress = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// 最近一次扫描的质量报告：来源、完整度、跳过目录、权限错误、重解析点、耗时。
+    /// 界面据此告诉用户「这次扫全了没有」。没扫过时为 null。
+    /// </summary>
+    ScanQuality? LastQuality => null;
 }
