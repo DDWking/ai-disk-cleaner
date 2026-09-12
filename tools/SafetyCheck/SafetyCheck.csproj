@@ -72,6 +72,10 @@
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanReport.cs" Link="CleanReport.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\ItemAiPrompt.cs" Link="ItemAiPrompt.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AiVerdict.cs" Link="AiVerdict.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\FolderPurpose.cs" Link="FolderPurpose.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\FolderPurposeService.cs" Link="FolderPurposeService.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\FolderOrganize.cs" Link="FolderOrganize.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\OrganizeNode.cs" Link="OrganizeNode.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\ShellReveal.cs" Link="ShellReveal.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\ItemAiService.cs" Link="ItemAiService.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\ItemAiView.cs" Link="ItemAiView.cs" />

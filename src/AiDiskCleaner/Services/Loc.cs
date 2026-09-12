@@ -555,6 +555,7 @@ public static class Loc
     }
 
 
+    public static string TabOrganize => IsEn ? "Folder tidy-up" : "文件夹整理";
     public static string TabClean => IsEn ? "Clean center" : "清理中心";
     public static string TabUninstall => IsEn ? "Uninstall" : "卸载";
     public static string UninstallRefresh => IsEn ? "Refresh" : "刷新";
@@ -854,7 +855,184 @@ public static class Loc
         ? $"selected {count:N0} · {size}"
         : $"已选 {count:N0} · {size}";
     /// <summary>分组标题兜底：中性说法，不用「未标注」这类技术标签。</summary>
+    // ---- 文件夹用途识别 ----
+    public static string PurposeFromLocal => IsEn ? "local rules" : "本地识别";
+    public static string PurposeFromAi => IsEn ? "AI guess" : "AI 推测";
+    public static string PurposeFromUser => IsEn ? "you confirmed" : "你确认的";
+    public static string PurposeBasisUser => IsEn ? "you set this yourself" : "你自己改的";
+    public static string PurposeUnknownCategory => IsEn ? "uncategorised" : "未分类";
+    public static string PurposeNoExt => IsEn ? "(no ext)" : "（无扩展名）";
+    public static string PurposeGameLibrary => IsEn ? "game library" : "游戏库";
+    public static string PurposeCatGame => IsEn ? "games" : "游戏";
+    public static string PurposeCatDev => IsEn ? "dev" : "开发";
+    public static string PurposeCatSystem => IsEn ? "system" : "系统";
+    public static string PurposeDevProject => IsEn ? "dev project" : "开发项目";
+    public static string PurposeSystemArea => IsEn ? "system location" : "系统位置";
+    public static string PurposeBasisSignature(string what) => IsEn
+        ? $"matched local signature: {what}" : $"命中本地签名：{what}";
+    public static string PurposeBasisPath(string what) => IsEn
+        ? $"folder name matches {what}" : $"目录名匹配 {what}";
+    public static string PurposeBasisPlatform => IsEn
+        ? "this is a platform game folder — games inside are listed separately"
+        : "这是平台的游戏目录，里面的游戏会单独列出";
+    public static string PurposeBasisDevMark(string mark) => IsEn
+        ? $"found project marker {mark}" : $"发现工程标志 {mark}";
+    public static string PurposeBasisSystemEntry => IsEn
+        ? "a system folder entry point — not a cleanup suggestion"
+        : "系统目录入口，不是清理建议";
+    public static string PurposeNeedsConfirm => IsEn ? "needs confirmation" : "待确认";
+    public static string PurposeUnrecognized => IsEn ? "not recognised yet" : "未识别";
+    public static string PurposeQueued => IsEn ? "queued…" : "排队中…";
+    public static string PurposeRunning => IsEn ? "identifying…" : "识别中…";
+    public static string PurposeFailed => IsEn ? "identification failed" : "识别失败";
+    public static string PurposeCancelled => IsEn ? "stopped" : "已停止";
+    public static string PurposeCorrected(string what) => IsEn
+        ? $"Purpose set to {what}" : $"用途已改为「{what}」";
+    /// <summary>纠正用途的备选类别（点一下即可，不需要输入框）。</summary>
+    public static readonly string[] PurposeCorrections =
+        { "游戏", "开发", "系统", "影音", "文档", "应用", "资料", "混合", "其它" };
+    public static string PurposeIdentify => IsEn ? "Identify purpose" : "识别用途";
+    public static string PurposeDeepen => IsEn ? "Look deeper" : "深入识别";
+    public static string PurposeCorrect => IsEn ? "Correct" : "纠正";
+    public static string PurposeAiHeader => IsEn
+        ? "Identify ONE folder's purpose from this bounded summary. Do not read file contents."
+        : "根据下面这份有上限的摘要判断**一个**目录的用途。不要读取文件内容。";
+    public static string PurposeAiSystem => IsEn
+        ? """
+          You name what a folder is for, for a non-technical Windows user.
+
+          Reply with exactly these three lines, nothing else. Keep each short (<= 12 words):
+          PURPOSE: <what this folder is, e.g. "Steam game library">
+          CATEGORY: <one of: games | dev | system | media | documents | apps | mixed | unknown>
+          BASIS: <which facts above you used>
+
+          Rules:
+          - If the summary is not enough, write PURPOSE: unknown. Do not guess.
+          - Never say anything is safe to delete.
+          - No markdown, no tool calls, no extra lines.
+          """
+        : """
+          你要为一个不懂电脑的 Windows 用户判断**一个**目录是做什么用的。
+
+          只回下面三行，不要有别的内容。每行尽量短（不超过 12 个字）：
+          PURPOSE: <这个目录是什么，例如「Steam 游戏库」>
+          CATEGORY: <从这些里选一个：游戏 | 开发 | 系统 | 影音 | 文档 | 应用 | 混合 | 未知>
+          BASIS: <你用了上面哪些信息>
+
+          规则：
+          - 摘要不够就写 PURPOSE: 未知，不要猜。
+          - 绝不要说某样东西可以安全删除。
+          - 不要 markdown、不要工具调用、不要多余的行。
+          """;
     public static string OtherFilesTitle => IsEn ? "Other files" : "其它文件";
+
+    // ---- 文件夹整理（工作区，不是说明页） ----
+    public static string OrganizeColName => IsEn ? "Folder" : "名称";
+    public static string OrganizeColPurpose => IsEn ? "What it is" : "用途";
+    public static string OrganizeColSize => IsEn ? "Size" : "容量";
+    public static string OrganizeColAction => IsEn ? "Actions" : "操作";
+
+    public static string OrganizeIntro => IsEn
+        ? "Locally decidable folders are already named. Only what stays unknown needs AI."
+        : "本地能判断的已经认出来了；剩下看不出来的才需要 AI。";
+    public static string OrganizeTotals(int objects, long bytes) => IsEn
+        ? $"{objects:N0} folders · {FileEntry.FormatSize(bytes)}"
+        : $"{objects:N0} 个文件夹 · {FileEntry.FormatSize(bytes)}";
+    public static string OrganizeCounts(int resolved, int pending) => IsEn
+        ? $"named {resolved:N0} · to confirm {pending:N0}"
+        : $"已认出 {resolved:N0} · 待确认 {pending:N0}";
+
+    public static string OrganizeIdentifyAll => IsEn ? "Identify these folders" : "识别这些文件夹";
+    public static string OrganizeIdentifyScope(int count) => IsEn
+        ? $"scope: the {count:N0} folders still unknown on this page"
+        : $"范围：本页还没认出来的 {count:N0} 个文件夹";
+    public static string OrganizeBudget(int requests) => IsEn
+        ? $"at most {requests:N0} AI requests"
+        : $"最多发 {requests:N0} 次 AI 请求";
+    public static string OrganizeProgress(int done, int total, int used, int budget) => IsEn
+        ? $"{done:N0}/{total:N0} · AI requests {used:N0}/{budget:N0}"
+        : $"{done:N0}/{total:N0} · AI 请求 {used:N0}/{budget:N0}";
+    public static string OrganizeStop => IsEn ? "Stop identifying" : "取消识别";
+    public static string OrganizeRetryHint => IsEn
+        ? "failed — you can identify it again"
+        : "识别失败，可以重试";
+    public static string OrganizeWaitNoResult => IsEn
+        ? "waiting — no result yet"
+        : "处理中，还没有结论";
+
+    public static string OrganizeFilterAll => IsEn ? "All" : "全部";
+    public static string OrganizeFilterPending => IsEn ? "To confirm" : "待确认";
+    public static string OrganizeFilterPendingTip => IsEn
+        ? "Show only folders that are not identified yet (plus ones you should confirm)"
+        : "只看还没认出来、以及需要你确认的文件夹";
+    public static string OrganizeFilterActive(int shown, int total) => IsEn
+        ? $"showing {shown:N0} of {total:N0}"
+        : $"只显示 {shown:N0} / {total:N0} 个";
+
+    public static string OrganizeNoScan => IsEn ? "Not scanned yet" : "还没有扫描结果";
+    public static string OrganizeNoScanBody => IsEn
+        ? "Scan the disk first — folder objects are organised from the scan result. Nothing is moved, renamed or deleted."
+        : "先扫描磁盘，整理结果直接从扫描结果里来。整理只读取结构，不移动、不改名、不删除任何文件。";
+    public static string OrganizeScanning => IsEn ? "Scanning…" : "正在扫描…";
+    public static string OrganizeScanningBody => IsEn
+        ? "As soon as the scan finishes the folder objects show up here."
+        : "扫描一结束，这里的文件夹对象就会直接出现。";
+    public static string OrganizeEmpty => IsEn ? "Nothing to organise" : "没有可整理的文件夹";
+    public static string OrganizeEmptyBody => IsEn
+        ? "The scan found no sub-folders under this drive."
+        : "这次扫描在这个盘下没有找到子文件夹。";
+    public static string OrganizeFailed => IsEn ? "Organising failed" : "整理结果生成失败";
+    public static string OrganizeFailedBody => IsEn
+        ? "The scan result could not be turned into folder objects. Rescan to try again."
+        : "扫描结果没能整理成文件夹对象。重新扫描一次即可。";
+    public static string OrganizeNoModel => IsEn ? "No AI model configured" : "还没配置 AI 模型";
+    public static string OrganizeNoModelBody => IsEn
+        ? "These folders cannot be decided locally. Configure a model in Settings and then identify them — nothing is sent until you ask."
+        : "这些文件夹本地判断不了。到设置里配好模型再点识别；你不点，就不会发出任何数据。";
+    public static string OrganizeOpenSettings => IsEn ? "Open settings" : "打开设置";
+    public static string OrganizeAllDone => IsEn ? "Everything on this page is identified" : "本页都识别过了";
+    public static string OrganizeAllDoneBody => IsEn
+        ? "Nothing left to identify. Expand a folder if you want to look inside."
+        : "没有待识别的对象了。想往下看就展开某个文件夹。";
+
+    public static string OrganizeExpand => IsEn ? "Show sub-folders" : "展开子文件夹";
+    public static string OrganizeCollapse => IsEn ? "Collapse" : "收起";
+    public static string OrganizeDeepen => IsEn ? "Identify inside" : "深入识别";
+    public static string OrganizeIdentifyOne => IsEn ? "Identify" : "识别";
+    public static string OrganizeOpen => IsEn ? "Open in Explorer" : "在资源管理器中打开";
+    public static string OrganizeCorrect => IsEn ? "Correct purpose" : "纠正用途";
+    public static string OrganizeCopyPath => IsEn ? "Copy full path" : "复制完整路径";
+    public static string OrganizePaused => IsEn ? "Stopped the inside-by-inside pass" : "已停止逐个分类";
+    public static string OrganizeChildBudgetNote(int shown, int total) => IsEn
+        ? $"{shown:N0} of {total:N0} sub-folders shown"
+        : $"只列出 {shown:N0} / {total:N0} 个子文件夹";
+    public static string OrganizeEntryPointTag => IsEn ? "system entry" : "系统入口";
+    public static string OrganizePlatformTag => IsEn ? "games live inside" : "里面有游戏";
+    public static string OrganizeSkippedLinks(int n) => IsEn
+        ? $"{n:N0} links / groups skipped (not followed)"
+        : $"跳过 {n:N0} 个链接或散文件组（不跟随）";
+    public static string OrganizeSkippedNoAccess(int n) => IsEn
+        ? $"{n:N0} folders skipped: no permission or not scanned"
+        : $"权限不足或没扫到的目录 {n:N0} 个已跳过（不自动提权）";
+    public static string OrganizeNotElevated => IsEn
+        ? "permission problems are recorded and skipped — the app never asks for elevation on its own"
+        : "权限不足只记录并跳过，不会自动提权";
+
+    public static string OrganizeResultNote(int ai, int local) => IsEn
+        ? $"named {local:N0} locally, {ai:N0} by AI"
+        : $"本地认出 {local:N0} 个，AI 推测 {ai:N0} 个";
+    public static string OrganizeBudgetUsed(int used) => IsEn
+        ? $"stopped at the request budget ({used:N0}) — the rest stays to confirm"
+        : $"已到本次请求上限（{used:N0} 次），剩下的保持待确认";
+    public static string OrganizePurposeUnknownAi => IsEn
+        ? "the model did not give a usable answer"
+        : "模型没有给出可用的结论";
+
+    /// <summary>已知对象的内部目录（名字判定，不读内容）。</summary>
+    public static string PurposeKnownInternal => IsEn ? "inside an app/project" : "程序内部目录";
+    public static string PurposeBasisKnownLeaf(string name) => IsEn
+        ? $"known internal folder name: {name}" : $"已知的内部目录名：{name}";
+
     public static string AiResultExpired => IsEn
         ? "The scan changed — run the analysis again"
         : "扫描内容已变化，请重新分析";

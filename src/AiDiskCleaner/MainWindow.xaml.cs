@@ -152,6 +152,26 @@ public sealed class EmptyToCollapsedConverter : IValueConverter
         => Binding.DoNothing;
 }
 
+/// <summary>
+/// 资源键 → 图标 <see cref="Geometry"/>。
+///
+/// 图标只有一套（XAML 里的 `IconChevronDown` 等），代码里只说「用哪个键」，
+/// 不复制第二套矢量图形。先查应用资源，再查窗口资源（图标定义在窗口里）。
+/// </summary>
+public sealed class IconKeyConverter : IValueConverter
+{
+    public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        string key = value as string ?? "";
+        if (key.Length == 0) return null;
+        if (Application.Current?.TryFindResource(key) is Geometry app) return app;
+        return Application.Current?.MainWindow?.TryFindResource(key) as Geometry;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
 public partial class MainWindow : Window, IAnalystHost
 {
     private const int MaxDisplayRows = 50000; // 文件列表最多渲染的行数，超出只显示前 N 行
@@ -263,7 +283,11 @@ public partial class MainWindow : Window, IAnalystHost
         Resources["DetailGroupExpanded"] = _detailGroupsExpanded;
         ApplyUi();
         ApplySidebarLayout();
-        ShowRightTab(RightTab.Clean);
+        // 默认进「文件夹整理」：扫描后直接看到本地整理出来的文件夹对象
+        ShowRightTab(RightTab.Organize);
+        // 用户之前手动纠正过的用途：跨重启仍然有效，且优先于本地/AI 结论
+        try { _folderPurpose.LoadCorrections(); } catch (Exception ex) { AppLog.Record("Purpose", ex, "load corrections"); }
+        RebuildOrganize();
         // sidecar 的工具回调落到这里（this 实现了 IAnalystHost），
         // 勾选/删除等动作仍在 C# 侧执行。
         try { SidecarClient.AttachToolHost(this); }
@@ -361,6 +385,9 @@ public partial class MainWindow : Window, IAnalystHost
             SidebarScrim.Visibility = Visibility.Collapsed;
         }
 
+        // 整理页的列宽跟着真实可用宽度走（窄窗口收窄次要列，主列绝不被挤坏）
+        ApplyOrganizeColumnPriority(OrganizeContentWidth());
+
         RightCol.MinWidth = overlay ? 320 : 420;
         UpdateTreeToggleTip();
     }
@@ -441,7 +468,8 @@ public partial class MainWindow : Window, IAnalystHost
         CtxDelete.Header = Loc.DeleteToRecycle;
         CtxAskAi.Header = Loc.AskAiFolder;
         CtxProps.Header = Loc.Properties;
-        // 主导航只剩两页（扩展名页已移除）
+        // 主导航：文件夹整理 / 清理中心 / 卸载
+        TabOrganizeBtn.Content = Loc.TabOrganize;
         TabCleanBtn.Content = Loc.TabClean;
         TabUninstallBtn.Content = Loc.TabUninstall;
         ScopeToFolderBtn.Content = _cleanScopeRoot != null ? Loc.ClearScope : Loc.ScopeToFolder;
@@ -502,6 +530,7 @@ public partial class MainWindow : Window, IAnalystHost
         UpdateDetailPathButtons();
         UpdateScanStateLine();
 
+        ApplyOrganizeUi();
         RefreshCleanUi();
         DialogClose.Content = Loc.Close;
         ConfirmYesBtn.Content = Loc.Yes;
@@ -718,7 +747,8 @@ public partial class MainWindow : Window, IAnalystHost
         ScanProgressBar.IsIndeterminate = true;
         ScanProgressBar.Value = 0;
         ScanProgressText.Text = Loc.Preparing;
-        ShowRightTab(RightTab.Clean);
+        ShowRightTab(RightTab.Organize);
+        ShowOrganizeState(OrganizeStateKind.Scanning);
         SetCleanProgress(0, Loc.CleanScan, determinate: false);
         BeginLiveScan(DriveBox.SelectedItem.ToString()!);
 
@@ -780,6 +810,8 @@ public partial class MainWindow : Window, IAnalystHost
             ClearLiveScan();
             HideCleanProgress();
             SetStatus(Loc.Aborted);
+            // 整理页也退回可重试的状态，不留一个假的「正在扫描」
+            ShowOrganizeState(OrganizeStateKind.NoScan);
             scanOp.Canceled("scan canceled by user");
         }
         catch (Exception ex)
@@ -788,6 +820,7 @@ public partial class MainWindow : Window, IAnalystHost
             string userMsg = AppLog.Record("Scan", ex, "scan failed");
             ShowAlert(Loc.ScanFailed, Loc.ScanFailedMsg(userMsg));
             SetStatus(Loc.ScanFailed);
+            ShowOrganizeState(OrganizeStateKind.Failed);
             scanOp.Fail(ex, "scan");
         }
         finally
@@ -1167,6 +1200,7 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void PopulateTree()
     {
+        ResetPurposeRows();
         DirTree.Items.Clear();
         if (_root == null) return;
         UpdateFilterHint();
@@ -1212,13 +1246,252 @@ public partial class MainWindow : Window, IAnalystHost
             : d.PercentShare;
         var pctCell = MakePctBar(share, pct, d.IsDimmed);
         var size = ColText(FileEntry.FormatSize(d.Size), d.IsDimmed ? "TextMuted" : "AccentDim");
-        Grid.SetColumn(name, 0);
         Grid.SetColumn(pctCell, 1);
         Grid.SetColumn(size, 2);
-        grid.Children.Add(name);
+
+        // ---- 文件夹用途：名称下面一行，**纯展示**，不参与选择 ----
+        var purposeLine = new TextBlock
+        {
+            FontSize = 10.5,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Foreground = ThemeService.Brush("Placeholder"),
+        };
+        var actBtn = new Button
+        {
+            Style = (Style)FindResource("IconButton"),
+            Width = 22,
+            Height = 22,
+            Margin = new Thickness(6, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = Loc.PurposeIdentify,
+            Tag = d,
+        };
+        System.Windows.Automation.AutomationProperties.SetName(actBtn, Loc.PurposeIdentify);
+        actBtn.Content = new System.Windows.Shapes.Path
+        {
+            Data = (Geometry)FindResource("IconScan"),
+            Width = 11, Height = 11, Stretch = Stretch.Uniform,
+            Fill = ThemeService.Brush("TextDim"),
+        };
+        actBtn.Click += PurposeIdentify_Click;
+
+        var line2 = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 0) };
+        line2.Children.Add(purposeLine);
+        line2.Children.Add(actBtn);
+
+        var nameCol = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        nameCol.Children.Add(name);
+        nameCol.Children.Add(line2);
+        Grid.SetColumn(nameCol, 0);
+
+        var row = new PurposeUi { Dir = d, Text = purposeLine, Action = actBtn };
+        _purposeRows[d] = row;
+        RenderPurpose(row, _folderPurpose.TryGetUserCorrection(CurrentFolderId(d))
+            ?? (_purposeCache.TryGetValue(d, out var cached) ? cached : null));
+
+        grid.Children.Add(nameCol);
         grid.Children.Add(pctCell);
         grid.Children.Add(size);
         return grid;
+    }
+
+    // ==================== 文件夹用途识别（界面接入） ====================
+
+    /// <summary>一行用途 UI 的引用。树重建时整体丢弃，不做全局累积。</summary>
+    sealed class PurposeUi
+    {
+        public required FileEntry Dir { get; init; }
+        public required TextBlock Text { get; init; }
+        public required Button Action { get; init; }
+    }
+
+    readonly Dictionary<FileEntry, PurposeUi> _purposeRows = new();
+    /// <summary>本次会话已识别过的结果（键是条目本身，树重建后仍在）。</summary>
+    readonly Dictionary<FileEntry, FolderPurposeResult> _purposeCache = new();
+    CancellationTokenSource? _purposeStop;
+
+    /// <summary>深入识别时最多处理几个子目录（有预算，不铺开整棵树）。</summary>
+    const int PurposeChildBudget = 12;
+
+    FolderId CurrentFolderId(FileEntry d) => new(d.FullPath, _aiDataGeneration);
+
+    static int DepthOf(FileEntry d)
+    {
+        int n = 0;
+        for (var p = d.Parent; p != null && n < 32; p = p.Parent) n++;
+        return n;
+    }
+
+    /// <summary>把结果画到那一行。**状态与来源都如实表达**；没有结论就不显示成功。</summary>
+    void RenderPurpose(PurposeUi? ui, FolderPurposeResult? r)
+    {
+        if (ui == null) return;
+        if (r == null || !r.HasConclusion)
+        {
+            ui.Text.Text = Loc.PurposeUnrecognized;
+            ui.Text.Foreground = ThemeService.Brush("Placeholder");
+            ui.Text.ToolTip = Loc.PurposeIdentify;
+            SetAction(ui, Loc.PurposeIdentify);
+            return;
+        }
+        string line = r.PurposeName;
+        if (r.Basis.Length > 0) line += " · " + r.Basis;
+        line += "（" + r.SourceText + "）";
+        ui.Text.Text = line;
+        ui.Text.ToolTip = line + (r.NeedsConfirm ? "\n" + Loc.PurposeNeedsConfirm : "");
+        ui.Text.Foreground = ThemeService.Brush(r.NeedsConfirm ? "AccentDim" : "TextDim");
+        SetAction(ui, Loc.PurposeDeepen);
+    }
+
+    void SetAction(PurposeUi ui, string tip)
+    {
+        ui.Action.ToolTip = tip;
+        System.Windows.Automation.AutomationProperties.SetName(ui.Action, tip);
+    }
+
+    void SetPurposeBusy(PurposeUi? ui, string text)
+    {
+        if (ui == null) return;
+        ui.Text.Text = text;
+        ui.Text.Foreground = ThemeService.Brush("AccentDim");
+        ui.Action.IsEnabled = false;
+    }
+
+    void SetPurposeText(PurposeUi? ui, string text)
+    {
+        if (ui == null) return;
+        ui.Text.Text = text;
+        ui.Text.Foreground = ThemeService.Brush("Placeholder");
+    }
+
+    /// <summary>
+    /// 识别一项。**按需触发**：只有用户点按钮才跑，不自动铺开整棵树。
+    /// 只写展示状态，不碰选择、风险或清理资格。再点一次 = 取消。
+    /// </summary>
+    public async void PurposeIdentify_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not FileEntry d) return;
+        if (_purposeStop is { IsCancellationRequested: false } && _purposeBusy)
+        {
+            try { _purposeStop.Cancel(); } catch { }
+            return;
+        }
+        await RunPurposeAsync(d, deepen: true);
+    }
+
+    bool _purposeBusy;
+
+    async Task RunPurposeAsync(FileEntry dir, bool deepen)
+    {
+        if (!_purposeRows.TryGetValue(dir, out var ui)) return;
+        _purposeStop?.Dispose();
+        _purposeStop = new CancellationTokenSource();
+        var ct = _purposeStop.Token;
+        _purposeBusy = true;
+
+        SetPurposeBusy(ui, Loc.PurposeRunning);
+        try
+        {
+            var res = await RecognizeOneAsync(dir, ct);
+            _purposeCache[dir] = res;
+            RenderPurpose(ui, res);
+
+            // 深入识别：只在用户主动点、且**该往下看**时才做
+            if (deepen && FolderPurposeService.ShouldDescend(dir, res.Kind, DepthOf(dir)))
+            {
+                int n = 0;
+                foreach (var child in dir.ChildList.Where(c => c.IsDirectory)
+                             .OrderByDescending(c => c.Size).Take(PurposeChildBudget))
+                {
+                    if (ct.IsCancellationRequested) break;
+                    if (!_purposeRows.TryGetValue(child, out var cui)) continue;
+                    if (_purposeCache.TryGetValue(child, out var done)) { RenderPurpose(cui, done); n++; continue; }
+                    SetPurposeBusy(cui, Loc.PurposeRunning);
+                    var cr = await RecognizeOneAsync(child, ct);
+                    _purposeCache[child] = cr;
+                    RenderPurpose(cui, cr);
+                    n++;
+                }
+                AppLog.Info("Purpose", $"op=deepen dir={dir.Name} children={n} kind={res.Kind}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            SetPurposeText(ui, Loc.PurposeCancelled);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Record("Purpose", ex, "folder-purpose-ui");
+            SetPurposeText(ui, Loc.PurposeFailed);
+        }
+        finally
+        {
+            _purposeBusy = false;
+            ui.Action.IsEnabled = true;
+        }
+    }
+
+    async Task<FolderPurposeResult> RecognizeOneAsync(FileEntry dir, CancellationToken ct)
+        => await RecognizeWithAsync(dir, AiConfigured(), ct);
+
+    /// <summary>
+    /// 认一个目录。**同一个入口**给侧栏树与文件夹整理页用：
+    /// 用户纠正 → 缓存 → 本地规则 →（有预算且授权时）AI，全部在服务里。
+    /// <paramref name="allowAi"/> = false 时只走本地，绝不发请求。
+    /// </summary>
+    async Task<FolderPurposeResult> RecognizeWithAsync(FileEntry dir, bool allowAi, CancellationToken ct)
+    {
+        var id = CurrentFolderId(dir);
+        string rel = _root != null && dir.FullPath.StartsWith(_root.FullPath, StringComparison.OrdinalIgnoreCase)
+            ? dir.FullPath[_root.FullPath.Length..].TrimStart('\\')
+            : dir.FullPath;
+        return await _folderPurpose.RecognizeAsync(dir, id, DepthOf(dir), rel, allowAi,
+            App.Settings.CurrentProvider(), App.Settings.AiModel, App.Settings.AiSendFullPaths,
+            AiConfigSignature(), ct);
+    }
+
+    /// <summary>树右键「识别用途」：与行内按钮同一条路径。</summary>
+    private async void CtxPurposeIdentify_Click(object sender, RoutedEventArgs e)
+    {
+        if (_purposeMenuDir == null) return;
+        await RunPurposeAsync(_purposeMenuDir, deepen: true);
+    }
+
+    /// <summary>右键时的目标目录（TreeMenu_Opened 里写入）。</summary>
+    FileEntry? _purposeMenuDir;
+
+    /// <summary>右键菜单打开时：记住目标目录，并把「纠正用途」的类别填进去。</summary>
+    void FillPurposeMenu()
+    {
+        if (CtxPurposeCorrect == null) return;
+        CtxPurposeCorrect.Items.Clear();
+        foreach (var name in Loc.PurposeCorrections)
+        {
+            var mi = new MenuItem { Header = name, Tag = _purposeMenuDir };
+            mi.Click += PurposeCorrect_Click;
+            CtxPurposeCorrect.Items.Add(mi);
+        }
+    }
+
+    /// <summary>用户纠正：从菜单选一个类别，**优先保留**，不被后续识别覆盖。</summary>
+    public void PurposeCorrect_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not FileEntry d) return;
+        string picked = (sender as MenuItem)?.Header?.ToString() ?? "";
+        if (picked.Length == 0) return;
+        _folderPurpose.SetUserCorrection(CurrentFolderId(d), picked, picked);
+        var res = _folderPurpose.TryGetUserCorrection(CurrentFolderId(d));
+        if (res != null) _purposeCache[d] = res;
+        RenderPurpose(_purposeRows.TryGetValue(d, out var ui) ? ui : null, res);
+        SetAiStatus(Loc.PurposeCorrected(picked));
+    }
+
+    /// <summary>树重建时丢弃旧的 UI 引用（结果仍由 _purposeCache 保留）。</summary>
+    void ResetPurposeRows()
+    {
+        _purposeRows.Clear();
+        try { _purposeStop?.Cancel(); } catch { }
+        _purposeBusy = false;
     }
 
     private static TextBlock ColText(string text, string brush)
@@ -1403,6 +1676,7 @@ public partial class MainWindow : Window, IAnalystHost
         ClearLiveScan();
         var root = new FileEntry { Name = drive, Kind = EntryKind.Directory };
         _liveRoot = new TreeViewItem { Header = MakeFolderHeader(root, isRoot: true), Tag = root, IsExpanded = true };
+        ResetPurposeRows();
         DirTree.Items.Clear();
         DirTree.Items.Add(_liveRoot);
         _liveShown = 0;
@@ -1523,6 +1797,12 @@ public partial class MainWindow : Window, IAnalystHost
         CtxDelete.IsEnabled = ok;
         CtxDelete.Header = ok ? Loc.DeleteToRecycle : Loc.DeleteBlocked;
         CtxAskAi.IsEnabled = entry is { IsDirectory: true } && !entry.IsFilesGroup;
+        // 用途识别只对文件夹可用；这三个操作都不改选择、不改风险
+        bool dir = entry is { IsDirectory: true } && !entry.IsFilesGroup;
+        _purposeMenuDir = dir ? entry : null;
+        if (CtxPurposeIdentify != null) CtxPurposeIdentify.IsEnabled = dir;
+        if (CtxPurposeCorrect != null) CtxPurposeCorrect.IsEnabled = dir;
+        FillPurposeMenu();
     }
 
     private void CtxDelete_Click(object sender, RoutedEventArgs e)
@@ -2535,6 +2815,8 @@ public partial class MainWindow : Window, IAnalystHost
     void InvalidateItemAiAfterScan()
     {
         _aiDataGeneration++;
+        _folderPurpose.ResetForScan();   // 新扫描 ⇒ 旧的用途结论过期（用户纠正单独保留）
+        _purposeCache.Clear();           // 侧栏那份结果也随扫描作废（新树会是新的对象）
         foreach (var loc in _layered.Purposes.SelectMany(p => p.Locations))
         {
             var v = loc.ExistingAi;
@@ -2782,6 +3064,7 @@ public partial class MainWindow : Window, IAnalystHost
         }
     }
 
+    private void TabOrganize_Click(object sender, RoutedEventArgs e) => ShowRightTab(RightTab.Organize);
     private void TabClean_Click(object sender, RoutedEventArgs e) => ShowRightTab(RightTab.Clean);
     private void TabUninstall_Click(object sender, RoutedEventArgs e) => ShowRightTab(RightTab.Uninstall);
 
@@ -2789,17 +3072,21 @@ public partial class MainWindow : Window, IAnalystHost
     /// 右侧主功能页。**用明确的枚举而不是数字索引** ——
     /// 以前是 0 清理 / 1 扩展名 / 2 卸载，删掉中间那页后
     /// 「卸载」的索引就会错位到别的页面。
+    /// 默认进「文件夹整理」：先看清盘上有什么，再决定清什么。
     /// </summary>
-    private enum RightTab { Clean, Uninstall }
+    private enum RightTab { Organize, Clean, Uninstall }
 
-    private RightTab _rightTab = RightTab.Clean;
+    private RightTab _rightTab = RightTab.Organize;
 
     private void ShowRightTab(RightTab tab)
     {
         _rightTab = tab;
         if (CleanPane != null)
             CleanPane.Visibility = tab == RightTab.Clean ? Visibility.Visible : Visibility.Collapsed;
+        if (OrganizePane != null)
+            OrganizePane.Visibility = tab == RightTab.Organize ? Visibility.Visible : Visibility.Collapsed;
         UninstallPane.Visibility = tab == RightTab.Uninstall ? Visibility.Visible : Visibility.Collapsed;
+        MarkTab(TabOrganizeBtn, tab == RightTab.Organize);
         MarkTab(TabCleanBtn, tab == RightTab.Clean);
         MarkTab(TabUninstallBtn, tab == RightTab.Uninstall);
         // 卸载页第一次被打开时才去扫软件清单（隐藏面板按需初始化）
@@ -2930,6 +3217,9 @@ public partial class MainWindow : Window, IAnalystHost
 
         _layered = layered;
         InvalidateItemAiAfterScan();   // 新扫描 ⇒ 旧的逐项 AI 结果过期，不给旧结论也不给操作
+        // 文件夹整理：**每次扫描只建一次**，而且建在扫描代次落定之后，
+        // 这样对象标识里的代次与本次扫描一致（旧请求就不可能串到新列表里）。
+        if (_organizeBuiltForScan != _scanGeneration) RebuildOrganize();
         BuildSections();
         RestoreOpenLayers();      // 用稳定键找回原来的页面/位置
         UpdateScopeChip();        // 范围提示里的「范围外已选」要跟着最新选择走
@@ -3375,6 +3665,8 @@ public partial class MainWindow : Window, IAnalystHost
 
     /// <summary>详情列表的分组表头与展开状态（按分组键记忆）。</summary>
     readonly DetailGroupHeaderConverter _detailGroups = new();
+    /// <summary>文件夹用途识别服务（预算、缓存、AI 接缝都在这层）。</summary>
+    readonly FolderPurposeService _folderPurpose = new();
     readonly DetailGroupExpandedConverter _detailGroupsExpanded = new();
 
     /// <summary>
