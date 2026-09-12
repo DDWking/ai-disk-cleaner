@@ -72,7 +72,12 @@ public sealed class SidecarToolHost : IDisposable
                         ? (a.GetString() ?? "{}")
                         : a.GetRawText();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 工具请求体不合法：按空参数继续，由 DiskAnalyst.Run 给出「未知工具」的结果。
+                AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "Ai", "", "tool-request",
+                    ex.GetType().Name));
+            }
 
             // 工具要改 UI 状态（勾选项等），回到 UI 线程跑，和原来的工具循环一致
             string result = "";
@@ -86,8 +91,13 @@ public sealed class SidecarToolHost : IDisposable
         }
         catch (Exception ex)
         {
+            // 回 500 给 sidecar；回不了（连接已断）也要留痕，不能静默。
             try { Respond(ctx, 500, JsonSerializer.Serialize(new { error = ex.Message })); }
-            catch { }
+            catch (Exception inner)
+            {
+                AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "Ai", "", "tool-respond",
+                    inner.GetType().Name + " after " + ex.GetType().Name));
+            }
         }
     }
 

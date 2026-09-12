@@ -1,63 +1,140 @@
+using System.Diagnostics;
 using System.IO;
-using System.Security.Cryptography;
 using AiDiskCleaner.Models;
-using AiDiskCleaner.Native;
+using AiDiskCleaner.Services.CleanRules;
 
 namespace AiDiskCleaner.Services;
 
-/// <summary>扫完后按规则出可清理项。不走大模型。</summary>
+/// <summary>
+/// 扫完后按规则出可清理项。不走大模型。
+///
+/// 这里只做三件事：走一遍目录树拿到文件/目录清单 → 把规则一条条跑完 → 汇总成报告。
+/// 判定逻辑都在 <see cref="ICleanRule"/> 实现里，每条规则可以单独测。
+/// </summary>
 public static class CleanAnalyzer
 {
-    private static readonly HashSet<string> TempExt = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>
+    /// 规则表。顺序有含义：先命中的规则决定分类和风险（sink 按路径去重），
+    /// 所以不要随手调整顺序 —— 那会改变默认勾选。
+    ///
+    /// 重复检测**不在**这里：它要读文件内容，是最慢的一段，应该作为可独立取消的后续阶段跑
+    /// （见 <see cref="Analyze"/> 的 includeDuplicates 参数）。
+    /// </summary>
+    private static readonly ICleanRule[] Rules =
     {
-        ".tmp", ".temp", ".cache", ".bak", ".old", ".log", ".etl", ".dmp", ".chk", ".gid",
+        new TempCacheRule(),
+        new RecycleBinRule(),
+        new LargeFileRule(),
+        new OldFileRule(),
+        new EmptyFolderRule(),
+        new LongPathRule(),
+        new BrokenShortcutRule(),
+        new ScanCompareRule(),
     };
 
-    private static readonly HashSet<string> InstallExt = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".msi", ".iso", ".msu",
-    };
+    /// <summary>上一次分析里每条规则的耗时与产出，用于诊断「哪条规则慢/挂了」。</summary>
+    public static IReadOnlyList<CleanRuleTiming> LastRuleTimings { get; private set; } = Array.Empty<CleanRuleTiming>();
 
-    private static readonly string[] SafeDirBits =
-    {
-        @"\temp\", @"\tmp\", @"\cache\", @"\caches\", @"\logs\",
-        @"\crashdumps\", @"\minidump\", @"\wer\", @"\downloads\",
-        @"\$recycle.bin\", @"\windows\temp\", @"\windows\softwaredistribution\download\",
-        @"\appdata\local\temp\", @"\appdata\local\microsoft\windows\inetcache\",
-        @"\appdata\local\microsoft\windows\explorer\",
-        @"\appdata\local\crashdumps\",
-    };
-
-    private static readonly string[] UnsafeBits =
-    {
-        @"\windows\system32\", @"\windows\syswow64\", @"\windows\winsxs\",
-        @"\windows\servicing\", @"\$mft", @"\program files\", @"\program files (x86)\",
-    };
-
-    public static CleanReport Analyze(FileEntry root, ScanSnapshot? previous, CancellationToken ct, IProgress<ScanProgress>? progress = null)
+    /// <summary>
+    /// 扫完后按规则出可清理项。
+    /// </summary>
+    /// <param name="includeDuplicates">
+    /// 是否把重复检测也一起跑完。默认 true（离线检查 / 一次性调用方用）。
+    /// 界面走 **false**：先出普通清理结果，重复项由 <c>DuplicateScanService</c> 单独跑完再并进来，
+    /// 这样用户不用等读盘哈希就能看到列表，而且重复检测可以单独取消。
+    /// </param>
+    public static CleanReport Analyze(
+        FileEntry root,
+        ScanSnapshot? previous,
+        CancellationToken ct,
+        IProgress<ScanProgress>? progress = null,
+        bool includeDuplicates = true)
     {
         var report = new CleanReport();
         var files = new List<FileEntry>(Math.Max(1024, root.FileCount));
         var dirs = new List<FileEntry>();
         progress?.Report(new ScanProgress(0, Loc.CleanWalk, 5));
         Walk(root, files, dirs, ct);
+        ct.ThrowIfCancellationRequested();
 
         progress?.Report(new ScanProgress(files.Count, Loc.CleanRules, 20));
-        FillCleanable(report, files, dirs);
-        FillLarge(report, files);
-        FillOld(report, files);
-        FillEmpty(report, dirs);
-        FillLongPaths(report, files, dirs);
-        progress?.Report(new ScanProgress(files.Count, Loc.CleanShortcuts, 45));
-        FillBrokenShortcuts(report, files, ct);
-        progress?.Report(new ScanProgress(files.Count, Loc.CleanDups, 70));
-        FillDuplicates(report, files, ct);
-        progress?.Report(new ScanProgress(files.Count, Loc.CleanCompare, 92));
-        FillCompare(report, root, previous);
+
+        var ctx = new CleanRuleContext
+        {
+            Root = root,
+            Files = files,
+            Dirs = dirs,
+            Previous = previous,
+            Ct = ct,
+            Progress = progress,
+        };
+        var sink = new CleanRuleSink();
+        var timings = new List<CleanRuleTiming>(Rules.Length + 1);
+
+        foreach (var rule in Rules)
+        {
+            ct.ThrowIfCancellationRequested();
+            RunRule(rule, ctx, sink, timings);
+        }
+
+        if (includeDuplicates)
+        {
+            ct.ThrowIfCancellationRequested();
+            RunRule(new DuplicateFileRule(), ctx, sink, timings);
+        }
+
+        LastRuleTimings = timings;
+        ReportTimings(timings);
+        sink.ApplyTo(report);
+
+        // 对比说明：老快照没有就提示「第一次扫描」，有就报总大小变化。
+        report.CompareNote = previous == null
+            ? Loc.CompareFirst
+            : Loc.CompareSince(previous.ScannedAt, FileEntry.FormatSize(root.Size - previous.RootSize));
 
         report.CleanableBytes = report.Cleanable.Sum(x => x.Size);
         progress?.Report(new ScanProgress(files.Count, Loc.Analyzing, 100));
         return report;
+    }
+
+    /// <summary>跑一条规则：异常隔离（记日志继续），但取消原样抛出。</summary>
+    private static void RunRule(ICleanRule rule, CleanRuleContext ctx, CleanRuleSink sink, List<CleanRuleTiming> timings)
+    {
+        int before = sink.TotalHits;
+        var sw = Stopwatch.StartNew();
+        string? error = null;
+        // 先告诉汇总口这条规则的风险归属口径，再让它产出条目
+        sink.UseRule(rule);
+        try
+        {
+            rule.Evaluate(ctx, sink);
+        }
+        catch (OperationCanceledException)
+        {
+            // 取消是正常路径，不能被当成规则故障吞掉
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // 一条规则挂了不能阻断其他规则：记下来，继续跑下一条
+            error = ex.GetType().Name;
+            AppLog.Record("Clean", ex, "rule " + rule.Name);
+        }
+        finally
+        {
+            sw.Stop();
+            timings.Add(new CleanRuleTiming(rule.Name, rule.Category, sw.Elapsed, sink.TotalHits - before, error));
+        }
+    }
+
+    private static void ReportTimings(List<CleanRuleTiming> timings)
+    {
+        foreach (var t in timings)
+        {
+            AppLog.Write(new LogEntry(DateTime.UtcNow,
+                t.Error == null ? LogLevel.Info : LogLevel.Warn, "Clean", "", t.Rule,
+                (t.Error == null ? "ok" : "rule failed: " + t.Error), t.ElapsedMs, t.Hits));
+        }
     }
 
     private static void Walk(FileEntry node, List<FileEntry> files, List<FileEntry> dirs, CancellationToken ct)
@@ -68,7 +145,7 @@ public static class CleanAnalyzer
         {
             ct.ThrowIfCancellationRequested();
             var n = stack.Pop();
-            foreach (var c in n.Children)
+            foreach (var c in n.ChildList)
             {
                 if (c.IsFilesGroup)
                 {
@@ -85,348 +162,61 @@ public static class CleanAnalyzer
         }
     }
 
-    private static void FillCleanable(CleanReport report, List<FileEntry> files, List<FileEntry> dirs)
+    /// <summary>
+    /// 规则结果的汇总口。负责按 (目标列表, 路径) 去重 ——
+    /// 不同规则可能命中同一个文件，谁先命中谁说了算。
+    /// </summary>
+    private sealed class CleanRuleSink : ICleanRuleSink
     {
-        foreach (var f in files)
+        private readonly Dictionary<CleanRuleTarget, HashSet<string>> _seen = new();
+        private readonly Dictionary<CleanRuleTarget, List<CleanItem>> _items = new();
+        private int _dupGroups;
+        /// <summary>当前正在跑的规则。用来决定「风险归谁说了算」。</summary>
+        private bool _riskAuthoritative;
+
+        public int TotalHits { get; private set; }
+
+        public CleanRuleSink()
         {
-            if (!CanOffer(f)) continue;
-            string path = (f.FullPath ?? "").ToLowerInvariant().Replace('/', '\\');
-            string ext = Path.GetExtension(f.Name);
-            string? reason = null;
-            string group;
-            // 收紧后的默认档：没有明确证据就不说"可安全删除"。
-            // 误标安全是清理工具最贵的错误，宁可让用户自己看一眼。
-            var risk = CleanRisk.Confirm;
-            string? displayName = null;
-
-            if (path.Contains(@"$recycle.bin", StringComparison.OrdinalIgnoreCase))
+            foreach (CleanRuleTarget t in Enum.GetValues<CleanRuleTarget>())
             {
-                // $I 是元数据（每个被删文件一个，几十字节），不当条目列出来
-                if (RecycleNameResolver.IsMetaFile(f.FullPath)) continue;
-
-                group = Loc.GroupRecycle;
-                risk = CleanRisk.Confirm;
-                string? original = RecycleNameResolver.OriginalPath(f.FullPath);
-                if (!string.IsNullOrEmpty(original))
-                {
-                    // 显示用户认得的原名，删除时仍用磁盘上的真实路径
-                    displayName = Path.GetFileName(original);
-                    reason = Loc.ReasonRecycleNamed(displayName!);
-                }
-                else
-                {
-                    reason = Loc.ReasonRecycle;
-                }
-            }
-            else if (ext.Equals(".dmp", StringComparison.OrdinalIgnoreCase) || path.Contains(@"\minidump\") || path.Contains(@"\crashdumps\"))
-            {
-                // 崩溃转储：明确可删
-                reason = Loc.ReasonDump;
-                group = Loc.GroupDump;
-                risk = CleanRisk.Safe;
-            }
-            else if (AppSignatures.IsSafeCache(path))
-            {
-                // 认得出来的应用缓存（60+ 条签名，带 Safe 标记）
-                reason = AppSignatures.PlainNote(path) ?? Loc.ReasonTempDir;
-                group = Loc.GroupTemp;
-                risk = CleanRisk.Safe;
-            }
-            else if (path.Contains(@"\windows\softwaredistribution\download\") || path.Contains(@"\windows\temp\"))
-            {
-                // Windows 更新缓存 / 系统临时目录
-                reason = Loc.ReasonWinUpdate;
-                group = Loc.GroupTemp;
-                risk = CleanRisk.Safe;
-            }
-            else if (LooksLikeTempDir(path) && (TempExt.Contains(ext) || f.Name.StartsWith('~') || f.Size == 0))
-            {
-                // 只是"路径像临时目录"，没匹配到已知签名 -> 需确认
-                reason = Loc.ReasonTempDir;
-                group = Loc.GroupTemp;
-            }
-            else if (TempExt.Contains(ext) && LooksLikeTempDir(path))
-            {
-                reason = Loc.ReasonTempExt;
-                group = Loc.GroupTemp;
-            }
-            else if (InstallExt.Contains(ext) && path.Contains(@"\downloads\") && f.Size >= 20L * 1024 * 1024)
-            {
-                reason = Loc.ReasonInstaller;
-                group = Loc.GroupInstaller;
-            }
-            else if ((ext.Equals(".tmp", StringComparison.OrdinalIgnoreCase) || ext.Equals(".temp", StringComparison.OrdinalIgnoreCase)
-                      || ext.Equals(".log", StringComparison.OrdinalIgnoreCase))
-                     && f.Size >= 8L * 1024 * 1024 && !LooksUnsafe(path))
-            {
-                // 单个大临时文件，没匹配到签名 -> 需确认
-                reason = Loc.ReasonTempExt;
-                group = Loc.GroupTemp;
-            }
-            else continue;
-
-            var item = Item(f, reason, group, selected: risk == CleanRisk.Safe, risk: risk);
-            if (!string.IsNullOrEmpty(displayName)) item.Name = displayName!;
-            report.Cleanable.Add(item);
-        }
-
-        foreach (var d in dirs)
-        {
-            if (!CanOffer(d)) continue;
-            string path = (d.FullPath ?? "").ToLowerInvariant().Replace('/', '\\');
-            if (path.EndsWith(@"\windows\temp") || path.EndsWith(@"\appdata\local\temp")
-                || AppSignatures.IsSafeCache(path))
-            {
-                report.Cleanable.Add(Item(d, AppSignatures.PlainNote(path) ?? Loc.ReasonTempDir, Loc.GroupTemp, selected: false));
+                _seen[t] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _items[t] = new List<CleanItem>();
             }
         }
 
-        report.Cleanable.Sort((a, b) => b.Size.CompareTo(a.Size));
-        if (report.Cleanable.Count > 400)
-            report.Cleanable.RemoveRange(400, report.Cleanable.Count - 400);
-    }
+        /// <summary>跑某条规则前调用：把该规则的风险归属口径带进条目工厂。</summary>
+        public void UseRule(ICleanRule rule) => _riskAuthoritative = rule.RiskIsAuthoritative;
 
-    private static void FillLarge(CleanReport report, List<FileEntry> files)
-    {
-        foreach (var f in files.Where(CanList).OrderByDescending(x => x.Size).Take(80))
+        public int Count(CleanRuleTarget target) => _items[target].Count;
+
+        public void CountDuplicateGroup() => _dupGroups++;
+
+        public bool Add(CleanRuleHit hit)
         {
-            var hint = KnownPaths.LargeHint(f);
-            string reason = hint?.Reason ?? Loc.ReasonLarge;
-            string group = hint?.Group ?? Loc.GroupLarge;
-            report.LargeFiles.Add(Item(f, reason, group, selected: false, risk: CleanRisk.Confirm));
+            string key = hit.Entry.FullPath ?? "";
+            if (key.Length == 0) return false;
+            if (!_seen[hit.Target].Add(key)) return false; // 重复命中：保留第一条
+
+            _items[hit.Target].Add(CleanItemFactory.Create(hit, _riskAuthoritative));
+            TotalHits++;
+            return true;
+        }
+
+        public void ApplyTo(CleanReport report)
+        {
+            report.Cleanable.AddRange(_items[CleanRuleTarget.Cleanable]);
+            report.LargeFiles.AddRange(_items[CleanRuleTarget.Large]);
+            report.OldFiles.AddRange(_items[CleanRuleTarget.Old]);
+            report.EmptyFolders.AddRange(_items[CleanRuleTarget.EmptyFolders]);
+            report.BrokenShortcuts.AddRange(_items[CleanRuleTarget.BrokenShortcuts]);
+            report.LongPaths.AddRange(_items[CleanRuleTarget.LongPaths]);
+            report.Duplicates.AddRange(_items[CleanRuleTarget.Duplicates]);
+            report.Compare.AddRange(_items[CleanRuleTarget.Compare]);
+
+            report.Cleanable.Sort((a, b) => b.Size.CompareTo(a.Size));
+            report.Compare.Sort((a, b) => b.Size.CompareTo(a.Size));
+            report.DupGroupCount += _dupGroups;
         }
     }
-
-    private static void FillOld(CleanReport report, List<FileEntry> files)
-    {
-        var cutoff = DateTime.Now.AddYears(-1);
-        foreach (var f in files
-                     .Where(x => CanList(x) && x.Modified != DateTime.MinValue && x.Modified < cutoff && x.Size >= 8L * 1024 * 1024)
-                     .OrderBy(x => x.Modified)
-                     .Take(80))
-            report.OldFiles.Add(Item(f, Loc.ReasonOld(f.AgeText), Loc.GroupOld, selected: false, risk: CleanRisk.Confirm));
-    }
-
-    private static void FillEmpty(CleanReport report, List<FileEntry> dirs)
-    {
-        foreach (var d in dirs)
-        {
-            if (!CanOffer(d)) continue;
-            if (d.FileCount != 0 || d.FolderCount != 0) continue;
-            if (d.Children.Count > 0) continue;
-            string path = (d.FullPath ?? "").ToLowerInvariant();
-            if (LooksUnsafe(path)) continue;
-            if (d.Name.StartsWith('.')) continue;
-            report.EmptyFolders.Add(Item(d, Loc.ReasonEmpty, Loc.GroupEmpty, selected: false));
-            if (report.EmptyFolders.Count >= 120) break;
-        }
-    }
-
-    private static void FillLongPaths(CleanReport report, List<FileEntry> files, List<FileEntry> dirs)
-    {
-        foreach (var e in files.Concat(dirs))
-        {
-            if (string.IsNullOrEmpty(e.FullPath) || e.IsFilesGroup) continue;
-            if (e.FullPath.Length < 240) continue;
-            report.LongPaths.Add(Item(e, Loc.ReasonLong(e.FullPath.Length), Loc.GroupLong, selected: false, canDelete: CanOffer(e)));
-            if (report.LongPaths.Count >= 80) break;
-        }
-    }
-
-    private static void FillBrokenShortcuts(CleanReport report, List<FileEntry> files, CancellationToken ct)
-    {
-        int checkedN = 0;
-        foreach (var f in files)
-        {
-            if (checkedN > 2500) break;
-            if (!f.Name.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)) continue;
-            if (string.IsNullOrEmpty(f.FullPath) || !File.Exists(f.FullPath)) continue;
-            if (!CanOffer(f)) continue;
-            checkedN++;
-            ct.ThrowIfCancellationRequested();
-            string? target = ShortcutNative.ResolveTarget(f.FullPath);
-            if (string.IsNullOrEmpty(target)) continue;
-            bool exists = File.Exists(target) || Directory.Exists(target);
-            if (exists) continue;
-            report.BrokenShortcuts.Add(Item(f, Loc.ReasonBroken(target), Loc.GroupShortcut, selected: false, risk: CleanRisk.Safe));
-            if (report.BrokenShortcuts.Count >= 80) break;
-        }
-    }
-
-    private static void FillDuplicates(CleanReport report, List<FileEntry> files, CancellationToken ct)
-    {
-        const long minSize = 8L * 1024 * 1024;
-        var bySize = new Dictionary<long, List<FileEntry>>();
-        foreach (var f in files)
-        {
-            if (!CanList(f) || f.Size < minSize) continue;
-            if (string.IsNullOrEmpty(f.FullPath)) continue;
-            if (!bySize.TryGetValue(f.Size, out var list))
-            {
-                list = new List<FileEntry>();
-                bySize[f.Size] = list;
-            }
-            list.Add(f);
-        }
-
-        int hashed = 0;
-        foreach (var kv in bySize.Where(x => x.Value.Count >= 2).OrderByDescending(x => x.Key))
-        {
-            ct.ThrowIfCancellationRequested();
-            if (hashed > 80) break;
-            var groups = new Dictionary<string, List<FileEntry>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var f in kv.Value)
-            {
-                if (hashed > 80) break;
-                if (!File.Exists(f.FullPath)) continue;
-                string? hash = HashHead(f.FullPath, f.Size);
-                hashed++;
-                if (hash == null) continue;
-                if (!groups.TryGetValue(hash, out var g))
-                {
-                    g = new List<FileEntry>();
-                    groups[hash] = g;
-                }
-                g.Add(f);
-            }
-            foreach (var g in groups.Values)
-            {
-                if (g.Count < 2) continue;
-                report.DupGroupCount++;
-                var keep = g.OrderBy(x => x.FullPath.Length).First();
-                foreach (var f in g)
-                {
-                    bool extra = !ReferenceEquals(f, keep);
-                    report.Duplicates.Add(Item(
-                        f,
-                        extra ? Loc.ReasonDupExtra(keep.FullPath) : Loc.ReasonDupKeep,
-                        Loc.GroupDup,
-                        selected: extra && CanOffer(f),
-                        canDelete: extra && CanOffer(f),
-                        risk: CleanRisk.Confirm));
-                }
-                if (report.Duplicates.Count >= 200) return;
-            }
-        }
-    }
-
-    private static string? HashHead(string path, long size)
-    {
-        try
-        {
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            int n = (int)Math.Min(size, 256 * 1024);
-            byte[] buf = new byte[n];
-            int read = fs.Read(buf, 0, n);
-            if (read <= 0) return null;
-            byte[] hash = SHA256.HashData(buf.AsSpan(0, read));
-            return size + ":" + Convert.ToHexString(hash);
-        }
-        catch { return null; }
-    }
-
-    private static void FillCompare(CleanReport report, FileEntry root, ScanSnapshot? previous)
-    {
-        if (previous == null)
-        {
-            report.CompareNote = Loc.CompareFirst;
-            return;
-        }
-
-        report.CompareNote = Loc.CompareSince(previous.ScannedAt, FileEntry.FormatSize(root.Size - previous.RootSize));
-        var now = new Dictionary<string, FileEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var c in root.Children)
-        {
-            if (c.IsFilesGroup) continue;
-            now[c.Name] = c;
-        }
-
-        foreach (var kv in now)
-        {
-            previous.Folders.TryGetValue(kv.Key, out long old);
-            long delta = kv.Value.Size - old;
-            if (Math.Abs(delta) < 8L * 1024 * 1024) continue;
-            string reason = delta >= 0
-                ? Loc.ReasonGrew(FileEntry.FormatSize(delta))
-                : Loc.ReasonShrunk(FileEntry.FormatSize(-delta));
-            report.Compare.Add(new CleanItem
-            {
-                Name = kv.Value.Name,
-                FullPath = kv.Value.FullPath,
-                Size = Math.Abs(delta),
-                Reason = reason,
-                Group = Loc.GroupCompare,
-                CanDelete = false,
-                Selected = false,
-                Entry = kv.Value,
-                IsDirectory = kv.Value.IsDirectory,
-            });
-        }
-
-        foreach (var name in previous.Folders.Keys)
-        {
-            if (now.ContainsKey(name)) continue;
-            long old = previous.Folders[name];
-            if (old < 8L * 1024 * 1024) continue;
-            report.Compare.Add(new CleanItem
-            {
-                Name = name,
-                FullPath = name,
-                Size = old,
-                Reason = Loc.ReasonGone,
-                Group = Loc.GroupCompare,
-                CanDelete = false,
-            });
-        }
-
-        report.Compare.Sort((a, b) => b.Size.CompareTo(a.Size));
-    }
-
-    private static CleanItem Item(FileEntry e, string reason, string group, bool selected, bool canDelete = true, CleanRisk risk = CleanRisk.Safe)
-    {
-        // 先用应用签名识别：能认出来就用它的用途分类、风险、说明；
-        // 认不出来才退回调用方给的兜底值（group / risk）。
-        var cls = AppSignatures.Classify(e.FullPath);
-        string category = cls?.Key ?? "";
-        string groupName = cls?.Name ?? group;
-        var finalRisk = cls?.Risk ?? risk;
-        string plain = cls?.Plain ?? "";
-        // 签名认出来了就用它那句大白话。别把调用方那句「大文件 · 看不出用途」
-        // 再拼上去——「看不出用途」和「删了没事」会自相矛盾。
-        string finalReason = string.IsNullOrEmpty(plain) ? reason : plain;
-
-        return new CleanItem
-        {
-            Name = e.Name,
-            FullPath = e.FullPath,
-            Size = e.Size,
-            Reason = finalReason,
-            Tech = AppSignatures.Describe(e.FullPath) ?? "",
-            Group = groupName,
-            Category = category,
-            Risk = finalRisk,
-            CanDelete = canDelete && CanOffer(e),
-            Selected = selected && canDelete && CanOffer(e) && finalRisk != CleanRisk.Keep,
-            Entry = e,
-            IsDirectory = e.IsDirectory,
-        };
-    }
-
-    private static bool CanList(FileEntry e)
-        => !e.IsFilesGroup && !string.IsNullOrEmpty(e.FullPath) && !e.Name.StartsWith('$');
-
-    private static bool CanOffer(FileEntry e)
-    {
-        if (!CanList(e)) return false;
-        if (RecycleService.IsProtected(e)) return false;
-        string path = (e.FullPath ?? "").ToLowerInvariant().Replace('/', '\\');
-        if (LooksUnsafe(path)) return false;
-        return true;
-    }
-
-    private static bool LooksLikeTempDir(string path)
-        => SafeDirBits.Any(path.Contains);
-
-    private static bool LooksUnsafe(string path)
-        => UnsafeBits.Any(path.Contains);
 }

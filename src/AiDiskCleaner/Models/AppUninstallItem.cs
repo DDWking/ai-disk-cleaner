@@ -92,6 +92,56 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
         : FileEntry.FormatSize(ActualSizeBytes) + (HasMeasuredSize ? "" : Loc.AppSizeEstimated);
     public string InstallDateText => InstallDate == DateTime.MinValue ? "—" : InstallDate.ToString("yyyy-MM-dd");
 
+    // ---- 占用拆分：安装目录 / 用户数据 / 缓存 / 估计可释放 ----
+    private long _installDirBytes;
+    private long _userDataBytes;
+    private long _cacheBytes;
+
+    public long InstallDirBytes
+    {
+        get => _installDirBytes;
+        set { if (_installDirBytes == value) return; _installDirBytes = value; NotifyFootprint(); }
+    }
+
+    public long UserDataBytes
+    {
+        get => _userDataBytes;
+        set { if (_userDataBytes == value) return; _userDataBytes = value; NotifyFootprint(); }
+    }
+
+    /// <summary>缓存：删了会自动重建，也不影响软件能不能用。</summary>
+    public long CacheBytes
+    {
+        get => _cacheBytes;
+        set { if (_cacheBytes == value) return; _cacheBytes = value; NotifyFootprint(); }
+    }
+
+    /// <summary>估计可释放：不卸载软件、不动用户数据就能拿回来的那部分（= 缓存）。</summary>
+    public long ReclaimableBytes => _cacheBytes;
+
+    public bool HasFootprintBreakdown => _installDirBytes > 0 || _userDataBytes > 0 || _cacheBytes > 0;
+
+    /// <summary>悬停用的明细，逐项写清「这块是什么、删了会怎样」。</summary>
+    public string FootprintText => !HasFootprintBreakdown
+        ? ""
+        : string.Join(Environment.NewLine, new[]
+        {
+            Loc.FootprintInstall(FileEntry.FormatSize(_installDirBytes)),
+            Loc.FootprintUserData(FileEntry.FormatSize(_userDataBytes)),
+            Loc.FootprintCache(FileEntry.FormatSize(_cacheBytes)),
+            Loc.FootprintReclaimable(FileEntry.FormatSize(ReclaimableBytes)),
+        });
+
+    private void NotifyFootprint()
+    {
+        OnPropertyChanged(nameof(InstallDirBytes));
+        OnPropertyChanged(nameof(UserDataBytes));
+        OnPropertyChanged(nameof(CacheBytes));
+        OnPropertyChanged(nameof(ReclaimableBytes));
+        OnPropertyChanged(nameof(HasFootprintBreakdown));
+        OnPropertyChanged(nameof(FootprintText));
+    }
+
     public AppRecommendationDecision Recommendation
     {
         get => _recommendation;

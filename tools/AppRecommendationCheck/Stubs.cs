@@ -64,6 +64,10 @@ namespace AiDiskCleaner.Services
         public static string AppConsiderStartup => "startup";
         public static string AppConsiderUnknown => "unknown";
         public static string AppSizeEstimated => " est.";
+        public static string FootprintInstall(string size) => "install: " + size;
+        public static string FootprintUserData(string size) => "userdata: " + size;
+        public static string FootprintCache(string size) => "cache: " + size;
+        public static string FootprintReclaimable(string size) => "reclaimable: " + size;
         public static string AiMark => "AI";
         public static string AppRecommendationLabel(AppRecommendationDecision decision) => decision.ToString();
     }

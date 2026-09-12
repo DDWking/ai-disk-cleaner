@@ -55,7 +55,13 @@ public static class BcuUninstallService
     public static AppUninstallItem Wrap(ApplicationUninstallerEntry e)
     {
         long bytes = 0;
-        try { bytes = e.EstimatedSize.GetKbSize() * 1024L; } catch { }
+        try { bytes = e.EstimatedSize.GetKbSize() * 1024L; }
+        catch (Exception ex)
+        {
+            // 体积估不出来不阻断列表，但要让日志里查得到是哪个软件。
+            AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "Uninstall", "", "size-estimate",
+                (e.DisplayName ?? "") + " | " + ex.GetType().Name));
+        }
         bool steam = e.UninstallerKind == UninstallerType.Steam;
         bool feature = e.UninstallerKind == UninstallerType.WindowsFeature;
         int group = e.IsProtected ? 3 : feature ? 2 : steam ? 1 : 0;
@@ -68,7 +74,7 @@ public static class BcuUninstallService
         return new AppUninstallItem
         {
             AppId = Guid.NewGuid().ToString("N"),
-            Name = e.DisplayName,
+            Name = e.DisplayName ?? "",
             Publisher = pub,
             Version = e.DisplayVersion ?? "",
             SizeBytes = bytes,
@@ -93,7 +99,11 @@ public static class BcuUninstallService
             var icon = e.GetIcon();
             if (icon != null) return ToPng(icon);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "Uninstall", "", "icon",
+                (e.DisplayName ?? "") + " | " + ex.GetType().Name));
+        }
         try
         {
             string? path = e.DisplayIcon;

@@ -8,9 +8,9 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>AiDiskCleaner</RootNamespace>
     <AssemblyName>AiDiskCleaner</AssemblyName>
-    <Version>1.1.0</Version>
-    <FileVersion>1.1.0.0</FileVersion>
-    <InformationalVersion>1.1.0</InformationalVersion>
+    <Version>2.3.0</Version>
+    <FileVersion>2.3.0.0</FileVersion>
+    <InformationalVersion>2.3.0</InformationalVersion>
     <Product>大扫货</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
@@ -41,4 +41,18 @@
     <Content Include="..\..\sidecar\AiSidecar.exe" Link="sidecar\AiSidecar.exe" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Non-reference helper executables still need their managed entry assemblies. -->
+  <Target Name="IncludeHelperEntryAssemblies" AfterTargets="ResolveProjectReferences">
+    <MSBuild Projects="@(ProjectReference)"
+             Targets="GetTargetPath"
+             Condition="'%(ProjectReference.ReferenceOutputAssembly)' == 'false'">
+      <Output TaskParameter="TargetOutputs" ItemName="_HelperEntryAssemblies" />
+    </MSBuild>
+    <ItemGroup>
+      <Content Include="@(_HelperEntryAssemblies)"
+               Link="%(Filename)%(Extension)"
+               CopyToOutputDirectory="PreserveNewest"
+               CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 </Project>

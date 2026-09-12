@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using AiDiskCleaner.Models;
 
 namespace AiDiskCleaner.Services;
 
@@ -126,13 +127,22 @@ public static class SidecarClient
                 }
 
                 // 起不来就杀掉，标记禁用，交给降级路径
-                try { proc.Kill(true); } catch { }
+                try { proc.Kill(true); }
+                catch (Exception killEx)
+                {
+                    AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "Ai", "", "sidecar-kill",
+                        killEx.GetType().Name + " (sidecar 未能就绪)"));
+                }
                 _proc = null;
                 _disabled = true;
                 return false;
             }
-            catch
+            catch (Exception ex)
             {
+                // sidecar 启动失败是可预期的降级场景（没装 node / 被拦），
+                // 记一笔技术细节，然后走内置 HTTP 通道。
+                AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Warn, "Ai", "", "sidecar-start",
+                    ex.GetType().Name + " " + LogRedactor.Scrub(ex.Message)));
                 _disabled = true;
                 return false;
             }
@@ -143,7 +153,13 @@ public static class SidecarClient
     {
         lock (Gate)
         {
-            try { _proc?.Kill(true); } catch { }
+            try { _proc?.Kill(true); }
+            catch (Exception ex)
+            {
+                // 退出时杀不掉 sidecar 只是可能残留一个进程，不影响用户数据。
+                AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "Ai", "", "sidecar-stop",
+                    ex.GetType().Name));
+            }
             _proc?.Dispose();
             _proc = null;
             _toolHost?.Dispose();

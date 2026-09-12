@@ -109,16 +109,77 @@ public static class AppRecommendationService
         return results;
     }
 
+    private static readonly object UsageCacheGate = new();
+    private static string _usageCacheKey = "";
+    private static List<AppUsage>? _usageCache;
+
+    /// <summary>
+    /// 算每个软件的真实占用。同一份 (软件清单, 扫描结果) 只算一次 ——
+    /// 卸载后重扫会重新算，但切页签、刷新界面这类操作不会再跑一遍。
+    /// </summary>
     public static List<AppUsage> CalculateUsage(
         IEnumerable<AppUninstallItem> apps,
-        IEnumerable<FileEntry> files)
+        IEnumerable<FileEntry> files,
+        CancellationToken ct = default)
     {
-        var indexed = files
+        var appList = apps as IList<AppUninstallItem> ?? apps.ToList();
+        var fileList = files as IReadOnlyList<FileEntry> ?? files.ToList();
+
+        string key = BuildUsageCacheKey(appList, fileList);
+        lock (UsageCacheGate)
+        {
+            if (_usageCache != null && key == _usageCacheKey)
+                return _usageCache;
+        }
+
+        var computed = CalculateUsageCore(appList, fileList, ct);
+
+        lock (UsageCacheGate)
+        {
+            _usageCacheKey = key;
+            _usageCache = computed;
+        }
+        return computed;
+    }
+
+    /// <summary>缓存键：软件数量 + 安装路径 + 扫描到的文件数 + 总分配字节。</summary>
+    private static string BuildUsageCacheKey(IList<AppUninstallItem> apps, IReadOnlyList<FileEntry> files)
+    {
+        var sb = new System.Text.StringBuilder(64 + apps.Count * 24);
+        sb.Append(apps.Count).Append('|');
+        foreach (var a in apps)
+        {
+            sb.Append(a.InstallLocation).Append('\u0001');
+            sb.Append(a.CanUninstall ? '1' : '0');
+            sb.Append('\u0002');
+        }
+        long total = 0;
+        for (int i = 0; i < files.Count; i++) total += files[i].Allocated > 0 ? files[i].Allocated : files[i].Size;
+        sb.Append('|').Append(files.Count).Append('|').Append(total);
+        return sb.ToString();
+    }
+
+    /// <summary>丢弃占用缓存（卸载完成、重新扫描后调用）。</summary>
+    public static void InvalidateUsageCache()
+    {
+        lock (UsageCacheGate)
+        {
+            _usageCache = null;
+            _usageCacheKey = "";
+        }
+    }
+
+    private static List<AppUsage> CalculateUsageCore(
+        IList<AppUninstallItem> appList,
+        IReadOnlyList<FileEntry> fileList,
+        CancellationToken ct)
+    {
+        var indexed = fileList
             .Select(x => new FileUsage(Normalize(x.FullPath), Math.Max(0, x.Allocated > 0 ? x.Allocated : x.Size)))
             .Where(x => x.Path.Length > 0)
             .OrderBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var locations = apps
+        var locations = appList
             .Select(app => new AppLocation(app, Normalize(app.InstallLocation)))
             .ToList();
         var overlappingApps = FindOverlappingApps(locations);
@@ -126,8 +187,10 @@ public static class AppRecommendationService
         var usage = new List<AppUsage>();
         foreach (var item in locations)
         {
+            ct.ThrowIfCancellationRequested();
             var app = item.App;
             long actual = 0;
+            long installBytes = 0, userBytes = 0, cacheBytes = 0;
             bool canMeasureUsage = IsUsableInstallLocation(item.Location)
                 && !overlappingApps.Contains(app);
             if (canMeasureUsage)
@@ -139,7 +202,14 @@ public static class AppRecommendationService
                     if (!path.StartsWith(item.Location, StringComparison.OrdinalIgnoreCase)) break;
                     if (IsPathWithin(path, item.Location))
                     {
-                        actual += indexed[i].Bytes;
+                        long bytes = indexed[i].Bytes;
+                        actual += bytes;
+                        switch (ClassifyFootprint(path, item.Location))
+                        {
+                            case FootprintKind.Cache: cacheBytes += bytes; break;
+                            case FootprintKind.UserData: userBytes += bytes; break;
+                            default: installBytes += bytes; break;
+                        }
                         continue;
                     }
                     break;
@@ -153,7 +223,10 @@ public static class AppRecommendationService
                 app,
                 actual > 0 ? actual : app.SizeBytes,
                 actual > 0,
-                runningState));
+                runningState,
+                installBytes,
+                userBytes,
+                cacheBytes));
         }
         return usage;
     }
@@ -165,6 +238,10 @@ public static class AppRecommendationService
             item.App.ActualSizeBytes = item.ActualSizeBytes;
             item.App.HasMeasuredSize = item.HasMeasuredSize;
             item.App.RunningState = item.RunningState;
+            // 占用拆分：安装目录 / 用户数据 / 缓存（可释放）
+            item.App.InstallDirBytes = item.InstallDirBytes;
+            item.App.UserDataBytes = item.UserDataBytes;
+            item.App.CacheBytes = item.CacheBytes;
         }
     }
 
@@ -266,6 +343,39 @@ public static class AppRecommendationService
 
     static string Normalize(string? path)
         => (path ?? "").Trim().Trim('"').Replace('/', '\\').TrimEnd('\\');
+
+    /// <summary>占用拆分的三类。用户最关心的是「不卸软件也能删的是哪块」。</summary>
+    internal enum FootprintKind { InstallDir, UserData, Cache }
+
+    /// <summary>缓存目录特征：删了会自动重建，且不影响已装软件能不能用。</summary>
+    private static readonly string[] CacheBits =
+    {
+        @"\cache\", @"\caches\", @"\temp\", @"\tmp\", @"\logs\", @"\log\",
+        @"\crashdumps\", @"\shadercache\", @"\gpucache\", @"\code cache\",
+        @"\softwaredistribution\download\", @"\inetcache\",
+    };
+
+    /// <summary>用户数据目录特征：卸载时通常要问用户留不留。</summary>
+    private static readonly string[] UserDataBits =
+    {
+        @"\appdata\", @"\documents\", @"\saved games\", @"\saves\", @"\profiles\",
+        @"\userdata\", @"\user data\", @"\my games\",
+    };
+
+    /// <summary>
+    /// 把安装目录里的一个文件归到「缓存 / 保存的数据 / 程序本体」三档。
+    /// 判定顺序：先看缓存（cache/temp/logs），再看用户数据特征目录，剩下的算程序本体。
+    ///
+    /// 注意范围：只看**安装目录这棵树**。装在 AppData 里的用户数据不在这个统计内
+    /// （那需要按软件名去用户目录里找，容易算错，宁可不算）。
+    /// </summary>
+    internal static FootprintKind ClassifyFootprint(string path, string lowerInstallLocation = "")
+    {
+        string p = (path ?? "").ToLowerInvariant().Replace('/', '\\');
+        if (CacheBits.Any(p.Contains)) return FootprintKind.Cache;
+        if (UserDataBits.Any(p.Contains)) return FootprintKind.UserData;
+        return FootprintKind.InstallDir;
+    }
 
     static HashSet<AppUninstallItem> FindOverlappingApps(IEnumerable<AppLocation> locations)
     {
@@ -428,8 +538,20 @@ public static class AppRecommendationService
     private readonly record struct RemoteCandidate(AppUninstallItem App, string RemoteId);
 }
 
+/// <summary>
+/// 一个软件占用的拆分。<see cref="InstallDirBytes"/> 是安装目录，
+/// <see cref="UserDataBytes"/> 是用户配置/数据，<see cref="CacheBytes"/> 是缓存（删了会自动重建，
+/// 也就是「不卸载软件也能先拿回来」的那部分）。
+/// </summary>
 public readonly record struct AppUsage(
     AppUninstallItem App,
     long ActualSizeBytes,
     bool HasMeasuredSize,
-    AppRunningState RunningState);
+    AppRunningState RunningState,
+    long InstallDirBytes = 0,
+    long UserDataBytes = 0,
+    long CacheBytes = 0)
+{
+    /// <summary>估计可释放：缓存部分（不动软件、不动用户数据）。</summary>
+    public long ReclaimableBytes => CacheBytes;
+}

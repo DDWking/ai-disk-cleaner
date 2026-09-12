@@ -18,7 +18,17 @@
     <Compile Include="LocStub.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AiNoteParser.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanItem.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\ItemAiView.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AiVerdict.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanListSnapshot.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppSignatures.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ProtectedPaths.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\PathRedactor.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppPaths.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ItemAiPrompt.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" />
+    <!-- CleanItem 的用途分类引用 CleanPurpose 枚举（证据驱动分类，规则契约的一部分） -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanPurpose.cs" />
   </ItemGroup>
 
 </Project>

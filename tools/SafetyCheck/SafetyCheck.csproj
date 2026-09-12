@@ -1,0 +1,79 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>SafetyCheck</AssemblyName>
+    <RootNamespace>SafetyCheck</RootNamespace>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="FakeProbe.cs" />
+    <Compile Include="Stubs.cs" />
+    <Compile Include="LayeredCleanTests.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Models\DeletionModels.cs" Link="DeletionModels.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" Link="FileEntry.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\CleanItem.cs" Link="CleanItem.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\CleanGroupNodes.cs" Link="CleanGroupNodes.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\ScanQuality.cs" Link="ScanQuality.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\AiContracts.cs" Link="AiContracts.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Native\FileProbeNative.cs" Link="FileProbeNative.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Native\ShellNative.cs" Link="ShellNative.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Native\CryptoNative.cs" Link="CryptoNative.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ProtectedPaths.cs" Link="ProtectedPaths.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\IFileSystemProbe.cs" Link="IFileSystemProbe.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Win32FileSystemProbe.cs" Link="Win32FileSystemProbe.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\DeletionPreflight.cs" Link="DeletionPreflight.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\DeletionExecutor.cs" Link="DeletionExecutor.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\RecycleService.cs" Link="RecycleService.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\LogRedactor.cs" Link="LogRedactor.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\PathRedactor.cs" Link="PathRedactor.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppError.cs" Link="AppError.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppLog.cs" Link="AppLog.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppPaths.cs" Link="AppPaths.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\SecretProtector.cs" Link="SecretProtector.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppSettings.cs" Link="AppSettings.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AiGateway.cs" Link="AiGateway.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AiNoteParser.cs" Link="AiNoteParser.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleContracts.cs" Link="CleanRuleContracts.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanItemFactory.cs" Link="CleanItemFactory.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\DuplicateDetector.cs" Link="DuplicateDetector.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\DuplicateScanService.cs" Link="DuplicateScanService.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanListSnapshot.cs" Link="CleanListSnapshot.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanGroupingService.cs" Link="CleanGroupingService.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanPreflight.cs" Link="CleanPreflight.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanItemPager.cs" Link="CleanItemPager.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanPurpose.cs" Link="CleanPurpose.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\WorkState.cs" Link="WorkState.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\PerfTrace.cs" Link="PerfTrace.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\FileClassifier.cs" Link="FileClassifier.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\KnownPaths.cs" Link="KnownPaths.cs" />
+    <!-- 真签名表：分类风险的 SubHit 口径属于删除安全，必须测真代码 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppSignatures.cs" Link="AppSignatures.cs" />
+    <!-- 真规则实现：RiskIsAuthoritative 要按真规则断言，不能用桩 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRules.cs" Link="CleanRules.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\DuplicateRule.cs" Link="DuplicateRule.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Native\ShortcutNative.cs" Link="ShortcutNative.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\RecycleNameResolver.cs" Link="RecycleNameResolver.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\IScanService.cs" Link="IScanService.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ScanSnapshot.cs" Link="ScanSnapshot.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\RecursiveScanService.cs" Link="RecursiveScanService.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ScanCoordinator.cs" Link="ScanCoordinator.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\DeletionCoordinator.cs" Link="DeletionCoordinator.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AiCoordinator.cs" Link="AiCoordinator.cs" />
+    <!-- 真 AI 工具面：用来断言「AI 不能改选择」 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\DiskAnalyst.cs" Link="DiskAnalyst.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\CleanReport.cs" Link="CleanReport.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ItemAiPrompt.cs" Link="ItemAiPrompt.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AiVerdict.cs" Link="AiVerdict.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ShellReveal.cs" Link="ShellReveal.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ItemAiService.cs" Link="ItemAiService.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\ItemAiView.cs" Link="ItemAiView.cs" />
+  </ItemGroup>
+</Project>

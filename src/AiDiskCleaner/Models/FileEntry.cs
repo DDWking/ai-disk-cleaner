@@ -14,11 +14,40 @@ public class FileEntry
     public string Category { get; set; } = "其他";
     public EntryKind Kind { get; set; }
     public FileEntry? Parent { get; set; }
-    public List<FileEntry> Children { get; set; } = new();
+
+    private List<FileEntry>? _children;
+
+    private static readonly FileEntry[] NoChildren = Array.Empty<FileEntry>();
+
+    /// <summary>
+    /// 子节点列表（**写入用**）。第一次写入时才分配 ——
+    /// 磁盘上绝大多数条目是文件，每个都挂一个空 List 在百万级规模下是白扔几十 MB。
+    /// 只读遍历请用 <see cref="ChildList"/>，别用这个属性，否则会给叶子节点凭空造一个 List。
+    /// </summary>
+    public List<FileEntry> Children => _children ??= new();
+
+    /// <summary>只读遍历用：没有子节点时返回共享空数组，不产生任何分配。</summary>
+    public IReadOnlyList<FileEntry> ChildList => _children ?? (IReadOnlyList<FileEntry>)NoChildren;
+
+    public int ChildCount => _children?.Count ?? 0;
+    public bool HasChildren => _children is { Count: > 0 };
+
+    /// <summary>这个条目自己占多少托管内存（估算，用于内存诊断）。</summary>
+    public long EstimatedBytes => 120
+        + (Name.Length * 2L)
+        + (FullPath?.Length * 2L ?? 0)
+        + (Category.Length * 2L)
+        + (_children is null ? 0 : 32 + _children.Count * 8L);
+
     public int FileCount { get; set; }
     public int FolderCount { get; set; }
     public bool IsHidden { get; set; }
     public bool IsSystem { get; set; }
+    /// <summary>
+    /// 重解析点：junction / symlink / 云盘占位文件（OneDrive）。
+    /// 目录递归时会跳过，删除预检会单独判定。
+    /// </summary>
+    public bool IsReparsePoint { get; set; }
     /// <summary>根目录下「散文件」合成组，点开才列出文件。</summary>
     public bool IsFilesGroup { get; set; }
 

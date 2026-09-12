@@ -35,43 +35,25 @@ function buildTools(invokeTool) {
     }),
   };
 
-  const setChecked = {
-    name: 'set_checked',
-    label: 'Check items',
+  // 只读工具。以前这里还有 set_checked / suggest，能让模型直接改清理勾选 ——
+  // 那违反「AI 只解释和建议，选择由用户做」，已删除；C# 侧也会拒绝这两个名字。
+  const reportFinding = {
+    name: 'report_finding',
+    label: 'Report finding',
     description:
-      'Check or uncheck items on the clean list. Cannot delete. Only safe cleanable items (temp/cache, dumps, recycle) and large files outside Windows/Program Files/system.',
+      'Report what you found about one item. Text only; never changes selection, risk or deletability.',
     parameters: Type.Object({
-      paths: Type.Array(Type.String(), { description: 'Full paths' }),
-      checked: Type.Boolean({ description: 'true to check, false to uncheck' }),
+      path: Type.String({ description: 'The item path' }),
+      note: Type.String({ description: "One-line finding in the user's language" }),
     }),
     executionMode: 'sequential',
     execute: async (_id, params) => ({
-      content: [{ type: 'text', text: await invokeTool('set_checked', params) }],
+      content: [{ type: 'text', text: await invokeTool('report_finding', params) }],
       details: {},
     }),
   };
 
-  const suggest = {
-    name: 'suggest',
-    label: 'Suggest cleanup',
-    description:
-      'Mark files the user might delete. Checks them on the right clean list. Does not delete. note = specific reason in the user language.',
-    parameters: Type.Object({
-      items: Type.Array(
-        Type.Object({
-          path: Type.String(),
-          note: Type.String({ description: 'Short reason, one line' }),
-        }),
-      ),
-    }),
-    executionMode: 'sequential',
-    execute: async (_id, params) => ({
-      content: [{ type: 'text', text: await invokeTool('suggest', params) }],
-      details: {},
-    }),
-  };
-
-  return [listFolder, searchClean, setChecked, suggest];
+  return [listFolder, searchClean, reportFinding];
 }
 
 /**

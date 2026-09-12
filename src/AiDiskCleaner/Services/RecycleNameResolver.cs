@@ -49,7 +49,12 @@ public static class RecycleNameResolver
                 if (File.Exists(infoPath)) result = ParseInfo(infoPath);
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // 解析回收站元数据只是为了显示原路径，失败就退回原名，不是错误。
+            AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "Recycle", "", "name-resolve",
+                LogRedactor.ScrubPath(recyclePath) + " | " + ex.GetType().Name));
+        }
 
         lock (Gate)
         {
