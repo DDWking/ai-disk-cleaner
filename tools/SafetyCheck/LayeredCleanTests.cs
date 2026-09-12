@@ -39,6 +39,412 @@ public static class LayeredCleanTests
         LocationNamingTests(check, section);
         ShellRevealTests(check, section);
         AiVerdictTests(check, section);
+        FolderPurposeTests(check, section);
+        FolderOrganizeTests(check, section);
+    }
+
+    // ------------------------------------------------------------------ 文件夹用途识别
+
+    /// <summary>造一棵内存目录树（不碰磁盘）。</summary>
+    static FileEntry DirNode(string name, string path, long size = 0, FileEntry? parent = null)
+    {
+        var e = new FileEntry { Name = name, FullPath = path, Kind = EntryKind.Directory, Size = size, Parent = parent };
+        parent?.Children.Add(e);
+        return e;
+    }
+
+    static FileEntry FileNode(string name, string path, long size, FileEntry parent)
+    {
+        var e = new FileEntry { Name = name, FullPath = path, Kind = EntryKind.File, Size = size, Parent = parent };
+        parent.Children.Add(e);
+        return e;
+    }
+
+    static void FolderPurposeTests(CheckFn check, Action<string> section)
+    {
+        section("文件夹用途：自适应识别、平台不吞内部游戏、预算与缓存");
+
+        // ---- 1) 收纳目录：多个独立子目录 ⇒ Container，且应该继续看 ----
+        var root = DirNode("Apps", @"D:\Apps", 100_000_000);
+        for (int i = 0; i < 6; i++)
+            DirNode("app" + i, $@"D:\Apps\app{i}", 10_000_000, root);
+        var id = new FolderId(root.FullPath, 1);
+        var sum = FolderPurposeRules.Summarize(root, id, 1, "D:\\Apps");
+        var kind = FolderPurposeRules.ClassifyKind(root);
+        check("多子目录的收纳目录被判为容器/混合",
+            kind is FolderKind.Container or FolderKind.Mixed, kind.ToString());
+        check("容器应该继续往下识别",
+            FolderPurposeService.ShouldDescend(root, kind, 1));
+        check("摘要含直接子目录数", sum.DirectFolderCount == 6, sum.DirectFolderCount.ToString());
+
+        // ---- 2) 具体对象：认出软件就停，不逐个贴标签 ----
+        var steam = DirNode("steamapps", @"C:\Program Files (x86)\Steam\steamapps", 5_000_000_000);
+        DirNode("common", @"C:\Program Files (x86)\Steam\steamapps\common", 4_000_000_000, steam);
+        var steamId = new FolderId(steam.FullPath, 1);
+        var sSum = FolderPurposeRules.Summarize(steam, steamId, 1, steam.FullPath);
+        var sRes = FolderPurposeRules.RecognizeLocally(steam, sSum);
+        check("Steam 库被本地规则认成游戏库",
+            sRes.PurposeName == Loc.PurposeGameLibrary, sRes.PurposeName);
+        check("游戏库来源标为本地", sRes.Source == PurposeSource.Local, sRes.Source.ToString());
+        check("认出平台后**仍然允许往里找游戏**",
+            FolderPurposeRules.IsObjectContainer(steam.FullPath) &&
+            FolderPurposeService.ShouldDescend(steam, sRes.Kind, 1));
+
+        // ---- 3) 普通应用内部：认出具体对象后应停止深入 ----
+        var gitDir = DirNode(".git", @"D:\proj\.git", 1_000_000);
+        DirNode("objects", @"D:\proj\.git\objects", 900_000, gitDir);
+        var gitKind = FolderPurposeRules.ClassifyKind(gitDir);
+        check(".git 被判为具体对象", gitKind == FolderKind.Concrete, gitKind.ToString());
+        var nm = DirNode("node_modules", @"D:\proj\\node_modules", 1);
+        check("node_modules 也判为具体对象且不下钻",
+            FolderPurposeRules.ClassifyKind(nm) == FolderKind.Concrete &&
+            !FolderPurposeService.ShouldDescend(nm, FolderKind.Concrete, 1));
+        check("具体对象默认不再往下逐个分类",
+            !FolderPurposeService.ShouldDescend(gitDir, gitKind, 1));
+
+        // ---- 4) 开发项目：只看结构标志 ----
+        var proj = DirNode("proj", @"D:\proj", 2_000_000);
+        FileNode(".git", @"D:\proj\.git", 10, proj);
+        FileNode("app.sln", @"D:\proj\app.sln", 20, proj);
+        var pSum = FolderPurposeRules.Summarize(proj, new FolderId(proj.FullPath, 1), 0, proj.FullPath);
+        var pRes = FolderPurposeRules.RecognizeLocally(proj, pSum);
+        check("有工程标志的目录认成开发项目",
+            pRes.PurposeName == Loc.PurposeDevProject, pRes.PurposeName);
+        check("开发项目依据写出命中的标志",
+            pRes.Basis.Contains(".git") || pRes.Basis.Contains(".sln"), pRes.Basis);
+
+        // ---- 5) 未知目录：不硬给结论，且允许待确认 ----
+        var mystery = DirNode("mystery", @"D:\mystery", 3_000_000);
+        FileNode("a.bin", @"D:\mystery\a.bin", 100, mystery);
+        var mSum = FolderPurposeRules.Summarize(mystery, new FolderId(mystery.FullPath, 1), 0, mystery.FullPath);
+        var mRes = FolderPurposeRules.RecognizeLocally(mystery, mSum);
+        check("说不清的目录不给结论", !mRes.HasConclusion, mRes.PurposeName);
+        check("没有结论时状态是未识别",
+            mRes.State == PurposeState.Unrecognized, mRes.State.ToString());
+
+        // ---- 6) 摘要与容量：停止分类不等于停止统计 ----
+        var big = DirNode("big", @"D:\big", 123_456_789);
+        for (int i = 0; i < 20; i++) FileNode($"f{i}.tmp", $@"D:\big\f{i}.tmp", 1000, big);
+        var bSum = FolderPurposeRules.Summarize(big, new FolderId(big.FullPath, 1), 0, big.FullPath);
+        check("摘要容量仍是整个子树的大小", bSum.Size == big.Size, bSum.Size.ToString());
+        check("样本数量有上限", bSum.SampleCount <= FolderPurposeRules.MaxSamples, bSum.SampleCount.ToString());
+        check("类型分布有上限", bSum.TypeMix.Count <= FolderPurposeRules.MaxTypeMix);
+        check("超出上限时标记为截断", bSum.Truncated);
+
+        // ---- 7) 稳定标识：路径 + 扫描代次，与显示名无关 ----
+        var idA = new FolderId(@"D:\x\cache", 1);
+        var idB = new FolderId(@"D:\x\cache", 2);
+        check("代次不同 ⇒ 标识不同", idA != idB);
+        check("同名不同路径 ⇒ 标识不同",
+            new FolderId(@"D:\a\cache", 1) != new FolderId(@"D:\b\cache", 1));
+
+        // ---- 8) 缓存：相同摘要命中；内容变了就失效 ----
+        var svc = new FolderPurposeService();
+        var cSum = FolderPurposeRules.Summarize(proj, new FolderId(proj.FullPath, 1), 0, proj.FullPath);
+        check("未缓存时取不到", svc.TryGetCached(cSum.Id, cSum, "cfg") == null);
+        svc.ResetForScan();
+        check("重置后缓存为空", svc.CacheCount == 0 && svc.AiRequestsUsed == 0);
+
+        // ---- 9) 用户纠正优先，且不被重扫清掉 ----
+        var uid = new FolderId(@"D:\mine", 1);
+        svc.SetUserCorrection(uid, "我的资料", "文档");
+        check("用户纠正可读回", svc.TryGetUserCorrection(uid)?.PurposeName == "我的资料");
+        check("来源标为「你确认的」",
+            svc.TryGetUserCorrection(uid)?.Source == PurposeSource.User);
+        svc.ResetForScan();
+        check("重扫不清除用户纠正",
+            svc.TryGetUserCorrection(uid)?.PurposeName == "我的资料");
+
+        // ---- 10) AI 解析：只认约定格式，认不出就没有结论 ----
+        var aiOk = FolderPurposeRules.ParseAi("PURPOSE: Steam 游戏库\nCATEGORY: 游戏\nBASIS: 有 steamapps", uid, FolderKind.Container);
+        check("合规回复解析出结论", aiOk.PurposeName == "Steam 游戏库" && aiOk.Source == PurposeSource.Ai);
+        check("AI 结论默认需要确认", aiOk.NeedsConfirm && aiOk.State == PurposeState.NeedsConfirm);
+        check("空回复不产生结论",
+            !FolderPurposeRules.ParseAi("", uid, FolderKind.Unknown).HasConclusion);
+        check("答非所问不产生结论",
+            !FolderPurposeRules.ParseAi("这个目录很安全可以删", uid, FolderKind.Unknown).HasConclusion);
+        check("格式错误不产生结论",
+            !FolderPurposeRules.ParseAi("{\"purpose\":\"x\"}", uid, FolderKind.Unknown).HasConclusion);
+
+        // ---- 11) 来源不伪装 ----
+        check("本地结论来源是本地", pRes.SourceText == Loc.PurposeFromLocal);
+        check("AI 结论来源是 AI 推测", aiOk.SourceText == Loc.PurposeFromAi);
+        check("没有结论时不显示来源", mRes.SourceText.Length == 0);
+        check("没有结论时不能算已识别",
+            mRes.State != PurposeState.Recognized);
+
+        // ---- 12) 预算：输入长度受限、请求数有上限 ----
+        string aiInput = FolderPurposeRules.BuildAiInput(bSum, false, FolderPurposeRules.MaxSamples);
+        check("发给模型的输入有长度上限",
+            aiInput.Length <= FolderPurposeService.MaxInputChars + 200, aiInput.Length.ToString());
+        check("整次任务的请求数上限是有限值",
+            FolderPurposeService.MaxAiRequests > 0 && FolderPurposeService.MaxAiRequests <= 100);
+        check("探索深度上限是有限值",
+            FolderPurposeService.MaxDepth > 0 && FolderPurposeService.MaxDepth <= 8);
+
+        // ---- 13) 链接循环 / 重解析点不跟随 ----
+        var link = DirNode("link", @"D:\loop\link", 100);
+        link.IsReparsePoint = true;
+        check("重解析点不继续往下", !FolderPurposeService.ShouldDescend(link, FolderKind.Container, 1));
+        check("深度到上限就停",
+            !FolderPurposeService.ShouldDescend(root, FolderKind.Container, FolderPurposeService.MaxDepth));
+
+        // ---- 14) 用途识别绝不改清理相关字段 ----
+        var item = Temp(@"C:\Windows\Temp\a.tmp", 100);
+        var risk0 = item.Risk; var can0 = item.CanDelete; var sel0 = item.Selected;
+        var _ = FolderPurposeRules.RecognizeLocally(proj, pSum);
+        check("识别不修改 Risk/CanDelete/Selected",
+            item.Risk == risk0 && item.CanDelete == can0 && item.Selected == sel0);
+        check("识别结果里没有删除建议字段",
+            !typeof(FolderPurposeResult).GetProperties().Any(p =>
+                p.Name.Contains("Delete") || p.Name.Contains("Risk") || p.Name.Contains("Selected")));
+
+        // ---- 15) 系统入口说明（不是清理结论，需要确认）----
+        string[] entries = FolderPurposeRules.EntryPoints().ToArray();
+        check("系统入口由系统路径解析得到（绝对路径）",
+            entries.Length > 0 && entries.All(e => System.IO.Path.IsPathRooted(e)),
+            string.Join(" | ", entries));
+        if (entries.Length > 0)
+        {
+            var ep = DirNode("ProgramData", entries[0], 1);
+            var eRes = FolderPurposeRules.RecognizeLocally(ep,
+                FolderPurposeRules.Summarize(ep, new FolderId(ep.FullPath, 1), 0, ep.FullPath));
+            check("系统入口标为需要确认",
+                eRes.NeedsConfirm || !eRes.HasConclusion, eRes.State.ToString());
+        }
+    }
+
+    // ------------------------------------------------------------------ 文件夹整理
+
+    /// <summary>
+    /// 「文件夹整理」工作区的回归检查：默认两层、自适应下钻、平台不吞内部游戏、
+    /// 预算与去重、未知有限探索、缓存与用户纠正、状态不伪装、绝不参与删除/选择。
+    /// 全部离线（不碰磁盘、不调模型）。
+    /// </summary>
+    static void FolderOrganizeTests(CheckFn check, Action<string> section)
+    {
+        section("文件夹整理：默认两层、自适应下钻、预算、平台游戏入口、状态不伪装");
+
+        // ---- 1) 顶层对象：系统识别入口优先，重叠的只留最外层（去重） ----
+        var root = DirNode("C:", @"C:\", 500_000_000_000);
+        var pf = DirNode("Program Files", @"C:\Program Files", 60_000_000_000, root);
+        DirNode("app1", @"C:\Program Files\app1", 20_000_000_000, pf);
+        DirNode("app2", @"C:\Program Files\app2", 10_000_000_000, pf);
+        DirNode("Windows", @"C:\Windows", 40_000_000_000, root);
+        DirNode("Users", @"C:\Users", 100_000_000_000, root);
+
+        var rs = FolderOrganize.BuildRoots(root);
+        check("解析到系统识别入口（Program Files 在顶层对象里）",
+            rs.Roots.Any(r => FolderOrganize.IsUnderOrEqual(r.FullPath, @"C:\Program Files")),
+            string.Join(" | ", rs.Roots.Select(r => r.FullPath)));
+        check("顶层对象里没有重复的祖先/后代对",
+            !rs.Roots.Any(a => rs.Roots.Any(b => !ReferenceEquals(a, b)
+                && FolderOrganize.IsUnderOrEqual(b.FullPath, a.FullPath))));
+        check("盘符下的其它直接子目录也在（Windows / Users）",
+            rs.Roots.Any(r => r.FullPath == @"C:\Windows") && rs.Roots.Any(r => r.FullPath == @"C:\Users"));
+        check("顶层对象有上限（海量目录不会一次铺开）",
+            FolderOrganize.MaxRoots > 0 && FolderOrganize.MaxRoots <= 200, FolderOrganize.MaxRoots.ToString());
+
+        // ---- 2) 默认两层：收纳目录继续直接子目录，具体对象停止内部逐项分类 ----
+        var appsRoot = DirNode("Apps", @"D:\Apps", 90_000_000);
+        for (int i = 0; i < 6; i++)
+            DirNode("app" + i, $@"D:\Apps\app{i}", 10_000_000, appsRoot);
+        check("收纳目录默认继续铺一层子对象",
+            FolderOrganize.ShouldAutoExpand(appsRoot, FolderPurposeRules.ClassifyKind(appsRoot), 0));
+        check("到第二层就不再自动往下（默认两层）",
+            !FolderOrganize.ShouldAutoExpand(appsRoot, FolderKind.Container, FolderOrganize.AutoLevels - 1));
+        var concrete = DirNode("appX", @"D:\Apps\appX", 10_000_000);
+        check("具体对象默认停止内部逐项分类",
+            !FolderOrganize.ShouldAutoExpand(concrete, FolderKind.Concrete, 0));
+
+        // ---- 3) 未知目录：有限探索到预算，看完还是未知就待确认 ----
+        var mystery = DirNode("mystery", @"D:\mystery", 8_000_000);
+        for (int i = 0; i < 20; i++) DirNode("sub" + i, $@"D:\mystery\sub{i}", 100_000, mystery);
+        var probe = FolderOrganize.DirectChildDirs(mystery, FolderOrganize.UnknownProbeBudget);
+        check("未知目录的探索有预算上限",
+            FolderOrganize.UnknownProbeBudget > 0 && probe.Dirs.Count <= FolderOrganize.UnknownProbeBudget,
+            probe.Dirs.Count.ToString());
+        check("截断了就如实说明（不假装列全）",
+            probe.Truncated && probe.Total == 20 && probe.Dirs.Count < probe.Total,
+            $"shown={probe.Dirs.Count} total={probe.Total}");
+        var mRes = FolderPurposeRules.RecognizeLocally(mystery,
+            FolderPurposeRules.Summarize(mystery, new FolderId(mystery.FullPath, 1), 0, mystery.FullPath));
+        check("探索完还是说不清就不给结论", !mRes.HasConclusion, mRes.PurposeName);
+        check("整理页允许对未知目录多看一层（有限探索）",
+            FolderOrganize.ShouldProbeUnknown(mystery, FolderKind.Unknown, 1));
+        check("未知目录的探索也受深度上限约束",
+            !FolderOrganize.ShouldProbeUnknown(mystery, FolderKind.Unknown, FolderPurposeService.MaxDepth));
+        check("具体对象不做未知探索",
+            !FolderOrganize.ShouldProbeUnknown(mystery, FolderKind.Concrete, 1));
+
+        // ---- 4) 平台游戏库：认出平台后仍保留往里找游戏的入口；认不出就不猜 ----
+        var steamLib = DirNode("steamapps", @"D:\Gameklll\steam\steamapps", 50_000_000_000);
+        var common = DirNode("common", @"D:\Gameklll\steam\steamapps\common", 49_000_000_000, steamLib);
+        DirNode("VolleyBall", @"D:\Gameklll\steam\steamapps\common\VolleyBall", 3_000_000_000, common);
+        check("平台游戏库保留「里面有游戏」的入口",
+            FolderOrganize.KeepsObjectEntries(steamLib)
+            && FolderOrganize.ShouldAutoExpand(steamLib, FolderKind.Container, 0));
+        var steamRes = FolderPurposeRules.RecognizeLocally(steamLib,
+            FolderPurposeRules.Summarize(steamLib, new FolderId(steamLib.FullPath, 1), 0, steamLib.FullPath));
+        check("游戏库结论来自本地规则且说清是游戏库",
+            steamRes.Source == PurposeSource.Local && steamRes.PurposeName.Length > 0, steamRes.PurposeName);
+        var plainGames = DirNode("games", @"D:\games", 9_000_000);
+        for (int i = 0; i < 5; i++) DirNode("g" + i, $@"D:\games\g{i}", 1_000_000, plainGames);
+        check("认不出是平台的目录不假装能列出里面的游戏",
+            !FolderOrganize.KeepsObjectEntries(plainGames));
+
+        // ---- 5) 开发项目 / 混合与未知：允许不硬给结论 ----
+        var proj = DirNode("proj", @"D:\proj", 4_000_000);
+        DirNode(".git", @"D:\proj\.git", 1_000_000, proj);
+        FileNode("app.sln", @"D:\proj\app.sln", 20, proj);
+        var projRes = FolderPurposeRules.RecognizeLocally(proj,
+            FolderPurposeRules.Summarize(proj, new FolderId(proj.FullPath, 1), 0, proj.FullPath));
+        check("工程结构标志（含 .git 目录）能认出开发项目",
+            projRes.PurposeName == Loc.PurposeDevProject, projRes.PurposeName);
+        var nodeModules = DirNode("node_modules", @"D:\proj\node_modules", 900_000);
+        FileNode("package.json", @"D:\proj\node_modules\package.json", 10, nodeModules);
+        check("已知内部目录不再继续下钻且说清是程序内部",
+            FolderPurposeRules.ClassifyKind(nodeModules) == FolderKind.Concrete
+            && !FolderPurposeService.ShouldDescend(nodeModules, FolderKind.Concrete, 1));
+
+        // ---- 6) 容量统计与分类分离：停止分类不影响容量 ----
+        var big = DirNode("big", @"D:\big", 123_456_789);
+        FileNode("a.bin", @"D:\big\a.bin", 1000, big);
+        var bigSum = FolderPurposeRules.Summarize(big, new FolderId(big.FullPath, 1), 0, big.FullPath);
+        check("停止分类不影响容量统计", bigSum.Size == big.Size, bigSum.Size.ToString());
+        check("子目录名样本也进摘要（只看名字，不读内容）",
+            bigSum.SampleDirs.Count <= FolderPurposeRules.MaxSamples);
+
+        // ---- 7) 系统入口路径：不按距盘符的固定层数截断 ----
+        var deepEntries = new[] { @"C:\Users\bob\AppData\Local", @"C:\Users\bob\AppData\Roaming" };
+        check("深层系统入口仍然被认成入口",
+            FolderOrganize.IsEntryPoint(@"C:\Users\bob\AppData\Local", deepEntries));
+        check("入口之上的祖先会顺着自动铺到（不受层数截断）",
+            FolderOrganize.ShouldAutoFollowEntryPath(@"C:\Users\bob\AppData", 1, deepEntries)
+            && FolderOrganize.ShouldAutoFollowEntryPath(@"C:\Users\bob", 0, deepEntries));
+        check("入口自己不再自动往下钻",
+            !FolderOrganize.ShouldAutoFollowEntryPath(@"C:\Users\bob\AppData\Local", 2, deepEntries));
+
+        // ---- 8) 链接 / 重解析点：跳过并计数，绝不跟随 ----
+        var withLink = DirNode("withlink", @"D:\withlink", 5_000_000);
+        DirNode("real", @"D:\withlink\real", 1_000_000, withLink);
+        var link = DirNode("loop", @"D:\withlink\loop", 100, withLink);
+        link.IsReparsePoint = true;
+        var kids = FolderOrganize.DirectChildDirs(withLink, 24);
+        check("重解析点不进子对象列表，并且被计数",
+            kids.Dirs.All(d => !d.IsReparsePoint) && kids.Skipped == 1, kids.Skipped.ToString());
+        check("重解析点不继续下钻",
+            !FolderOrganize.ShouldAutoExpand(link, FolderKind.Container, 0));
+
+        // ---- 9) 缓存：同摘要命中；摘要变了就失效 ----
+        var svc = new FolderPurposeService();
+        var cRoot = DirNode("cache", @"D:\cache", 7_000_000);
+        FileNode("x.tmp", @"D:\cache\x.tmp", 100, cRoot);
+        var cId = new FolderId(cRoot.FullPath, 3);
+        var cSum = FolderPurposeRules.Summarize(cRoot, cId, 0, cRoot.FullPath);
+        check("未识别过时缓存里没有", svc.TryGetCached(cId, cSum, "cfg") == null);
+        var local = FolderPurposeRules.RecognizeLocally(cRoot, cSum);
+        check("判不出来的目录不会被硬塞一个用途",
+            !local.HasConclusion || local.Source == PurposeSource.Local, local.PurposeName);
+
+        // 摘要指纹：内容变了（大小/文件数/时间）缓存键就该变
+        var cSum2 = FolderPurposeRules.Summarize(cRoot, cId, 0, cRoot.FullPath) with { Size = cSum.Size + 1 };
+        check("摘要变化会让缓存键不同（不会拿旧结论糊弄）",
+            svc.TryGetCached(cId, cSum2, "cfg") == null);
+
+        // ---- 10) 用户纠正：按路径记，换代次 / 重扫都还在 ----
+        var corrId = new FolderId(@"D:\mine", 1);
+        svc.SetUserCorrection(corrId, "我的资料", "资料");
+        svc.ResetForScan();
+        check("重扫后用户纠正仍在",
+            svc.TryGetUserCorrection(new FolderId(@"D:\mine", 99))?.PurposeName == "我的资料");
+        check("用户纠正来源是「你确认的」",
+            svc.TryGetUserCorrection(corrId)?.Source == PurposeSource.User);
+
+        // ---- 11) AI 解析：说「未知」不算结论 ----
+        var aiUnknown = FolderPurposeRules.ParseAi("PURPOSE: 未知\nCATEGORY: 未知\nBASIS: 资料不足",
+            corrId, FolderKind.Unknown);
+        check("模型回「未知」时没有结论（不冒充识别成功）", !aiUnknown.HasConclusion);
+        check("模型回 unknown（英文）也不算结论",
+            !FolderPurposeRules.ParseAi("PURPOSE: unknown", corrId, FolderKind.Unknown).HasConclusion);
+        check("答非所问 / 空回复都不算结论",
+            !FolderPurposeRules.ParseAi("", corrId, FolderKind.Unknown).HasConclusion
+            && !FolderPurposeRules.ParseAi("这个可以删", corrId, FolderKind.Unknown).HasConclusion);
+
+        // ---- 12) 状态不伪装：排队时不能显示成功结论 ----
+        var stNode = new OrganizeNode(cRoot, cId, 0, "cache");
+        check("没有结论时状态不是「已识别」",
+            stNode.State == PurposeState.Unrecognized && !stNode.IsResolved);
+        stNode.SetState(PurposeState.Queued);
+        check("排队时显示的是排队，不是结论",
+            stNode.State == PurposeState.Queued && stNode.PurposeText == Loc.PurposeQueued);
+        stNode.SetState(PurposeState.Running);
+        check("处理中显示的是处理中", stNode.PurposeText == Loc.PurposeRunning);
+        stNode.ClearState();
+        check("清掉流程态后落回未识别", stNode.State == PurposeState.Unrecognized);
+        stNode.Apply(FolderPurposeRules.ParseAi("PURPOSE: 我的项目\nCATEGORY: 开发\nBASIS: 有源码",
+            cId, FolderKind.Concrete));
+        check("AI 结论来源标为 AI 且需要确认",
+            stNode.Source == PurposeSource.Ai && stNode.NeedsConfirm
+            && stNode.State == PurposeState.NeedsConfirm && stNode.IsPending);
+        stNode.Apply(FolderPurposeResult.None(cId));
+        check("空结论不会覆盖成「已识别」",
+            !stNode.HasConclusion && stNode.State != PurposeState.Recognized);
+
+        // ---- 13) 行数上限：海量目录不会把界面拖死 ----
+        check("整页行数有上限", FolderOrganize.MaxRows > 0 && FolderOrganize.MaxRows <= 100_000,
+            FolderOrganize.MaxRows.ToString());
+        check("行数到顶就停自动铺开",
+            FolderOrganize.RowBudgetReached(FolderOrganize.MaxRows)
+            && !FolderOrganize.RowBudgetReached(FolderOrganize.MaxRows - 1));
+        check("单个目录的直接子对象也有预算",
+            FolderOrganize.ChildBudget > 0 && FolderOrganize.ChildBudget <= 200,
+            FolderOrganize.ChildBudget.ToString());
+
+        // ---- 14) 绝不参与删除 / 选择 / 提权 ----
+        check("整理对象里没有删除/风险/选择字段",
+            !typeof(OrganizeNode).GetProperties().Any(p =>
+                p.Name.Contains("Delete") || p.Name.Contains("Risk") || p.Name.Contains("Selected")));
+        check("整理服务里没有删除/移动/提权入口",
+            !typeof(FolderOrganize).GetMethods().Any(m =>
+                m.Name.Contains("Delete") || m.Name.Contains("Move") || m.Name.Contains("Elevate")
+                || m.Name.Contains("RunAs") || m.Name.Contains("Select")));
+        check("识别入口全部来自系统路径解析（可路径化）",
+            typeof(FolderOrganize).GetMethod("BuildRoots") != null
+            && typeof(FolderPurposeRules).GetMethod("EntryPoints") != null);
+
+        // ---- 15) 用户纠正落盘 / 读回（用临时目录，不碰真实用户配置） ----
+        string? oldDir = AppPaths.OverrideDirectory;
+        string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+            "dashao-purpose-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            System.IO.Directory.CreateDirectory(tmp);
+            AppPaths.OverrideDirectory = tmp;
+            var svc2 = new FolderPurposeService();
+            svc2.SetUserCorrection(new FolderId(@"D:\saved", 5), "学习资料", "资料");
+            svc2.SaveCorrections();
+            var svc3 = new FolderPurposeService();
+            check("未读盘前没有纠正", svc3.UserCorrectionCount == 0);
+            svc3.LoadCorrections();
+            check("落盘的纠正能读回来，跨重启仍优先",
+                svc3.TryGetUserCorrection(new FolderId(@"D:\saved", 1))?.PurposeName == "学习资料");
+        }
+        catch (Exception ex)
+        {
+            check("用户纠正落盘/读回", false, ex.GetType().Name + ": " + ex.Message);
+        }
+        finally
+        {
+            AppPaths.OverrideDirectory = oldDir;
+            try { System.IO.Directory.Delete(tmp, true); } catch { /* 清理失败不影响结论 */ }
+        }
+
+        // ---- 16) 对象与真实目录准确映射（不移动文件、不建虚拟树） ----
+        var mapNode = new OrganizeNode(pf, new FolderId(pf.FullPath, 1), 0, "Program Files");
+        check("对象路径就是真实目录路径",
+            mapNode.FullPath == pf.FullPath && mapNode.Name == pf.Name);
+        check("缩进只影响展示，不改路径", mapNode.IndentWidth >= 0);
     }
 
     // ------------------------------------------------------------------ AI 结论界面

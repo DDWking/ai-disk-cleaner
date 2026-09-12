@@ -33,4 +33,7 @@ public static class AppPaths
 
     /// <summary>DPAPI 加密后的密钥仓库。</summary>
     public static string SecretsFile => Path.Combine(ConfigDirectory, "secrets.dat");
+
+    /// <summary>用户对文件夹用途的手动纠正（明文，不含任何机密：只有路径与用途名）。</summary>
+    public static string FolderPurposeFile => Path.Combine(ConfigDirectory, "folder-purpose.json");
 }

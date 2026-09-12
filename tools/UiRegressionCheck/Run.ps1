@@ -29,6 +29,9 @@ $nodes = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\Cle
 $itv = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\ItemAiView.cs') -Raw -Encoding UTF8
 $iasvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\ItemAiService.cs') -Raw -Encoding UTF8
 $iap = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\ItemAiPrompt.cs') -Raw -Encoding UTF8
+$forg = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderOrganize.cs') -Raw -Encoding UTF8
+$csvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderPurposeService.cs') -Raw -Encoding UTF8
+$orgnode = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\OrganizeNode.cs') -Raw -Encoding UTF8
 
 $fail = 0
 function Assert-True([string]$name, [bool]$ok) {
@@ -91,19 +94,93 @@ Assert-True 'range chip warns about selected items outside the range' `
 Assert-True 'setting the range never clears or widens the selection' `
     ($cs -match '(?s)private void ApplyCleanScope\(\)[\s\S]{0,700}RebuildLayersAsync')
 
-# --- 2. cleanable panel is the default tab -----------------------------------
-Assert-True 'window opens on the clean tab' ($cs -match 'ShowRightTab\(RightTab\.Clean\);')
-Assert-True 'main navigation has exactly two pages (clean, uninstall)' `
-    ($xaml -match '(?s)x:Name="TabCleanBtn".*?x:Name="TabUninstallBtn"' -and
-     -not ([regex]::Match($xaml, 'x:Name="TabExtBtn"').Success))
+# --- 2. folder tidy-up is the default workspace ------------------------------
+# The user could not see the purpose feature when it only lived in the hidden
+# sidebar tree. Folder tidy-up is now a real main-area workspace and the
+# default tab; clean center and uninstall are untouched.
+$org = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\MainWindow.Organize.cs') -Raw -Encoding UTF8
+$orgPane = [regex]::Match($xaml, '(?s)x:Name="OrganizePane"(.*?)x:Name="CleanPane"').Groups[1].Value
+Assert-True 'window opens on the folder tidy-up tab' `
+    ($cs -match 'RightTab _rightTab = RightTab\.Organize;' -and
+     $cs -match 'ShowRightTab\(RightTab\.Organize\);')
+Assert-True 'top navigation is tidy-up | clean | uninstall, in that order' `
+    ($xaml -match '(?s)x:Name="TabOrganizeBtn".*?x:Name="TabCleanBtn".*?x:Name="TabUninstallBtn"')
 Assert-True 'tab switching uses an enum, not fragile numeric indexes' `
-    ($cs -match 'private enum RightTab \{ Clean, Uninstall \}' -and
+    ($cs -match 'private enum RightTab \{ Organize, Clean, Uninstall \}' -and
      $cs -match 'ShowRightTab\(RightTab\.Uninstall\)' -and
      -not ([regex]::Match($cs, 'ShowRightTab\([0-9]\)').Success))
 Assert-True 'clean pane still comes before uninstall pane' `
     ($xaml -match '(?s)x:Name="CleanPane".*?x:Name="UninstallPane"')
+Assert-True 'tidy-up pane is the real workspace, not a collapsed placeholder' `
+    ($xaml -match '(?s)<DockPanel\s+x:Name="OrganizePane"[^>]*Visibility="Collapsed"' -and
+     $xaml -match 'x:Name="OrganizeGrid"' -and
+     $cs -match 'OrganizePane\.Visibility = tab == RightTab\.Organize')
 Assert-True 'clean pane is visible by default (no Collapsed on CleanPane itself)' `
     ($xaml -notmatch '<DockPanel\s+x:Name="CleanPane"[^>]*Visibility="Collapsed"')
+
+# --- 2b. tidy-up workspace requirements --------------------------------------
+Assert-True 'tidy-up columns are name / what-it-is / size / actions' `
+    ($xaml -match '(?s)x:Name="ColOrgName".*?x:Name="ColOrgPurpose".*?x:Name="ColOrgSize".*?x:Name="ColOrgAction"')
+Assert-True 'real path sits on a second line in the row' `
+    ($xaml -match '(?s)x:Name="ColOrgName".*?Binding RelativePath')
+Assert-True 'tidy-up does not copy the clean candidate space or clean buttons' `
+    ($orgPane.Length -gt 0 -and $orgPane -notmatch 'CheckAndCleanBtn' -and
+     $orgPane -notmatch 'CleanSelectionSummary' -and $orgPane -notmatch 'CleanActionBar' -and
+     $org -notmatch 'CheckAndCleanBtn' -and $org -notmatch 'CleanSelectionSummary')
+Assert-True 'one free-form batch entry with scope, budget, progress and cancel' `
+    ($xaml -match 'x:Name="OrganizeIdentifyAllBtn"' -and
+     $xaml -match 'x:Name="OrganizeScopeText"' -and
+     $xaml -match 'x:Name="OrganizeProgressBar"' -and $xaml -match 'x:Name="OrganizeStopBtn"')
+Assert-True 'batch scope and budget are stated before sending anything' `
+    ($org -match 'Loc\.OrganizeIdentifyScope\(' -and $org -match 'Loc\.OrganizeBudget\(')
+Assert-True 'unscanned / scanning / empty / no-model / failed states all exist' `
+    ($org -match 'OrganizeStateKind\.NoScan' -and
+     $org -match 'OrganizeStateKind\.Scanning' -and
+     $org -match 'OrganizeStateKind\.Empty' -and
+     $org -match 'OrganizeStateKind\.NoModel' -and $org -match 'OrganizeStateKind\.Failed')
+Assert-True 'single-item identify and retry go through the same path' `
+    ($org -match 'OrganizeIdentifyOne_Click' -and $org -match 'RunOrganizeIdentifyAsync\(new List<OrganizeNode> \{ node \}\)')
+Assert-True 'tidy-up never touches risk / deletability / selection' `
+    ($org -notmatch '\.(Risk|CanDelete|Selected)\s*=' -and
+     $org -notmatch 'SendToRecycle|DeletionExecutor|RecycleService')
+Assert-True 'tidy-up never moves or renames real files' `
+    ($org -notmatch 'File\.Move|Directory\.Move|\.MoveTo\(|File\.Copy|Directory\.CreateDirectory')
+Assert-True 'tidy-up never asks for elevation on its own' `
+    ($org -notmatch 'runas|Verb\s*=|ProcessStartInfo.*Verb' -and
+     $org -notmatch 'WindowsPrincipal|IsInRole')
+Assert-True 'opening a folder goes through ShellReveal (never executes a program)' `
+    ($org -match 'ShellReveal\.Reveal\(' -and $org -notmatch 'Process\.Start')
+Assert-True 'queued / running states cannot show a success conclusion' `
+    ($orgnode -match 'public PurposeState State => _override' -and
+     $orgnode -match 'if \(State is PurposeState\.Queued\) return Loc\.PurposeQueued;' -and
+     $orgnode -match 'if \(State is PurposeState\.Running\) return Loc\.PurposeRunning;')
+Assert-True 'stale generations can never overwrite a new scan' `
+    ($org -match 'myGen != _organizeGeneration \|\| myData != _aiDataGeneration')
+Assert-True 'local rules run before anything is sent to a model' `
+    ($org -match '(?s)LocalRecognize\(t\);[\s\S]{0,200}ProbeUnknownLocally\(t\);' -and
+     $org -match 'if \(!allowAi\)')
+Assert-True 'AiConfigured gates the model path (no model => no requests)' `
+    ($org -match 'bool allowAi = AiConfigured\(\);' -and $org -match 'RecognizeWithAsync\(t\.Dir, allowAi: true, ct\)')
+Assert-True 'user corrections are persisted and win over later results' `
+    ($org -match '_folderPurpose\.SaveCorrections\(\)' -and
+     $org -match 'TryGetUserCorrection\(t\.Id\)' -and
+     $csvc -match 'UserKey\(id\.Path\)' -and $csvc -match 'public void LoadCorrections\(\)')
+Assert-True 'two levels by default, containers keep going, concrete objects stop' `
+    ($forg -match 'depth == 0 && kind is FolderKind\.Container or FolderKind\.Mixed' -and
+     $forg -match 'AutoLevels = 2')
+Assert-True 'deep system entry points are not cut off by a fixed depth from the drive' `
+    ($forg -match 'ShouldAutoFollowEntryPath' -and $forg -match 'MaxEntryDepth')
+Assert-True 'recognised platforms keep their inner game entries' `
+    ($forg -match 'KeepsObjectEntries' -and $forg -match 'IsObjectContainer')
+Assert-True 'exploration, requests and rows all have hard budgets' `
+    ($forg -match 'ChildBudget = 24' -and $forg -match 'UnknownProbeBudget' -and
+     $forg -match 'MaxRows = 4000' -and $csvc -match 'MaxAiRequests')
+Assert-True 'reparse points / links are skipped, not followed' `
+    ($forg -match 'c\.IsReparsePoint \|\| c\.IsFilesGroup' -and $forg -match 'skipped\+\+')
+Assert-True 'the list is virtualised and has no nested scroller' `
+    ($xaml -match '(?s)x:Name="OrganizeGrid"[^>]*VirtualizingPanel\.IsVirtualizing="True"' -and
+     $xaml -match '(?s)x:Name="OrganizeGrid"[^>]*EnableRowVirtualization="True"' -and
+     $xaml -notmatch '(?s)<ScrollViewer[^>]*>\s*<DataGrid\s+x:Name="OrganizeGrid"')
 
 # --- 3. the right column layout fix must not be reverted ---------------------
 Assert-True 'right panel still uses a Grid for the three panes' `
@@ -431,7 +508,7 @@ if (Test-Path $publish) {
     $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
     Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
     $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
-    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.3.0*')
+    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.6.0*')
 }
 else {
     Assert-True 'publish package exists' $false
