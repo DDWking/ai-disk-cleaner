@@ -719,10 +719,13 @@ public static class Loc
     // ===== 风险三档 =====
 
     public static string NoteCache => IsEn ? "cache data" : "缓存数据";
-    /// <summary>候选组的默认后果写进标题，行里就不用每行重复「删了没事」了。</summary>
+    /// <summary>
+    /// 候选组的标题。**不写「删了会自动重建」** —— 组里只要混进一个不会重建的东西，
+    /// 这就是在替用户打包票。后果由每条用途自己的「影响」一句话说明，标题只报数量和空间。
+    /// </summary>
     public static string CleanGroupSafe(int n, string size) => IsEn
-        ? $"Cleanup candidates · rebuilds itself ({n:N0} · {size})"
-        : $"清理候选 · 删了会自动重建（{n:N0} 项 · {size}）";
+        ? $"Cleanup candidates ({n:N0} · {size})"
+        : $"清理候选（{n:N0} 项 · {size}）";
     public static string CleanGroupConfirm(int n, string size) => IsEn
         ? $"Needs your review ({n:N0} · {size})"
         : $"需要你确认（{n:N0} 项 · {size}）";
@@ -1497,7 +1500,7 @@ public static class Loc
     /// <summary>风险分区标题。**叫「清理候选」而不是「建议清理」** —— 改个名字不等于规则没问题，
     /// 但至少不要再让界面替用户下「可以删」的结论。</summary>
     public static string LayerSafe => IsEn ? "Cleanup candidates" : "清理候选";
-    public static string LayerConfirm => IsEn ? "review first" : "需要你确认";
+    public static string LayerConfirm => IsEn ? "Needs your review" : "需要你确认";
     public static string PurposeHeader => IsEn
         ? "Pick a purpose to see where it lives. Files are listed only when you ask."
         : "先选用途，再选具体位置。要看具体文件时再点「查看文件」。";
@@ -1538,14 +1541,16 @@ public static class Loc
         : $"（已选 {selected:N0} 项，分布在 {locations:N0} 个位置）";
 
     // ---- 风险分区的副标题（说清这一组是什么性质，不只靠颜色） ----
-    /// <summary>候选组：**不下「可以优先处理」的结论**，只说明它是规则命中的候选，
-    /// 且默认没有勾选。用户仍然要自己决定。</summary>
+    /// <summary>候选组：**不下「可以优先处理」的结论**，也不把「命中规则」说成「垃圾」，
+    /// 只说明它是规则命中的候选、默认没有勾选。用户仍然要自己决定。</summary>
     public static string SectionSubtitleSafe => IsEn
-        ? "Matched by rules · nothing is ticked for you — pick what you want"
-        : "规则命中的候选 · 默认没有勾选，需要你自己选";
+        ? "Matched by rules — matched does not mean useless. Nothing is ticked; you pick."
+        : "规则命中的候选，不代表没用 · 默认没有勾选，需要你自己选";
+    /// <summary>确认组：说清这里常出现的就是大文件 / 旧文件 / 下载内容这类「还有用」的东西，
+    /// 并再次写明默认没有勾选。</summary>
     public static string SectionSubtitleConfirm => IsEn
-        ? "These may still be valuable — open them and decide"
-        : "这些内容可能仍有价值，请查看后决定";
+        ? "Large, old or downloaded items may still be useful. Nothing is ticked — look, then decide."
+        : "大文件、旧文件、下载内容等可能还有用 · 默认没有勾选，请查看后决定";
     /// <summary>分区图标：用文字符号也能读出状态，不依赖颜色。</summary>
     public static string SectionIconSafe => "✓";
     public static string SectionIconConfirm => "!";

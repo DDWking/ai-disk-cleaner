@@ -336,6 +336,14 @@ public sealed class CleanPurposeSection : INotifyPropertyChanged
     /// </summary>
     public string HeaderStats => Loc.SectionStats(RowCount, LocationCount, SizeText);
 
+    /// <summary>
+    /// 分区标题的可访问名称 / 悬停补充：标题 + 右侧统计一起读出来。
+    /// 折叠状态下统计是唯一说明「里面有多少」的信息，不能只让看得见的用户拿到。
+    /// </summary>
+    public string HeaderAccessibleName => HeaderStats.Length > 0
+        ? HeaderTitle + " · " + HeaderStats
+        : HeaderTitle;
+
     /// <summary>这一组里已选中的项数（用于折叠时的提示）。</summary>
     public int SelectedCount => Rows.Sum(r => r.SelectedCount);
 

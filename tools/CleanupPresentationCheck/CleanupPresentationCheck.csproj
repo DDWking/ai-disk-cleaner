@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 清理页呈现回归检查：真的加载编译后的 BAML（和 StartupUri 同一条路），
+       用真实的分区数据模板渲染两级分区，量标题/统计在窄窗口下的宽度，
+       并渲染一张独立测试窗口截图。字符串断言抓不到 BAML 与布局问题，所以单独做。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.18362.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>CleanupPresentationCheck</AssemblyName>
+    <RootNamespace>CleanupPresentationCheck</RootNamespace>
+    <StartupObject>CleanupPresentationCheck.Program</StartupObject>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AiDiskCleaner\AiDiskCleaner.csproj" />
+  </ItemGroup>
+
+</Project>
