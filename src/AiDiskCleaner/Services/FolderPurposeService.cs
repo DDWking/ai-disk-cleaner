@@ -190,9 +190,13 @@ public sealed class FolderPurposeService
                 await Task.Delay(gap, ct).ConfigureAwait(false);
 
             // 送出去之前的最后一道闸：只带脱敏后的白名单片段，绝不带完整文件清单。
+            // 自检不过就**如实标失败**（不是「没结论」）—— 不能悄悄跳过、也不能算成功。
             string input = BuildOutboundInput(dir, sum, sendFullPath);
             if (input.Length == 0)
-                return FolderPurposeResult.None(id, local.Kind) with { NeedsConfirm = true };
+            {
+                AppLog.Info("Purpose", $"op=folder-purpose blocked-by-safety name={sum.Name}");
+                return FolderPurposeResult.Failure(id, local.Kind);
+            }
 
             lock (_lock) _aiUsed++;
             _lastRequestAt = DateTime.UtcNow;

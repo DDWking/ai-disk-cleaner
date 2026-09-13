@@ -166,6 +166,75 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// <summary>入口的短标签（入口本身只是导航/容器，不是清理结论）。</summary>
     public string SystemEntryTag => IsSystemEntry ? Loc.OrganizeEntryPointTag : "";
 
+    /// <summary>顶层对象（首屏只显示这些）。</summary>
+    public bool IsRoot => Depth == 0;
+
+    // ---------------- 真实摘要证据（行内详情只显示这些，不编造） ----------------
+
+    private int _directFolderCount;
+    private IReadOnlyList<string> _sampleNames = Array.Empty<string>();
+
+    /// <summary>
+    /// 写入这次判定用到的**真实摘要证据**（直接子目录数、文件数、代表文件名）。
+    /// 只用于把「为什么这么判断」说清楚，不参与任何清理字段。
+    /// </summary>
+    public void SetEvidence(FolderSummary sum)
+    {
+        _directFolderCount = sum.DirectFolderCount;
+        // 代表文件名最多留 3 个，行内详情不该变成一份清单
+        _sampleNames = sum.SampleNames.Count > 3 ? sum.SampleNames.Take(3).ToList() : sum.SampleNames;
+        Raise(nameof(DetailText));
+    }
+
+    // ---------------- 行内详情（点击用途展开；只用真实摘要证据） ----------------
+
+    private bool _detailOpen;
+
+    /// <summary>这一行的说明是否展开。</summary>
+    public bool IsDetailOpen => _detailOpen;
+
+    /// <summary>展开 / 收起说明（只改展示，不动结论、不动任何清理字段）。</summary>
+    public void SetDetailOpen(bool open)
+    {
+        if (_detailOpen == open) return;
+        _detailOpen = open;
+        Raise(nameof(IsDetailOpen));
+        Raise(nameof(DetailTip));
+    }
+
+    public void ToggleDetail() => SetDetailOpen(!_detailOpen);
+
+    public string DetailTip => _detailOpen ? Loc.OrganizeDetailHide : Loc.OrganizeDetailTip;
+
+    /// <summary>
+    /// 行内详情：「这是什么 / 为什么这么判断 / 判断来源」。
+    /// **只用真实摘要证据**（直接子目录数、文件数、类型分布、代表文件名、判定依据），
+    /// 证据不足就说未知 —— 不编造产品名，也不写「命中签名」这类开发术语。
+    /// </summary>
+    public string DetailText
+    {
+        get
+        {
+            if (!HasConclusion)
+                return Loc.OrganizeDetailWhat + Loc.PurposeUnrecognized
+                    + "\n" + Loc.OrganizeDetailWhy + Loc.OrganizeDetailNoEvidence;
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append(Loc.OrganizeDetailWhat).Append(PurposeText);
+            sb.Append('\n').Append(Loc.OrganizeDetailWhy);
+            var bits = new List<string>();
+            if (_directFolderCount > 0 || FileCount > 0)
+                bits.Add(Loc.OrganizeDetailKind(_directFolderCount, FileCount, ""));
+            if (_sampleNames.Count > 0)
+                bits.Add(Loc.OrganizeDetailSamples(string.Join(", ", _sampleNames)));
+            if (_basis.Length > 0) bits.Add(_basis);
+            sb.Append(bits.Count > 0 ? string.Join(" · ", bits) : Loc.OrganizeDetailNoEvidence);
+            string src = SourceText;
+            if (src.Length > 0) sb.Append('\n').Append(Loc.OrganizeDetailSource(src));
+            return sb.ToString();
+        }
+    }
+
     /// <summary>平台游戏库这类「里面还有独立对象」的容器 —— 保留往里找游戏的入口。</summary>
     public bool IsPlatformContainer { get; init; }
 
@@ -240,12 +309,19 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         Raise(nameof(HasToggleText));
     }
 
-    /// <summary>写入一次展开的结果。</summary>
+    /// <summary>写入一次展开的结果。**默认不展开**：首屏只显示根的一级。</summary>
     public void SetChildren(IReadOnlyList<OrganizeNode> children, bool truncated, int total)
-        => SetChildren(children, truncated, total, Math.Max(0, total - children.Count));
+        => SetChildren(children, truncated, total, Math.Max(0, total - children.Count), autoExpand: false);
 
-    /// <summary>写入一次展开的结果，并如实带上「没列出来、也没有结论」的数量。</summary>
-    public void SetChildren(IReadOnlyList<OrganizeNode> children, bool truncated, int total, int unlisted)
+    /// <summary>
+    /// 写入一次材料化的结果，并如实带上「没列出来、也没有结论」的数量。
+    ///
+    /// <paramref name="autoExpand"/> 默认 **false**：后台可以把子对象材料化好，
+    /// 但**首屏可见树只展示根的一级**，展开与否完全由用户决定。
+    /// </summary>
+    public void SetChildren(
+        IReadOnlyList<OrganizeNode> children, bool truncated, int total, int unlisted,
+        bool autoExpand = false)
     {
         _children.Clear();
         _children.AddRange(children);
@@ -253,7 +329,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         _childSetTruncated = truncated;
         _childTotal = total;
         UnlistedChildCount = Math.Max(0, unlisted);
-        IsExpanded = true;
+        if (autoExpand) IsExpanded = true;
         Raise(nameof(Children));
         Raise(nameof(ChildBudgetNote));
         Raise(nameof(HasChildBudgetNote));
@@ -337,6 +413,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         Raise(nameof(PurposeDetail));
         Raise(nameof(IsResolved));
         Raise(nameof(IsPending));
+        Raise(nameof(DetailText));
         Raise(nameof(Kind));
     }
 

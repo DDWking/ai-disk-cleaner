@@ -8,9 +8,9 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>AiDiskCleaner</RootNamespace>
     <AssemblyName>AiDiskCleaner</AssemblyName>
-    <Version>2.7.0</Version>
-    <FileVersion>2.7.0.0</FileVersion>
-    <InformationalVersion>2.7.0</InformationalVersion>
+    <Version>2.8.0</Version>
+    <FileVersion>2.8.0.0</FileVersion>
+    <InformationalVersion>2.8.0</InformationalVersion>
     <Product>大扫货</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>

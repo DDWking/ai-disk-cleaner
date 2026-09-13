@@ -869,9 +869,9 @@ public static class Loc
     public static string PurposeDevProject => IsEn ? "dev project" : "开发项目";
     public static string PurposeSystemArea => IsEn ? "system location" : "系统位置";
     public static string PurposeBasisSignature(string what) => IsEn
-        ? $"matched local signature: {what}" : $"命中本地签名：{what}";
+        ? $"recognised locally as: {what}" : $"本地认出这是：{what}";
     public static string PurposeBasisPath(string what) => IsEn
-        ? $"folder name matches {what}" : $"目录名匹配 {what}";
+        ? $"the folder name is {what}" : $"目录名就是 {what}";
     public static string PurposeBasisPlatform => IsEn
         ? "this is a platform game folder — games inside are listed separately"
         : "这是平台的游戏目录，里面的游戏会单独列出";
@@ -1110,6 +1110,100 @@ public static class Loc
     public static string PurposeKnownInternal => IsEn ? "inside an app/project" : "程序内部目录";
     public static string PurposeBasisKnownLeaf(string name) => IsEn
         ? $"known internal folder name: {name}" : $"已知的内部目录名：{name}";
+
+    // ---- 系统语义（由 Environment.SpecialFolder 解析，不硬编码盘符/用户名） ----
+
+    public static string PurposeUserFiles => IsEn ? "user files" : "用户文件";
+    public static string SysWindows => IsEn ? "Windows operating system files" : "Windows 操作系统文件";
+    public static string SysProgramFiles => IsEn ? "program installation folder" : "程序安装目录";
+    public static string SysProgramFilesX86 => IsEn ? "32-bit program installation folder" : "32 位程序安装目录";
+    public static string SysProgramData => IsEn ? "shared program data" : "共享程序数据";
+    public static string SysUserProfile => IsEn ? "user files and app data" : "用户文件和应用数据";
+    public static string SysUsersContainer => IsEn ? "user folders" : "用户目录";
+    public static string SysAppData => IsEn ? "user app data" : "用户应用数据";
+    public static string SysLocalAppData => IsEn ? "local app data" : "本地应用数据";
+    public static string SysRoamingAppData => IsEn ? "roaming app data" : "漫游应用数据";
+    public static string SysDocuments => IsEn ? "documents" : "文档";
+    public static string SysDownloads => IsEn ? "downloaded files" : "下载文件";
+
+    public static string SysBasisWindows => IsEn
+        ? "this is the system folder resolved by Windows itself" : "这是系统自己解析出来的 Windows 目录";
+    public static string SysBasisProgramFiles => IsEn
+        ? "this is the program installation folder resolved by Windows itself"
+        : "这是系统自己解析出来的程序安装目录";
+    public static string SysBasisProgramData => IsEn
+        ? "this is the shared program data folder resolved by Windows itself"
+        : "这是系统自己解析出来的共享程序数据目录";
+    public static string SysBasisUserProfile => IsEn
+        ? "this is your user folder resolved by Windows itself"
+        : "这是系统自己解析出来的用户目录";
+    public static string SysBasisUsersContainer => IsEn
+        ? "this is the folder where Windows keeps every user's home folder"
+        : "这是系统存放各用户主目录的位置";
+    public static string SysBasisAppData => IsEn
+        ? "this is the per-user app data folder (parent of Local and Roaming)"
+        : "这是用户应用数据目录（Local 与 Roaming 的上一级）";
+    public static string SysBasisLocalAppData => IsEn
+        ? "this is the per-user local app data folder resolved by Windows itself"
+        : "这是系统自己解析出来的本地应用数据目录";
+    public static string SysBasisRoamingAppData => IsEn
+        ? "this is the per-user roaming app data folder resolved by Windows itself"
+        : "这是系统自己解析出来的漫游应用数据目录";
+    public static string SysBasisDocuments => IsEn
+        ? "this is the documents folder resolved by Windows itself"
+        : "这是系统自己解析出来的文档目录";
+    public static string SysBasisDownloads => IsEn
+        ? "this is your download folder (user folder + Downloads)" : "这是用户目录下的下载文件夹";
+
+    // ---- 行内详情（点击用途展开；只用真实摘要证据，不编造） ----
+
+    public static string OrganizeDetailWhat => IsEn ? "What it is: " : "这是什么：";
+    public static string OrganizeDetailWhy => IsEn ? "Why: " : "为什么这么判断：";
+    public static string OrganizeDetailKind(int directFolders, int files, string types) => IsEn
+        ? $"{directFolders:N0} sub-folders · {files:N0} files"
+          + (types.Length > 0 ? $" · types: {types}" : "")
+        : $"{directFolders:N0} 个子文件夹 · {files:N0} 个文件"
+          + (types.Length > 0 ? $" · 类型：{types}" : "");
+    public static string OrganizeDetailSamples(string names) => IsEn
+        ? $"largest files: {names}" : $"最大的文件：{names}";
+    public static string OrganizeDetailSource(string source) => IsEn
+        ? $"Judged by: {source}" : $"判断来源：{source}";
+    public static string OrganizeDetailNoEvidence => IsEn
+        ? "not enough evidence — this folder stays unknown" : "证据不足，这个文件夹保持未知";
+    public static string OrganizeDetailTip => IsEn
+        ? "Click to see what this is and why" : "点一下看它是什么、为什么这么判断";
+    public static string OrganizeDetailHide => IsEn
+        ? "Click to hide the explanation" : "点一下收起说明";
+
+    // ---- 进度 / 终态（顶栏短句 + 详情分开，不把请求数和文件夹数混在一行） ----
+
+    public static string OrganizeRunRunning => IsEn ? "identifying…" : "识别中…";
+    public static string OrganizeRunDone => IsEn ? "identification finished" : "识别完成";
+    public static string OrganizeRunIncomplete => IsEn ? "identification not finished" : "识别未完成";
+    public static string OrganizeRunCanceled => IsEn ? "identification stopped" : "识别已取消";
+
+    /// <summary>一句话结论计数：已识别 / AI 推测 / 未知 / 失败。</summary>
+    public static string OrganizeRunCounts(int named, int ai, int unknown, int failed) => IsEn
+        ? $"named {named:N0} (AI guess {ai:N0}) · unknown {unknown:N0} · failed {failed:N0}"
+        : $"已识别 {named:N0}（其中 AI 推测 {ai:N0}）· 未知 {unknown:N0} · 失败 {failed:N0}";
+    /// <summary>识别覆盖：真正有结论的 / 计划识别的。</summary>
+    public static string OrganizeRunCovered(int covered, int planned) => IsEn
+        ? $"{covered:N0}/{planned:N0} folders have a result" : $"{covered:N0}/{planned:N0} 个文件夹有结论";
+    /// <summary>请求预算单独一行（放 Tooltip / 详情，不和文件夹数混在一行）。</summary>
+    public static string OrganizeRunRequests(int used, int budget) => IsEn
+        ? $"AI requests {used:N0}/{budget:N0}" : $"AI 请求 {used:N0}/{budget:N0}";
+    public static string OrganizeRunNotCovered(int notCovered) => IsEn
+        ? $"{notCovered:N0} folders were not reached (not identified)"
+        : $"还有 {notCovered:N0} 个文件夹没有跑到（不算已识别）";
+
+    /// <summary>深层工作条：明确「只识别本层的直接子目录」，不是分析这个目录本身。</summary>
+    public static string OrganizeIdentifyThisLevel => IsEn ? "Identify folders on this level" : "识别本层文件夹";
+    public static string OrganizeThisLevelOnly => IsEn
+        ? "only the direct sub-folders of this folder are identified — not the folder itself, and it does not go deeper"
+        : "只识别这个文件夹的直接子文件夹（不分析这个文件夹本身，也不会继续深入更深目录）";
+    public static string OrganizeWorkBarScope(int children, int budget) => IsEn
+        ? $"direct sub-folders: {children:N0} · at most {budget:N0} AI requests this time"
+        : $"直接子文件夹 {children:N0} 个 · 本次最多发 {budget:N0} 次请求";
 
     public static string AiResultExpired => IsEn
         ? "The scan changed — run the analysis again"
