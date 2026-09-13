@@ -1442,6 +1442,37 @@ public static class LayeredCleanTests
             noEv.DetailText);
         dNode.ToggleDetail();
         check("再点一下收起详情", !dNode.IsDetailOpen);
+
+        // ---- 用户点过单项 AI 且给出了用途：不再显示「未识别」（不写缓存、不改清理字段） ----
+        var aiNode = new OrganizeNode(unknownDir, uId, 3, "mystery");
+        check("没点过 AI 时仍是未识别",
+            aiNode.PurposeText == Loc.PurposeUnrecognized && !aiNode.HasConclusion && aiNode.IsPending);
+        aiNode.Ai.Result = new ItemAiResult(ItemAiSuggestion.SuggestKeep,
+            "Windows 系统还原点与系统保护数据", "删除会影响系统还原",
+            "路径位于 System Volume Information", "", "raw", false, 0, 0, 0, "", 1);
+        aiNode.Ai.Status = ItemAiStatus.Done;
+        check("点过 AI 后用途列不再写未识别",
+            aiNode.PurposeText == "Windows 系统还原点与系统保护数据"
+            && !aiNode.PurposeText.Contains(Loc.PurposeUnrecognized, StringComparison.Ordinal),
+            aiNode.PurposeText);
+        check("点过 AI 后算有结论，离开未识别筛选",
+            aiNode.HasConclusion && !aiNode.IsPending && aiNode.Source == PurposeSource.Ai);
+        check("单项 AI 不写入本地用途名（不是 Apply / 不是用户纠正）",
+            aiNode.PurposeName.Length == 0, aiNode.PurposeName);
+        aiNode.Ai.Result = new ItemAiResult(ItemAiSuggestion.Unknown, "", "", "", "", "raw",
+            false, 0, 0, 0, "", 1);
+        aiNode.Ai.Status = ItemAiStatus.Done;
+        check("AI 没给出用途时仍是未识别",
+            aiNode.PurposeText == Loc.PurposeUnrecognized && !aiNode.HasConclusion && aiNode.IsPending);
+        var userNode = new OrganizeNode(unknownDir, uId, 3, "mystery");
+        userNode.Apply(new FolderPurposeResult(uId, "你确认的用途", "资料", Loc.PurposeBasisUser,
+            PurposeSource.User, false, FolderKind.Concrete));
+        userNode.Ai.Result = new ItemAiResult(ItemAiSuggestion.CanConsider, "模型想改的名字",
+            "x", "y", "", "raw", false, 0, 0, 0, "", 1);
+        userNode.Ai.Status = ItemAiStatus.Done;
+        check("用户纠正不被单项 AI 覆盖",
+            userNode.PurposeText == "你确认的用途" && userNode.Source == PurposeSource.User,
+            userNode.PurposeText);
     }
 
     /// <summary>
@@ -1660,6 +1691,17 @@ public static class LayeredCleanTests
         check("说明补上了模型给的删除影响", v5.Note.Contains("重新下载"), v5.Note);
         check("模型不改变可清理项数", v5.CleanableCount == v1.CleanableCount);
         check("模型不改变可选集合", v5.SelectableItems.Count == v1.SelectableItems.Count);
+
+        var aiReview = new ItemAiResult(ItemAiSuggestion.NeedsConfirm, "Windows 系统日志",
+            "这些文件属于 Logs，删除前请确认", "路径在 Windows\\Logs", "", "raw", false, 0, 0, 0, "", 1);
+        var vIdentified = AiVerdict.Build(onlyConfirm, "Logs", aiReview);
+        check("AI 认出用途后结论先说用途，不再写「不能确定是否安全」",
+            vIdentified.Headline.Contains("Windows 系统日志", StringComparison.Ordinal)
+            && !vIdentified.Headline.Contains("安全", StringComparison.Ordinal)
+            && vIdentified.Headline != Loc.AiHeadlineReview(1, FileEntry.FormatSize(10)),
+            vIdentified.Headline);
+        check("AI 认出用途仍不改变可清理资格",
+            !vIdentified.CanSelect && vIdentified.CleanableCount == 0);
 
         // ---- 10) 空列表不炸 ----
         var v0 = AiVerdict.Build(new List<CleanItem>(), "空", null);
@@ -2816,6 +2858,19 @@ public static class LayeredCleanTests
         var loc = r.Purposes.SelectMany(p => p.Locations).FirstOrDefault();
         check("未识别位置有节点", loc != null);
         check("未识别位置被标记", loc!.IsUnidentified);
+        check("没点过 AI 时第二行仍标用途待确认",
+            loc.RowSubText.Contains(Loc.PurposeUnclear), loc.RowSubText);
+        var before = loc.Items.Select(x => (x.Risk, x.CanDelete, x.Selected)).ToList();
+        loc.Ai.Result = new ItemAiResult(ItemAiSuggestion.NeedsConfirm, "Windows 系统日志",
+            "属于日志", "路径", "", "raw", false, 0, 0, 0, "", 1);
+        loc.Ai.Status = ItemAiStatus.Done;
+        check("点过 AI 后第二行不再写用途待确认",
+            !loc.RowSubText.Contains(Loc.PurposeUnclear)
+            && loc.RowSubText.Contains("Windows 系统日志"),
+            loc.RowSubText);
+        check("点过 AI 后仍标记为未识别软件（只改展示，不改分组）", loc.IsUnidentified);
+        check("点过 AI 不改 Risk / CanDelete / Selected",
+            loc.Items.Select(x => (x.Risk, x.CanDelete, x.Selected)).SequenceEqual(before));
 
         // 不同软件同名目录不能误合并：键是完整路径，不是名字
         var sameName = new List<CleanItem>

@@ -221,9 +221,22 @@ public partial class MainWindow : Window, IAnalystHost
     private double _sidebarWidth = SidebarDefaultWidth;
     private Action? _confirmYes;
     private List<AppUninstallItem> _apps = new();
-    /// <summary>卸载页有没有被打开过。没打开过就不去扫软件清单。</summary>
+    /// <summary>卸载页有没有被打开过。没打开过就不去扫软件清单（但仍会**静默**清点一次拿安装位置证据）。</summary>
     private bool _uninstallTabVisited;
     private bool _listingApps;
+    /// <summary>静默安装清单清点是否在跑（**只建证据**，不碰卸载页 UI）。</summary>
+    private bool _silentInventoryBusy;
+    /// <summary>静默清点结果属于哪一代扫描：换扫描后旧结果不许覆盖新扫描，也不许再被复用。</summary>
+    private int _silentInventoryGeneration = -1;
+    /// <summary>静默清点拿到的清单：用户之后打开卸载页可以直接复用，同一代扫描不跑第二遍 ListApps。</summary>
+    private List<AppUninstallItem>? _silentInventory;
+    /// <summary>
+    /// 静默清点**自己的** CTS。绝不能和 <see cref="_uninstallCts"/> 共用一个槽：
+    /// <see cref="LoadApps"/> 一开头就 <see cref="StartOperation"/> 取消旧槽，
+    /// 用户进卸载页会把正在跑的长任务静默清点立刻掐掉，破坏「卸载页复用静默清单」。
+    /// 停止按钮另有 <see cref="StopEverything"/> 显式取消它。
+    /// </summary>
+    private CancellationTokenSource? _silentInventoryCts;
     private BulkUninstallTask? _uninstallTask;
     private bool _aiAppsBusy;
     private CancellationTokenSource? _aiAppsStop;
@@ -252,6 +265,11 @@ public partial class MainWindow : Window, IAnalystHost
     {
         InitializeComponent();
         _scanCoordinator = new ScanCoordinator(_scanner, _fallback);
+        // 启动时**只建立一次**系统 KnownFolder 快照（重定向下载/桌面/图片等），之后只查内存；
+        // 已安装清单在卸载页清点软件后（ListApps 结果处）再叠到**同一个**证据服务上。
+        _systemPathSnapshot = SystemPathSnapshot.Capture();
+        _localEvidence = new LocalEvidenceService(InstalledLocationSnapshot.Empty, _systemPathSnapshot);
+        _folderPurpose = new FolderPurposeService(_localEvidence);
         // 停止按钮的可见性由阶段登记簿驱动，不再由某个流程的 finally 决定
         _work.Changed += Work_Changed;
         var drives = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.Name).ToList();
@@ -692,6 +710,8 @@ public partial class MainWindow : Window, IAnalystHost
         CancelQuietly(_dupCts);
         CancelQuietly(_snapshotCts);
         CancelQuietly(_uninstallCts);
+        // 静默清点是长跑任务，停止按钮必须能取消它（它有自己的 CTS，见 _silentInventoryCts）
+        CancelQuietly(_silentInventoryCts);
         CancelQuietly(_aiStop);
         CancelQuietly(_aiAppsStop);
         CancelQuietly(_aiConfigCts);
@@ -1113,8 +1133,10 @@ public partial class MainWindow : Window, IAnalystHost
     }
 
     /// <summary>
-    /// 隐藏面板按需加载：软件清单只在「卸载页被打开过」或「已经在列」时才去扫。
-    /// 默认视图是可清理面板，用户根本看不到卸载页 —— 没必要每次扫描都陪跑一遍注册表。
+    /// 扫描完成后的软件清单处理。默认页是清理中心、用户往往没进卸载页，
+    /// 但**不进卸载页也要拿到安装位置证据**：
+    /// 没进过卸载页 ⇒ 走静默清点（<see cref="LoadInstalledEvidenceSilentlyAsync"/>，不动卸载页 UI）；
+    /// 进过 ⇒ 复用卸载页自己的 <see cref="LoadApps"/>。两条路只走一条，不重复清点。
     /// </summary>
     private void MaybeLoadAppsInBackground()
     {
@@ -1124,13 +1146,13 @@ public partial class MainWindow : Window, IAnalystHost
             _ = RefreshAppUsageAfterScanAsync(_apps, _allFiles, _root);
             return;
         }
-        if (_listingApps) return;
+        if (_listingApps || _silentInventoryBusy) return;
         if (_uninstallTabVisited)
         {
             _ = LoadApps();
             return;
         }
-        AppLog.Info("Uninstall", "skipping app inventory: uninstall tab has not been opened yet");
+        _ = LoadInstalledEvidenceSilentlyAsync();
     }
 
     /// <summary>用户第一次进卸载页时再加载软件清单。</summary>
@@ -1138,6 +1160,88 @@ public partial class MainWindow : Window, IAnalystHost
     {
         _uninstallTabVisited = true;
         if (_apps.Count == 0 && !_listingApps) _ = LoadApps();
+    }
+
+    /// <summary>
+    /// **静默**清点已安装软件：结果只用来建立「安装位置证据」，不显示卸载页进度、
+    /// 不禁用卸载按钮、不改当前页 —— 用户没进卸载页就不该看到任何跳动。
+    ///
+    /// 代次守卫：清点在旧扫描上发起时，结果不许盖到新扫描（新扫描会自己再清一次）。
+    /// 失败只记日志，绝不打断清理 / 整理界面；**用户取消不是故障**，同样不记失败。
+    /// </summary>
+    private async Task LoadInstalledEvidenceSilentlyAsync()
+    {
+        if (_silentInventoryBusy) return;
+        _silentInventoryBusy = true;
+        int myScanGeneration = _scanGeneration;
+        bool adopted = false;
+        // 静默清点是长跑任务，要有**自己的**可取消 token（独立于卸载页的 _uninstallCts）：
+        // 用户在卸载页重扫不会掐掉它，用户点「停止」能取消它。
+        using var op = StartOperation(ref _silentInventoryCts, "Evidence");
+        var ct = op.Token;
+        try
+        {
+            // progress 传 null：静默路径一次都不写卸载页控件
+            var list = await Task.Run(() => BcuUninstallService.ListApps(null, ct), ct)
+                .ConfigureAwait(true);
+            adopted = AdoptInstalledInventory(list, myScanGeneration);
+        }
+        catch (OperationCanceledException)
+        {
+            // 用户按了停止（或换了一代清点）：不是故障，不记 AppLog 失败、不弹提示。
+            op.Canceled("silent app inventory canceled");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Record("Evidence", ex, "silent app inventory");
+        }
+        finally
+        {
+            _silentInventoryBusy = false;
+        }
+
+        // 旧清点被丢掉（期间换了新扫描）：为**当前**这一代再静默清一次，
+        // 否则这一代扫描会一直没有安装位置证据（它自己的后台触发已经因为「忙」提前返回了）。
+        if (!adopted && myScanGeneration != _scanGeneration) RetrySilentInventoryIfWanted();
+    }
+
+    /// <summary>当前扫描还没有清单、用户也没进卸载页时，补一次静默清点。</summary>
+    private void RetrySilentInventoryIfWanted()
+    {
+        if (_apps.Count > 0 || _listingApps || _uninstallTabVisited || _silentInventoryBusy) return;
+        _ = LoadInstalledEvidenceSilentlyAsync();
+    }
+
+    /// <summary>
+    /// 静默清点的收口：**代次仍然有效**才注入证据，并让已材料化的整理对象重认一遍。
+    /// 旧代次（用户已经发起新扫描）直接丢弃，绝不覆盖新扫描。
+    /// </summary>
+    private bool AdoptInstalledInventory(List<AppUninstallItem>? list, int scanGeneration)
+    {
+        if (list == null) return false;
+        if (scanGeneration != _scanGeneration)
+        {
+            AppLog.Info("Evidence", "op=installed-snapshot stale inventory dropped "
+                + $"gen={scanGeneration} current={_scanGeneration}");
+            return false;
+        }
+        _silentInventory = list;
+        _silentInventoryGeneration = scanGeneration;
+        InjectInstalledEvidence(list);
+        ApplyInstalledEvidenceToOrganize();
+        return true;
+    }
+
+    /// <summary>
+    /// 取走静默清点结果（仅限仍是这一代扫描）：卸载页 UI 路径据此**不跑第二遍 ListApps**。
+    /// 取走即置空，避免同一份对象被反复当成「刚清点出来的」再用一次。
+    /// </summary>
+    private List<AppUninstallItem>? TakeReusableSilentInventory()
+    {
+        if (_silentInventory == null || _silentInventoryGeneration != _scanGeneration) return null;
+        var list = _silentInventory;
+        _silentInventory = null;
+        return list;
     }
 
     private async Task RefreshAppUsageAfterScanAsync(
@@ -2531,8 +2635,8 @@ public partial class MainWindow : Window, IAnalystHost
     /// <summary>逐项分析服务：缓存 + 有限并发 + 超时都在这层。</summary>
     private readonly ItemAiService _itemAi = new();
 
-    /// <summary>正在进行的逐项分析：稳定标识 → 取消源。用于就地取消与去重。</summary>
-    private readonly Dictionary<string, CancellationTokenSource> _itemAiRunning = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>正在进行的逐项分析：来源+稳定标识 → 取消源。用于就地取消与去重。</summary>
+    private readonly ItemAiRunningRegistry _itemAiRunning = new();
 
     /// <summary>配置签名：换了提供方/模型/脱敏设置后，旧缓存失效。</summary>
     private string AiConfigSignature()
@@ -2558,7 +2662,7 @@ public partial class MainWindow : Window, IAnalystHost
         if (view.IsBusy)
         {
             // 取消这一项（不影响别的项的队列）
-            if (_itemAiRunning.TryGetValue(view.ScopeKey, out var cts))
+            if (_itemAiRunning.TryGet(view.IsolationKey, out var cts) && cts != null)
             {
                 try { cts.Cancel(); } catch (ObjectDisposedException) { }
             }
@@ -2580,6 +2684,7 @@ public partial class MainWindow : Window, IAnalystHost
         {
             case CleanItem item:
             {
+                item.Ai.Source = ItemAiSource.Clean;   // 显式声明来源：清理树
                 return (item.Ai, new ItemAiRequest(
                     ScopeKey: item.FullPath,
                     IsFolder: item.IsDirectory,
@@ -2595,6 +2700,7 @@ public partial class MainWindow : Window, IAnalystHost
             }
             case CleanLocationNode loc:
             {
+                loc.Ai.Source = ItemAiSource.Clean;    // 显式声明来源：清理树
                 var summary = BuildFolderSummary(loc, out int total);
                 return (loc.Ai, new ItemAiRequest(
                     ScopeKey: loc.Key,
@@ -2611,8 +2717,11 @@ public partial class MainWindow : Window, IAnalystHost
             }
             // 整理页的对象：**只分析这一个文件夹**，不碰子目录、不碰整层、不碰整盘。
             // 本地已经认出来的也可以问 —— 知道用途不等于知道删除影响，这是两件事。
+            // 关键：来源标成整理树。它的路径可能和某个清理候选**完全一样**，
+            // 但结果绝不携带清理动作能力（不能勾选、不能定位清理明细）。
             case OrganizeNode node:
             {
+                node.Ai.Source = ItemAiSource.Organize;
                 var summary = BuildFolderSummary(node.Dir, out int total);
                 return (node.Ai, new ItemAiRequest(
                     ScopeKey: node.FullPath,
@@ -2625,7 +2734,8 @@ public partial class MainWindow : Window, IAnalystHost
                     LocalReason: node.Basis.Length > 0 ? node.Basis : node.SourceText,
                     FolderSummary: summary,
                     FolderSummaryShown: summary.Count,
-                    FolderChildTotal: total));
+                    FolderChildTotal: total)
+                { Source = ItemAiSource.Organize });
             }
             default:
                 return (null, null);
@@ -2674,11 +2784,21 @@ public partial class MainWindow : Window, IAnalystHost
 
         // 过期（重新扫描过）就先复位，绝不用旧结果去动新数据
         if (view.IsStale) { view.IsStale = false; view.Result = null; view.Verdict = null; }
+        // 新请求开始：上一轮的失败/提示语不再代表这一轮
+        view.Error = "";
+        view.Notice = "";
 
         // **结论来自本地数据，不需要模型**：先把「建议清理多少项、能腾多少」算好并展开，
         // 这样未配置 AI 时用户照样一眼看到结论、能查看文件、能手动选择（§九 要求）。
-        var node = ResolveLocationNode(view.ScopeKey);
-        var items = ItemsForScope(view.ScopeKey);
+        //
+        // 但「认领清理条目」这件事**只属于清理树**：整理页的文件夹路径可能和某个
+        // 清理候选完全一样（FindItemByPath 会命中），一旦共用查找，整理结果就会
+        // 带上「可选择清理项」的能力。来源在 DescribeAiTarget 里显式标好。
+        bool cleanSource = view.IsCleanSource;
+        var node = cleanSource ? ResolveLocationNode(view.ScopeKey) : null;
+        IReadOnlyList<CleanItem> items = cleanSource
+            ? ItemsForScope(view.ScopeKey)
+            : (IReadOnlyList<CleanItem>)Array.Empty<CleanItem>();
         if (items.Count > 0)
         {
             string identity = node != null
@@ -2700,7 +2820,7 @@ public partial class MainWindow : Window, IAnalystHost
         }
 
         var cts = new CancellationTokenSource();
-        _itemAiRunning[view.ScopeKey] = cts;
+        _itemAiRunning.Add(view.IsolationKey, cts);
         int myReq = ++view.RequestId;
         view.Status = ItemAiStatus.Queued;
 
@@ -2724,9 +2844,10 @@ public partial class MainWindow : Window, IAnalystHost
                 view.Verdict = AiVerdict.Build(items, identity, result);
             }
 
-            // 「请求结束」≠「有可用结论」：解析失败/空响应要如实说，并给重试
-            bool usable = result != null && !result.Barren
-                          && result.Suggestion != ItemAiSuggestion.Unknown;
+            // 「请求结束」≠「有可用结论」：解析失败/空响应要如实说，并给重试。
+            // 判据与 ItemAiResult.Barren 合同一致：有用途/影响/依据就还算有用，
+            // 不因为建议档位没认出来（Unknown）就把有效内容丢掉。
+            bool usable = ItemAiPrompt.IsUsable(result);
             if (items.Count == 0 && !usable)
             {
                 view.Status = ItemAiStatus.NoUseful;
@@ -2742,10 +2863,9 @@ public partial class MainWindow : Window, IAnalystHost
         catch (OperationCanceledException)
         {
             if (myReq != view.RequestId) return;
-            // 区分「用户取消」与「超时」
-            view.Status = cts.IsCancellationRequested && !_scanning
-                ? ItemAiStatus.Canceled
-                : ItemAiStatus.Timeout;
+            // 区分「用户取消」与「超时」：用户取消与超时用的是两条不同的取消源，
+            // 只看外层 cts —— 不许掺「是否正在扫描」（判据见 ItemAiCancelStatus）
+            view.Status = ItemAiCancelStatus.Resolve(cts.Token);
         }
         catch (Exception ex)
         {
@@ -2756,9 +2876,21 @@ public partial class MainWindow : Window, IAnalystHost
         }
         finally
         {
-            _itemAiRunning.Remove(view.ScopeKey);
+            // 只有登记的仍是自己这一条时才移除：晚到的旧请求不能删掉新请求的取消源
+            _itemAiRunning.RemoveIfCurrent(view.IsolationKey, cts);
             try { cts.Dispose(); } catch { }
+            RefreshOrganizeAfterItemAi(view);
         }
+    }
+
+    /// <summary>
+    /// 整理页单项 AI 结束后，用途列 / 「未识别」筛选 / 页头计数要跟上。
+    /// 只刷新展示，不改 Risk / CanDelete / Selected。
+    /// </summary>
+    void RefreshOrganizeAfterItemAi(ItemAiView view)
+    {
+        if (view.Source != ItemAiSource.Organize) return;
+        RefreshOrganizeRows();
     }
 
     /// <summary>
@@ -2952,10 +3084,8 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void AiStop_Click(object sender, RoutedEventArgs e)
     {
-        foreach (var cts in _itemAiRunning.Values.ToList())
-        {
-            try { cts.Cancel(); } catch (ObjectDisposedException) { }
-        }
+        // 统一取消，但保留登记：各请求结束时会各自按身份移除（不会误删别人的）
+        _itemAiRunning.CancelAll();
         try { _aiStop?.Cancel(); } catch (ObjectDisposedException) { }
         AppLog.Info("Ai", "user stopped AI analysis");
     }
@@ -3626,7 +3756,11 @@ public partial class MainWindow : Window, IAnalystHost
     /// <summary>详情列表的分组表头与展开状态（按分组键记忆）。</summary>
     readonly DetailGroupHeaderConverter _detailGroups = new();
     /// <summary>文件夹用途识别服务（预算、缓存、AI 接缝都在这层）。</summary>
-    readonly FolderPurposeService _folderPurpose = new();
+    readonly FolderPurposeService _folderPurpose;
+    /// <summary>启动时建立一次的系统 KnownFolder 快照（重定向下载/桌面/图片等），之后只查内存。</summary>
+    readonly SystemPathSnapshot _systemPathSnapshot;
+    /// <summary>本地证据服务（系统语义 + 已安装位置）。系统快照只建一次，已安装清单在清点软件后叠上来。</summary>
+    LocalEvidenceService _localEvidence;
     readonly DetailGroupExpandedConverter _detailGroupsExpanded = new();
 
     /// <summary>
@@ -4328,6 +4462,67 @@ public partial class MainWindow : Window, IAnalystHost
 
     private async void UninstallRefresh_Click(object sender, RoutedEventArgs e) => await LoadApps();
 
+    /// <summary>
+    /// 用刚清点出来的已安装软件清单，**建立一次** <see cref="InstalledLocationSnapshot"/>，
+    /// 并把它叠到启动时建好的**同一个** <see cref="LocalEvidenceService"/> 上（系统快照沿用）。
+    /// 只在内存里做，不逐条扫注册表/磁盘。证据建不出来只影响「已安装目录」识别，不打断卸载列表。
+    /// </summary>
+    private void InjectInstalledEvidence(List<AppUninstallItem> apps)
+    {
+        try
+        {
+            var snapshot = InstalledLocationSnapshot.Build(
+                apps.Select(a => new InstalledAppLocation(a.Name, a.InstallLocation)));
+            _localEvidence = _localEvidence.WithInstalled(snapshot);
+            _folderPurpose.Evidence = _localEvidence;
+            AppLog.Info("Evidence", $"op=installed-snapshot apps={snapshot.AppCount} "
+                + $"usable={snapshot.UsableLocationCount} skipped={snapshot.SkippedCount}");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Record("Evidence", ex, "inject installed evidence");
+        }
+    }
+
+    /// <summary>
+    /// 安装位置证据异步到位后，对**已经材料化出来**的整理对象把本地识别重跑一遍。
+    ///
+    /// 边界是刻意的：
+    /// <list type="bullet">
+    /// <item>只补「没有用户纠正、当前也没有结论」的对象；已有本地 / AI / 用户结论的**绝不覆盖**；</item>
+    /// <item>**不重建整棵树**、不改展开状态、不切页（<c>_rightTab</c> 不动）、不发任何模型请求；</item>
+    /// <item>直接走本地规则、**绕过用途缓存** —— 否则「没有结论」被缓存挡住就永远补不上；</item>
+    /// <item>只改用途展示，不碰 Risk / CanDelete / Selected（整理对象本来就没有这些字段）。</item>
+    /// </list>
+    /// 重算完刷新页头分档计数。
+    /// </summary>
+    private void ApplyInstalledEvidenceToOrganize()
+    {
+        if (_organizeAll.Count == 0) return;
+        int updated = 0;
+        foreach (var node in _organizeAll)
+        {
+            // 用户纠正最高优先：安装清单不许覆盖
+            if (_folderPurpose.TryGetUserCorrection(node.Id) != null) continue;
+            // 只补「没有结论」的；已有本地 / 用户 / AI 结论的一律不动
+            if (node.HasConclusion) continue;
+
+            var sum = FolderPurposeRules.Summarize(node.Dir, node.Id, node.Depth, node.RelativePath);
+            var local = FolderPurposeRules.RecognizeLocally(
+                node.Dir, sum, _organizeEntryPoints, _folderPurpose.Evidence);
+            node.SetEvidence(sum);
+            node.SetKind(local.Kind);
+            if (!local.HasConclusion) continue;
+            node.Apply(local);
+            updated++;
+        }
+        if (updated == 0) return;
+        // 页头分档计数跟着变；筛选开着时可见集合也要重算（仍然只重排视图，不动展开状态）
+        if (_organizePendingOnly) RefreshOrganizeRows();
+        else UpdateOrganizeHeader();
+        AppLog.Info("Organize", $"op=installed-evidence-rescan updated={updated} objects={_organizeAll.Count}");
+    }
+
     private async Task LoadApps()
     {
         if (_listingApps || _aiAppsBusy) return;
@@ -4348,13 +4543,28 @@ public partial class MainWindow : Window, IAnalystHost
         UninstallSummary.Text = Loc.UninstallListing;
         try
         {
-            var progress = new Progress<ScanProgress>(p =>
+            // 静默清点已经拿到清单（仍是这一代扫描）就直接复用：同一代扫描只跑一遍 ListApps。
+            var list = TakeReusableSilentInventory();
+            if (list == null && _silentInventoryBusy)
             {
-                UninstallProgressBar.IsIndeterminate = p.Percent < 0;
-                if (p.Percent >= 0) UninstallProgressBar.Value = p.Percent;
-                UninstallProgressText.Text = p.CurrentDirectory;
-            });
-            var list = await Task.Run(() => BcuUninstallService.ListApps(progress, ct), ct);
+                // 静默清点正在跑：等它收口再用同一份，**不并发跑第二遍 ListApps**（有界等待）。
+                for (int i = 0; i < 1200 && list == null && _silentInventoryBusy; i++)
+                {
+                    await Task.Delay(50, ct).ConfigureAwait(true);
+                    list = TakeReusableSilentInventory();
+                }
+                if (list != null) op.Note("reused silent app inventory");
+            }
+            if (list == null)
+            {
+                var progress = new Progress<ScanProgress>(p =>
+                {
+                    UninstallProgressBar.IsIndeterminate = p.Percent < 0;
+                    if (p.Percent >= 0) UninstallProgressBar.Value = p.Percent;
+                    UninstallProgressText.Text = p.CurrentDirectory;
+                });
+                list = await Task.Run(() => BcuUninstallService.ListApps(progress, ct), ct);
+            }
             var files = _allFiles;
             var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(list, files, ct), ct);
             if (myGeneration != _uninstallGeneration)
@@ -4364,6 +4574,9 @@ public partial class MainWindow : Window, IAnalystHost
             }
             AppRecommendationService.ApplyUsage(usage);
             AppRecommendationService.ApplyLocalRules(list);
+            InjectInstalledEvidence(list);
+            // 证据换代：把此前没有结论的整理对象补认一遍（不动当前页、不发 AI）
+            ApplyInstalledEvidenceToOrganize();
             foreach (var app in list)
             {
                 try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }
@@ -4731,6 +4944,9 @@ public partial class MainWindow : Window, IAnalystHost
             }
             AppRecommendationService.ApplyUsage(usage);
             AppRecommendationService.ApplyLocalRules(list);
+            InjectInstalledEvidence(list);
+            // 证据换代：把此前没有结论的整理对象补认一遍（不动当前页、不发 AI）
+            ApplyInstalledEvidenceToOrganize();
             foreach (var app in list)
             {
                 try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }

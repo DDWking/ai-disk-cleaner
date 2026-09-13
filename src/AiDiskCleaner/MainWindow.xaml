@@ -844,7 +844,7 @@
                 Background="{DynamicResource PanelLeft}"
                 BorderBrush="{DynamicResource GridLine}" BorderThickness="1"
                 Visibility="{Binding Ai.IsExpanded, Converter={StaticResource BoolToVisible}}">
-          <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto"
+          <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto"
                         HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
               <!-- 1) 一句结论 -->
@@ -879,6 +879,10 @@
                         ToolTip="只勾选符合本地清理资格的项，之后仍会走清理确认"
                         AutomationProperties.Name="选择这些文件"
                         Visibility="{Binding Ai.CanSelect, Converter={StaticResource BoolToVisible}}"/>
+                <Button Style="{StaticResource LinkButton}" Padding="8,3" FontSize="11" Margin="8,0,0,0"
+                        Content="重新分析" Click="ItemAiRetry_Click"
+                        AutomationProperties.Name="重新分析这一项"
+                        Visibility="{Binding Ai.HasResult, Converter={StaticResource BoolToVisible}}"/>
               </StackPanel>
 
               <!-- 4) 详细依据：默认折叠，需要时才看 -->
@@ -930,12 +934,6 @@
             </StackPanel>
           </ScrollViewer>
         </Border>
-              <!-- 已有结果时提供重新分析；不每次展开都请求模型 -->
-              <Button Style="{StaticResource LinkButton}" HorizontalAlignment="Left"
-                      Margin="0,8,0,0" FontSize="11" Content="重新分析"
-                      Click="ItemAiRetry_Click"
-                      AutomationProperties.Name="重新分析这一项"
-                      Visibility="{Binding Ai.HasResult, Converter={StaticResource BoolToVisible}}"/>
       </StackPanel>
     </DataTemplate>
 
@@ -1640,7 +1638,7 @@
                     <DataTemplate>
                       <!-- 两个风险分区是**真正独立的两块区域**：左侧色带 + 不同背景层级 +
                            上下留白 + 图标 + 副标题。颜色克制，且不单靠颜色区分（有 ✓ / ! 与文字）。 -->
-                      <Border Margin="12,0,12,10" CornerRadius="4" BorderThickness="3,0,0,0">
+                      <Border Margin="12,0,12,12" CornerRadius="4" BorderThickness="3,0,0,0">
                         <Border.Style>
                           <Style TargetType="Border">
                             <Setter Property="Background" Value="{DynamicResource SectionSafeSurface}"/>
@@ -1657,12 +1655,14 @@
                         <!-- 分区标题：左图标+标题+副标题 / 右统计。
                              点整行都能展开收起；「需要你确认」默认折叠。 -->
                         <Button Style="{StaticResource SectionHeaderButton}" Click="SectionToggle_Click"
-                                ToolTip="点击展开 / 收起这一组"
-                                AutomationProperties.Name="{Binding Title}">
+                                ToolTip="{Binding HeaderAccessibleName}"
+                                AutomationProperties.Name="{Binding HeaderAccessibleName}">
                           <Grid>
                             <Grid.ColumnDefinitions>
                               <ColumnDefinition Width="Auto"/>
-                              <ColumnDefinition Width="*"/>
+                              <!-- 标题列给最小宽度：窄窗口下先让右侧统计截断，
+                                   而不是把中文/英文标题挤成零宽。 -->
+                              <ColumnDefinition Width="*" MinWidth="132"/>
                               <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <!-- 图标：✓ / ! —— 形状本身也能读出状态 -->
@@ -1716,11 +1716,13 @@
                             </StackPanel>
                             <TextBlock Grid.Column="2" FontSize="11.5" VerticalAlignment="Center"
                                        HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"
+                                       MaxWidth="236" ToolTip="{Binding HeaderStats}"
                                        Foreground="{DynamicResource TextMuted}" Text="{Binding HeaderStats}"/>
                           </Grid>
                         </Button>
-                        <!-- 行只在分区展开时渲染：折叠的分区不创建行模型 -->
-                        <ItemsControl ItemsSource="{Binding Rows}" Margin="0,0,0,2"
+                        <!-- 行只在分区展开时渲染：折叠的分区不创建行模型。
+                            标题与行之间留出空隙，标题/内容的边界更清楚（不叠卡片）。 -->
+                        <ItemsControl ItemsSource="{Binding Rows}" Margin="0,4,0,4"
                                       Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisible}}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate>
@@ -1761,10 +1763,14 @@
                                     <TextBlock Text="{Binding RowLocationText}" Margin="0,3,0,0" FontSize="11"
                                                Foreground="{DynamicResource TextMuted}" HorizontalAlignment="Right"/>
                                   </StackPanel>
-                                  <!-- 轻量箭头入口，不再每行一个描边按钮 -->
-                                  <Button Grid.Column="3" Content="›" Style="{StaticResource ChevronButton}"
+                                  <!-- 轻量箭头入口：复用统一的矢量箭头，不再写 › 字符 -->
+                                  <Button Grid.Column="3" Style="{StaticResource ChevronButton}"
                                           VerticalAlignment="Center" Click="PurposeOpen_Click"
-                                          ToolTip="查看位置" AutomationProperties.Name="{Binding PurposeName}"/>
+                                          ToolTip="查看位置" AutomationProperties.Name="{Binding PurposeName}">
+                                    <Path Data="{StaticResource IconChevronRight}" Width="11" Height="11"
+                                          Stretch="Uniform"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                  </Button>
                                 </Grid>
                               </Border>
                             </DataTemplate>
@@ -1893,10 +1899,14 @@
                             <ContentControl Grid.Column="4" Content="{Binding}"
                                             ContentTemplate="{StaticResource ItemAiInline}"
                                             VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <!-- 进入文件明细 -->
-                            <Button Grid.Column="5" Content="›" Style="{StaticResource ChevronButton}"
+                            <!-- 进入文件明细：同样复用矢量箭头 -->
+                            <Button Grid.Column="5" Style="{StaticResource ChevronButton}"
                                     VerticalAlignment="Center" Click="LocationViewFiles_Click"
-                                    ToolTip="查看文件" AutomationProperties.Name="{Binding DisplayName}"/>
+                                    ToolTip="查看文件" AutomationProperties.Name="{Binding DisplayName}">
+                              <Path Data="{StaticResource IconChevronRight}" Width="11" Height="11"
+                                    Stretch="Uniform"
+                                    Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            </Button>
                           </Grid>
                           <!-- AI 结果展开区（按钮在上一行的右侧，这里只放结果） -->
                           <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ItemAiResultOnly}"

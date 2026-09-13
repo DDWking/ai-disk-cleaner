@@ -33,8 +33,22 @@ public sealed class FolderPurposeService
     /// <summary>用户纠正**单独存放**：重扫只清缓存，绝不清用户确认过的结论。</summary>
     private readonly Dictionary<string, FolderPurposeResult> _userCorrections = new(StringComparer.Ordinal);
     private readonly object _lock = new();
+    private ILocalPurposeEvidence? _evidence;
     private int _aiUsed;
     private DateTime _lastRequestAt = DateTime.MinValue;
+
+    /// <summary>
+    /// 本地证据（可选，**一次注入**）：已安装清单的真实安装位置快照 + 扩展系统语义表。
+    /// 不传就只用内置规则；传了也只是**查内存**，不会逐行扫注册表 / 磁盘。
+    /// </summary>
+    public FolderPurposeService(ILocalPurposeEvidence? evidence = null) => _evidence = evidence;
+
+    /// <summary>当前使用的本地证据（重新清点软件后可以整体替换）。</summary>
+    public ILocalPurposeEvidence? Evidence
+    {
+        get => _evidence;
+        set => _evidence = value;
+    }
 
     public int AiRequestsUsed { get { lock (_lock) return _aiUsed; } }
     public int CacheCount { get { lock (_lock) return _cache.Count; } }
@@ -164,8 +178,8 @@ public sealed class FolderPurposeService
 
         if (TryGetCached(id, sum, configSignature) is { } hit) return hit;
 
-        // 1) 本地规则（纯内存，不碰磁盘、不发请求）
-        var local = FolderPurposeRules.RecognizeLocally(dir, sum);
+        // 1) 本地规则（纯内存，不碰磁盘、不发请求；证据可选，只查内存快照）
+        var local = FolderPurposeRules.RecognizeLocally(dir, sum, null, _evidence);
         if (local.HasConclusion)
         {
             Store(sum, configSignature, local);

@@ -31,7 +31,14 @@ public sealed record ItemAiRequest(
     /// <summary>摘要覆盖了多少个子项里的前几个 —— 必须如实告诉模型和用户。</summary>
     int FolderSummaryShown,
     /// <summary>该文件夹已知的直接子项总数。</summary>
-    int FolderChildTotal);
+    int FolderChildTotal)
+{
+    /// <summary>
+    /// 请求来源：清理树还是整理树。默认清理，保证既有调用方不用改。
+    /// 它进缓存版本，所以同路径的整理结果不会命中清理缓存，也不会反过来。
+    /// </summary>
+    public ItemAiSource Source { get; init; } = ItemAiSource.Clean;
+}
 
 /// <summary>一次逐项分析的结果。字段就是界面上要展示的五项。</summary>
 public sealed record ItemAiResult(
@@ -105,6 +112,8 @@ public static class ItemAiPrompt
         Mix(r.LocalReason);
         Mix(configSignature);
         Mix(Version.ToString());
+        // 来源进版本：清理树与整理树即使同路径，也不能互相命中缓存
+        Mix(r.Source.ToString());
         Mix(r.IsFolder ? $"folder:{r.FolderChildTotal}:{r.FolderSummaryShown}" : "file");
         foreach (var s in r.FolderSummary) Mix(s);
         return h;
@@ -183,6 +192,17 @@ public static class ItemAiPrompt
         return new ItemAiResult(parsed, purpose, impact, basis, missing, raw, false,
             queueMs, sendMs, parseMs, channel, version);
     }
+
+    /// <summary>
+    /// 这份结果值不值得当作「有可用结论」展示。
+    ///
+    /// 合同（<see cref="ItemAiResult.Barren"/>）是：只有用途/影响/依据**全空**才算没内容。
+    /// 所以「有用途/影响，但建议档位没认出来（Unknown）」仍然算有用 ——
+    /// 不能因为一个档位词没认出来，就把模型给出的有效用途与影响当成「没有可用结果」丢掉。
+    /// 反过来，只有档位、没有任何解释，也算有用（用户至少拿到一个可读档位）。
+    /// </summary>
+    public static bool IsUsable(ItemAiResult? r)
+        => r != null && (!r.Barren || r.Suggestion != ItemAiSuggestion.Unknown);
 
     /// <summary>把模型给的建议词收敛到允许的四档；认不出来就是「信息不足」。</summary>
     public static ItemAiSuggestion MapSuggestion(string? s)

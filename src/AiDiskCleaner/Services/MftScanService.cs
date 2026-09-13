@@ -433,7 +433,8 @@ public sealed class MftScanService : IScanService
     private static string WellKnownName(ulong rec)
         => rec < (ulong)WellKnownNames.Length ? WellKnownNames[rec] : $"$File{rec}";
 
-    private struct FileNameLink
+    /// <summary>一条 $FILE_NAME 目录项。internal 仅为让离线检查工程 tools/MftDosFallbackCheck 直接调用。</summary>
+    internal struct FileNameLink
     {
         public ulong Record;
         public ulong Parent;
@@ -441,7 +442,8 @@ public sealed class MftScanService : IScanService
         public DateTime Modified;
     }
 
-    private static FileEntry? ParseRecord(byte[] b, int offset, int recordSize, ulong recordNumber, out ulong parentRef, out ulong baseRef, List<FileNameLink> names, out bool parseError)
+    /// <summary>解析一条 FILE 记录。internal 仅为让离线检查工程 tools/MftDosFallbackCheck 直接调用。</summary>
+    internal static FileEntry? ParseRecord(byte[] b, int offset, int recordSize, ulong recordNumber, out ulong parentRef, out ulong baseRef, List<FileNameLink> names, out bool parseError)
     {
         parentRef = 0;
         baseRef = 0;
@@ -469,6 +471,7 @@ public sealed class MftScanService : IScanService
             DateTime modified = DateTime.MinValue;
             uint fileAttrs = 0;
             FileNameLink? dosFallback = null;
+            bool win32NameAdded = false; // 本记录是否已登记 Win32 名（names 是全盘共用的列表，不能用它的 Count 判断本记录）
 
             int pos = offset + attrOffset;
             int end = offset + (int)Math.Min(usedSize, (uint)recordSize);
@@ -517,6 +520,7 @@ public sealed class MftScanService : IScanService
                             else
                             {
                                 names.Add(link);
+                                win32NameAdded = true;
                                 parentRef = pRef;
                                 modified = mtime;
                                 name = fn;
@@ -560,7 +564,9 @@ public sealed class MftScanService : IScanService
                 pos = next;
             }
 
-            if (names.Count == 0 && dosFallback is { } dos)
+            // 当前记录没有 Win32 名、只有 DOS 8.3 短名时才回退登记短名；
+            // 判据必须是「本记录」而不是全盘共用的 names.Count，否则第一条 Win32 名之后的纯 DOS 记录会被丢掉。
+            if (!win32NameAdded && dosFallback is { } dos)
             {
                 names.Add(dos);
                 parentRef = dos.Parent;

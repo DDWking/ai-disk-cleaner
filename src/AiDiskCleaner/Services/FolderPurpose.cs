@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using AiDiskCleaner.Models;
 
 namespace AiDiskCleaner.Services;
@@ -113,6 +114,59 @@ public sealed record FolderPurposeResult(
 }
 
 /// <summary>
+/// 可注入的**本地证据**接口（**一次快照**，之后只查内存）。
+///
+/// 实现方可以提供更强的系统语义表（真实重定向的下载目录、桌面/图片/音乐/视频/公共目录）
+/// 与「已安装清单」的真实安装位置匹配。默认为 null ⇒ 只用内置规则。
+///
+/// 刻意做成接口而不是直接引用具体实现：这样共享的离线检查工程不需要链接新实现也能编译，
+/// 而应用侧只需注入一次快照；识别过程不会逐行去扫注册表 / 磁盘。
+/// </summary>
+public interface ILocalPurposeEvidence
+{
+    /// <summary>扩展后的系统语义表（应包含内置项，否则内置系统位置会丢失）。</summary>
+    IReadOnlyList<FolderPurposeRules.SystemPathRole> SystemRoles();
+
+    /// <summary>
+    /// 用**已安装清单快照**认这个目录。只有**唯一且边界精确**的匹配才返回结论；
+    /// 多个软件共用的位置、装着多个软件的厂商父目录一律返回 null（**不归属单个应用**）。
+    /// </summary>
+    FolderPurposeResult? RecognizeInstalled(FileEntry dir, FolderSummary sum, FolderId id);
+}
+
+/// <summary>
+/// 真实系统 KnownFolder 解析（**支持重定向**）：下载目录不再猜「用户目录 + Downloads」。
+/// 只做 P/Invoke，不枚举磁盘、不逐行扫注册表。解析不到返回 null，由调用方兜底。
+/// </summary>
+internal static class KnownFolderPaths
+{
+    internal static readonly Guid DownloadsId = new("374DE290-123F-4565-9164-39C4925E467B");
+    internal static readonly Guid PublicId = new("DFDF76A2-C82A-4D63-906A-5644AC457385");
+    internal static readonly Guid PublicDesktopId = new("C4AA340D-F20F-4863-AFEF-F87EF2E6BA25");
+    internal static readonly Guid PublicDocumentsId = new("ED4824AF-DCE4-45A8-81E2-FC7965083634");
+    internal static readonly Guid PublicPicturesId = new("B6EBFB86-6907-413C-9AF7-4FC2ABF07CC5");
+    internal static readonly Guid PublicMusicId = new("3214FAB5-9757-4298-BB61-92A9DEAA44FF");
+    internal static readonly Guid PublicVideosId = new("2400183A-6185-49FB-A2D8-4A392A602BA3");
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    static extern int SHGetKnownFolderPath([MarshalAs(UnmanagedType.LPStruct)] Guid rfid,
+        uint dwFlags, IntPtr hToken, out IntPtr ppszPath);
+
+    internal static string? TryGet(Guid id)
+    {
+        IntPtr p = IntPtr.Zero;
+        try
+        {
+            if (SHGetKnownFolderPath(id, 0, IntPtr.Zero, out p) != 0 || p == IntPtr.Zero) return null;
+            string? s = Marshal.PtrToStringUni(p);
+            return string.IsNullOrWhiteSpace(s) ? null : s;
+        }
+        catch { return null; }
+        finally { if (p != IntPtr.Zero) Marshal.FreeCoTaskMem(p); }
+    }
+}
+
+/// <summary>
 /// **本地**目录识别规则。纯函数、不碰磁盘、不调模型，可以完全离线测试。
 ///
 /// 明确的原则：
@@ -145,7 +199,13 @@ public static class FolderPurposeRules
     /// 入口本身只是导航/容器，不是清理结论；但它的**用途**会由
     /// <see cref="SystemRole"/> 按系统语义直接说清（不需要问模型）。
     /// </summary>
+    static IReadOnlyList<string>? _entryPointsCache;
+
+    /// <summary>系统识别入口（**一次解析、结果缓存**，不在识别循环里反复碰磁盘）。</summary>
     public static IReadOnlyList<string> EntryPoints()
+        => _entryPointsCache ??= BuildEntryPoints();
+
+    static IReadOnlyList<string> BuildEntryPoints()
     {
         var list = new List<string>();
         void Add(Environment.SpecialFolder f)
@@ -167,13 +227,16 @@ public static class FolderPurposeRules
         Add(Environment.SpecialFolder.MyDocuments);
         try
         {
-            // 下载目录没有 SpecialFolder 枚举，按用户目录 + Downloads 解析（仍不硬编码用户名）
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (!string.IsNullOrWhiteSpace(home))
+            // 下载目录没有 SpecialFolder 枚举：走**真实 KnownFolder**（支持重定向到别的盘），
+            // 解析不到时才退回「用户目录 + Downloads」的老口径。绝不硬编码用户名。
+            string? dl = KnownFolderPaths.TryGet(KnownFolderPaths.DownloadsId);
+            if (string.IsNullOrWhiteSpace(dl))
             {
-                string dl = System.IO.Path.Combine(home, "Downloads");
-                if (Directory.Exists(dl)) list.Add(dl);
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (!string.IsNullOrWhiteSpace(home))
+                    dl = System.IO.Path.Combine(home, "Downloads");
             }
+            if (!string.IsNullOrWhiteSpace(dl) && Directory.Exists(dl)) list.Add(dl);
         }
         catch { /* 解析不到就跳过 */ }
 
@@ -191,10 +254,19 @@ public static class FolderPurposeRules
 
     /// <summary>
     /// 系统语义表。路径全部由 <see cref="Environment.SpecialFolder"/> 解析，
-    /// **没有硬编码盘符或用户名**；`Downloads` 由用户目录拼出来。
+    /// **没有硬编码盘符或用户名**；`Downloads` 走真实 KnownFolder（支持重定向）。
     /// 返回顺序 = 匹配优先级（长路径优先，`AppData\Local` 先于 `AppData`）。
     /// </summary>
-    public static IReadOnlyList<SystemPathRole> SystemRoles()
+    static IReadOnlyList<SystemPathRole>? _builtInRoles;
+
+    /// <summary>
+    /// 内置系统语义表（**一次解析、结果缓存**）。
+    /// 识别一个目录就重新解析一遍系统路径，会在几千个目录上重复调系统 API —— 这里只算一次。
+    /// </summary>
+    public static IReadOnlyList<SystemPathRole> BuiltInSystemRoles()
+        => _builtInRoles ??= BuildBuiltInSystemRoles();
+
+    static IReadOnlyList<SystemPathRole> BuildBuiltInSystemRoles()
     {
         var roles = new List<SystemPathRole>();
         void Add(Environment.SpecialFolder f, Func<string> name, Func<string> cat, Func<string> basis)
@@ -225,11 +297,20 @@ public static class FolderPurposeRules
             () => Loc.SysBasisDocuments);
         try
         {
+            // 下载目录：优先**真实 KnownFolder**（支持重定向到别的盘），解析不到才退回老口径。
+            // 重定向后系统解析出来的路径与「用户目录 + Downloads」可能不是同一个位置。
+            string? realDl = KnownFolderPaths.TryGet(KnownFolderPaths.DownloadsId);
+            if (!string.IsNullOrWhiteSpace(realDl))
+                roles.Add(new SystemPathRole(CleanListSnapshot.NormPath(realDl),
+                    Loc.SysDownloads, Loc.PurposeUserFiles, Loc.SysBasisDownloads));
+
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             if (!string.IsNullOrWhiteSpace(home))
             {
-                string dl = CleanListSnapshot.NormPath(System.IO.Path.Combine(home, "Downloads"));
-                roles.Add(new SystemPathRole(dl, Loc.SysDownloads, Loc.PurposeUserFiles, Loc.SysBasisDownloads));
+                // 兼容老口径：用户目录下的 Downloads 仍然标成下载（未重定向时与上面是同一条，末尾去重）。
+                string legacyDl = CleanListSnapshot.NormPath(System.IO.Path.Combine(home, "Downloads"));
+                if (legacyDl.Length > 0)
+                    roles.Add(new SystemPathRole(legacyDl, Loc.SysDownloads, Loc.PurposeUserFiles, Loc.SysBasisDownloads));
 
                 // 「用户目录的上一级」（各用户主目录都在这，例如 <系统盘>\Users）
                 // 与「AppData」本身都由系统路径**推导**出来，仍然不硬编码盘符/用户名。
@@ -255,19 +336,39 @@ public static class FolderPurposeRules
 
         return roles
             .Where(r => r.Path.Length > 0)
+            // 同一路径只留一条（真实 KnownFolder 与老口径重定向未变时会重复）
+            .GroupBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
             .OrderByDescending(r => r.Path.Length)
             .ToArray();
     }
 
     /// <summary>
+    /// 已注入的本地证据（可选，**一次注入**）。装了扩展证据就用它的系统语义表，
+    /// 否则只用内置表 —— 共享的离线检查工程不需要链接新实现也能照常跑。
+    /// </summary>
+    public static ILocalPurposeEvidence? DefaultEvidence { get; set; }
+
+    static IReadOnlyList<SystemPathRole> RolesFor(ILocalPurposeEvidence? evidence)
+    {
+        var e = evidence ?? DefaultEvidence;
+        return e?.SystemRoles() is { Count: > 0 } ext ? ext : BuiltInSystemRoles();
+    }
+
+    /// <summary>当前生效的系统语义表（有注入就用注入的，否则用内置）。</summary>
+    public static IReadOnlyList<SystemPathRole> SystemRoles() => RolesFor(null);
+
+    /// <summary>
     /// 这个**真实路径**是不是系统解析出来的位置；是就给一条语义说明。
     /// 只按全路径相等判定（大小写不敏感），不按目录名猜。
     /// </summary>
-    public static SystemPathRole? SystemRole(string? path)
+    public static SystemPathRole? SystemRole(string? path) => SystemRole(path, null);
+
+    static SystemPathRole? SystemRole(string? path, ILocalPurposeEvidence? evidence)
     {
         string p = CleanListSnapshot.NormPath(path);
         if (p.Length == 0) return null;
-        foreach (var r in SystemRoles())
+        foreach (var r in RolesFor(evidence))
             if (p.Equals(r.Path, StringComparison.OrdinalIgnoreCase)) return r;
         return null;
     }
@@ -409,8 +510,13 @@ public static class FolderPurposeRules
     /// 系统识别入口（由 <see cref="EntryPoints"/> 解析）。传 null 就现解析一次；
     /// 批量识别时由调用方传进来，避免逐行去碰磁盘。
     /// </param>
+    /// <param name="evidence">
+    /// 可选的本地证据（已安装清单真实安装位置快照 + 扩展系统语义表）。
+    /// 传 null 时用 <see cref="DefaultEvidence"/>；两者都没有就只用内置规则。
+    /// </param>
     public static FolderPurposeResult RecognizeLocally(
-        FileEntry dir, FolderSummary sum, IReadOnlyList<string>? entryPoints = null)
+        FileEntry dir, FolderSummary sum, IReadOnlyList<string>? entryPoints = null,
+        ILocalPurposeEvidence? evidence = null)
     {
         var id = sum.Id;
 
@@ -436,20 +542,28 @@ public static class FolderPurposeRules
                 Loc.PurposeBasisPlatform, PurposeSource.Local, false, FolderKind.Container);
 
         // d) 开发项目：有工程文件 / 版本库标记（只看结构，不读内容）
+        //    **结构证据保持推测**：只凭目录形状/文件名，不能当成事实 ⇒ NeedsConfirm=true。
         string devMark = DevProjectMark(sum);
         if (devMark.Length > 0)
             return new FolderPurposeResult(id, Loc.PurposeDevProject, Loc.PurposeCatDev,
-                Loc.PurposeBasisDevMark(devMark), PurposeSource.Local, false, FolderKind.Concrete);
+                Loc.PurposeBasisDevMark(devMark), PurposeSource.Local, NeedsConfirm: true, FolderKind.Concrete);
 
         // e) 系统解析出来的位置：**直接给一个可读的用途结论**
         //    （Windows / Program Files / ProgramData / 用户目录 / AppData / Local / Roaming / 下载 …）
         //    这是本地语义结论 ⇒ HasConclusion=true、NeedsConfirm=false，**不进 AI 候选**。
         //    只按真实全路径相等判定，其它盘的同名目录不会被误判。
-        var role = SystemRole(dir.FullPath);
+        var role = SystemRole(dir.FullPath, evidence);
         if (role != null)
             return new FolderPurposeResult(id, role.PurposeName, role.Category, role.Basis,
                 PurposeSource.Local, NeedsConfirm: false,
                 Kind: dir.ChildList.Any(c => c.IsDirectory) ? FolderKind.Container : FolderKind.Concrete);
+
+        // f) 已安装清单的**真实安装位置**（一次快照、边界精确、唯一才认产品）。
+        //    精确命中安装位置 ⇒ 事实（无需确认）；
+        //    只是位于某个软件的安装目录内部 ⇒ **结构推测**（需要确认）。
+        //    共享的厂商父目录 / 多软件共用的位置由证据方返回 null，不归属单个应用。
+        var ev = evidence ?? DefaultEvidence;
+        if (ev?.RecognizeInstalled(dir, sum, id) is { } installed) return installed;
 
         return FolderPurposeResult.None(id, ClassifyKind(dir));
     }

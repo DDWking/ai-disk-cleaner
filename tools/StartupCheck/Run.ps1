@@ -18,8 +18,22 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $proj = Join-Path $repo 'tools\StartupCheck\StartupCheck.csproj'
 
+# Prefer an SDK-capable dotnet. PATH may resolve to a runtime-only install
+# (no SDK) whose `--version` exits non-zero; fall back to the per-user install.
+$dotnet = $null
+$onPath = Get-Command dotnet -ErrorAction SilentlyContinue
+if ($onPath) {
+    $null = & $onPath.Source --version 2>$null
+    if ($LASTEXITCODE -eq 0) { $dotnet = $onPath.Source }
+}
+if (-not $dotnet) {
+    $userDotnet = Join-Path $env:USERPROFILE '.dotnet\dotnet.exe'
+    if (Test-Path $userDotnet) { $dotnet = $userDotnet }
+    else { throw 'No .NET SDK found (dotnet on PATH has no SDK, and ~/.dotnet/dotnet.exe is missing).' }
+}
+
 Write-Output 'Building StartupCheck (Release)...'
-$build = & dotnet build $proj -c Release --nologo -v quiet 2>&1
+$build = & $dotnet build $proj -c Release --nologo -v quiet 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Output $build
     Write-Output 'FAIL: StartupCheck did not build.'
@@ -32,5 +46,5 @@ if (-not (Test-Path $dll)) {
     exit 1
 }
 
-& dotnet $dll
+& $dotnet $dll
 exit $LASTEXITCODE
