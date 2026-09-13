@@ -2531,8 +2531,8 @@ public partial class MainWindow : Window, IAnalystHost
     /// <summary>逐项分析服务：缓存 + 有限并发 + 超时都在这层。</summary>
     private readonly ItemAiService _itemAi = new();
 
-    /// <summary>正在进行的逐项分析：稳定标识 → 取消源。用于就地取消与去重。</summary>
-    private readonly Dictionary<string, CancellationTokenSource> _itemAiRunning = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>正在进行的逐项分析：来源+稳定标识 → 取消源。用于就地取消与去重。</summary>
+    private readonly ItemAiRunningRegistry _itemAiRunning = new();
 
     /// <summary>配置签名：换了提供方/模型/脱敏设置后，旧缓存失效。</summary>
     private string AiConfigSignature()
@@ -2558,7 +2558,7 @@ public partial class MainWindow : Window, IAnalystHost
         if (view.IsBusy)
         {
             // 取消这一项（不影响别的项的队列）
-            if (_itemAiRunning.TryGetValue(view.ScopeKey, out var cts))
+            if (_itemAiRunning.TryGet(view.IsolationKey, out var cts) && cts != null)
             {
                 try { cts.Cancel(); } catch (ObjectDisposedException) { }
             }
@@ -2580,6 +2580,7 @@ public partial class MainWindow : Window, IAnalystHost
         {
             case CleanItem item:
             {
+                item.Ai.Source = ItemAiSource.Clean;   // 显式声明来源：清理树
                 return (item.Ai, new ItemAiRequest(
                     ScopeKey: item.FullPath,
                     IsFolder: item.IsDirectory,
@@ -2595,6 +2596,7 @@ public partial class MainWindow : Window, IAnalystHost
             }
             case CleanLocationNode loc:
             {
+                loc.Ai.Source = ItemAiSource.Clean;    // 显式声明来源：清理树
                 var summary = BuildFolderSummary(loc, out int total);
                 return (loc.Ai, new ItemAiRequest(
                     ScopeKey: loc.Key,
@@ -2611,8 +2613,11 @@ public partial class MainWindow : Window, IAnalystHost
             }
             // 整理页的对象：**只分析这一个文件夹**，不碰子目录、不碰整层、不碰整盘。
             // 本地已经认出来的也可以问 —— 知道用途不等于知道删除影响，这是两件事。
+            // 关键：来源标成整理树。它的路径可能和某个清理候选**完全一样**，
+            // 但结果绝不携带清理动作能力（不能勾选、不能定位清理明细）。
             case OrganizeNode node:
             {
+                node.Ai.Source = ItemAiSource.Organize;
                 var summary = BuildFolderSummary(node.Dir, out int total);
                 return (node.Ai, new ItemAiRequest(
                     ScopeKey: node.FullPath,
@@ -2625,7 +2630,8 @@ public partial class MainWindow : Window, IAnalystHost
                     LocalReason: node.Basis.Length > 0 ? node.Basis : node.SourceText,
                     FolderSummary: summary,
                     FolderSummaryShown: summary.Count,
-                    FolderChildTotal: total));
+                    FolderChildTotal: total)
+                { Source = ItemAiSource.Organize });
             }
             default:
                 return (null, null);
@@ -2674,11 +2680,21 @@ public partial class MainWindow : Window, IAnalystHost
 
         // 过期（重新扫描过）就先复位，绝不用旧结果去动新数据
         if (view.IsStale) { view.IsStale = false; view.Result = null; view.Verdict = null; }
+        // 新请求开始：上一轮的失败/提示语不再代表这一轮
+        view.Error = "";
+        view.Notice = "";
 
         // **结论来自本地数据，不需要模型**：先把「建议清理多少项、能腾多少」算好并展开，
         // 这样未配置 AI 时用户照样一眼看到结论、能查看文件、能手动选择（§九 要求）。
-        var node = ResolveLocationNode(view.ScopeKey);
-        var items = ItemsForScope(view.ScopeKey);
+        //
+        // 但「认领清理条目」这件事**只属于清理树**：整理页的文件夹路径可能和某个
+        // 清理候选完全一样（FindItemByPath 会命中），一旦共用查找，整理结果就会
+        // 带上「可选择清理项」的能力。来源在 DescribeAiTarget 里显式标好。
+        bool cleanSource = view.IsCleanSource;
+        var node = cleanSource ? ResolveLocationNode(view.ScopeKey) : null;
+        IReadOnlyList<CleanItem> items = cleanSource
+            ? ItemsForScope(view.ScopeKey)
+            : (IReadOnlyList<CleanItem>)Array.Empty<CleanItem>();
         if (items.Count > 0)
         {
             string identity = node != null
@@ -2700,7 +2716,7 @@ public partial class MainWindow : Window, IAnalystHost
         }
 
         var cts = new CancellationTokenSource();
-        _itemAiRunning[view.ScopeKey] = cts;
+        _itemAiRunning.Add(view.IsolationKey, cts);
         int myReq = ++view.RequestId;
         view.Status = ItemAiStatus.Queued;
 
@@ -2724,9 +2740,10 @@ public partial class MainWindow : Window, IAnalystHost
                 view.Verdict = AiVerdict.Build(items, identity, result);
             }
 
-            // 「请求结束」≠「有可用结论」：解析失败/空响应要如实说，并给重试
-            bool usable = result != null && !result.Barren
-                          && result.Suggestion != ItemAiSuggestion.Unknown;
+            // 「请求结束」≠「有可用结论」：解析失败/空响应要如实说，并给重试。
+            // 判据与 ItemAiResult.Barren 合同一致：有用途/影响/依据就还算有用，
+            // 不因为建议档位没认出来（Unknown）就把有效内容丢掉。
+            bool usable = ItemAiPrompt.IsUsable(result);
             if (items.Count == 0 && !usable)
             {
                 view.Status = ItemAiStatus.NoUseful;
@@ -2756,7 +2773,8 @@ public partial class MainWindow : Window, IAnalystHost
         }
         finally
         {
-            _itemAiRunning.Remove(view.ScopeKey);
+            // 只有登记的仍是自己这一条时才移除：晚到的旧请求不能删掉新请求的取消源
+            _itemAiRunning.RemoveIfCurrent(view.IsolationKey, cts);
             try { cts.Dispose(); } catch { }
         }
     }
@@ -2952,10 +2970,8 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void AiStop_Click(object sender, RoutedEventArgs e)
     {
-        foreach (var cts in _itemAiRunning.Values.ToList())
-        {
-            try { cts.Cancel(); } catch (ObjectDisposedException) { }
-        }
+        // 统一取消，但保留登记：各请求结束时会各自按身份移除（不会误删别人的）
+        _itemAiRunning.CancelAll();
         try { _aiStop?.Cancel(); } catch (ObjectDisposedException) { }
         AppLog.Info("Ai", "user stopped AI analysis");
     }

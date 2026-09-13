@@ -123,3 +123,47 @@ public sealed class ItemAiService
         }
     }
 }
+
+/// <summary>
+/// 在飞请求登记表：按「来源 + 稳定标识」（<see cref="ItemAiView.IsolationKey"/>）登记取消源。
+///
+/// 存在的理由很具体：清理页的一个文件与整理页的一个文件夹可能**同路径**。
+/// 如果只按路径登记，两次请求会共用一条记录：取消一个会误取消另一个，
+/// 而且先结束的那个会顺手把新请求的登记删掉（之后再也取消不了）。
+/// 这里用 <see cref="RemoveIfCurrent"/> 保证**只有登记的还是自己那一条时才移除**。
+///
+/// 线程模型：只在 UI 线程访问（调用方保证）。
+/// </summary>
+public sealed class ItemAiRunningRegistry
+{
+    private readonly Dictionary<string, CancellationTokenSource> _map = new(StringComparer.OrdinalIgnoreCase);
+
+    public int Count => _map.Count;
+
+    public void Add(string key, CancellationTokenSource cts) => _map[key] = cts;
+
+    public bool TryGet(string key, out CancellationTokenSource? cts)
+        => _map.TryGetValue(key, out cts);
+
+    /// <summary>只有当前登记的仍是 <paramref name="cts"/> 时才移除；返回是否真的移除了。</summary>
+    public bool RemoveIfCurrent(string key, CancellationTokenSource cts)
+    {
+        if (!_map.TryGetValue(key, out var current) || !ReferenceEquals(current, cts)) return false;
+        _map.Remove(key);
+        return true;
+    }
+
+    /// <summary>当前所有在飞请求的快照（用于「全部停止」）。</summary>
+    public IReadOnlyList<CancellationTokenSource> Snapshot() => _map.Values.ToList();
+
+    /// <summary>取消全部在飞请求，但不清空登记（各请求结束时会各自按身份移除）。</summary>
+    public void CancelAll()
+    {
+        foreach (var cts in _map.Values.ToList())
+        {
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+        }
+    }
+
+    public void Clear() => _map.Clear();
+}

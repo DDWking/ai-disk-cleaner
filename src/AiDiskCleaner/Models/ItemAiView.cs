@@ -17,6 +17,18 @@ public enum ItemAiStatus
 }
 
 /// <summary>
+/// 逐项 AI 结果的**来源树**。清理树与整理树复用同一条请求管线，
+/// 但「能不能据此勾选清理项 / 定位清理位置」只属于清理树。
+/// </summary>
+public enum ItemAiSource
+{
+    /// <summary>清理树：CleanItem / CleanLocationNode。可以有清理动作能力。</summary>
+    Clean = 0,
+    /// <summary>整理树：OrganizeNode。只做展示，绝不携带清理动作能力。</summary>
+    Organize = 1,
+}
+
+/// <summary>
 /// 挂在**单个项目**（一个文件 / 一个清理位置）上的 AI 视图状态。
 ///
 /// 关键点：状态挂在项目自己的稳定标识上，而不是挂在虚拟化出来的行控件或「当前选中行」上 ——
@@ -34,6 +46,38 @@ public sealed class ItemAiView : INotifyPropertyChanged
 
     /// <summary>在飞请求的版本号：晚回来的旧请求不许覆盖新状态。</summary>
     public int RequestId { get; set; }
+
+    private ItemAiSource _source = ItemAiSource.Clean;
+
+    /// <summary>
+    /// 这一项属于清理树还是整理树。默认清理（保持既有调用方兼容）。
+    /// 一旦标成整理，<see cref="CanSelect"/> / <see cref="CanViewFiles"/> 永远为 false ——
+    /// 模型结果再有用，也不会把清理动作能力带进整理页。
+    /// </summary>
+    public ItemAiSource Source
+    {
+        get => _source;
+        set
+        {
+            if (_source == value) return;
+            _source = value;
+            Raise();
+            Raise(nameof(IsCleanSource));
+            Raise(nameof(IsolationKey));
+            Raise(nameof(CanSelect));
+            Raise(nameof(CanViewFiles));
+        }
+    }
+
+    /// <summary>只有清理树的结果才允许影响清理选择。</summary>
+    public bool IsCleanSource => _source == ItemAiSource.Clean;
+
+    /// <summary>
+    /// 请求登记键：来源 + 稳定标识。
+    /// 清理页的一个文件与整理页的一个文件夹**可能同路径**；只用 ScopeKey 做键，
+    /// 两个请求会互相顶掉取消源，其中一个结束时还会删掉另一个的登记。
+    /// </summary>
+    public string IsolationKey => IsCleanSource ? ScopeKey : "organize\u0001" + ScopeKey;
 
     public ItemAiStatus Status
     {
@@ -203,17 +247,20 @@ public sealed class ItemAiView : INotifyPropertyChanged
     public string Headline => IsStale ? Services.Loc.AiResultExpired : _verdict?.Headline ?? "";
     public string Note => IsStale ? "" : _verdict?.Note ?? "";
 
-    /// <summary>「选择这些文件」是否可用 —— 只可能是「可考虑清理」的那部分，且结果不能过期。</summary>
-    public bool CanSelect => _verdict?.CanSelect == true && !IsStale;
+    /// <summary>
+    /// 「选择这些文件」是否可用 —— 只可能是**清理树**里「可考虑清理」的那部分，且结果不能过期。
+    /// 整理树的结果哪怕模型给了正面结论，也永远不提供勾选能力。
+    /// </summary>
+    public bool CanSelect => IsCleanSource && _verdict?.CanSelect == true && !IsStale;
 
     /// <summary>
     /// 「查看文件」是否可用。定位不到所属位置时置 false ——
-    /// **不留一个必然失败的按钮**（§四）。
+    /// **不留一个必然失败的按钮**（§四）。整理树没有「清理明细」可定位，一律 false。
     /// </summary>
     private bool _canViewFiles = true;
     public bool CanViewFiles
     {
-        get => _canViewFiles && !IsStale;
+        get => IsCleanSource && _canViewFiles && !IsStale;
         set
         {
             if (_canViewFiles == value) return;
