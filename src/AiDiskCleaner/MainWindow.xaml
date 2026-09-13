@@ -1297,7 +1297,7 @@
               </Grid>
             </Border>
 
-            <!-- ===== 当前文件夹工作区：三级及更深的手动识别入口（只分析当前这一层）===== -->
+            <!-- ===== 深层工作条：**只在三级及更深**出现（自动层不显示，避免「当前文件夹」误导）===== -->
             <Border x:Name="OrganizeWorkBar" DockPanel.Dock="Top" Visibility="Collapsed"
                     Padding="16,8" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
                     Background="{DynamicResource PanelRight}">
@@ -1320,12 +1320,12 @@
                              FontSize="11" TextTrimming="CharacterEllipsis"
                              ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
                 </StackPanel>
-                <!-- 唯一的主操作：只分析当前这一层的直接子文件夹，不会自己继续深入 -->
+                <!-- 唯一的主操作：**只识别本层的直接子文件夹**，不分析这个文件夹本身 -->
                 <Button x:Name="OrganizeIdentifyCurrentBtn" Grid.Column="1"
                         Style="{StaticResource PrimaryButton}" Padding="12,5" FontSize="11.5"
                         VerticalAlignment="Center" Click="OrganizeIdentifyCurrent_Click"
-                        ToolTip="只分析选中文件夹的直接子文件夹，不会扩大到别的地方。"
-                        AutomationProperties.Name="识别当前文件夹"/>
+                        ToolTip="只识别这个文件夹的直接子文件夹，不会扩大到别的地方，也不会继续深入更深目录。"
+                        AutomationProperties.Name="识别本层文件夹"/>
               </Grid>
             </Border>
 
@@ -1369,7 +1369,7 @@
             <!-- 唯一的滚动列表：扁平、细分隔线、行虚拟化，不做嵌套滚动 -->
             <DataGrid x:Name="OrganizeGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
                       HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                      BorderThickness="0" RowHeight="46" Margin="0,0,2,0"
+                      BorderThickness="0" RowHeight="Auto" MinRowHeight="46" Margin="0,0,2,0"
                       RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
                       HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                       SelectionMode="Single" SelectionUnit="FullRow"
@@ -1441,14 +1441,17 @@
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <!-- 用途：主行结论 + 次行来源/依据；**排队时不显示成功结论** -->
+                <!-- 用途：主行结论 + 次行来源；点一下展开「这是什么 / 为什么这么判断 / 来源」。
+                     **默认折叠**，不让每行都出现大段说明，也不强制用户逐项操作。 -->
                 <DataGridTemplateColumn x:Name="ColOrgPurpose" Header="用途" Width="3*" MinWidth="150"
                                         CanUserResize="True" CanUserSort="False" IsReadOnly="True">
                   <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                       <StackPanel VerticalAlignment="Center" Margin="0,3,6,3">
                         <TextBlock Text="{Binding PurposeText}" FontSize="12.5"
-                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding PurposeDetail}">
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding DetailTip}" Cursor="Hand"
+                                   MouseLeftButtonUp="OrganizePurpose_Click">
                           <TextBlock.Style>
                             <Style TargetType="TextBlock">
                               <Setter Property="Foreground" Value="{DynamicResource Text}"/>
@@ -1469,9 +1472,17 @@
                             </Style>
                           </TextBlock.Style>
                         </TextBlock>
+                        <!-- 次行：来源 · 状态（一句话，不重复长说明） -->
                         <TextBlock Text="{Binding PurposeDetail}" FontSize="10.5" Margin="0,1,0,0"
                                    Foreground="{DynamicResource TextMuted}" TextTrimming="CharacterEllipsis"
                                    ToolTip="{Binding UnlistedNote}"/>
+                        <!-- 行内详情：这是什么 / 为什么这么判断 / 判断来源（默认收起） -->
+                        <Border Margin="0,4,0,1" Padding="8,6" CornerRadius="4"
+                                Background="{DynamicResource SelectBg}"
+                                Visibility="{Binding IsDetailOpen, Converter={StaticResource BoolToVisible}}">
+                          <TextBlock Text="{Binding DetailText}" FontSize="10.5" TextWrapping="Wrap"
+                                     Foreground="{DynamicResource TextDim}"/>
+                        </Border>
                       </StackPanel>
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
@@ -1490,27 +1501,13 @@
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
 
-                <!-- 操作：**没有逐项「识别」按钮**（识别是自动的，行里不该让人以为要手动点）。
-                     这里只留纯导航的「展开 / 收起」和「在资源管理器中打开」。 -->
-                <DataGridTemplateColumn x:Name="ColOrgAction" Header="操作" Width="132" MinWidth="104"
+                <!-- 操作：**没有逐项「识别」按钮**，也**没有第二套展开按钮** ——
+                     左边那个箭头是唯一的展开/收起入口；这里只留「在资源管理器中打开」。 -->
+                <DataGridTemplateColumn x:Name="ColOrgAction" Header="操作" Width="64" MinWidth="64"
                                         CanUserResize="False" CanUserSort="False" IsReadOnly="True">
                   <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                       <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,3,4,3">
-                        <Button Style="{StaticResource GhostButton}" Padding="8,3" FontSize="11"
-                                Margin="0,0,6,0"
-                                Visibility="{Binding HasToggleText, Converter={StaticResource BoolToVisible}}"
-                                Tag="{Binding}" Click="OrganizeExpand_Click"
-                                ToolTip="{Binding ExpandTip}"
-                                AutomationProperties.Name="{Binding ToggleText}">
-                          <StackPanel Orientation="Horizontal">
-                            <Path Data="{Binding ExpandGlyphKey, Converter={StaticResource IconKey}}"
-                                  Width="10" Height="10" Stretch="Uniform"
-                                  VerticalAlignment="Center" Margin="0,0,5,0"
-                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                            <TextBlock Text="{Binding ToggleText}" VerticalAlignment="Center"/>
-                          </StackPanel>
-                        </Button>
                         <Button Style="{StaticResource IconButton}" Width="26" Height="26"
                                 Tag="{Binding}" Click="OrganizeReveal_Click"
                                 ToolTip="在资源管理器中打开（不会执行里面的程序）"

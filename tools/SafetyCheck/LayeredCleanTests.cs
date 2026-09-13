@@ -44,6 +44,7 @@ public static class LayeredCleanTests
         RecognizeDepthTests(check, section);
         RecognizeDepthExtraTests(check, section);
         RealFileDepthTests(check, section);
+        OrganizeBehaviorTests(check, section);
     }
 
     // ------------------------------------------------------------------ 文件夹用途识别
@@ -202,19 +203,73 @@ public static class LayeredCleanTests
             !typeof(FolderPurposeResult).GetProperties().Any(p =>
                 p.Name.Contains("Delete") || p.Name.Contains("Risk") || p.Name.Contains("Selected")));
 
-        // ---- 15) 系统入口说明（不是清理结论，需要确认）----
+        // ---- 15) 系统路径语义：直接给可读结论，**不需要确认、也不进 AI** ----
         string[] entries = FolderPurposeRules.EntryPoints().ToArray();
         check("系统入口由系统路径解析得到（绝对路径）",
             entries.Length > 0 && entries.All(e => System.IO.Path.IsPathRooted(e)),
             string.Join(" | ", entries));
-        if (entries.Length > 0)
+        var roles = FolderPurposeRules.SystemRoles();
+        check("系统语义表非空且都带真实路径", roles.Count > 0 && roles.All(r => r.Path.Length > 2));
+        check("系统语义表里的路径都来自系统解析（源码里没有硬编码盘符/用户名）",
+            roles.All(r => System.IO.Path.IsPathRooted(r.Path))
+            && !ReadSource("FolderPurpose.cs").Contains(@"C:\Users\", StringComparison.Ordinal)
+            && !ReadSource("FolderPurpose.cs").Contains(@"C:\Windows", StringComparison.Ordinal)
+            && !ReadSource("FolderPurpose.cs").Contains(@"C:\Program Files", StringComparison.Ordinal),
+            string.Join(" | ", roles.Select(r => r.Path)));
+        // Windows / 下载 / AppData 这几个关键位置必须有本地结论
+        var winPath = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        if (!string.IsNullOrWhiteSpace(winPath))
         {
-            var ep = DirNode("ProgramData", entries[0], 1);
-            var eRes = FolderPurposeRules.RecognizeLocally(ep,
-                FolderPurposeRules.Summarize(ep, new FolderId(ep.FullPath, 1), 0, ep.FullPath));
-            check("系统入口标为需要确认",
-                eRes.NeedsConfirm || !eRes.HasConclusion, eRes.State.ToString());
+            var winDir = DirNode("Windows", winPath, 40_000_000_000);
+            DirNode("System32", System.IO.Path.Combine(winPath, "System32"), 20_000_000_000, winDir);
+            var winRes = FolderPurposeRules.RecognizeLocally(winDir,
+                FolderPurposeRules.Summarize(winDir, new FolderId(winDir.FullPath, 1), 0, winDir.FullPath));
+            check("Windows 目录有本地结论（Windows 操作系统文件）",
+                winRes.HasConclusion && winRes.PurposeName == Loc.SysWindows, winRes.PurposeName);
+            check("Windows 结论不需要确认、来源是本地",
+                !winRes.NeedsConfirm && winRes.Source == PurposeSource.Local);
+            check("有结论的系统目录不进 AI 候选",
+                !FolderOrganize.ShouldAutoIdentify(
+                    new OrganizeLevelPolicy(1, winDir.Size, winDir.FileCount), winRes.HasConclusion, true));
         }
+        foreach (var folder in new[]
+                 {
+                     Environment.SpecialFolder.ProgramFiles,
+                     Environment.SpecialFolder.ProgramFilesX86,
+                     Environment.SpecialFolder.CommonApplicationData,
+                     Environment.SpecialFolder.LocalApplicationData,
+                     Environment.SpecialFolder.ApplicationData,
+                     Environment.SpecialFolder.UserProfile,
+                 })
+        {
+            string p = Environment.GetFolderPath(folder);
+            if (string.IsNullOrWhiteSpace(p)) continue;
+            var d = DirNode(System.IO.Path.GetFileName(p.TrimEnd('\\')), p, 1_000_000);
+            var r = FolderPurposeRules.RecognizeLocally(d,
+                FolderPurposeRules.Summarize(d, new FolderId(d.FullPath, 1), 0, d.FullPath));
+            check($"系统目录有本地结论且不需确认：{p}",
+                r.HasConclusion && !r.NeedsConfirm && r.Source == PurposeSource.Local, r.PurposeName);
+        }
+        // 下载目录（用户目录 + Downloads，不硬编码用户名）
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            string dl = System.IO.Path.Combine(home, "Downloads");
+            var dlNode = DirNode("Downloads", dl, 2_000_000);
+            var dlRes = FolderPurposeRules.RecognizeLocally(dlNode,
+                FolderPurposeRules.Summarize(dlNode, new FolderId(dlNode.FullPath, 1), 0, dlNode.FullPath));
+            check("下载目录有本地结论（下载文件）",
+                dlRes.HasConclusion && dlRes.PurposeName == Loc.SysDownloads, dlRes.PurposeName);
+        }
+        // 其它盘的同名目录**不能**被误判
+        var fakeWin = DirNode("Windows", @"D:\Windows", 5_000_000);
+        var fakeRes = FolderPurposeRules.RecognizeLocally(fakeWin,
+            FolderPurposeRules.Summarize(fakeWin, new FolderId(fakeWin.FullPath, 1), 0, fakeWin.FullPath));
+        check("其它盘的同名目录不会被误判成系统目录",
+            fakeRes.PurposeName != Loc.SysWindows, fakeRes.PurposeName);
+        check("系统语义判定要求全路径相等",
+            FolderPurposeRules.SystemRole(@"D:\Windows") == null
+            && FolderPurposeRules.SystemRole(Environment.GetFolderPath(Environment.SpecialFolder.Windows)) != null);
     }
 
     // ------------------------------------------------------------------ 文件夹整理
@@ -485,11 +540,13 @@ public static class LayeredCleanTests
         check("三级是手动层（不自动调用 AI）", l3.Level == 3 && l3.IsManualOnly && !l3.AutoIdentify);
         check("三级不会被自动铺开",
             !FolderOrganize.ShouldAutoMaterializeChildren(l3, config, FolderKind.Container));
-        check("第 1 级才自动往下铺一层",
+        check("第 1 级的收纳目录继续铺直接子项",
             FolderOrganize.ShouldAutoMaterializeChildren(l1, game, FolderKind.Container));
-        check("具体对象即使在第 1 级也不自动铺",
+        check("第 1 级的具体对象不铺内部（应用内部不逐个贴标签，也不发 AI）",
             !FolderOrganize.ShouldAutoMaterializeChildren(l1, game, FolderKind.Concrete)
             && !FolderOrganize.ShouldAutoMaterializeChildren(l1, game, FolderKind.Unknown));
+        check("第 2 级不再铺（三级不自动）",
+            !FolderOrganize.ShouldAutoMaterializeChildren(l2, steam, FolderKind.Container));
         check("自动识别只收一、二级",
             FolderOrganize.ShouldAutoIdentify(l1, hasConclusion: false, canDescend: true)
             && FolderOrganize.ShouldAutoIdentify(l2, hasConclusion: false, canDescend: true)
@@ -533,10 +590,9 @@ public static class LayeredCleanTests
             !FolderOrganize.ShouldAutoMaterializeChildren(
                 FolderOrganize.ForChild(up3, DirNode("Other", @"C:\Users\bob\Other"),
                     childIsEntryPoint: false, parentIsEntryPoint: false),
-                DirNode("Other", @"C:\Users\bob\Other"), FolderKind.Container, entries)
-            && !FolderOrganize.ShouldAutoMaterializeChildren(e1, appLocal, FolderKind.Container, entries));
-        check("入口自己的直接子目录由用户展开（不自动铺）",
-            !FolderOrganize.ShouldAutoMaterializeChildren(e1, appLocal, FolderKind.Container, entries));
+                DirNode("Other", @"C:\Users\bob\Other"), FolderKind.Container, entries));
+        check("入口的直接子目录仍然进后台识别范围（不因入口不展开而漏掉）",
+            FolderOrganize.ShouldAutoMaterializeChildren(e1, appLocal, FolderKind.Container, entries));
         check("系统入口本身就是入口（可判定）",
             FolderOrganize.IsEntryPoint(appLocal.FullPath, entries)
             && !FolderOrganize.IsEntryPoint(@"C:\Windows", entries));
@@ -581,17 +637,19 @@ public static class LayeredCleanTests
             sysPaths.Any(p => p.Equals(@"C:\Program Files", StringComparison.OrdinalIgnoreCase))
             && sysPaths.Any(p => p.Equals(@"C:\Program Files (x86)", StringComparison.OrdinalIgnoreCase))
             && sysPaths.Any(p => p.Equals(@"C:\ProgramData", StringComparison.OrdinalIgnoreCase)));
-        check("顶层对象里没有重复的祖先/后代对",
-            !sysRoots.Roots.Any(a => sysRoots.Roots.Any(b => !ReferenceEquals(a, b)
-                && FolderOrganize.IsStrictlyUnder(b.FullPath, a.FullPath))));
+        check("顶层对象路径互不重复（同一目录只出现一次）",
+            sysPaths.Select(p => p.ToLowerInvariant()).Distinct().Count() == sysPaths.Count,
+            string.Join(" | ", sysPaths));
         check("盘符下其它直接子目录仍然在（Windows）",
             sysPaths.Any(p => p.Equals(@"C:\Windows", StringComparison.OrdinalIgnoreCase)),
             string.Join(" | ", sysPaths));
-        check("Users 纯祖先不占顶层名额",
-            !sysPaths.Any(p => p.Equals(@"C:\Users", StringComparison.OrdinalIgnoreCase)
-                               || p.Equals(@"C:\Users\bob", StringComparison.OrdinalIgnoreCase)
-                               || p.Equals(@"C:\Users\bob\AppData", StringComparison.OrdinalIgnoreCase)),
+        check("用户目录本身也在顶层（入口不会互相吞掉）",
+            sysPaths.Any(p => p.Equals(@"C:\Users", StringComparison.OrdinalIgnoreCase)),
             string.Join(" | ", sysPaths));
+        check("Users 祖先不会把 AppData 入口吞掉（两者同时存在）",
+            sysPaths.Any(p => p.Equals(@"C:\Users", StringComparison.OrdinalIgnoreCase))
+            && sysPaths.Any(p => p.Equals(@"C:\Users\bob\AppData\Local", StringComparison.OrdinalIgnoreCase))
+            && sysPaths.Any(p => p.Equals(@"C:\Users\bob\AppData\Roaming", StringComparison.OrdinalIgnoreCase)));
         check("系统盘顶层对象至少 5 个（不再只剩 Users / Windows）",
             sysRoots.Roots.Count >= 5, sysRoots.Roots.Count.ToString());
         check("顶层对象路径互不重复",
@@ -1094,8 +1152,8 @@ public static class LayeredCleanTests
                     FolderOrganize.ForChild(rootPolicy, steamDir!,
                         childIsEntryPoint: false, parentIsEntryPoint: false),
                     steamDir, FolderPurposeRules.ClassifyKind(steamDir), entries));
-            check("入口自己不再自动往下",
-                !FolderOrganize.ShouldAutoMaterializeChildren(entryPolicy, localDir,
+            check("入口的直接子目录仍然进后台识别（不展开但会识别）",
+                FolderOrganize.ShouldAutoMaterializeChildren(entryPolicy, localDir,
                     FolderPurposeRules.ClassifyKind(localDir), entries));
 
             // 集合判定：真实文件树上的 Local（4 个应用目录）应被认成集合
@@ -1180,6 +1238,205 @@ public static class LayeredCleanTests
         }
         catch { /* 权限 / 竞态：当成空目录，不打断 */ }
         return e;
+    }
+
+    /// <summary>
+    /// 行为测试（不是字符串断言）：首屏只见一级、展开只看缓存不重复请求、
+    /// 入口直接子项后台识别、系统目录不进 AI、无模型/失败/取消状态、详情显示真实依据。
+    /// </summary>
+    static void OrganizeBehaviorTests(CheckFn check, Action<string> section)
+    {
+        section("整理页行为：首屏一级、展开看缓存、入口子项后台识别、状态与详情");
+
+        // ---- 1) 首屏可见树 = 根的一级；WinSxS / System32 不在首屏 ----
+        var cRoot = DirNode("C:", @"C:\", 500_000_000_000);
+        var win = DirNode("Windows", @"C:\Windows", 40_000_000_000, cRoot);
+        var sys32 = DirNode("System32", @"C:\Windows\System32", 20_000_000_000, win);
+        DirNode("WinSxS", @"C:\Windows\WinSxS", 12_000_000_000, win);
+        DirNode("drivers", @"C:\Windows\System32\drivers", 1_000_000_000, sys32);
+        var users = DirNode("Users", @"C:\Users", 100_000_000_000, cRoot);
+        var bob = DirNode("bob", @"C:\Users\bob", 90_000_000_000, users);
+        var appData = DirNode("AppData", @"C:\Users\bob\AppData", 40_000_000_000, bob);
+        var local = DirNode("Local", @"C:\Users\bob\AppData\Local", 30_000_000_000, appData);
+        DirNode("Google", @"C:\Users\bob\AppData\Local\Google", 9_000_000_000, local);
+        DirNode("Microsoft", @"C:\Users\bob\AppData\Local\Microsoft", 8_000_000_000, local);
+
+        var entries = new[]
+        {
+            @"C:\Windows", @"C:\Users", @"C:\Users\bob\AppData\Local", @"C:\Users\bob\AppData\Roaming",
+        };
+        var rs = FolderOrganize.BuildRoots(cRoot, FolderOrganize.MaxRoots, entries);
+        check("顶层对象就是首屏那一级", rs.Roots.Count >= 2, rs.Roots.Count.ToString());
+
+        // 按界面的规则材料化（材料化 ≠ 展开）
+        var nodes = new Dictionary<FileEntry, OrganizeNode>();
+        OrganizeNode Make(FileEntry d, int depth, int level)
+        {
+            if (nodes.TryGetValue(d, out var ex)) return ex;
+            var n = new OrganizeNode(d, new FolderId(d.FullPath, 1), depth, d.FullPath);
+            n.SetLevel(level);
+            n.SetChildDirCount(FolderOrganize.DirectChildDirs(d, 0).Total);
+            nodes[d] = n;
+            return n;
+        }
+        void Mat(OrganizeNode node)
+        {
+            var pol = new OrganizeLevelPolicy(node.Level, node.Size, node.FileCount);
+            if (!FolderOrganize.ShouldAutoMaterializeChildren(pol, node.Dir, node.Kind, entries)) return;
+            var set = FolderOrganize.DirectChildDirs(node.Dir, FolderOrganize.MaterializeBudget);
+            var kids = new List<OrganizeNode>();
+            foreach (var d in set.Dirs)
+            {
+                bool isEntry = FolderOrganize.IsEntryPoint(d.FullPath, entries);
+                kids.Add(Make(d, node.Depth + 1,
+                    FolderOrganize.ForChild(pol, d, isEntry, FolderOrganize.IsEntryPoint(node.FullPath, entries)).Level));
+            }
+            node.SetChildren(kids, set.Truncated, set.Total, Math.Max(0, set.Total - kids.Count));
+            foreach (var k in node.Children) Mat(k);
+        }
+        var roots = rs.Roots.Select(d => Make(d, 0, 1)).ToList();
+        foreach (var r in roots) Mat(r);
+        var winNode = nodes[win];
+        var localNode = nodes[local];
+
+        check("材料化之后默认**一个都没展开**", roots.All(r => !r.IsExpanded));
+        check("Windows 的子项虽然建好了，但默认不展开",
+            winNode.ChildrenLoaded && !winNode.IsExpanded);
+
+        // 首屏可见行：只有根（以及已展开的节点的子项）
+        List<OrganizeNode> Visible()
+        {
+            var list = new List<OrganizeNode>();
+            void Walk(OrganizeNode n)
+            {
+                list.Add(n);
+                if (!n.IsExpanded) return;
+                foreach (var c in n.Children) Walk(c);
+            }
+            foreach (var r in roots) Walk(r);
+            return list;
+        }
+        var first = Visible();
+        check("首屏看不到 WinSxS", !first.Any(n => n.Name == "WinSxS"),
+            string.Join(",", first.Select(n => n.Name)));
+        check("首屏看不到 System32", !first.Any(n => n.Name == "System32"));
+        check("首屏看不到入口内部的子目录（Google / Microsoft）",
+            !first.Any(n => n.Name == "Google") && !first.Any(n => n.Name == "Microsoft"));
+        check("首屏行数等于顶层对象数", first.Count == roots.Count, $"{first.Count}/{roots.Count}");
+
+        // ---- 2) 展开只看缓存：不再材料化、不再请求 ----
+        var beforeChildren = winNode.Children.Count;
+        winNode.Expand();
+        var afterExpand = Visible();
+        check("展开 Windows 之后才看到它的直接子项（System32）",
+            afterExpand.Any(n => n.Name == "System32"), string.Join(",", afterExpand.Select(n => n.Name)));
+        check("WinSxS 属于 Windows 的直接子项，展开 Windows 才出现（首屏不出现）",
+            afterExpand.Any(n => n.Name == "WinSxS") && !first.Any(n => n.Name == "WinSxS"));
+        check("展开不重建子对象（数量不变）", winNode.Children.Count == beforeChildren);
+        check("展开后 System32 也不自动展开（三级默认收起）",
+            !nodes[sys32].IsExpanded);
+        check("收起再展开仍然用缓存（ChildrenLoaded 一直为真）",
+            winNode.ChildrenLoaded && beforeChildren > 0);
+        winNode.Collapse();
+        check("收起后首屏回到一级", Visible().Count == roots.Count);
+
+        // ---- 3) 入口的直接子项：后台已材料化 + 有本地结论（用**真实系统路径**验证语义） ----
+        check("AppData\\Local 是顶层入口之一",
+            roots.Any(r => r.FullPath.Equals(@"C:\Users\bob\AppData\Local", StringComparison.OrdinalIgnoreCase)),
+            string.Join(" | ", roots.Select(r => r.FullPath)));
+        check("入口默认不展开（用户不点就看不到内部）", !localNode.IsExpanded);
+        check("入口的直接子项也进了识别范围并已材料化",
+            localNode.ChildrenLoaded && localNode.Children.Count >= 2
+            && localNode.Children.All(c => c.Level == 1),
+            string.Join(",", localNode.Children.Select(c => c.Name + ":" + c.Level)));
+
+        // 真实系统路径：Windows / 用户目录 / AppData / Local / Roaming / 下载
+        // 都必须**本地就有结论**（不进 AI），且只有真实路径命中（其它盘同名不命中）。
+        var realLocal = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var realRoam = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var realWin = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var realHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        foreach (var real in new[]
+                 {
+                     realWin, realHome, realLocal, realRoam,
+                     string.IsNullOrWhiteSpace(realLocal) ? "" : System.IO.Path.GetDirectoryName(realLocal.TrimEnd('\\')) ?? "",
+                 })
+        {
+            if (string.IsNullOrWhiteSpace(real)) continue;
+            var d = DirNode(System.IO.Path.GetFileName(real.TrimEnd('\\')) is { Length: > 0 } nm ? nm : real,
+                real, 1_000_000);
+            var n = new OrganizeNode(d, new FolderId(real, 1), 0, real);
+            n.SetEvidence(FolderPurposeRules.Summarize(d, n.Id, 0, real));
+            var r = FolderPurposeRules.RecognizeLocally(d, FolderPurposeRules.Summarize(d, n.Id, 0, real), entries);
+            check($"真实系统路径有本地结论：{real}",
+                r.HasConclusion && !r.NeedsConfirm && r.Source == PurposeSource.Local, r.PurposeName);
+            n.Apply(r);
+            check($"真实系统路径不进 AI 队列：{real}",
+                !FolderOrganize.ShouldAutoIdentify(
+                    new OrganizeLevelPolicy(1, d.Size, d.FileCount), n.HasConclusion, true));
+        }
+
+        // ---- 5) 无模型 / 失败 / 取消：状态各自如实 ----
+        var svc = new FolderPurposeService();
+        var unknownDir = DirNode("mystery", @"D:\mystery", 900_000);
+        DirNode("sub1", @"D:\mystery\sub1", 10, unknownDir);
+        var uId = new FolderId(unknownDir.FullPath, 1);
+        var noModel = svc.RecognizeAsync(unknownDir, uId, 1, "mystery", allowAi: false,
+            provider: null, model: null, sendFullPath: false, configSignature: "c",
+            ct: CancellationToken.None).GetAwaiter().GetResult();
+        check("没有模型 ⇒ 没有结论、标待确认，绝不假装成功",
+            !noModel.HasConclusion && noModel.NeedsConfirm && !noModel.Failed
+            && noModel.State != PurposeState.Recognized,
+            noModel.State.ToString());
+        check("没有模型时不会消耗请求预算", svc.AiRequestsUsed == 0, svc.AiRequestsUsed.ToString());
+        check("没有模型时不写缓存（不会把「待确认」缓存成结论）",
+            svc.TryGetCached(uId, FolderPurposeRules.Summarize(unknownDir, uId, 1, "mystery"), "c") == null);
+
+        var failed = FolderPurposeResult.Failure(uId);
+        var failedNode = new OrganizeNode(unknownDir, uId, 3, "mystery");
+        failedNode.Apply(failed);
+        check("失败结果落成 Failed 且可重试",
+            failedNode.State == PurposeState.Failed && failedNode.IsPending
+            && failedNode.PurposeText == Loc.PurposeFailed);
+        var unknownNode = new OrganizeNode(unknownDir, uId, 3, "mystery");
+        unknownNode.Apply(FolderPurposeResult.None(uId));
+        check("「判不出来」是未知，不是失败",
+            unknownNode.State == PurposeState.Unrecognized && unknownNode.State != PurposeState.Failed);
+        failedNode.ClearState();
+        check("清流程态不会把失败说成已识别", failedNode.State != PurposeState.Recognized);
+
+        // ---- 6) 详情：只用真实摘要证据 ----
+        var detailDir = DirNode("myapp", @"D:\myapp", 12_000_000);
+        FileNode("a.dat", @"D:\myapp\a.dat", 8_000_000, detailDir);
+        FileNode("b.log", @"D:\myapp\b.log", 1_000, detailDir);
+        DirNode("cache", @"D:\myapp\cache", 3_000_000, detailDir);
+        var dNode = new OrganizeNode(detailDir, new FolderId(detailDir.FullPath, 1), 2, "myapp");
+        dNode.SetEvidence(FolderPurposeRules.Summarize(detailDir, dNode.Id, 2, "myapp"));
+        dNode.Apply(new FolderPurposeResult(dNode.Id, "我的应用", "应用", "目录名匹配 myapp",
+            PurposeSource.Local, false, FolderKind.Concrete));
+        check("详情默认收起", !dNode.IsDetailOpen);
+        dNode.ToggleDetail();
+        check("点一下才展开详情", dNode.IsDetailOpen);
+        check("详情含「这是什么」", dNode.DetailText.Contains(Loc.OrganizeDetailWhat, StringComparison.Ordinal));
+        check("详情含「为什么这么判断」", dNode.DetailText.Contains(Loc.OrganizeDetailWhy, StringComparison.Ordinal));
+        check("详情写的是真实证据（子目录数 / 文件数）",
+            dNode.DetailText.Contains("1 个子文件夹", StringComparison.Ordinal)
+            || dNode.DetailText.Contains("1 sub-folders", StringComparison.Ordinal),
+            dNode.DetailText);
+        check("详情带代表文件名", dNode.DetailText.Contains("a.dat", StringComparison.Ordinal), dNode.DetailText);
+        check("详情有判断来源",
+            dNode.DetailText.Contains("判断来源", StringComparison.Ordinal)
+            || dNode.DetailText.Contains("Judged by", StringComparison.Ordinal), dNode.DetailText);
+        check("详情不出现开发术语「命中签名」",
+            !dNode.DetailText.Contains("命中签名", StringComparison.Ordinal)
+            && !dNode.DetailText.Contains("signature", StringComparison.OrdinalIgnoreCase));
+        var noEv = new OrganizeNode(unknownDir, uId, 3, "mystery");
+        check("没有结论时详情说未知，不编造",
+            noEv.DetailText.Contains(Loc.PurposeUnrecognized, StringComparison.Ordinal)
+            && noEv.DetailText.Contains(Loc.OrganizeDetailNoEvidence, StringComparison.Ordinal),
+            noEv.DetailText);
+        dNode.ToggleDetail();
+        check("再点一下收起详情", !dNode.IsDetailOpen);
     }
 
     /// <summary>

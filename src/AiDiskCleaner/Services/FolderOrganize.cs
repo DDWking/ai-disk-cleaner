@@ -106,8 +106,14 @@ public static class FolderOrganize
     /// <summary>顺着系统入口往下最多走几层（不按距盘符固定层数截断）。</summary>
     public const int MaxEntryDepth = 8;
 
-    /// <summary>整页最多铺多少行；到顶就停自动铺开（用户仍可手动展开）。</summary>
+    /// <summary>整页最多铺多少行（可见行）；到顶就停自动铺开（用户仍可手动展开）。</summary>
     public const int MaxRows = 4000;
+
+    /// <summary>
+    /// 最多建多少个对象。**和可见行数是两条线**：识别覆盖需要把一、二级都建出来，
+    /// 但界面只在用户展开时才渲染 —— 所以对象上限比可见行上限高一点。
+    /// </summary>
+    public const int MaxObjects = 6000;
 
     // ---------------- 层级策略（起点：盘符 / 系统入口） ----------------
 
@@ -135,22 +141,37 @@ public static class FolderOrganize
     }
 
     /// <summary>
-    /// 自动铺开的总判定：**最多两级** + 收纳/混合才继续。
+    /// 自动铺开的总判定：**最多两级**。
     ///
-    /// 例外：如果这个目录是**某个系统入口的祖先**（例如 <c>C:\Users</c>、
-    /// <c>C:\Users\&lt;你&gt;\AppData</c>），就继续往下铺到入口本身 ——
-    /// 否则深层入口（AppData\Local · Roaming）永远露不出来。
-    /// 这条例外**只走路径**，到入口就停，不会把入口内部也自动铺开。
+    /// 「铺开」在这里只表示**后台把对象建出来**（这样一、二级能被全量识别），
+    /// 与**展开显示**完全无关 —— 首屏可见树只显示根的一级，谁展开由用户决定。
+    ///
+    /// 规则：
+    /// <list type="bullet">
+    /// <item>**系统入口**（Program Files / AppData\Local / 用户目录 …）：一律把直接子项建出来，
+    /// 这样入口内部的直接子目录也进入自动识别并缓存，用户不点入口也能拿到结果；</item>
+    /// <item>**收纳 / 混合**目录：继续建下一层（第 2 级对象就是这么来的）；</item>
+    /// <item>**具体对象**（某个应用、某个项目）与未知目录：内部不铺 ——
+    /// 应用内部不需要逐个贴标签，更不会自动调用 AI；</item>
+    /// <item>某一层如果正好是「通往系统入口的路上」，也允许继续建到入口为止。</item>
+    /// </list>
     /// </summary>
     public static bool ShouldAutoMaterializeChildren(
         OrganizeLevelPolicy policy, FileEntry? dir, FolderKind kind,
         IReadOnlyList<string>? entryPoints = null)
     {
         if (!FolderPurposeRules.CanDescend(dir)) return false;
-        // 入口自己不再自动往下：它已经是识别起点，内部由用户展开
-        if (entryPoints != null && dir != null && IsEntryPoint(dir.FullPath, entryPoints)) return false;
+
         if (policy.CanAutoMaterialize)
-            return kind is FolderKind.Container or FolderKind.Mixed;
+        {
+            // 系统入口：内部一定要建出来（用户不点也要能后台识别）
+            if (dir != null && entryPoints != null && IsEntryPoint(dir.FullPath, entryPoints)) return true;
+            // 收纳 / 混合：继续建下一层
+            if (kind is FolderKind.Container or FolderKind.Mixed) return true;
+            // 具体对象 / 未知：内部不铺
+            return false;
+        }
+
         // 层级已经超过两级：只有「通往系统入口的路上」才继续
         return dir != null && entryPoints != null
                && IsAncestorOfEntryPoint(dir.FullPath, entryPoints);
@@ -257,16 +278,15 @@ public static class FolderOrganize
     }
 
     /// <summary>
-    /// 顶层对象：**系统解析出来的识别入口**（Program Files / Program Files (x86) /
-    /// ProgramData / AppData\Local · Roaming …）加上盘符下其它直接子目录。
+    /// 顶层对象：**系统解析出来的识别入口**（Windows / Program Files / Program Files (x86) /
+    /// ProgramData / 用户目录 / AppData\Local · Roaming / 下载 …）加上盘符下其它直接子目录。
     ///
     /// 两条去重规则（这是「C 盘不会只看到 Users 就停」的关键）：
     /// <list type="number">
-    /// <item>入口之间：被更外层入口覆盖的内层入口丢掉（避免同一个目录出现两次）；</item>
-    /// <item>普通盘符子目录：**只有「已经是一份入口」时才被清掉**；
-    /// 如果某个普通目录只是「某个入口的祖先」（例如 <c>C:\Users</c> 之于
-    /// <c>C:\Users\&lt;你&gt;\AppData\Local</c>），它**不覆盖**入口 ——
-    /// 否则用户目录会把真正有用的识别起点吞掉。</item>
+    /// <item>**只按全路径相等去重**：同一个目录不会出现两次；</item>
+    /// <item>祖先 / 后代关系**不再**互相吞掉 —— 一个入口不会因为「它在 Users 下面」
+    /// 就被 Users 覆盖掉，Users 也不会因为「它包着入口」而被丢掉。
+    /// 这样 `AppData\Local` · `Roaming` 这些真正有用的识别起点一定会出现。</item>
     /// </list>
     ///
     /// 入口不一定贴着盘符（<c>…\AppData\Local</c> 就在好几层下面）——
@@ -279,10 +299,9 @@ public static class FolderOrganize
 
         var entries = entryPoints ?? FolderPurposeRules.EntryPoints();
         var roots = new List<FileEntry>();
-        var included = new List<string>();
+        var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int skipped = 0;
 
-        // 1) 解析入口节点
         var resolved = new List<FileEntry>();
         foreach (var ep in entries)
         {
@@ -292,51 +311,30 @@ public static class FolderOrganize
             resolved.Add(e);
         }
 
-        // 2) 入口的祖先不作为顶层对象：它们只是路径，不是识别起点。
-        //    这样 C:\Users / C:\Users\<你> / AppData 都不会占名额，也不会把入口挡掉。
-        var ancestorPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var e in resolved)
-        {
-            var cur = e.Parent;
-            int guard = 0;
-            while (cur != null && guard++ < MaxEntryDepth + 8)
-            {
-                string cn = Norm(cur.FullPath);
-                if (cn.Length == 0 || IsUnderOrEqual(cn, root.FullPath) == false) break;
-                if (cn.Equals(Norm(root.FullPath), StringComparison.OrdinalIgnoreCase)) break;
-                ancestorPaths.Add(cn);
-                cur = cur.Parent;
-            }
-        }
-
-        // 3) 入口之间按路径长度从短到长处理 ⇒ 先收外层，内层被外层覆盖时丢掉
+        // 1) 入口：短的路径先入列（外层入口优先），已经收过的同路径不再重复
         resolved.Sort(static (a, b) => Norm(a.FullPath).Length.CompareTo(Norm(b.FullPath).Length));
         foreach (var e in resolved)
         {
             string n = Norm(e.FullPath);
-            if (included.Any(a => IsUnderOrEqual(n, a))) continue;   // 已被更外层入口覆盖
-            included.Add(n);
+            if (!included.Add(n)) continue;
             roots.Add(e);
         }
 
-        // 4) 盘符下的其它直接子目录：**不当任何入口的祖先，也不用祖先身份去覆盖入口**
+        // 2) 盘符下的其它直接子目录：**只跳完全相同的路径**，不做祖先覆盖
         var top = new List<FileEntry>();
         foreach (var c in root.ChildList)
         {
             if (!c.IsDirectory) continue;
             if (c.IsReparsePoint || c.IsFilesGroup) { skipped++; continue; }   // 链接不跟随，避免成环
             string n = Norm(c.FullPath);
-            if (ancestorPaths.Contains(n)) continue;                  // 入口的祖先：不是识别起点
-            if (included.Any(a => IsUnderOrEqual(n, a))) continue;    // 已经被入口本身收过
+            if (included.Contains(n)) continue;                 // 已经是入口了
             top.Add(c);
         }
         top.Sort(static (a, b) => b.Size.CompareTo(a.Size));
         foreach (var c in top)
         {
             string n = Norm(c.FullPath);
-            // 只有「它自己就是一份入口」才去重；仅仅是祖先关系的不再互相吞掉
-            if (included.Contains(n, StringComparer.OrdinalIgnoreCase)) continue;
-            included.Add(n);
+            if (!included.Add(n)) continue;
             roots.Add(c);
         }
 
@@ -433,4 +431,7 @@ public static class FolderOrganize
 
     /// <summary>行数是否已经到顶（到顶就停自动铺开，避免海量目录把界面拖死）。</summary>
     public static bool RowBudgetReached(int rows) => rows >= MaxRows;
+
+    /// <summary>对象数是否已经到顶（识别覆盖的上限，与可见行数分开）。</summary>
+    public static bool ObjectBudgetReached(int objects) => objects >= MaxObjects;
 }

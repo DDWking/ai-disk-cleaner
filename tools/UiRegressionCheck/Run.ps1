@@ -145,6 +145,44 @@ Assert-True 'unscanned / scanning / empty / no-model / failed states all exist' 
 Assert-True 'the row no longer carries a per-row identify button' `
     ($orgPane -notmatch 'OrganizeIdentifyOne_Click' -and $xaml -notmatch 'Binding ActionText' -and
      $xaml -notmatch 'x:Name="OrgCtxIdentify"')
+Assert-True 'the right side has no second expand/collapse button (arrow is the only one)' `
+    ($xaml -notmatch 'Binding ToggleText' -and $xaml -notmatch 'Binding HasToggleText' -and
+     $xaml -notmatch 'GhostButton[^>]*OrganizeExpand_Click')
+Assert-True 'the left arrow is the single expand/collapse entry' `
+    ($xaml -match 'x:Name="ColOrgName"' -and
+     [regex]::Match($xaml, '(?s)x:Name="ColOrgName".*?OrganizeExpand_Click').Success -and
+     [regex]::Match($xaml, '(?s)x:Name="ColOrgName".*?Binding ExpandGlyphKey').Success)
+Assert-True 'the action column only keeps the explorer folder icon with tooltip + automation name' `
+    ([regex]::Match($xaml, '(?s)x:Name="ColOrgAction"(.*?)</DataGridTemplateColumn>').Groups[1].Value -match
+        'IconFolderOpen' -and
+     [regex]::Match($xaml, '(?s)x:Name="ColOrgAction"(.*?)</DataGridTemplateColumn>').Groups[1].Value -match
+        'AutomationProperties\.Name="在资源管理器中打开"' -and
+     [regex]::Match($xaml, '(?s)x:Name="ColOrgAction"(.*?)</DataGridTemplateColumn>').Groups[1].Value -match
+        'ToolTip=')
+Assert-True 'rows can grow when a detail block is open' `
+    ($xaml -match 'RowHeight="Auto"')
+Assert-True 'the purpose cell opens an inline detail block (collapsed by default)' `
+    ($xaml -match 'MouseLeftButtonUp="OrganizePurpose_Click"' -and
+     $xaml -match 'Binding IsDetailOpen' -and
+     $org -match 'private void OrganizePurpose_Click' -and
+     $orgnode -match 'public void ToggleDetail' -and
+     $orgnode -match 'private bool _detailOpen')
+Assert-True 'the detail shows what / why / source from real evidence only' `
+    ($orgnode -match 'Loc\.OrganizeDetailWhat' -and $orgnode -match 'Loc\.OrganizeDetailWhy' -and
+     $orgnode -match 'Loc\.OrganizeDetailSource' -and $orgnode -match 'SetEvidence')
+Assert-True 'the UI never uses the developer term "hit signature"' `
+    ($loc -notmatch '命中签名' -and $loc -notmatch 'matched local signature')
+Assert-True 'system paths get a real local conclusion without confirmation' `
+    ($newfp -match 'public static SystemPathRole\? SystemRole' -and
+     $newfp -match 'NeedsConfirm: false' -and $newfp -match 'SystemRoles\(\)' -and
+     $newfp -match 'Environment\.SpecialFolder\.Windows')
+Assert-True 'system semantics cover windows / program files / programdata / appdata / user / downloads' `
+    ($loc -match 'SysWindows' -and $loc -match 'SysProgramFiles' -and $loc -match 'SysProgramData' -and
+     $loc -match 'SysAppData' -and $loc -match 'SysUserProfile' -and $loc -match 'SysLocalAppData' -and
+     $loc -match 'SysRoamingAppData' -and $loc -match 'SysDownloads')
+Assert-True 'system semantics are matched by real path only (other drives are not misjudged)' `
+    ($newfp -match 'p\.Equals\(r\.Path, StringComparison\.OrdinalIgnoreCase\)' -and
+     $newfp -notmatch 'EndsWith\(.*Name')
 Assert-True 'the one batch entry is the unified retry for pending / failed' `
     ($xaml -match 'x:Name="OrganizeIdentifyAllBtn"' -and $org -match 'Loc\.OrganizeRetryPending' -and
      $org -match 'x => x\.IsPending')
@@ -154,20 +192,32 @@ Assert-True 'identification starts automatically once the scan is done' `
 Assert-True 'automatic identification only covers levels 1-2' `
     ($forg -match 'AutoChildLevel = 2' -and $forg -match 'IsManualOnly' -and
      $org -match 'x\.IsAutoLevel')
-Assert-True 'the deep workspace has one explicit current-folder action' `
+Assert-True 'the deep workspace has one explicit this-level action' `
     ($xaml -match 'x:Name="OrganizeWorkBar"' -and $xaml -match 'x:Name="OrganizeIdentifyCurrentBtn"' -and
      $xaml -match 'x:Name="OrganizeWorkScope"' -and $xaml -match 'x:Name="OrganizeWorkPath"' -and
-     $org -match 'OrganizeIdentifyCurrent_Click' -and $org -match 'Loc\.OrganizeWorkScope\(')
+     $org -match 'OrganizeIdentifyCurrent_Click' -and $org -match 'Loc\.OrganizeWorkBarScope\(')
+Assert-True 'the workspace bar only appears on level 3 and deeper (no misleading title)' `
+    ($org -match 'node == null \|\| _root == null \|\| !node\.IsDeepLevel' -and
+     $orgnode -match 'public bool IsDeepLevel')
+Assert-True 'the this-level action says it only identifies direct sub-folders' `
+    ($org -match 'Loc\.OrganizeIdentifyThisLevel' -and $org -match 'Loc\.OrganizeThisLevelOnly' -and
+     $loc -match '识别本层文件夹' -and $loc -match '直接子文件夹')
 Assert-True 'current-folder identification only touches the direct children' `
     ($forg -match 'IsInCurrentFolderScope' -and
      $org -match 'OpenCurrentFolderChildren' -and $org -match 'RunOrganizeIdentifyAsync\(scope,')
 Assert-True 'the workspace states the scope and request count before sending' `
-    ($org -match 'FolderOrganize\.PlanFor\(' -and $org -match 'Loc\.OrganizeWorkScope\(plan\.DirectChildTotal, plan\.RequestBudget\)' -and
+    ($org -match 'FolderOrganize\.PlanFor\(' -and $org -match 'Loc\.OrganizeWorkBarScope\(plan\.DirectChildTotal, plan\.RequestBudget\)' -and
      $forg -match 'RequestBudgetFor')
-Assert-True 'progress reports done / pending / failed and can be cancelled' `
-    ($org -match 'Loc\.OrganizeAutoDone\(done, pending, failed' -and
-     $org -match 'Loc\.OrganizeCounts\(resolved, pending, failed\)' -and
-     $org -match 'OrganizeStop_Click')
+Assert-True 'progress separates finished / running / unfinished / canceled' `
+    ($org -match 'Loc\.OrganizeRunRunning' -and $org -match 'Loc\.OrganizeRunDone' -and
+     $org -match 'Loc\.OrganizeRunIncomplete' -and $org -match 'Loc\.OrganizeRunCanceled')
+Assert-True 'progress counts named / ai / unknown / failed, not just "handled"' `
+    ($org -match 'Loc\.OrganizeRunCounts\(named, aiCount, unknown, failed\)' -and
+     $org -match 'Loc\.OrganizeRunCovered\(' -and $org -match 'Loc\.OrganizeRunRequests\(')
+Assert-True 'request budget goes to the tooltip, not the same line as folder counts' `
+    ($org -match 'OrganizeCounts\.ToolTip' -and $org -match 'complete && _organizeAll\.All\(x => !x\.IsPending\)')
+Assert-True 'a pass that did not cover everything is never called finished' `
+    ($org -match 'bool complete = allReached && notCovered == 0 && failed == 0')
 Assert-True 'a scan in progress starts no identification pass' `
     ($org -match 'if \(_organizeBusy\) return;' -and $org -match '_organizeAutoStarted')
 Assert-True 'no full path or full file list is sent by default' `
@@ -187,17 +237,22 @@ Assert-True 'language never says "recently used"' `
     ($loc -notmatch '最近使用')
 # --- 2d. calibration: entry points, coverage vs UI cap, honest status ----------
 Assert-True 'user-profile ancestors never swallow AppData entry points' `
-    ($forg -match 'IsAncestorOfEntryPoint' -and $forg -match 'ancestorPaths' -and
+    ($forg -match 'included\.Add\(n\)' -and $forg -match 'IsAncestorOfEntryPoint' -and
      $forg -notmatch 'IsUnderOrEqual\(a, n\)')
 Assert-True 'entry points accept an injected table (testable, no hardcoded user name)' `
-    ($forg -match 'BuildRoots\(\s*FileEntry\? root, int budget = MaxRoots,\s*IReadOnlyList<string>\? entryPoints = null\)' -or
-     $forg -match 'IReadOnlyList<string>\? entryPoints = null')
+    ($forg -match 'IReadOnlyList<string>\? entryPoints = null')
+Assert-True 'entries children are still materialised in the background (entry does not stop it)' `
+    ($forg -match 'IsEntryPoint\(dir\.FullPath, entryPoints\)\) return true' -and
+     $forg -notmatch 'IsEntryPoint\(dir\.FullPath, entryPoints\)\) return false')
 Assert-True 'entry points come from system resolution only (no hardcoded paths)' `
     ($newfp -match 'Environment\.GetFolderPath' -and
      $newfp -notmatch 'C:\\\\Users\\\\' -and $forg -notmatch 'C:\\\\Users\\\\')
-Assert-True 'path to a deep entry point keeps being materialised, entry itself stops' `
+Assert-True 'path to a deep entry point is still walked, and the cap still exists' `
     ($forg -match 'IsAncestorOfEntryPoint\(dir\.FullPath, entryPoints\)' -and
-     $forg -match 'IsEntryPoint\(dir\.FullPath, entryPoints\)\) return false')
+     $forg -match 'AutoChildLevel = 2')
+Assert-True 'first screen shows only the roots (nothing auto-expands)' `
+    ($orgnode -match 'bool autoExpand = false' -and $org -match 'Materialize\(node, FolderOrganize\.ChildBudget, FolderOrganize\.AutoMaterializeBudget\(node\.Depth == 0\)\)' -and
+     -not ([regex]::Match($org, 'SetChildren\([^)]*autoExpand:\s*true').Success))
 Assert-True 'recognition coverage is decoupled from the UI row cap' `
     ($forg -match 'MaterializeBudget = 400' -and $forg -match 'MaxMaterializePerNode' -and
      $forg -match 'ChildBudget = 24' -and $forg -match 'AutoMaterializeBudget')
@@ -604,7 +659,7 @@ if (Test-Path $publish) {
     $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
     Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
     $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
-    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.7.0*')
+    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.8.0*')
 }
 else {
     Assert-True 'publish package exists' $false

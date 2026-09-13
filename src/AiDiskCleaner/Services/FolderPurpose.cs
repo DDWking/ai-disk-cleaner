@@ -139,8 +139,11 @@ public static class FolderPurposeRules
     public const int StrongChildBytes = 8 * 1024 * 1024;
 
     /// <summary>
-    /// 系统盘入口：通过系统路径解析，**不硬编码 C 盘或用户名**。
-    /// 入口本身不是可清理结论。
+    /// 系统识别入口：通过系统路径解析，**不硬编码 C 盘或用户名**。
+    ///
+    /// 这里给的是「**识别起点**」：盘符下的普通目录 + 系统解析出来的关键位置。
+    /// 入口本身只是导航/容器，不是清理结论；但它的**用途**会由
+    /// <see cref="SystemRole"/> 按系统语义直接说清（不需要问模型）。
     /// </summary>
     public static IReadOnlyList<string> EntryPoints()
     {
@@ -159,8 +162,114 @@ public static class FolderPurposeRules
         Add(Environment.SpecialFolder.CommonApplicationData);
         Add(Environment.SpecialFolder.LocalApplicationData);
         Add(Environment.SpecialFolder.ApplicationData);
+        Add(Environment.SpecialFolder.Windows);
         Add(Environment.SpecialFolder.UserProfile);
-        return list;
+        Add(Environment.SpecialFolder.MyDocuments);
+        try
+        {
+            // 下载目录没有 SpecialFolder 枚举，按用户目录 + Downloads 解析（仍不硬编码用户名）
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrWhiteSpace(home))
+            {
+                string dl = System.IO.Path.Combine(home, "Downloads");
+                if (Directory.Exists(dl)) list.Add(dl);
+            }
+        }
+        catch { /* 解析不到就跳过 */ }
+
+        return list.Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(x => x.Length)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// 一条**系统语义**：某个由系统解析出来的位置到底是干什么的。
+    /// 判定只按**真实全路径相等**，不按目录名 ——
+    /// 其它盘上的同名目录（`D:\Windows`）不会被误判成系统目录。
+    /// </summary>
+    public sealed record SystemPathRole(string Path, string PurposeName, string Category, string Basis);
+
+    /// <summary>
+    /// 系统语义表。路径全部由 <see cref="Environment.SpecialFolder"/> 解析，
+    /// **没有硬编码盘符或用户名**；`Downloads` 由用户目录拼出来。
+    /// 返回顺序 = 匹配优先级（长路径优先，`AppData\Local` 先于 `AppData`）。
+    /// </summary>
+    public static IReadOnlyList<SystemPathRole> SystemRoles()
+    {
+        var roles = new List<SystemPathRole>();
+        void Add(Environment.SpecialFolder f, Func<string> name, Func<string> cat, Func<string> basis)
+        {
+            try
+            {
+                string p = Environment.GetFolderPath(f);
+                if (!string.IsNullOrWhiteSpace(p))
+                    roles.Add(new SystemPathRole(CleanListSnapshot.NormPath(p), name(), cat(), basis()));
+            }
+            catch { /* 解析不到就跳过 */ }
+        }
+        Add(Environment.SpecialFolder.Windows, () => Loc.SysWindows, () => Loc.PurposeCatSystem,
+            () => Loc.SysBasisWindows);
+        Add(Environment.SpecialFolder.ProgramFilesX86, () => Loc.SysProgramFilesX86, () => Loc.PurposeCatSystem,
+            () => Loc.SysBasisProgramFiles);
+        Add(Environment.SpecialFolder.ProgramFiles, () => Loc.SysProgramFiles, () => Loc.PurposeCatSystem,
+            () => Loc.SysBasisProgramFiles);
+        Add(Environment.SpecialFolder.CommonApplicationData, () => Loc.SysProgramData, () => Loc.PurposeCatSystem,
+            () => Loc.SysBasisProgramData);
+        Add(Environment.SpecialFolder.LocalApplicationData, () => Loc.SysLocalAppData, () => Loc.PurposeCatSystem,
+            () => Loc.SysBasisLocalAppData);
+        Add(Environment.SpecialFolder.ApplicationData, () => Loc.SysRoamingAppData, () => Loc.PurposeCatSystem,
+            () => Loc.SysBasisRoamingAppData);
+        Add(Environment.SpecialFolder.UserProfile, () => Loc.SysUserProfile, () => Loc.PurposeUserFiles,
+            () => Loc.SysBasisUserProfile);
+        Add(Environment.SpecialFolder.MyDocuments, () => Loc.SysDocuments, () => Loc.PurposeUserFiles,
+            () => Loc.SysBasisDocuments);
+        try
+        {
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrWhiteSpace(home))
+            {
+                string dl = CleanListSnapshot.NormPath(System.IO.Path.Combine(home, "Downloads"));
+                roles.Add(new SystemPathRole(dl, Loc.SysDownloads, Loc.PurposeUserFiles, Loc.SysBasisDownloads));
+
+                // 「用户目录的上一级」（各用户主目录都在这，例如 <系统盘>\Users）
+                // 与「AppData」本身都由系统路径**推导**出来，仍然不硬编码盘符/用户名。
+                string? usersContainer = null;
+                try { usersContainer = System.IO.Path.GetDirectoryName(home.TrimEnd('\\')); } catch { }
+                if (!string.IsNullOrWhiteSpace(usersContainer) && usersContainer.Length > 3)
+                    roles.Add(new SystemPathRole(CleanListSnapshot.NormPath(usersContainer),
+                        Loc.SysUsersContainer, Loc.PurposeUserFiles, Loc.SysBasisUsersContainer));
+
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                if (!string.IsNullOrWhiteSpace(appData))
+                {
+                    string? parent = null;
+                    try { parent = System.IO.Path.GetDirectoryName(appData.TrimEnd('\\')); } catch { }
+                    if (!string.IsNullOrWhiteSpace(parent) && parent.Length > 3
+                        && !parent.Equals(CleanListSnapshot.NormPath(home), StringComparison.OrdinalIgnoreCase))
+                        roles.Add(new SystemPathRole(CleanListSnapshot.NormPath(parent),
+                            Loc.SysAppData, Loc.PurposeCatSystem, Loc.SysBasisAppData));
+                }
+            }
+        }
+        catch { /* 解析不到就跳过 */ }
+
+        return roles
+            .Where(r => r.Path.Length > 0)
+            .OrderByDescending(r => r.Path.Length)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// 这个**真实路径**是不是系统解析出来的位置；是就给一条语义说明。
+    /// 只按全路径相等判定（大小写不敏感），不按目录名猜。
+    /// </summary>
+    public static SystemPathRole? SystemRole(string? path)
+    {
+        string p = CleanListSnapshot.NormPath(path);
+        if (p.Length == 0) return null;
+        foreach (var r in SystemRoles())
+            if (p.Equals(r.Path, StringComparison.OrdinalIgnoreCase)) return r;
+        return null;
     }
 
     /// <summary>
@@ -332,10 +441,15 @@ public static class FolderPurposeRules
             return new FolderPurposeResult(id, Loc.PurposeDevProject, Loc.PurposeCatDev,
                 Loc.PurposeBasisDevMark(devMark), PurposeSource.Local, false, FolderKind.Concrete);
 
-        // e) 系统入口本身：说明它是系统位置，但**不当作可清理结论**
-        if (IsSystemEntry(dir.FullPath, entryPoints))
-            return new FolderPurposeResult(id, Loc.PurposeSystemArea, Loc.PurposeCatSystem,
-                Loc.PurposeBasisSystemEntry, PurposeSource.Local, true, FolderKind.Container);
+        // e) 系统解析出来的位置：**直接给一个可读的用途结论**
+        //    （Windows / Program Files / ProgramData / 用户目录 / AppData / Local / Roaming / 下载 …）
+        //    这是本地语义结论 ⇒ HasConclusion=true、NeedsConfirm=false，**不进 AI 候选**。
+        //    只按真实全路径相等判定，其它盘的同名目录不会被误判。
+        var role = SystemRole(dir.FullPath);
+        if (role != null)
+            return new FolderPurposeResult(id, role.PurposeName, role.Category, role.Basis,
+                PurposeSource.Local, NeedsConfirm: false,
+                Kind: dir.ChildList.Any(c => c.IsDirectory) ? FolderKind.Container : FolderKind.Concrete);
 
         return FolderPurposeResult.None(id, ClassifyKind(dir));
     }
@@ -343,15 +457,20 @@ public static class FolderPurposeRules
     /// <summary>系统目录入口（用于说明，不作为清理结论）。</summary>
     public static bool IsSystemEntry(string? path) => IsSystemEntry(path, null);
 
-    /// <summary>系统目录入口（可传入预先解析好的入口表，避免重复碰磁盘）。</summary>
+    /// <summary>
+    /// 这个路径是不是系统解析出来的识别入口。
+    /// 判定按**全路径相等或真实父子关系**（整段比较，不用裸子串）——
+    /// `D:\Windows` 这种其它盘的同名目录不会被误判。
+    /// </summary>
     public static bool IsSystemEntry(string? path, IReadOnlyList<string>? entryPoints)
     {
-        string p = (path ?? "").Replace('/', '\\').ToLowerInvariant().TrimEnd('\\');
+        string p = (path ?? "").Replace('/', '\\').TrimEnd('\\');
         if (p.Length == 0) return false;
         foreach (var e in entryPoints ?? EntryPoints())
         {
-            string q = CleanListSnapshot.NormPath(e).ToLowerInvariant();
-            if (p == q) return true;
+            string q = CleanListSnapshot.NormPath(e);
+            if (q.Length == 0) continue;
+            if (p.Equals(q, StringComparison.OrdinalIgnoreCase)) return true;
         }
         return false;
     }
