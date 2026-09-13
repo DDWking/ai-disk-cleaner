@@ -1,4 +1,4 @@
-﻿﻿﻿# UI / behaviour regression check (ASCII only on purpose).
+﻿# UI / behaviour regression check (ASCII only on purpose).
 #
 # Guards the interface behaviour that was finished on 2026-09-10 so a later
 # refactor cannot quietly roll it back:
@@ -103,15 +103,17 @@ Assert-True 'setting the range never clears or widens the selection' `
 
 # --- 2. folder tidy-up is the default workspace ------------------------------
 # The user could not see the purpose feature when it only lived in the hidden
-# sidebar tree. Folder tidy-up is now a real main-area workspace and the
-# default tab; clean center and uninstall are untouched.
+# sidebar tree. The clean center is the default home and the main work area;
+# folder tidy-up is a secondary entry (local recognition only, no auto AI).
 $org = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\MainWindow.Organize.cs') -Raw -Encoding UTF8
 $orgPane = [regex]::Match($xaml, '(?s)x:Name="OrganizePane"(.*?)x:Name="CleanPane"').Groups[1].Value
-Assert-True 'window opens on the folder tidy-up tab' `
-    ($cs -match 'RightTab _rightTab = RightTab\.Organize;' -and
-     $cs -match 'ShowRightTab\(RightTab\.Organize\);')
-Assert-True 'top navigation is tidy-up | clean | uninstall, in that order' `
-    ($xaml -match '(?s)x:Name="TabOrganizeBtn".*?x:Name="TabCleanBtn".*?x:Name="TabUninstallBtn"')
+Assert-True 'window opens on the clean tab (tidy-up is a secondary entry)' `
+    ($cs -match 'RightTab _rightTab = RightTab\.Clean;' -and
+     $cs -match 'ShowRightTab\(RightTab\.Clean\);')
+Assert-True 'a scan never yanks the user off the page they chose' `
+    (([regex]::Match($cs, '(?s)private async void RunScan\(\).*?\n    \}').Value) -notmatch 'ShowRightTab\(')
+Assert-True 'top navigation is clean | tidy-up | uninstall, in that order' `
+    ($xaml -match '(?s)x:Name="TabCleanBtn".*?x:Name="TabOrganizeBtn".*?x:Name="TabUninstallBtn"')
 Assert-True 'tab switching uses an enum, not fragile numeric indexes' `
     ($cs -match 'private enum RightTab \{ Organize, Clean, Uninstall \}' -and
      $cs -match 'ShowRightTab\(RightTab\.Uninstall\)' -and
@@ -134,12 +136,28 @@ Assert-True 'tidy-up does not copy the clean candidate space or clean buttons' `
     ($orgPane.Length -gt 0 -and $orgPane -notmatch 'CheckAndCleanBtn' -and
      $orgPane -notmatch 'CleanSelectionSummary' -and $orgPane -notmatch 'CleanActionBar' -and
      $org -notmatch 'CheckAndCleanBtn' -and $org -notmatch 'CleanSelectionSummary')
-Assert-True 'one free-form batch entry with scope, budget, progress and cancel' `
-    ($xaml -match 'x:Name="OrganizeIdentifyAllBtn"' -and
-     $xaml -match 'x:Name="OrganizeScopeText"' -and
-     $xaml -match 'x:Name="OrganizeProgressBar"' -and $xaml -match 'x:Name="OrganizeStopBtn"')
-Assert-True 'batch scope and budget are stated before sending anything' `
-    ($org -match 'Loc\.OrganizeIdentifyScope\(' -and $org -match 'Loc\.OrganizeBudget\(')
+Assert-True 'no batch / scope / progress / cancel AI entry remains in the tidy-up pane' `
+    ($xaml -notmatch 'x:Name="OrganizeIdentifyAllBtn"' -and
+     $xaml -notmatch 'x:Name="OrganizeScopeText"' -and
+     $xaml -notmatch 'x:Name="OrganizeProgressBar"' -and $xaml -notmatch 'x:Name="OrganizeStopBtn"' -and
+     $xaml -notmatch 'x:Name="OrganizeWorkBar"' -and $xaml -notmatch 'x:Name="OrganizeIdentifyCurrentBtn"' -and
+     $org -notmatch 'OrganizeIdentifyAll|OrganizeIdentifyCurrent|OrgCtxIdentifyCurrent' -and
+     $org -notmatch 'AutoIdentifyTargets|StartOrganizeAutoIdentify|RunOrganizeIdentifyAsync')
+Assert-True 'the tidy-up workspace never sends a request by itself (local recognition runs)' `
+    ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
+     $org -match 'FolderPurposeRules\.RecognizeLocally' -and
+     $org -notmatch 'RecognizeWithAsync')
+Assert-True 'single-item AI is the only model entry (one object per click)' `
+    ($orgnode -match 'public ItemAiView Ai' -and
+     $cs -match 'case OrganizeNode node:' -and
+     $cs -match 'private static List<string> BuildFolderSummary\(FileEntry dir, out int total\)' -and
+     $cs -match 'ItemAiPrompt\.MaxFolderSummary')
+Assert-True 'item AI never writes Risk / CanDelete / Selected' `
+    ($iasvc -notmatch '\.Risk\s*=' -and $iasvc -notmatch '\.CanDelete\s*=' -and $iasvc -notmatch '\.Selected\s*=')
+Assert-True 'single-item AI keeps its cache / cancel / retry plumbing' `
+    ($iasvc -match 'TryGetCached' -and $cs -match '_itemAiRunning' -and $cs -match 'ItemAiRetry_Click')
+Assert-True 'outbound requests are countable at the single gateway choke point' `
+    ((Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiGateway.cs') -Raw -Encoding UTF8) -match 'public static int SentCount')
 Assert-True 'unscanned / scanning / empty / no-model / failed states all exist' `
     ($org -match 'OrganizeStateKind\.NoScan' -and
      $org -match 'OrganizeStateKind\.Scanning' -and
@@ -187,48 +205,38 @@ Assert-True 'system semantics cover windows / program files / programdata / appd
 Assert-True 'system semantics are matched by real path only (other drives are not misjudged)' `
     ($newfp -match 'p\.Equals\(r\.Path, StringComparison\.OrdinalIgnoreCase\)' -and
      $newfp -notmatch 'EndsWith\(.*Name')
-Assert-True 'the one batch entry is the unified retry for pending / failed' `
-    ($xaml -match 'x:Name="OrganizeIdentifyAllBtn"' -and $org -match 'Loc\.OrganizeRetryPending' -and
-     $org -match 'x => x\.IsPending')
-Assert-True 'identification starts automatically once the scan is done' `
-    ($org -match 'StartOrganizeAutoIdentify\(\);' -and $org -match 'private void StartOrganizeAutoIdentify\(\)' -and
-     $org -match 'IsAutoLevel')
-Assert-True 'automatic identification only covers levels 1-2' `
-    ($forg -match 'AutoChildLevel = 2' -and $forg -match 'IsManualOnly' -and
-     $org -match 'x\.IsAutoLevel')
-Assert-True 'the deep workspace has one explicit this-level action' `
-    ($xaml -match 'x:Name="OrganizeWorkBar"' -and $xaml -match 'x:Name="OrganizeIdentifyCurrentBtn"' -and
-     $xaml -match 'x:Name="OrganizeWorkScope"' -and $xaml -match 'x:Name="OrganizeWorkPath"' -and
-     $org -match 'OrganizeIdentifyCurrent_Click' -and $org -match 'Loc\.OrganizeWorkBarScope\(')
-Assert-True 'the workspace bar only appears on level 3 and deeper (no misleading title)' `
-    ($org -match 'node == null \|\| _root == null \|\| !node\.IsDeepLevel' -and
-     $orgnode -match 'public bool IsDeepLevel')
-Assert-True 'the this-level action says it only identifies direct sub-folders' `
-    ($org -match 'Loc\.OrganizeIdentifyThisLevel' -and $org -match 'Loc\.OrganizeThisLevelOnly' -and
-     $loc -match '识别本层文件夹' -and $loc -match '直接子文件夹')
-Assert-True 'current-folder identification only touches the direct children' `
-    ($forg -match 'IsInCurrentFolderScope' -and
-     $org -match 'OpenCurrentFolderChildren' -and $org -match 'RunOrganizeIdentifyAsync\(scope,')
-Assert-True 'the workspace states the scope and request count before sending' `
-    ($org -match 'FolderOrganize\.PlanFor\(' -and $org -match 'Loc\.OrganizeWorkBarScope\(plan\.DirectChildTotal, plan\.RequestBudget\)' -and
-     $forg -match 'RequestBudgetFor')
-Assert-True 'progress separates finished / running / unfinished / canceled' `
-    ($org -match 'Loc\.OrganizeRunRunning' -and $org -match 'Loc\.OrganizeRunDone' -and
-     $org -match 'Loc\.OrganizeRunIncomplete' -and $org -match 'Loc\.OrganizeRunCanceled' -and
-     $org -match 'Loc\.OrganizeRunSuperseded')
-Assert-True 'no hard-coded "identifying 0/N" is left in the running state' `
-    ($org -notmatch 'OrganizeRunRunning \+ " · " \+ Loc\.OrganizeRunCovered\(0')
-Assert-True 'progress counts local / ai / unknown / failed / not-sent separately' `
-    ($org -match 'Loc\.OrganizeRunSummary\(head, failed, notSent\)' -and
+Assert-True 'there is no unified batch retry entry any more' `
+    ($xaml -notmatch 'x:Name="OrganizeIdentifyAllBtn"' -and
+     $org -notmatch 'Loc\.OrganizeRetryPending' -and $org -notmatch 'OrganizeIdentifyAll_Click')
+Assert-True 'no identification pass is started after a scan' `
+    ($org -notmatch 'StartOrganizeAutoIdentify' -and $org -notmatch '_organizeAutoStarted' -and
+     $org -notmatch '_organizeBusy')
+Assert-True 'the tidy-up workspace has no automatic model scope at all' `
+    ($org -notmatch 'AutoIdentifyTargets' -and $org -notmatch 'IsAutoLevel\)\s*$' -and
+     $org -notmatch 'RunOrganizeIdentifyAsync')
+Assert-True 'the deep this-level workspace bar is gone' `
+    ($xaml -notmatch 'x:Name="OrganizeWorkBar"' -and $xaml -notmatch 'x:Name="OrganizeIdentifyCurrentBtn"' -and
+     $xaml -notmatch 'x:Name="OrganizeWorkScope"' -and
+     $org -notmatch 'OrganizeIdentifyCurrent_Click' -and $org -notmatch 'Loc\.OrganizeWorkBarScope\(')
+Assert-True 'no this-level wording remains (the action no longer exists)' `
+    ($org -notmatch 'Loc\.OrganizeIdentifyThisLevel' -and $org -notmatch 'Loc\.OrganizeThisLevelOnly' -and
+     $org -notmatch 'OpenCurrentFolderChildren' -and $org -notmatch 'IsInCurrentFolderScope')
+Assert-True 'there is no request-budget / plan machinery left' `
+    ($org -notmatch 'FolderOrganize\.PlanFor\(' -and $org -notmatch 'RequestBudgetFor' -and
+     $org -notmatch 'Loc\.OrganizeRunAttempts')
+Assert-True 'no batch progress states remain (nothing to report progress for)' `
+    ($org -notmatch 'Loc\.OrganizeRunRunning' -and $org -notmatch 'Loc\.OrganizeRunSuperseded' -and
+     $org -notmatch '_organizeTaskId')
+Assert-True 'the tidy-up page states counts per object, not a batch budget' `
+    ($org -match 'private void UpdateOrganizeHeader\(\)' -and
      $org -match 'Loc\.OrganizeCountsLine\(local, ai, unknown, failed\)' -and
-     $org -match 'int notSent = Math\.Max\(0, noConclusion - attemptedUnknown\)')
-Assert-True 'request count is never equated with success count' `
-    ($org -match 'Loc\.OrganizeRunAttempts\(attempted, targets\.Count\)' -and
-     $org -match 'int attempted = 0;')
-Assert-True 'request budget goes to the tooltip, not the same line as folder counts' `
-    ($org -match 'OrganizeCounts\.ToolTip' -and $org -match 'complete && _organizeAll\.All\(x => !x\.IsPending\)')
-Assert-True 'a pass that did not cover everything is never called finished' `
-    ($org -match 'bool complete = allReached && notSent == 0 && failed == 0')
+     $org -notmatch 'OrganizeCounts\.ToolTip')
+Assert-True 'single-item AI is the only way to reach the model from this page' `
+    ($orgnode -match 'public ItemAiView Ai' -and $cs -match 'case OrganizeNode node:' -and
+     $org -notmatch 'RecognizeWithAsync')
+Assert-True 'local recognition still runs (the page is not dead without a model)' `
+    ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
+     $org -match 'FolderPurposeRules\.RecognizeLocally')
 # --- 2f. the v2.8.2 behaviour fixes (expand / lifecycle / filter) ---------------
 Assert-True 'first click on the arrow expands after lazy materialisation' `
     ($org -match 'Materialize\(node, FolderOrganize\.ChildBudget, null, autoExpand: true\)' -and
@@ -239,30 +247,29 @@ Assert-True 'background materialisation still never auto-expands' `
 Assert-True 'a click that cannot expand says why (no silent no-op, no fake expand)' `
     ($org -match 'OrganizeExpandBudgetReached' -and $org -match 'OrganizeExpandAlreadyListed' -and
      $org -match 'OrganizeExpandNoChildren' -and $org -match 'OrganizeMaterializeResult\.BudgetReached')
-Assert-True 'organize identify no longer keys off the item-AI generation' `
-    ($org -match 'taskGen != _organizeGeneration \|\| scanGen != _scanGeneration' -and
-     $org -notmatch 'myData != _aiDataGeneration')
-Assert-True 'a superseded task is not allowed to touch the new task UI' `
-    ($org -match 'int myTask = \+\+_organizeTaskId;' -and $org -match 'bool Owns\(\) => myTask == _organizeTaskId;' -and
-     $org -match 'if \(Owns\(\)\)\s*\{\s*_organizeBusy = false;')
-Assert-True 'the stale path still ends with a terminal state instead of half-done' `
-    ($org -match 'if \(Owns\(\)\) SetOrganizeNote\(Loc\.OrganizeRunSuperseded\)')
+Assert-True 'the organize page no longer carries a batch task generation' `
+    ($org -notmatch 'taskGen != _organizeGeneration' -and
+     $org -notmatch '_organizeTaskId' -and $org -notmatch 'bool Owns\(\)')
+Assert-True 'the per-item result generation guard survives (no stale write into a new scan)' `
+    ($org -match 'int _organizeGeneration' -and
+     $cs -match '_aiDataGeneration\+\+' -and
+     (Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\ItemAiView.cs') -Raw -Encoding UTF8) -match 'public bool IsStale')
 Assert-True 'filter is a view: it never mutates IsExpanded' `
     ($org -notmatch 'foreach \(var n in _organizeAll\) if \(n\.ChildrenLoaded\) n\.Expand\(\)' -and
      $org -match '_organizeFilterSet' -and
      $org -match 'if \(!_organizeFilterSet\.Contains\(node\)\) return;')
 Assert-True 'filter keeps ancestor context so no orphan rows appear' `
     ($org -match 'bool keep = n\.IsPending;' -and $org -match 'if \(Mark\(c\)\) keep = true;')
-Assert-True 'AI ordering is level 1 strictly before level 2' `
-    ($org -match '\.OrderBy\(x => x\.Level\)' -and $org -match '\.ThenByDescending\(x => x\.Size\)' -and
-     $org -notmatch '\.Where\(x => x\.IsAutoLevel[\s\S]{0,400}\.OrderByDescending\(x => x\.Size\)\s*\.ToList')
-Assert-True 'a scan in progress starts no identification pass' `
-    ($org -match 'if \(_organizeBusy\) return;' -and $org -match '_organizeAutoStarted')
-Assert-True 'no full path or full file list is sent by default' `
-    ($xaml -match 'x:Name="OrganizeWorkPath"' -and
-     $csvc -match 'BuildOutboundInput' -and
+Assert-True 'there is no automatic target ordering left (no auto list to order)' `
+    ($org -notmatch 'OrderByDescending\(x => x\.Size\)' -and $org -notmatch 'ThenByDescending\(x => x\.Size\)')
+Assert-True 'nothing starts an identification pass on scan or page switch' `
+    ($org -notmatch 'if \(_organizeBusy\) return;' -and $org -notmatch '_organizeAutoStarted' -and
+     $org -notmatch 'OrganizeIdentifyRun')
+Assert-True 'a single-item request never sends a full path by default' `
+    ($csvc -match 'BuildOutboundInput' -and
      $srcsnip -match 'SourceSnippetCollector' -and
-     $newfp -match 'IsSafeOutbound')
+     $newfp -match 'IsSafeOutbound' -and
+     $iasvc -match 'ItemAiPrompt\.BuildUser\(request, sendFullPaths\)')
 Assert-True 'the outbound payload is length-capped' `
     ($csvc -match 'MaxInputChars = 1800' -and $srcsnip -match 'MaxFiles = 3' -and
      $srcsnip -match 'TotalChars = 1200' -and $srcsnip -match 'PerFileChars = 600')
@@ -333,11 +340,9 @@ Assert-True 'failure path really lands in Failed (not silently unknown)' `
     ($csvc -match 'FileNode|FolderPurposeResult\.Failure' -and
      $orgnode -match 'if \(!HasConclusion\) _override = r\.Failed \? PurposeState\.Failed : PurposeState\.Unrecognized' -or
      $orgnode -match 'r\.Failed \? PurposeState\.Failed')
-Assert-True 'network failure / no model / budget exhaustion are stated honestly' `
-    ($org -match 'Loc\.OrganizeRunSummary\(head, failed, notSent\)' -and
-     $org -match 'Loc\.OrganizeRunPassDetail\(aiNamed, unknown, failed\)' -and
-     $org -match 'OrganizeNoModelHonest' -and $org -match 'OrganizeBudgetLeft' -and
-     $org -match 'OrganizeUnlistedTotal')
+Assert-True 'no model / request-budget wording is left (there is no batch pass)' `
+    ($org -notmatch 'OrganizeNoModelHonest' -and $org -notmatch 'OrganizeBudgetLeft' -and
+     $org -notmatch 'Loc\.OrganizeRunSummary' -and $org -match 'OrganizeUnlistedTotal')
 Assert-True 'user correction never changes the folder kind (set stays expandable)' `
     ($orgnode -match 'if \(r\.Source != PurposeSource\.User && r\.Kind != FolderKind\.Unknown\) _kind = r\.Kind' -and
      $csvc -match 'Kind: FolderKind\.Unknown')
@@ -345,20 +350,21 @@ Assert-True 'collection detection is generic, not example-driven' `
     ($newfp -match 'IsKnownObject' -and $newfp -match 'StrongChildBytes' -and
      $newfp -match 'ContainerMinChildren = 4' -and
      $newfp -notmatch 'Gameklll|ESP32|steamapps\\common\\VolleyBall')
-Assert-True 'third level and deeper never enter the automatic AI pass' `
-    ($forg -match 'AutoChildLevel = 2' -and $org -match 'x\.IsAutoLevel' -and
-     $org -match 'IsAutoLevel\s*=>|IsAutoLevel')
-Assert-True 'cancelled / stale results cannot overwrite a newer scan' `
-    ($org -match 'taskGen != _organizeGeneration \|\| scanGen != _scanGeneration' -and
-     $org -match 'PurposeState\.Queued or PurposeState\.Running\) t\.ClearState\(\)' -and
-     $org -match 'if \(Owns\(\)\)')
-Assert-True 'progress counts only real work (no double counting per target)' `
-    ($org -match 'LocalRecognize\(t\);' -and $org -match 'done = Math\.Min\(targets\.Count, done \+ 1\)')
-Assert-True 'the current folder is remembered from expand / select' `
-    ($org -match 'private void SetOrganizeCurrent\(OrganizeNode\? node\)' -and
-     $org -match 'SetOrganizeCurrent\(node\);')
-Assert-True 'single-item identify and retry go through the same path' `
-    ($org -match 'RunOrganizeIdentifyAsync\(')
+Assert-True 'deep levels are manual only (no automatic pass exists to enter)' `
+    ($forg -match 'AutoChildLevel = 2' -and
+     $org -notmatch 'IsAutoLevel\s*&&' -and $org -notmatch 'AutoIdentifyTargets')
+Assert-True 'a cancelled or stale per-item request cannot overwrite a new scan' `
+    ($org -match '_organizeGeneration\+\+' -and
+     $cs -match '_itemAiRunning' -and $cs -match 'ItemAiStatus\.Canceled')
+Assert-True 'the page counts per object, never per batch target' `
+    ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
+     $org -notmatch 'done = Math\.Min\(targets\.Count, done \+ 1\)')
+Assert-True 'there is no longer a current-folder batch scope' `
+    ($org -notmatch 'private void SetOrganizeCurrent\(OrganizeNode\? node\)' -and
+     $org -notmatch 'SetOrganizeCurrent\(node\);')
+Assert-True 'single-item analysis and its retry go through the same path' `
+    ($cs -match 'public void ItemAi_Click' -and $cs -match 'public void ItemAiRetry_Click' -and
+     $cs -match '_ = RunItemAiAsync\(view, request\)' -and $org -notmatch 'RunOrganizeIdentifyAsync')
 Assert-True 'tidy-up never touches risk / deletability / selection' `
     ($org -notmatch '\.(Risk|CanDelete|Selected)\s*=' -and
      $org -notmatch 'SendToRecycle|DeletionExecutor|RecycleService')
@@ -373,18 +379,19 @@ Assert-True 'queued / running states cannot show a success conclusion' `
     ($orgnode -match 'public PurposeState State => _override' -and
      $orgnode -match 'if \(State is PurposeState\.Queued\) return Loc\.PurposeQueued;' -and
      $orgnode -match 'if \(State is PurposeState\.Running\) return Loc\.PurposeRunning;')
-Assert-True 'stale generations can never overwrite a new scan' `
-    ($org -match 'taskGen != _organizeGeneration \|\| scanGen != _scanGeneration' -and
-     $org -notmatch 'myData != _aiDataGeneration')
-Assert-True 'local rules run before anything is sent to a model' `
-    ($org -match 'if \(!t\.HasConclusion\) LocalRecognize\(t\);' -and
-     $org -match 'if \(!allowAi\)' -and
-     $org -match 'if \(t\.HasConclusion\) continue;')
-Assert-True 'AiConfigured gates the model path (no model => no requests)' `
-    ($org -match 'bool allowAi = AiConfigured\(\);' -and $org -match 'RecognizeWithAsync\(t\.Dir, allowAi: true, ct\)')
+Assert-True 'a stale per-item result can never overwrite a new scan' `
+    ($cs -match '_aiDataGeneration\+\+' -and
+     $cs -match 'InvalidateItemAiAfterScan' -and $org -notmatch 'myData != _aiDataGeneration')
+Assert-True 'local recognition runs before (and without) any model call' `
+    ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
+     $org -match 'FolderPurposeRules\.RecognizeLocally' -and
+     $org -notmatch 'if \(!allowAi\)' -and $org -notmatch 'if \(t\.HasConclusion\) continue;')
+Assert-True 'the model path is gated by config and only reachable per item' `
+    ($cs -match 'bool AiConfigured\(\)' -and $cs -match 'case OrganizeNode node:' -and
+     $org -notmatch 'RecognizeWithAsync')
 Assert-True 'user corrections are persisted and win over later results' `
-    ($org -match '_folderPurpose\.SaveCorrections\(\)' -and
-     $org -match 'TryGetUserCorrection\(t\.Id\)' -and
+    ($cs -match 'SetUserCorrection\(' -and
+     $cs -match 'TryGetUserCorrection\(' -and
      $csvc -match 'UserKey\(id\.Path\)' -and $csvc -match 'public void LoadCorrections\(\)')
 Assert-True 'two levels by default, containers keep going, concrete objects stop' `
     ($forg -match 'public const int AutoLevels = 2' -and
@@ -729,7 +736,7 @@ if (Test-Path $publish) {
     $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
     Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
     $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
-    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.8.2*')
+    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.9.0*')
 }
 else {
     Assert-True 'publish package exists' $false

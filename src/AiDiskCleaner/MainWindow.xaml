@@ -1234,7 +1234,6 @@
                   <MenuItem x:Name="CtxAskAi" Header="问 AI 这是什么" Click="CtxAskAi_Click"/>
                   <MenuItem Style="{StaticResource MenuLine}"/>
                   <!-- 用途识别：识别 / 深入 / 纠正。三个操作都不改选择、不改风险。 -->
-                  <MenuItem x:Name="CtxPurposeIdentify" Header="识别用途" Click="CtxPurposeIdentify_Click"/>
                   <MenuItem x:Name="CtxPurposeCorrect" Header="纠正用途"/>
                   <MenuItem Style="{StaticResource MenuLine}"/>
                   <MenuItem x:Name="CtxProps" Header="属性" Click="CtxProps_Click"/>
@@ -1258,8 +1257,9 @@
             <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
           <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="16,12,16,8">
-            <Button x:Name="TabOrganizeBtn" Content="文件夹整理" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabOrganize_Click"/>
+            <!-- 清理在前：它是默认首页与主工作区；文件夹整理是辅助入口 -->
             <Button x:Name="TabCleanBtn" Content="清理中心" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabClean_Click"/>
+            <Button x:Name="TabOrganizeBtn" Content="文件夹整理" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabOrganize_Click"/>
             <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource GhostButton}" Click="TabUninstall_Click"/>
           </StackPanel>
           <!-- ===== 文件夹整理：实际工作区（不是说明页）=====
@@ -1288,72 +1288,15 @@
                           Margin="0,0,8,0" Click="OrganizeFilter_Click"
                           ToolTip="只看还没认出来的文件夹"
                           AutomationProperties.Name="只看待确认的文件夹"/>
-                  <!-- 唯一的批量入口：自动识别失败/待确认的统一重试（行里不再放识别按钮） -->
-                  <Button x:Name="OrganizeIdentifyAllBtn" Style="{StaticResource GhostButton}"
-                          Padding="12,5" FontSize="11.5" Click="OrganizeIdentifyAll_Click"
-                          ToolTip="识别本页还没认出来的文件夹（不会自动发送整盘数据）"
-                          AutomationProperties.Name="重试待确认或失败的文件夹"/>
+                  <!-- 这里**没有**批量识别入口：扫描后只做本地识别，
+                       模型请求只能由用户对**某一个**文件/文件夹单独发起（行内那个按钮）。 -->
                 </StackPanel>
               </Grid>
             </Border>
 
-            <!-- ===== 深层工作条：**只在三级及更深**出现（自动层不显示，避免「当前文件夹」误导）===== -->
-            <Border x:Name="OrganizeWorkBar" DockPanel.Dock="Top" Visibility="Collapsed"
-                    Padding="16,8" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
-                    Background="{DynamicResource PanelRight}">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
-                  <StackPanel Orientation="Horizontal">
-                    <TextBlock x:Name="OrganizeWorkTitle" Foreground="{DynamicResource Text}"
-                               FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                               MaxWidth="420"/>
-                    <TextBlock x:Name="OrganizeWorkPath" Margin="8,0,0,0" Foreground="{DynamicResource TextMuted}"
-                               FontSize="10.5" VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis" MaxWidth="360"
-                               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-                  </StackPanel>
-                  <TextBlock x:Name="OrganizeWorkScope" Margin="0,3,0,0" Foreground="{DynamicResource TextDim}"
-                             FontSize="11" TextTrimming="CharacterEllipsis"
-                             ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-                </StackPanel>
-                <!-- 唯一的主操作：**只识别本层的直接子文件夹**，不分析这个文件夹本身 -->
-                <Button x:Name="OrganizeIdentifyCurrentBtn" Grid.Column="1"
-                        Style="{StaticResource PrimaryButton}" Padding="12,5" FontSize="11.5"
-                        VerticalAlignment="Center" Click="OrganizeIdentifyCurrent_Click"
-                        ToolTip="只识别这个文件夹的直接子文件夹，不会扩大到别的地方，也不会继续深入更深目录。"
-                        AutomationProperties.Name="识别本层文件夹"/>
-              </Grid>
-            </Border>
+            <!-- 批量进度条已移除：扫描后只做本地识别，没有"批量请求"这回事 -->
 
-            <!-- 范围 / 预算 / 取消：点识别之前就把「认哪些、发多少次」写清楚 -->
-            <Border x:Name="OrganizeScopeBar" DockPanel.Dock="Top" Padding="16,6"
-                    BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Visibility="Collapsed">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="OrganizeScopeText" Grid.Column="0" Foreground="{DynamicResource TextDim}"
-                           FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-                <Button x:Name="OrganizeStopBtn" Grid.Column="1" Content="取消识别"
-                        Style="{StaticResource GhostButton}" Padding="10,3" FontSize="11"
-                        Click="OrganizeStop_Click" Visibility="Collapsed"/>
-              </Grid>
-            </Border>
-
-            <StackPanel x:Name="OrganizeProgressPanel" DockPanel.Dock="Top" Margin="16,8,16,0"
-                        Visibility="Collapsed">
-              <TextBlock x:Name="OrganizeProgressText" Foreground="{DynamicResource TextDim}"
-                         FontSize="11" Margin="0,0,0,6"/>
-              <ProgressBar x:Name="OrganizeProgressBar" Height="6" Minimum="0" Maximum="100" Value="0"/>
-            </StackPanel>
-
-            <!-- 状态：未扫描 / 扫描中 / 空结果 / 未配置模型 / 失败 / 全部识别完 -->
+            <!-- 状态：未扫描 / 扫描中 / 空结果 / 未配置模型 / 失败 -->
             <Border x:Name="OrganizeStateBox" DockPanel.Dock="Top" Visibility="Collapsed"
                     BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="16,12">
               <StackPanel>
@@ -1388,10 +1331,7 @@
                   <MenuItem x:Name="OrgCtxOpen" Header="在资源管理器中打开" Click="OrganizeOpen_Click"/>
                   <MenuItem x:Name="OrgCtxCopy" Header="复制完整路径" Click="OrganizeCopyPath_Click"/>
                   <MenuItem Style="{StaticResource MenuLine}"/>
-                  <!-- 行里不再放逐项「识别」按钮：识别是自动的；
-                       只有进入具体文件夹后，才在这里对这一层做识别。 -->
-                  <MenuItem x:Name="OrgCtxIdentifyCurrent" Header="识别当前文件夹"
-                            Click="OrganizeIdentifyCurrentMenu_Click"/>
+                  <!-- 没有"识别本层/批量识别"：模型只由行内那个按钮对**这一个**文件夹发起 -->
                   <MenuItem x:Name="OrgCtxCorrect" Header="纠正用途"/>
                   <MenuItem Style="{StaticResource MenuLine}"/>
                   <MenuItem x:Name="OrgCtxExpand" Header="展开子文件夹" Click="OrganizeExpandMenu_Click"/>
@@ -1483,6 +1423,29 @@
                           <TextBlock Text="{Binding DetailText}" FontSize="10.5" TextWrapping="Wrap"
                                      Foreground="{DynamicResource TextDim}"/>
                         </Border>
+                        <!-- 单项 AI 结果（用户点行里那个按钮才有）。先短结论，依据默认收起；
+                             未知/失败如实说明。它只是提示，不会勾选、不会删除、不改保护规则。 -->
+                        <StackPanel Margin="0,3,0,1"
+                                    Visibility="{Binding Ai.IsExpanded, Converter={StaticResource BoolToVisible}}">
+                          <TextBlock FontSize="10.5" TextWrapping="Wrap"
+                                     Foreground="{DynamicResource AccentDim}"
+                                     Text="{Binding Ai.SuggestionText}"/>
+                          <TextBlock FontSize="10.5" TextWrapping="Wrap" Margin="0,2,0,0"
+                                     Foreground="{DynamicResource TextDim}"
+                                     Text="{Binding Ai.PurposeText}"/>
+                          <TextBlock FontSize="10.5" TextWrapping="Wrap" Margin="0,2,0,0"
+                                     Foreground="{DynamicResource TextDim}"
+                                     Text="{Binding Ai.ImpactText}"/>
+                          <TextBlock FontSize="10.5" TextWrapping="Wrap" Margin="0,2,0,0"
+                                     Foreground="{DynamicResource TextMuted}"
+                                     Text="{Binding Ai.MissingText}"/>
+                          <TextBlock FontSize="10.5" TextWrapping="Wrap" Margin="0,2,0,0"
+                                     Foreground="{DynamicResource TextMuted}"
+                                     Text="{Binding Ai.BasisText}"/>
+                          <TextBlock FontSize="10.5" Margin="0,2,0,0"
+                                     Foreground="{DynamicResource Placeholder}"
+                                     Text="{Binding Ai.ProgressText}"/>
+                        </StackPanel>
                       </StackPanel>
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
@@ -1503,11 +1466,21 @@
 
                 <!-- 操作：**没有逐项「识别」按钮**，也**没有第二套展开按钮** ——
                      左边那个箭头是唯一的展开/收起入口；这里只留「在资源管理器中打开」。 -->
-                <DataGridTemplateColumn x:Name="ColOrgAction" Header="操作" Width="64" MinWidth="64"
+                <DataGridTemplateColumn x:Name="ColOrgAction" Header="操作" Width="92" MinWidth="92"
                                         CanUserResize="False" CanUserSort="False" IsReadOnly="True">
                   <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                       <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,3,4,3">
+                        <!-- 单项 AI：只分析**这一个文件夹**。再点一次 = 取消（跑着）或展开结果（已有）。
+                             本地已认出来的也可以问：知道用途不等于知道删除影响。 -->
+                        <Button Style="{StaticResource IconButton}" Width="26" Height="26"
+                                Tag="{Binding}" Click="ItemAi_Click"
+                                IsEnabled="{Binding Ai.CanAnalyze}"
+                                ToolTip="{Binding Ai.TipText}"
+                                AutomationProperties.Name="分析这一个文件夹">
+                          <Path Data="{StaticResource IconScan}" Width="13" Height="13" Stretch="Uniform"
+                                Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        </Button>
                         <Button Style="{StaticResource IconButton}" Width="26" Height="26"
                                 Tag="{Binding}" Click="OrganizeReveal_Click"
                                 ToolTip="在资源管理器中打开（不会执行里面的程序）"

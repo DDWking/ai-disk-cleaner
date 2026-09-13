@@ -86,6 +86,89 @@
 - 还差什么 / 下次谁接
 ```
 
+### 2026-09-13  DDWking（第二十八阶段：方向改为「清理为主 + 单项 AI 按需」 · v2.9.0）
+> 需求（已冻结，覆盖上一轮的两级自动 AI 方向）：
+> 清理页是默认首页；扫描后只做**本地**识别；取消整理页一、二级自动 AI 与所有批量入口；
+> 模型只允许用户对**某一个**文件/文件夹主动发起；本地识别优先增强。
+
+**1) 默认页与「零后台请求」**
+
+- 构造时默认 `RightTab.Clean`（`_rightTab` 初值也改成 Clean），导航顺序改为
+  **清理中心 → 文件夹整理 → 卸载**（清理在前）。
+- **删掉 `RunScan()` 里的 `ShowRightTab(...)`**：扫描开始/结束/重建都不再把用户
+  从自己选的页面拽走（以前一扫就弹回整理页）。
+- 整理页**整块移除**批量 AI：`OrganizeIdentifyAllBtn`（重试全部）、
+  `OrganizeWorkBar`+`OrganizeIdentifyCurrentBtn`（识别本层）、
+  `OrganizeScopeBar`/`OrganizeStopBtn`/`OrganizeProgressPanel`（范围/预算/进度/取消）、
+  右键「识别当前文件夹」，以及 `StartOrganizeAutoIdentify` / `AutoIdentifyTargets` /
+  `RunOrganizeIdentifyAsync` / `ProbeUnknownLocally` / `CancelOrganizeWork`
+  与任务号 `_organizeTaskId`、`_organizeBusy`、`_organizeStop`、`_organizeCurrent`。
+- **侧栏删掉第二套 AI 主入口**：「识别用途」按钮 + 右键项 + `RunPurposeAsync`
+  （含"深入识别子目录"）全删；侧栏只剩导航与本地用途文字。
+- 新增 `AiGateway.SentCount` / `ResetSentCountForTest()`：在唯一出站咽喉
+  `AiGateway.SendAsync` 处 `Interlocked.Increment`，把「后台有没有偷偷发请求」
+  变成**可测事实**（不是翻日志）。
+
+**2) 单项 AI（复用清理页那套，没有新提示词、没有第二套结果页）**
+
+- `OrganizeNode.Ai`（`ItemAiView`），语义与清理页逐项分析一致：
+  这是什么 / 删除可能影响什么 / 依据 / 缺什么 + 四档建议。
+- `DescribeAiTarget` 新增 `OrganizeNode` 分支 → 走**同一个** `RunItemAiAsync`：
+  同一份去重（`_itemAiRunning`）、缓存（`ItemAiCacheKey`）、取消、失败重试代码。
+- 整理页行内一个 AI 图标按钮（ToolTip + `AutomationProperties.Name`），
+  **只分析这一个文件夹**：`BuildFolderSummary(FileEntry, out total)` 只取扫描树里
+  已存在的直接子项、条数受 `ItemAiPrompt.MaxFolderSummary` 限制，**不递归、不遍历磁盘**。
+- 不碰 `Risk` / `CanDelete` / `Selected`：AI 只填展示态，绝不自动勾选或删除。
+- 页头改成分档计数（本地 / AI / 未知 / 失败）；筛选口径从「待确认」改成「未识别」
+  —— 没有结论就是没有结论，不是待办压力。
+
+**3) 测试（行为用例为主；过期断言逐条改写，不删掉凑绿）**
+
+- `tools/StartupCheck` 新增第 9 节，**驱动真 `MainWindow` 的私有路径**：
+  默认页 = 清理中心（在**刚构造完**时取值，避免被后续用例切页影响）；
+  `RunScan()` 里**没有** `ShowRightTab`；导航清理在前；10 项「批量/本层/重试全部」入口
+  **不存在**；侧栏无 `PurposeIdentify_Click`/`RunPurposeAsync`/`CtxPurposeIdentify`；
+  **扫描重建 + 展开/收起 + 筛选开关 + 切页 = 0 次模型请求**（真实出站计数），
+  并配一条「本地识别确实跑了」防止"什么都没做才 0 请求"；
+  单项分析：认出整理页对象、`ScopeKey` = 该文件夹完整路径、摘要 ≤ 上限、各对象 AI 状态互不串。
+- 结果：**`StartupCheck` 97 PASS / 0 FAIL**、**`SafetyCheck` 984 PASS / 0 FAIL**、
+  **`UiRegressionCheck` 244 PASS / 0 FAIL**、`CleanAnalyzerCheck` / `AiNoteParserCheck` /
+  `AppRecommendationCheck` 全过、`git diff --check` 干净、Release **0 错 0 警**。
+- 旧批量方向的过期断言在 `Run.ps1` 有 33 条、`LayeredCleanTests.cs` 有 7 条，
+  **逐条改成新方向断言**（默认页/导航/「这些入口与机制不存在」/「单项 AI 是唯一模型入口」/
+  「本地识别照跑」）。**保留**的安全回归：启动加固、行高合法值、首击展开、
+  懒加载不自动展开、筛选是纯视图（无孤儿行、不改展开状态）、`Risk/CanDelete/Selected`
+  不被 AI 写入、不移动/改名文件、不自提权、走 `ShellReveal` 打开目录、
+  用户纠正优先、越权工具已移除。
+
+**4) 真实启动冒烟（不从 dist 起）**
+
+- 从 `src\AiDiskCleaner\bin\Release\...\win-x64\AiDiskCleaner.exe`（**2.9.0.0**）启动：
+  进程存活、**主窗口句柄出现**（`hwnd` 非 0，标题「大扫货」，`Responding=True`，约 4.8s），
+  `WM_CLOSE` 后 **1 秒内优雅退出**，**没有残留进程**。
+
+**5) 打包**
+
+- 版本 **2.9.0**；self-contained win-x64。
+- `dist/DashaoHuo-2.9.0-20260913-win-x64/`，`AiDiskCleaner.exe` **2.9.0.0**，
+  含 sidecar 与两个 helper；另有 `.zip` 与 `.zip.sha256`；
+  **2.7.0 / 2.8.0 / 2.8.1 / 2.8.2 原样保留。**
+- 包内 `AiDiskCleaner.dll` 与本次**验收构建**哈希一致：
+  `8370F41CC677225B848D5FDFAAB8421FAF7DF73023F673CA983DD73DE5CA45D9`
+- zip SHA256：`523D2092AA80A54E8FACACFECF8591DA9698A848DC2535A16B85684F355A723E`
+
+**6) 未验收 / 已知限制（如实说明）**
+
+- **没有做真实模型调用**：本轮全部验证是离线行为验证 + 真实出站计数，
+  **不是**真机截图、也**不是**真实模型链路（单项 AI 的联网路径本身未实跑）。
+- **没有实际 UI 实拍**（含窄窗口 / 高 DPI）；只做了真实启动冒烟（窗口句柄 + 优雅退出）。
+- **需求 5（本地识别增强）本轮未实现**：真实安装位置（复用卸载清单）、
+  系统重定向下载路径（`FOLDERID_Downloads`，而不是猜用户名拼接）、
+  规范化边界匹配、共享厂商父目录不被单个软件吞掉、结构证据标为推测 —— 都还没做。
+- **需求 6（清理页两类分区）**与需求 4 的「影响信息」文案层未改动。
+- 整理页的 `Loc.OrganizeRun*`（旧批量进度/预算文案）与 `OrganizeStateKind.NoModel`
+  已成死代码，本轮保留未删（删它要动 Loc 与状态机，收益低）。
+
 ### 2026-09-13  DDWking（第二十七阶段：修「一级没识别 + 展开点不动」 · v2.8.2）
 > 现象：2.8.1 里**展开目录点不动**，一级目录**仍然大面积未识别**，顶栏永远停在
 > 「识别中… · 0/2503 个文件夹有结论」。
