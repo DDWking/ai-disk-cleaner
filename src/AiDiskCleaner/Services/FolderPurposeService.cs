@@ -11,19 +11,22 @@ namespace AiDiskCleaner.Services;
 public sealed class FolderPurposeService
 {
     /// <summary>整次识别最多发多少次 AI 请求（用完后一律标「待确认」，不再发）。</summary>
-    public const int MaxAiRequests = 24;
+    public const int MaxAiRequests = 60;
 
     /// <summary>同时最多几个 AI 请求。</summary>
     public const int MaxConcurrent = 2;
 
     /// <summary>单次 AI 超时。</summary>
-    public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(40);
+    public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>两次请求之间的最小间隔（自动批量时别把供应商打爆，也别让界面被回复淹没）。</summary>
+    public static readonly TimeSpan MinRequestGap = TimeSpan.FromMilliseconds(250);
 
     /// <summary>探索深度上限：收纳目录往下看，但不会无限递归。</summary>
     public const int MaxDepth = 4;
 
-    /// <summary>给模型的输入字符上限。</summary>
-    public const int MaxInputChars = 900;
+    /// <summary>给模型的输入字符上限（含少量脱敏片段）。</summary>
+    public const int MaxInputChars = 1800;
 
     private readonly SemaphoreSlim _gate = new(MaxConcurrent, MaxConcurrent);
     private readonly Dictionary<string, FolderPurposeResult> _cache = new(StringComparer.Ordinal);
@@ -31,6 +34,7 @@ public sealed class FolderPurposeService
     private readonly Dictionary<string, FolderPurposeResult> _userCorrections = new(StringComparer.Ordinal);
     private readonly object _lock = new();
     private int _aiUsed;
+    private DateTime _lastRequestAt = DateTime.MinValue;
 
     public int AiRequestsUsed { get { lock (_lock) return _aiUsed; } }
     public int CacheCount { get { lock (_lock) return _cache.Count; } }
@@ -41,10 +45,14 @@ public sealed class FolderPurposeService
         lock (_lock) { _cache.Clear(); _aiUsed = 0; }
     }
 
-    /// <summary>缓存键：稳定目录标识（含扫描代次）+ 摘要指纹。</summary>
+    /// <summary>
+    /// 缓存键：稳定目录标识（含扫描代次）+ 摘要指纹。
+    /// 摘要指纹把**大小 / 文件数 / 直接子目录数 / 最后修改时间**都算进去，
+    /// 所以只有目录内容真的变了缓存才失效；光「展开」不会重复请求。
+    /// </summary>
     static string CacheKey(FolderId id, FolderSummary sum, string configSignature)
         => $"{id}\u0001{sum.Size}\u0001{sum.FileCount}\u0001{sum.DirectFolderCount}"
-           + $"\u0001{sum.Modified.Ticks}\u0001{configSignature}";
+           + $"\u0001{sum.Modified.Ticks}\u0001{sum.KindSignature}\u0001{configSignature}";
 
     public FolderPurposeResult? TryGetCached(FolderId id, FolderSummary sum, string configSignature)
     {
@@ -60,8 +68,9 @@ public sealed class FolderPurposeService
     /// </summary>
     public void SetUserCorrection(FolderId id, string purposeName, string category)
     {
+        // Kind 用 Unknown：**用户纠正只改用途，不改目录性质**（集合结构不动）
         var r = new FolderPurposeResult(id, purposeName, category, Loc.PurposeBasisUser,
-            PurposeSource.User, NeedsConfirm: false, Kind: FolderKind.Concrete);
+            PurposeSource.User, NeedsConfirm: false, Kind: FolderKind.Unknown);
         lock (_lock) _userCorrections[UserKey(id.Path)] = r;
     }
 
@@ -100,7 +109,7 @@ public sealed class FolderPurposeService
                     string cat = v.Length > 2 && v[2].Length > 0 ? v[2] : name;
                     var id = new FolderId(path, 0);
                     _userCorrections[UserKey(path)] = new FolderPurposeResult(
-                        id, name, cat, Loc.PurposeBasisUser, PurposeSource.User, false, FolderKind.Concrete);
+                        id, name, cat, Loc.PurposeBasisUser, PurposeSource.User, false, FolderKind.Unknown);
                 }
             }
         }
@@ -155,7 +164,7 @@ public sealed class FolderPurposeService
 
         if (TryGetCached(id, sum, configSignature) is { } hit) return hit;
 
-        // 1) 本地规则
+        // 1) 本地规则（纯内存，不碰磁盘、不发请求）
         var local = FolderPurposeRules.RecognizeLocally(dir, sum);
         if (local.HasConclusion)
         {
@@ -170,36 +179,56 @@ public sealed class FolderPurposeService
         if (AiRequestsUsed >= MaxAiRequests)
             return FolderPurposeResult.None(id, local.Kind) with { NeedsConfirm = true };
 
-        lock (_lock) _aiUsed++;
-
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             ct.ThrowIfCancellationRequested();
+
+            // 自动批量时两次请求之间留一点间隔：供应商不会被瞬间打爆，界面也不会被回复淹没
+            var gap = MinRequestGap - (DateTime.UtcNow - _lastRequestAt);
+            if (gap > TimeSpan.Zero)
+                await Task.Delay(gap, ct).ConfigureAwait(false);
+
+            // 送出去之前的最后一道闸：只带脱敏后的白名单片段，绝不带完整文件清单。
+            string input = BuildOutboundInput(dir, sum, sendFullPath);
+            if (input.Length == 0)
+                return FolderPurposeResult.None(id, local.Kind) with { NeedsConfirm = true };
+
+            lock (_lock) _aiUsed++;
+            _lastRequestAt = DateTime.UtcNow;
+
             using var to = CancellationTokenSource.CreateLinkedTokenSource(ct);
             to.CancelAfter(Timeout);
 
-            string input = FolderPurposeRules.BuildAiInput(sum, sendFullPath, MaxInputChars);
             var turns = new List<AiMsg> { new() { Role = "user", Text = input } };
             var reply = await AiClient.StreamAsync(provider, model, Loc.PurposeAiSystem,
                 turns, _ => { }, to.Token, maxTurns: 1).ConfigureAwait(false);
 
-            var ai = FolderPurposeRules.ParseAi(reply.Text, id, local.Kind);
+            // 模型回复里若回显了密钥类内容，也不能进缓存、不能进界面
+            int scrubHits = 0;
+            string safeReply = SourceSnippetReader.Redact(reply.Text, out scrubHits);
+            var ai = FolderPurposeRules.ParseAi(safeReply, id, local.Kind);
             if (ai.HasConclusion) ai = ai with { Model = model ?? "" };
-            Store(sum, configSignature, ai);
-            AppLog.Info("Purpose", $"op=folder-purpose name={sum.Name} local=none ai={(ai.HasConclusion ? ai.PurposeName : "none")} "
-                + $"depth={depth} requests={AiRequestsUsed}");
+            // 只有拿到结论才缓存：**失败 / 超时 / 空回复一律不缓存**，
+            // 否则「重试」会直接命中失败结果，永远修不回来。
+            if (ai.HasConclusion) Store(sum, configSignature, ai);
+            AppLog.Info("Purpose", $"op=folder-purpose name={sum.Name} local=none "
+                + $"ai={(ai.HasConclusion ? ai.PurposeName : "none")} depth={depth} "
+                + $"requests={AiRequestsUsed} scrubbed={scrubHits}");
             return ai;
         }
         catch (OperationCanceledException)
         {
-            // 取消/超时都如实返回「没有结论」，不缓存失败结果
-            return FolderPurposeResult.None(id, local.Kind) with { NeedsConfirm = true };
+            // 用户取消 ⇒ 回到「没有结论」（不是失败）；**超时**是失败，两者必须分开报。
+            bool timedOut = !ct.IsCancellationRequested;
+            var none = FolderPurposeResult.None(id, local.Kind) with { NeedsConfirm = true };
+            return timedOut ? FolderPurposeResult.Failure(id, local.Kind) : none;
         }
         catch (Exception ex)
         {
+            // 网络不通 / 供应商报错：如实标「失败」，绝不显示成功结论，也不缓存
             AppLog.Record("Purpose", ex, "folder-purpose");
-            return FolderPurposeResult.None(id, local.Kind) with { NeedsConfirm = true };
+            return FolderPurposeResult.Failure(id, local.Kind);
         }
         finally
         {
@@ -210,6 +239,22 @@ public sealed class FolderPurposeService
     void Store(FolderSummary sum, string configSignature, FolderPurposeResult r)
     {
         lock (_lock) _cache[CacheKey(sum.Id, sum, configSignature)] = r;
+    }
+
+    /// <summary>
+    /// 组织一次出站输入：受控摘要 + 经白名单与脱敏筛选的少量 README / 项目配置 / 清单片段。
+    /// 片段读取**只发生在真的要问模型的时候**（本地规则完全不需要碰磁盘）。
+    /// 自检不过就返回空串 —— 宁可不识别，也不把可疑内容发出去。
+    /// </summary>
+    public static string BuildOutboundInput(FileEntry dir, FolderSummary sum, bool sendFullPath,
+        Func<string, string?>? snippetReader = null)
+    {
+        SnippetSet snippets = SnippetSet.Empty;
+        try { snippets = SourceSnippetCollector.Collect(dir.FullPath, snippetReader); }
+        catch (Exception ex) { AppLog.Record("Purpose", ex, "collect snippets"); }
+
+        string payload = FolderPurposeRules.BuildAiInput(sum, sendFullPath, MaxInputChars, snippets);
+        return FolderPurposeRules.IsSafeOutbound(payload) ? payload : "";
     }
 
     /// <summary>

@@ -32,6 +32,9 @@ $iap = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Ite
 $forg = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderOrganize.cs') -Raw -Encoding UTF8
 $csvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderPurposeService.cs') -Raw -Encoding UTF8
 $orgnode = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\OrganizeNode.cs') -Raw -Encoding UTF8
+# v2.7.0: filtered README/config snippets and the automatic two-level pass
+$srcsnip = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\SourceSnippet.cs') -Raw -Encoding UTF8
+$newfp = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderPurpose.cs') -Raw -Encoding UTF8
 
 $fail = 0
 function Assert-True([string]$name, [bool]$ok) {
@@ -138,8 +141,100 @@ Assert-True 'unscanned / scanning / empty / no-model / failed states all exist' 
      $org -match 'OrganizeStateKind\.Scanning' -and
      $org -match 'OrganizeStateKind\.Empty' -and
      $org -match 'OrganizeStateKind\.NoModel' -and $org -match 'OrganizeStateKind\.Failed')
+# --- 2c. auto two-level identification, no per-row identify buttons ----------
+Assert-True 'the row no longer carries a per-row identify button' `
+    ($orgPane -notmatch 'OrganizeIdentifyOne_Click' -and $xaml -notmatch 'Binding ActionText' -and
+     $xaml -notmatch 'x:Name="OrgCtxIdentify"')
+Assert-True 'the one batch entry is the unified retry for pending / failed' `
+    ($xaml -match 'x:Name="OrganizeIdentifyAllBtn"' -and $org -match 'Loc\.OrganizeRetryPending' -and
+     $org -match 'x => x\.IsPending')
+Assert-True 'identification starts automatically once the scan is done' `
+    ($org -match 'StartOrganizeAutoIdentify\(\);' -and $org -match 'private void StartOrganizeAutoIdentify\(\)' -and
+     $org -match 'IsAutoLevel')
+Assert-True 'automatic identification only covers levels 1-2' `
+    ($forg -match 'AutoChildLevel = 2' -and $forg -match 'IsManualOnly' -and
+     $org -match 'x\.IsAutoLevel')
+Assert-True 'the deep workspace has one explicit current-folder action' `
+    ($xaml -match 'x:Name="OrganizeWorkBar"' -and $xaml -match 'x:Name="OrganizeIdentifyCurrentBtn"' -and
+     $xaml -match 'x:Name="OrganizeWorkScope"' -and $xaml -match 'x:Name="OrganizeWorkPath"' -and
+     $org -match 'OrganizeIdentifyCurrent_Click' -and $org -match 'Loc\.OrganizeWorkScope\(')
+Assert-True 'current-folder identification only touches the direct children' `
+    ($forg -match 'IsInCurrentFolderScope' -and
+     $org -match 'OpenCurrentFolderChildren' -and $org -match 'RunOrganizeIdentifyAsync\(scope,')
+Assert-True 'the workspace states the scope and request count before sending' `
+    ($org -match 'FolderOrganize\.PlanFor\(' -and $org -match 'Loc\.OrganizeWorkScope\(plan\.DirectChildTotal, plan\.RequestBudget\)' -and
+     $forg -match 'RequestBudgetFor')
+Assert-True 'progress reports done / pending / failed and can be cancelled' `
+    ($org -match 'Loc\.OrganizeAutoDone\(done, pending, failed' -and
+     $org -match 'Loc\.OrganizeCounts\(resolved, pending, failed\)' -and
+     $org -match 'OrganizeStop_Click')
+Assert-True 'a scan in progress starts no identification pass' `
+    ($org -match 'if \(_organizeBusy\) return;' -and $org -match '_organizeAutoStarted')
+Assert-True 'no full path or full file list is sent by default' `
+    ($xaml -match 'x:Name="OrganizeWorkPath"' -and
+     $csvc -match 'BuildOutboundInput' -and
+     $srcsnip -match 'SourceSnippetCollector' -and
+     $newfp -match 'IsSafeOutbound')
+Assert-True 'the outbound payload is length-capped' `
+    ($csvc -match 'MaxInputChars = 1800' -and $srcsnip -match 'MaxFiles = 3' -and
+     $srcsnip -match 'TotalChars = 1200' -and $srcsnip -match 'PerFileChars = 600')
+Assert-True 'secrets are filtered before anything is sent' `
+    ($srcsnip -match 'api\[_-\]\?key' -and $srcsnip -match 'Bearer' -and $srcsnip -match '已脱敏')
+Assert-True 'only README / config / manifest files may be read' `
+    ($srcsnip -match 'IsAllowed' -and $srcsnip -match 'readme' -and $srcsnip -match 'package\.json' -and
+     $srcsnip -match 'TopDirectoryOnly')
+Assert-True 'language never says "recently used"' `
+    ($loc -notmatch '最近使用')
+# --- 2d. calibration: entry points, coverage vs UI cap, honest status ----------
+Assert-True 'user-profile ancestors never swallow AppData entry points' `
+    ($forg -match 'IsAncestorOfEntryPoint' -and $forg -match 'ancestorPaths' -and
+     $forg -notmatch 'IsUnderOrEqual\(a, n\)')
+Assert-True 'entry points accept an injected table (testable, no hardcoded user name)' `
+    ($forg -match 'BuildRoots\(\s*FileEntry\? root, int budget = MaxRoots,\s*IReadOnlyList<string>\? entryPoints = null\)' -or
+     $forg -match 'IReadOnlyList<string>\? entryPoints = null')
+Assert-True 'entry points come from system resolution only (no hardcoded paths)' `
+    ($newfp -match 'Environment\.GetFolderPath' -and
+     $newfp -notmatch 'C:\\\\Users\\\\' -and $forg -notmatch 'C:\\\\Users\\\\')
+Assert-True 'path to a deep entry point keeps being materialised, entry itself stops' `
+    ($forg -match 'IsAncestorOfEntryPoint\(dir\.FullPath, entryPoints\)' -and
+     $forg -match 'IsEntryPoint\(dir\.FullPath, entryPoints\)\) return false')
+Assert-True 'recognition coverage is decoupled from the UI row cap' `
+    ($forg -match 'MaterializeBudget = 400' -and $forg -match 'MaxMaterializePerNode' -and
+     $forg -match 'ChildBudget = 24' -and $forg -match 'AutoMaterializeBudget')
+Assert-True 'unlisted folders are reported as not identified' `
+    ($org -match 'AutoMaterializeBudget\(node\.Depth == 0\)' -and
+     $orgnode -match 'Loc\.OrganizeUnlistedNote' -and $org -match '_organizeUnlistedTotal' -and
+     $orgnode -match 'UnlistedChildCount' -and $orgnode -match 'UnlistedNote')
+Assert-True 'status mapping keeps recognised / ai / unknown / failed apart' `
+    ($newfp -match 'public bool Failed' -and $newfp -match 'public static FolderPurposeResult Failure' -and
+     $newfp -match 'Failed\s*\? PurposeState\.Failed')
+Assert-True 'failure path really lands in Failed (not silently unknown)' `
+    ($csvc -match 'FileNode|FolderPurposeResult\.Failure' -and
+     $orgnode -match 'if \(!HasConclusion\) _override = r\.Failed \? PurposeState\.Failed : PurposeState\.Unrecognized' -or
+     $orgnode -match 'r\.Failed \? PurposeState\.Failed')
+Assert-True 'network failure / no model / budget exhaustion are stated honestly' `
+    ($org -match 'OrganizeAllFailed|OrganizePartFailed' -and
+     $org -match 'OrganizeNoModelHonest' -and $org -match 'OrganizeBudgetLeft')
+Assert-True 'user correction never changes the folder kind (set stays expandable)' `
+    ($orgnode -match 'if \(r\.Source != PurposeSource\.User && r\.Kind != FolderKind\.Unknown\) _kind = r\.Kind' -and
+     $csvc -match 'Kind: FolderKind\.Unknown')
+Assert-True 'collection detection is generic, not example-driven' `
+    ($newfp -match 'IsKnownObject' -and $newfp -match 'StrongChildBytes' -and
+     $newfp -match 'ContainerMinChildren = 4' -and
+     $newfp -notmatch 'Gameklll|ESP32|steamapps\\common\\VolleyBall')
+Assert-True 'third level and deeper never enter the automatic AI pass' `
+    ($forg -match 'AutoChildLevel = 2' -and $org -match 'x\.IsAutoLevel' -and
+     $org -match 'IsAutoLevel\s*=>|IsAutoLevel')
+Assert-True 'cancelled / stale results cannot overwrite a newer scan' `
+    ($org -match 'myGen != _organizeGeneration \|\| myData != _aiDataGeneration' -and
+     $org -match 'PurposeState\.Queued or PurposeState\.Running\) t\.ClearState\(\)')
+Assert-True 'progress counts only real work (no double counting per target)' `
+    ($org -match 'LocalRecognize\(t\);' -and $org -match 'done = Math\.Min\(targets\.Count, done \+ 1\)')
+Assert-True 'the current folder is remembered from expand / select' `
+    ($org -match 'private void SetOrganizeCurrent\(OrganizeNode\? node\)' -and
+     $org -match 'SetOrganizeCurrent\(node\);')
 Assert-True 'single-item identify and retry go through the same path' `
-    ($org -match 'OrganizeIdentifyOne_Click' -and $org -match 'RunOrganizeIdentifyAsync\(new List<OrganizeNode> \{ node \}\)')
+    ($org -match 'RunOrganizeIdentifyAsync\(')
 Assert-True 'tidy-up never touches risk / deletability / selection' `
     ($org -notmatch '\.(Risk|CanDelete|Selected)\s*=' -and
      $org -notmatch 'SendToRecycle|DeletionExecutor|RecycleService')
@@ -157,8 +252,9 @@ Assert-True 'queued / running states cannot show a success conclusion' `
 Assert-True 'stale generations can never overwrite a new scan' `
     ($org -match 'myGen != _organizeGeneration \|\| myData != _aiDataGeneration')
 Assert-True 'local rules run before anything is sent to a model' `
-    ($org -match '(?s)LocalRecognize\(t\);[\s\S]{0,200}ProbeUnknownLocally\(t\);' -and
-     $org -match 'if \(!allowAi\)')
+    ($org -match 'if \(!t\.HasConclusion\) LocalRecognize\(t\);' -and
+     $org -match 'if \(!allowAi\)' -and
+     $org -match 'if \(t\.HasConclusion\) continue;')
 Assert-True 'AiConfigured gates the model path (no model => no requests)' `
     ($org -match 'bool allowAi = AiConfigured\(\);' -and $org -match 'RecognizeWithAsync\(t\.Dir, allowAi: true, ct\)')
 Assert-True 'user corrections are persisted and win over later results' `
@@ -166,8 +262,8 @@ Assert-True 'user corrections are persisted and win over later results' `
      $org -match 'TryGetUserCorrection\(t\.Id\)' -and
      $csvc -match 'UserKey\(id\.Path\)' -and $csvc -match 'public void LoadCorrections\(\)')
 Assert-True 'two levels by default, containers keep going, concrete objects stop' `
-    ($forg -match 'depth == 0 && kind is FolderKind\.Container or FolderKind\.Mixed' -and
-     $forg -match 'AutoLevels = 2')
+    ($forg -match 'public const int AutoLevels = 2' -and
+     $forg -match 'ShouldAutoMaterializeChildren' -and $forg -match 'CanAutoMaterialize')
 Assert-True 'deep system entry points are not cut off by a fixed depth from the drive' `
     ($forg -match 'ShouldAutoFollowEntryPath' -and $forg -match 'MaxEntryDepth')
 Assert-True 'recognised platforms keep their inner game entries' `
@@ -508,7 +604,7 @@ if (Test-Path $publish) {
     $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
     Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
     $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
-    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.6.0*')
+    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.7.0*')
 }
 else {
     Assert-True 'publish package exists' $false

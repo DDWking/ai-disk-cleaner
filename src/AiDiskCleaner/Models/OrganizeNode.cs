@@ -31,6 +31,37 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// <summary>相对扫描根的路径（脱敏展示用；完整路径在悬停与详情里）。</summary>
     public string RelativePath { get; }
 
+    // ---------------- 认识层级（起点：盘符直接子目录 / 系统入口） ----------------
+
+    /// <summary>
+    /// 第几级对象：盘符直接子目录与系统入口 = 1，它们的直接子目录 = 2，三级及更深 = 3+。
+    /// 只限制**展示与 AI 调用**，不影响容量统计，也不影响任何清理字段。
+    /// </summary>
+    public int Level { get; private set; } = OrganizeLevelPolicy.AutoLevel;
+
+    /// <summary>是不是「扫描后自动批量识别」的范围（一、二级）。</summary>
+    public bool IsAutoLevel => Level >= OrganizeLevelPolicy.AutoLevel
+                               && Level <= OrganizeLevelPolicy.AutoChildLevel;
+
+    /// <summary>三级及更深：**不自动调用 AI**，只由用户点「识别当前文件夹」。</summary>
+    public bool IsDeepLevel => Level > OrganizeLevelPolicy.AutoChildLevel;
+
+    /// <summary>写一次层级（由整理工作区在创建子对象时调用，之后不再变）。</summary>
+    public void SetLevel(int level)
+    {
+        if (level <= 0 || level == Level) return;
+        Level = level;
+        Raise(nameof(Level));
+        Raise(nameof(IsAutoLevel));
+        Raise(nameof(IsDeepLevel));
+        Raise(nameof(LevelText));
+    }
+
+    /// <summary>层级的可读标注（只给悬停/调试用，不抢主视觉）。</summary>
+    public string LevelText => Level <= OrganizeLevelPolicy.AutoChildLevel
+        ? Loc.OrganizeLevelAuto(Level)
+        : Loc.OrganizeLevelDeep(Level);
+
     public string Name => Dir.Name;
     public string FullPath => Dir.FullPath;
     public long Size => Dir.Size;
@@ -118,15 +149,22 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// <summary>排到「待确认」筛选里的行。</summary>
     public bool IsPending => !HasConclusion || _needsConfirm || State == PurposeState.Failed;
 
-    /// <summary>这一行唯一那个动作的文案：没结论 = 识别；有结论的收纳目录 = 深入识别。</summary>
-    public string ActionText => !HasConclusion
-        ? Loc.OrganizeIdentifyOne
-        : (CanExpand ? Loc.OrganizeDeepen : "");
+    /// <summary>
+    /// 行内「展开 / 收起」文案。
+    ///
+    /// 行里**不再有**逐项「识别」按钮 —— 识别是一、二级自动完成的，
+    /// 三级及更深的识别入口是「当前文件夹」工作区那一个主操作。
+    /// 这里只留导航（展开子文件夹），避免用户以为必须手动逐个识别。
+    /// </summary>
+    public string ToggleText => !CanExpand ? "" : (_isExpanded ? Loc.OrganizeCollapse : Loc.OrganizeExpand);
 
-    public bool HasAction => ActionText.Length > 0;
+    public bool HasToggleText => ToggleText.Length > 0;
 
     /// <summary>系统解析出来的识别入口（不是清理结论）。</summary>
     public bool IsSystemEntry { get; init; }
+
+    /// <summary>入口的短标签（入口本身只是导航/容器，不是清理结论）。</summary>
+    public string SystemEntryTag => IsSystemEntry ? Loc.OrganizeEntryPointTag : "";
 
     /// <summary>平台游戏库这类「里面还有独立对象」的容器 —— 保留往里找游戏的入口。</summary>
     public bool IsPlatformContainer { get; init; }
@@ -154,12 +192,34 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     public bool IsExpanded
     {
         get => _isExpanded;
-        private set { if (_isExpanded != value) { _isExpanded = value; Raise(nameof(IsExpanded)); Raise(nameof(ExpandGlyphKey)); Raise(nameof(ExpandTip)); } }
+        private set
+        {
+            if (_isExpanded == value) return;
+            _isExpanded = value;
+            Raise(nameof(IsExpanded));
+            Raise(nameof(ExpandGlyphKey));
+            Raise(nameof(ExpandTip));
+            Raise(nameof(ToggleText));
+            Raise(nameof(HasToggleText));
+        }
     }
 
     /// <summary>子目录比预算多 → 明确说出来，不假装列全了。</summary>
     public bool ChildSetTruncated => _childSetTruncated;
     public int HiddenChildCount => Math.Max(0, _childTotal - _children.Count);
+
+    /// <summary>
+    /// 因为行数上限**没有材料化、也没有结论**的直接子目录数。
+    /// 这些条目既不在列表里，也**绝不算「已识别」**；页头会如实报出总数。
+    /// </summary>
+    public int UnlistedChildCount { get; private set; }
+
+    /// <summary>有没列出来的子目录时，这一行要显示「已列出 X / 共 Y / 还有 N 个未列出（未识别）」。</summary>
+    public string UnlistedNote => UnlistedChildCount > 0
+        ? Loc.OrganizeUnlistedNote(_children.Count, _childTotal, UnlistedChildCount)
+        : "";
+
+    public bool HasUnlistedNote => UnlistedChildCount > 0;
 
     public string ExpandGlyphKey => _isExpanded ? "IconChevronDown" : "IconChevronRight";
     public string ExpandTip => _isExpanded ? Loc.OrganizeCollapse : Loc.OrganizeExpand;
@@ -176,25 +236,33 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     {
         ChildDirCount = count;
         Raise(nameof(CanExpand));
-        Raise(nameof(ActionText));
-        Raise(nameof(HasAction));
+        Raise(nameof(ToggleText));
+        Raise(nameof(HasToggleText));
     }
 
     /// <summary>写入一次展开的结果。</summary>
     public void SetChildren(IReadOnlyList<OrganizeNode> children, bool truncated, int total)
+        => SetChildren(children, truncated, total, Math.Max(0, total - children.Count));
+
+    /// <summary>写入一次展开的结果，并如实带上「没列出来、也没有结论」的数量。</summary>
+    public void SetChildren(IReadOnlyList<OrganizeNode> children, bool truncated, int total, int unlisted)
     {
         _children.Clear();
         _children.AddRange(children);
         _childrenLoaded = true;
         _childSetTruncated = truncated;
         _childTotal = total;
+        UnlistedChildCount = Math.Max(0, unlisted);
         IsExpanded = true;
         Raise(nameof(Children));
         Raise(nameof(ChildBudgetNote));
         Raise(nameof(HasChildBudgetNote));
         Raise(nameof(HiddenChildCount));
-        Raise(nameof(ActionText));
-        Raise(nameof(HasAction));
+        Raise(nameof(UnlistedChildCount));
+        Raise(nameof(UnlistedNote));
+        Raise(nameof(HasUnlistedNote));
+        Raise(nameof(ToggleText));
+        Raise(nameof(HasToggleText));
     }
 
     /// <summary>收起：**保留已材料化的子对象**（结果不丢，再展开不重复请求）。</summary>
@@ -233,10 +301,15 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         _basis = r.HasConclusion ? r.Basis : "";
         _source = r.HasConclusion ? r.Source : PurposeSource.None;
         _needsConfirm = r.HasConclusion ? r.NeedsConfirm : true;
-        if (r.Kind != FolderKind.Unknown) _kind = r.Kind;
-        // 有结论就落回结论状态；没结论就是「待确认」，绝不显示成已识别。
+        // 目录性质只由本地结构判定决定：**用户纠正只改用途结论**，
+        // 不能因为纠成一个「具体东西」就把这个集合的子项藏起来 / 停止展开。
+        if (r.Source != PurposeSource.User && r.Kind != FolderKind.Unknown) _kind = r.Kind;
+        // 有结论就落回结论状态；没有结论时：
+        //   - 这次**失败/超时** ⇒ Failed（页头会把它算进「失败」，可统一重试）
+        //   - 只是判不出来   ⇒ Unrecognized + 待确认
+        // 两种情况都绝不显示成「已识别」。
         _override = null;
-        if (!HasConclusion) _override = PurposeState.Unrecognized;
+        if (!HasConclusion) _override = r.Failed ? PurposeState.Failed : PurposeState.Unrecognized;
         RaiseAll();
     }
 
@@ -264,8 +337,6 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         Raise(nameof(PurposeDetail));
         Raise(nameof(IsResolved));
         Raise(nameof(IsPending));
-        Raise(nameof(ActionText));
-        Raise(nameof(HasAction));
         Raise(nameof(Kind));
     }
 

@@ -1263,7 +1263,7 @@
             <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource GhostButton}" Click="TabUninstall_Click"/>
           </StackPanel>
           <!-- ===== 文件夹整理：实际工作区（不是说明页）=====
-               本地能判断的对象扫描后直接认出来；看不出来的才需要显式点「识别这些文件夹」。
+               扫描后自动识别一、二级；三级及更深只由「识别当前文件夹」显式分析当前这一层。
                这一页**不复制**清理页的候选空间与执行按钮，也不碰 Risk / CanDelete / Selected。-->
           <DockPanel x:Name="OrganizePane" Grid.Row="1" Visibility="Collapsed">
             <!-- 页头：只有一个标题；统计与操作同一行，顶部空白压到最小 -->
@@ -1288,10 +1288,44 @@
                           Margin="0,0,8,0" Click="OrganizeFilter_Click"
                           ToolTip="只看还没认出来的文件夹"
                           AutomationProperties.Name="只看待确认的文件夹"/>
-                  <Button x:Name="OrganizeIdentifyAllBtn" Style="{StaticResource PrimaryButton}"
-                          Padding="14,6" FontSize="12" Click="OrganizeIdentifyAll_Click"
-                          ToolTip="识别本页还没认出来的文件夹（不会自动发送整盘数据）"/>
+                  <!-- 唯一的批量入口：自动识别失败/待确认的统一重试（行里不再放识别按钮） -->
+                  <Button x:Name="OrganizeIdentifyAllBtn" Style="{StaticResource GhostButton}"
+                          Padding="12,5" FontSize="11.5" Click="OrganizeIdentifyAll_Click"
+                          ToolTip="识别本页还没认出来的文件夹（不会自动发送整盘数据）"
+                          AutomationProperties.Name="重试待确认或失败的文件夹"/>
                 </StackPanel>
+              </Grid>
+            </Border>
+
+            <!-- ===== 当前文件夹工作区：三级及更深的手动识别入口（只分析当前这一层）===== -->
+            <Border x:Name="OrganizeWorkBar" DockPanel.Dock="Top" Visibility="Collapsed"
+                    Padding="16,8" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
+                    Background="{DynamicResource PanelRight}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="OrganizeWorkTitle" Foreground="{DynamicResource Text}"
+                               FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                               MaxWidth="420"/>
+                    <TextBlock x:Name="OrganizeWorkPath" Margin="8,0,0,0" Foreground="{DynamicResource TextMuted}"
+                               FontSize="10.5" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" MaxWidth="360"
+                               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                  </StackPanel>
+                  <TextBlock x:Name="OrganizeWorkScope" Margin="0,3,0,0" Foreground="{DynamicResource TextDim}"
+                             FontSize="11" TextTrimming="CharacterEllipsis"
+                             ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                </StackPanel>
+                <!-- 唯一的主操作：只分析当前这一层的直接子文件夹，不会自己继续深入 -->
+                <Button x:Name="OrganizeIdentifyCurrentBtn" Grid.Column="1"
+                        Style="{StaticResource PrimaryButton}" Padding="12,5" FontSize="11.5"
+                        VerticalAlignment="Center" Click="OrganizeIdentifyCurrent_Click"
+                        ToolTip="只分析选中文件夹的直接子文件夹，不会扩大到别的地方。"
+                        AutomationProperties.Name="识别当前文件夹"/>
               </Grid>
             </Border>
 
@@ -1304,7 +1338,8 @@
                   <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="OrganizeScopeText" Grid.Column="0" Foreground="{DynamicResource TextDim}"
-                           FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                           FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
                 <Button x:Name="OrganizeStopBtn" Grid.Column="1" Content="取消识别"
                         Style="{StaticResource GhostButton}" Padding="10,3" FontSize="11"
                         Click="OrganizeStop_Click" Visibility="Collapsed"/>
@@ -1346,13 +1381,17 @@
                       VirtualizingPanel.CacheLengthUnit="Page"
                       ScrollViewer.CanContentScroll="True"
                       VirtualizingPanel.ScrollUnit="Pixel"
+                      MouseDoubleClick="OrganizeGrid_MouseDoubleClick"
                       PreviewMouseRightButtonDown="OrganizeGrid_PreviewRightDown">
               <DataGrid.ContextMenu>
                 <ContextMenu Opened="OrganizeMenu_Opened">
                   <MenuItem x:Name="OrgCtxOpen" Header="在资源管理器中打开" Click="OrganizeOpen_Click"/>
                   <MenuItem x:Name="OrgCtxCopy" Header="复制完整路径" Click="OrganizeCopyPath_Click"/>
                   <MenuItem Style="{StaticResource MenuLine}"/>
-                  <MenuItem x:Name="OrgCtxIdentify" Header="识别用途" Click="OrganizeIdentifyOne_Click"/>
+                  <!-- 行里不再放逐项「识别」按钮：识别是自动的；
+                       只有进入具体文件夹后，才在这里对这一层做识别。 -->
+                  <MenuItem x:Name="OrgCtxIdentifyCurrent" Header="识别当前文件夹"
+                            Click="OrganizeIdentifyCurrentMenu_Click"/>
                   <MenuItem x:Name="OrgCtxCorrect" Header="纠正用途"/>
                   <MenuItem Style="{StaticResource MenuLine}"/>
                   <MenuItem x:Name="OrgCtxExpand" Header="展开子文件夹" Click="OrganizeExpandMenu_Click"/>
@@ -1366,6 +1405,7 @@
                     <DataTemplate>
                       <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,3,6,3">
                         <Border Width="{Binding IndentWidth}" Height="1"/>
+                        <!-- 展开箭头：纯导航，不做识别 -->
                         <Button Style="{StaticResource IconButton}" Width="20" Height="20" Padding="0"
                                 VerticalAlignment="Center" Margin="0,0,4,0"
                                 Visibility="{Binding CanExpand, Converter={StaticResource BoolToVisible}}"
@@ -1382,10 +1422,16 @@
                                        ToolTip="{Binding FullPath}"/>
                             <Border Margin="6,0,0,0" Padding="5,0" CornerRadius="7" VerticalAlignment="Center"
                                     Background="{DynamicResource SelectBg}"
+                                    Visibility="{Binding IsSystemEntry, Converter={StaticResource BoolToVisible}}">
+                              <TextBlock Text="{Binding SystemEntryTag}" FontSize="10" Foreground="{DynamicResource AccentDim}"/>
+                            </Border>
+                            <Border Margin="4,0,0,0" Padding="5,0" CornerRadius="7" VerticalAlignment="Center"
+                                    Background="{DynamicResource SelectBg}"
                                     Visibility="{Binding IsPlatformContainer, Converter={StaticResource BoolToVisible}}">
                               <TextBlock Text="{Binding PlatformTag}" FontSize="10" Foreground="{DynamicResource AccentDim}"/>
                             </Border>
                           </StackPanel>
+                          <!-- 真实路径可看，但不抢主视觉：单行、截断、悬停给完整路径 -->
                           <TextBlock Text="{Binding RelativePath}" FontSize="10.5" Margin="0,1,0,0"
                                      Foreground="{DynamicResource TextMuted}" TextTrimming="CharacterEllipsis"
                                      MaxWidth="380" ToolTip="{Binding FullPath}"/>
@@ -1425,7 +1471,7 @@
                         </TextBlock>
                         <TextBlock Text="{Binding PurposeDetail}" FontSize="10.5" Margin="0,1,0,0"
                                    Foreground="{DynamicResource TextMuted}" TextTrimming="CharacterEllipsis"
-                                   ToolTip="{Binding ChildBudgetNote}"/>
+                                   ToolTip="{Binding UnlistedNote}"/>
                       </StackPanel>
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
@@ -1444,23 +1490,25 @@
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
 
-                <!-- 操作：只放这一页需要的东西（识别 / 深入、打开）；没有清理按钮 -->
-                <DataGridTemplateColumn x:Name="ColOrgAction" Header="操作" Width="196" MinWidth="196"
+                <!-- 操作：**没有逐项「识别」按钮**（识别是自动的，行里不该让人以为要手动点）。
+                     这里只留纯导航的「展开 / 收起」和「在资源管理器中打开」。 -->
+                <DataGridTemplateColumn x:Name="ColOrgAction" Header="操作" Width="132" MinWidth="104"
                                         CanUserResize="False" CanUserSort="False" IsReadOnly="True">
                   <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                       <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,3,4,3">
                         <Button Style="{StaticResource GhostButton}" Padding="8,3" FontSize="11"
                                 Margin="0,0,6,0"
-                                Visibility="{Binding HasAction, Converter={StaticResource BoolToVisible}}"
-                                Tag="{Binding}" Click="OrganizeIdentifyOne_Click"
-                                ToolTip="{Binding PurposeDetail}"
-                                AutomationProperties.Name="{Binding ActionText}">
+                                Visibility="{Binding HasToggleText, Converter={StaticResource BoolToVisible}}"
+                                Tag="{Binding}" Click="OrganizeExpand_Click"
+                                ToolTip="{Binding ExpandTip}"
+                                AutomationProperties.Name="{Binding ToggleText}">
                           <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconScan}" Width="11" Height="11" Stretch="Uniform"
+                            <Path Data="{Binding ExpandGlyphKey, Converter={StaticResource IconKey}}"
+                                  Width="10" Height="10" Stretch="Uniform"
                                   VerticalAlignment="Center" Margin="0,0,5,0"
                                   Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                            <TextBlock Text="{Binding ActionText}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding ToggleText}" VerticalAlignment="Center"/>
                           </StackPanel>
                         </Button>
                         <Button Style="{StaticResource IconButton}" Width="26" Height="26"
