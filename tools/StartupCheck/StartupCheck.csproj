@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 启动回归检查：**真的加载编译后的 BAML**（就是 StartupUri 走的同一条路），
+       不是字符串断言、也不是手写的简化 XAML。
+       这个项目直接引用主工程，所以测的是发布出去的那份 MainWindow。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.18362.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>StartupCheck</AssemblyName>
+    <RootNamespace>StartupCheck</RootNamespace>
+    <StartupObject>StartupCheck.Program</StartupObject>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AiDiskCleaner\AiDiskCleaner.csproj" />
+  </ItemGroup>
+
+</Project>

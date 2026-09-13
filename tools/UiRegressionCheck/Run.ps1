@@ -35,6 +35,10 @@ $orgnode = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\O
 # v2.7.0: filtered README/config snippets and the automatic two-level pass
 $srcsnip = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\SourceSnippet.cs') -Raw -Encoding UTF8
 $newfp = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderPurpose.cs') -Raw -Encoding UTF8
+# v2.8.1: startup hardening after the 2.8.0 "double-click does nothing" failure
+$app = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\App.xaml.cs') -Raw -Encoding UTF8
+$firstcrash = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CrashFirstRecord.cs') -Raw -Encoding UTF8
+$startupcheck = Join-Path $repo 'tools\StartupCheck\Program.cs'
 
 $fail = 0
 function Assert-True([string]$name, [bool]$ok) {
@@ -160,7 +164,7 @@ Assert-True 'the action column only keeps the explorer folder icon with tooltip 
      [regex]::Match($xaml, '(?s)x:Name="ColOrgAction"(.*?)</DataGridTemplateColumn>').Groups[1].Value -match
         'ToolTip=')
 Assert-True 'rows can grow when a detail block is open' `
-    ($xaml -match 'RowHeight="Auto"')
+    ($xaml -match 'RowHeight="NaN"' -and $xaml -match 'MinRowHeight="46"')
 Assert-True 'the purpose cell opens an inline detail block (collapsed by default)' `
     ($xaml -match 'MouseLeftButtonUp="OrganizePurpose_Click"' -and
      $xaml -match 'Binding IsDetailOpen' -and
@@ -235,6 +239,34 @@ Assert-True 'only README / config / manifest files may be read' `
      $srcsnip -match 'TopDirectoryOnly')
 Assert-True 'language never says "recently used"' `
     ($loc -notmatch '最近使用')
+# --- 2e. startup hardening (the 2.8.0 "double-click does nothing" failure) -----
+Assert-True 'row height uses a LEGAL auto value (never the string Auto)' `
+    ($xaml -match 'RowHeight="NaN"' -and $xaml -notmatch 'RowHeight="Auto"')
+Assert-True 'row height keeps a minimum so an expanded detail cannot be clipped' `
+    ($xaml -match 'MinRowHeight="46"')
+Assert-True 'crash handling has a fatal latch (a fatal start is handled once)' `
+    ($app -match '_fatalLatched' -and $app -match 'CrashOutcome\.Suppressed')
+Assert-True 'crash handling guards re-entry' `
+    ($app -match 'Interlocked\.CompareExchange\(ref _crashGate, 1, 0\)')
+Assert-True 'the async alert callback is itself exception-safe' `
+    ($app -match 'try \{ w\.ShowCrash\(ex\.Message\); \}')
+Assert-True 'a startup-fatal crash exits with a non-zero code (no windowless spinner)' `
+    ($app -match 'FatalStartupExitCode' -and $app -match 'Environment\.Exit\(FatalStartupExitCode\)')
+Assert-True 'half-initialised UI is detected before touching any control' `
+    (($cs -match 'public bool IsUiReady') -and ($app -match 'w\.IsUiReady') -and
+     ($app -match 'IsUiReady: true'))
+Assert-True 'the first original exception is kept in its own bounded file' `
+    ($firstcrash -match 'first-crash\.log' -and $firstcrash -match 'if \(_saved > 0\) return false' -and
+     $firstcrash -match 'LogRedactor\.ScrubAll')
+Assert-True 'the first-crash file only ever rotates itself' `
+    ($firstcrash -match 'MaxFileBytes' -and $firstcrash -match 'first-crash\.log' -and
+     $firstcrash -notmatch 'AppLog\.Write' -and $firstcrash -notmatch 'RotateIfNeeded')
+Assert-True 'startup regression loads the REAL compiled BAML (not string matching)' `
+    ((Test-Path $startupcheck) -and
+     ((Get-Content -LiteralPath $startupcheck -Raw -Encoding UTF8) -match 'new MainWindow\(\)') -and
+     ((Get-Content -LiteralPath $startupcheck -Raw -Encoding UTF8) -match 'DetailText'))
+Assert-True 'startup regression asserts detail rows grow and stay inside the row' `
+    ((Get-Content -LiteralPath $startupcheck -Raw -Encoding UTF8) -match '完全落在行内')
 # --- 2d. calibration: entry points, coverage vs UI cap, honest status ----------
 Assert-True 'user-profile ancestors never swallow AppData entry points' `
     ($forg -match 'included\.Add\(n\)' -and $forg -match 'IsAncestorOfEntryPoint' -and
@@ -659,7 +691,7 @@ if (Test-Path $publish) {
     $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
     Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
     $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
-    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.8.0*')
+    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.8.1*')
 }
 else {
     Assert-True 'publish package exists' $false

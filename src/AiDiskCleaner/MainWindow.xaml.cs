@@ -297,7 +297,17 @@ public partial class MainWindow : Window, IAnalystHost
             AppLog.Record("Ai", ex, "attach tool host");
         }
         PickDrive("C:\\");
+        // 构造彻底完成：所有 x:Name 控件都已赋值。
+        // 崩溃处理器靠这个标记区分「窗口已就绪」和「半初始化」——
+        // 半初始化时绝不能去碰 AlertText 这类还没赋值的控件（那会把崩溃变成死循环）。
+        IsUiReady = true;
     }
+
+    /// <summary>
+    /// 主窗口是否已经完成构造（`InitializeComponent` 成功、所有命名控件都已赋值）。
+    /// 构造函数中途抛异常时它会保持 false。
+    /// </summary>
+    public bool IsUiReady { get; private set; }
 
     /// <summary>
     /// 侧栏宽度约束。拖动时用 Min/Max 卡住上下限，避免拖出负宽度或挤死主内容。
