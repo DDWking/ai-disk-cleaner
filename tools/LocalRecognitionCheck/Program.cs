@@ -23,6 +23,8 @@ public static class Program
         PrefixCollisionTests();
         InstalledSnapshotMatchingTests();
         SnapshotReuseTests();
+        StartupSnapshotOnceTests();
+        MainScanPathHitTests();
         EvidenceWiringTests();
         IsolationTests();
 
@@ -309,6 +311,76 @@ public static class Program
         var first = FolderPurposeRules.BuiltInSystemRoles();
         var second = FolderPurposeRules.BuiltInSystemRoles();
         Check("内置系统语义表是同一份缓存（引用相等）", ReferenceEquals(first, second));
+    }
+
+    // ------------------------------------------------------------------ 5b) 主链路接线：启动只建一次系统快照
+
+    static void StartupSnapshotOnceTests()
+    {
+        Section("主链路接线：系统快照启动只建一次，叠加安装清单不再解析系统路径");
+
+        var r = new FakeResolver()
+            .Set(SystemPathId.Pictures, @"D:\图片")
+            .Set(SystemPathId.Downloads, @"D:\Downloads");
+        var sys = SystemPathSnapshot.Capture(r);
+        int captured = r.Calls;
+        Check("启动建立系统快照时解析器被调用过", captured > 0, captured.ToString());
+
+        // 启动后反复查询 / 叠装安装清单都不再重新解析系统路径
+        for (int i = 0; i < 100; i++) sys.Match(@"D:\图片");
+        var evidence = new LocalEvidenceService(InstalledLocationSnapshot.Empty, sys);
+        var installed = InstalledLocationSnapshot.Build(new[]
+        {
+            new InstalledAppLocation("AppA", @"C:\Program Files\AppA"),
+        });
+        var layered = evidence.WithInstalled(installed);
+
+        Check("系统快照只建一次（Match / WithInstalled 都不再调解析器）",
+            r.Calls == captured, $"{r.Calls}/{captured}");
+        Check("叠加安装清单沿用同一份系统快照", ReferenceEquals(evidence.System, layered.System));
+        Check("注入 FolderPurposeService 的正是叠装后的证据", new FolderPurposeService(layered).Evidence == layered);
+    }
+
+    // ------------------------------------------------------------------ 5c) 主扫描路径命中已安装/系统目录
+
+    static void MainScanPathHitTests()
+    {
+        Section("主扫描路径：命中已安装目录 / 系统目录都给出本地结论");
+
+        var r = new FakeResolver().Set(SystemPathId.Pictures, @"D:\图片");
+        var sys = SystemPathSnapshot.Capture(r);
+        var installed = InstalledLocationSnapshot.Build(new[]
+        {
+            new InstalledAppLocation("AppA", @"C:\Program Files\AppA"),
+        });
+        var evidence = new LocalEvidenceService(installed, sys);
+        var svc = new FolderPurposeService(evidence);
+
+        // 模拟主扫描出来的树：根 + 两个一级目录（一个命中安装位置，一个命中系统目录）
+        var root = Dir(@"C:\");
+        var appDir = Dir(@"C:\Program Files\AppA");
+        var sysDir = Dir(@"D:\图片");
+        root.Children.Add(appDir); appDir.Parent = root;
+        root.Children.Add(sysDir); sysDir.Parent = root;
+
+        var appRes = FolderPurposeRules.RecognizeLocally(appDir, Sum(appDir), null, evidence);
+        Check("命中安装目录 ⇒ 认到产品、本地、无需确认",
+            appRes.HasConclusion && appRes.Source == PurposeSource.Local
+            && !appRes.NeedsConfirm && appRes.PurposeName == "AppA",
+            $"{appRes.PurposeName}/{appRes.Source}/{appRes.NeedsConfirm}");
+
+        var sysRes = FolderPurposeRules.RecognizeLocally(sysDir, Sum(sysDir), null, evidence);
+        Check("命中系统目录 ⇒ 本地结论、无需确认",
+            sysRes.HasConclusion && sysRes.Source == PurposeSource.Local
+            && !sysRes.NeedsConfirm && sysRes.PurposeName == LocalRecognitionText.Pictures,
+            $"{sysRes.PurposeName}/{sysRes.Source}/{sysRes.NeedsConfirm}");
+
+        // 经注入的服务透传（整理页 LocalRecognize 现在走的正是这条证据）
+        var viaService = svc.RecognizeAsync(appDir, new FolderId(appDir.FullPath, 1), 0, @"C:\Program Files\AppA",
+            allowAi: false, provider: null, model: null, sendFullPath: false,
+            configSignature: "cfg", ct: CancellationToken.None).GetAwaiter().GetResult();
+        Check("FolderPurposeService 透传：命中安装目录给产品结论",
+            viaService.HasConclusion && viaService.PurposeName == "AppA", viaService.PurposeName);
     }
 
     // ------------------------------------------------------------------ 6) 注入接线 + 推测语义

@@ -252,6 +252,11 @@ public partial class MainWindow : Window, IAnalystHost
     {
         InitializeComponent();
         _scanCoordinator = new ScanCoordinator(_scanner, _fallback);
+        // 启动时**只建立一次**系统 KnownFolder 快照（重定向下载/桌面/图片等），之后只查内存；
+        // 已安装清单在卸载页清点软件后（ListApps 结果处）再叠到**同一个**证据服务上。
+        _systemPathSnapshot = SystemPathSnapshot.Capture();
+        _localEvidence = new LocalEvidenceService(InstalledLocationSnapshot.Empty, _systemPathSnapshot);
+        _folderPurpose = new FolderPurposeService(_localEvidence);
         // 停止按钮的可见性由阶段登记簿驱动，不再由某个流程的 finally 决定
         _work.Changed += Work_Changed;
         var drives = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.Name).ToList();
@@ -3642,7 +3647,11 @@ public partial class MainWindow : Window, IAnalystHost
     /// <summary>详情列表的分组表头与展开状态（按分组键记忆）。</summary>
     readonly DetailGroupHeaderConverter _detailGroups = new();
     /// <summary>文件夹用途识别服务（预算、缓存、AI 接缝都在这层）。</summary>
-    readonly FolderPurposeService _folderPurpose = new();
+    readonly FolderPurposeService _folderPurpose;
+    /// <summary>启动时建立一次的系统 KnownFolder 快照（重定向下载/桌面/图片等），之后只查内存。</summary>
+    readonly SystemPathSnapshot _systemPathSnapshot;
+    /// <summary>本地证据服务（系统语义 + 已安装位置）。系统快照只建一次，已安装清单在清点软件后叠上来。</summary>
+    LocalEvidenceService _localEvidence;
     readonly DetailGroupExpandedConverter _detailGroupsExpanded = new();
 
     /// <summary>
@@ -4344,6 +4353,28 @@ public partial class MainWindow : Window, IAnalystHost
 
     private async void UninstallRefresh_Click(object sender, RoutedEventArgs e) => await LoadApps();
 
+    /// <summary>
+    /// 用刚清点出来的已安装软件清单，**建立一次** <see cref="InstalledLocationSnapshot"/>，
+    /// 并把它叠到启动时建好的**同一个** <see cref="LocalEvidenceService"/> 上（系统快照沿用）。
+    /// 只在内存里做，不逐条扫注册表/磁盘。证据建不出来只影响「已安装目录」识别，不打断卸载列表。
+    /// </summary>
+    private void InjectInstalledEvidence(List<AppUninstallItem> apps)
+    {
+        try
+        {
+            var snapshot = InstalledLocationSnapshot.Build(
+                apps.Select(a => new InstalledAppLocation(a.Name, a.InstallLocation)));
+            _localEvidence = _localEvidence.WithInstalled(snapshot);
+            _folderPurpose.Evidence = _localEvidence;
+            AppLog.Info("Evidence", $"op=installed-snapshot apps={snapshot.AppCount} "
+                + $"usable={snapshot.UsableLocationCount} skipped={snapshot.SkippedCount}");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Record("Evidence", ex, "inject installed evidence");
+        }
+    }
+
     private async Task LoadApps()
     {
         if (_listingApps || _aiAppsBusy) return;
@@ -4380,6 +4411,7 @@ public partial class MainWindow : Window, IAnalystHost
             }
             AppRecommendationService.ApplyUsage(usage);
             AppRecommendationService.ApplyLocalRules(list);
+            InjectInstalledEvidence(list);
             foreach (var app in list)
             {
                 try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }
@@ -4747,6 +4779,7 @@ public partial class MainWindow : Window, IAnalystHost
             }
             AppRecommendationService.ApplyUsage(usage);
             AppRecommendationService.ApplyLocalRules(list);
+            InjectInstalledEvidence(list);
             foreach (var app in list)
             {
                 try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }

@@ -219,7 +219,7 @@ public partial class MainWindow
             node.Apply(hit);
             return;
         }
-        var local = FolderPurposeRules.RecognizeLocally(node.Dir, sum, _organizeEntryPoints);
+        var local = FolderPurposeRules.RecognizeLocally(node.Dir, sum, _organizeEntryPoints, _folderPurpose.Evidence);
         node.SetEvidence(sum);
         node.SetKind(local.Kind);
         if (local.HasConclusion) node.Apply(local);
