@@ -1,4 +1,4 @@
-﻿# UI / behaviour regression check (ASCII only on purpose).
+﻿﻿﻿# UI / behaviour regression check (ASCII only on purpose).
 #
 # Guards the interface behaviour that was finished on 2026-09-10 so a later
 # refactor cannot quietly roll it back:
@@ -214,14 +214,48 @@ Assert-True 'the workspace states the scope and request count before sending' `
      $forg -match 'RequestBudgetFor')
 Assert-True 'progress separates finished / running / unfinished / canceled' `
     ($org -match 'Loc\.OrganizeRunRunning' -and $org -match 'Loc\.OrganizeRunDone' -and
-     $org -match 'Loc\.OrganizeRunIncomplete' -and $org -match 'Loc\.OrganizeRunCanceled')
-Assert-True 'progress counts named / ai / unknown / failed, not just "handled"' `
-    ($org -match 'Loc\.OrganizeRunCounts\(named, aiCount, unknown, failed\)' -and
-     $org -match 'Loc\.OrganizeRunCovered\(' -and $org -match 'Loc\.OrganizeRunRequests\(')
+     $org -match 'Loc\.OrganizeRunIncomplete' -and $org -match 'Loc\.OrganizeRunCanceled' -and
+     $org -match 'Loc\.OrganizeRunSuperseded')
+Assert-True 'no hard-coded "identifying 0/N" is left in the running state' `
+    ($org -notmatch 'OrganizeRunRunning \+ " · " \+ Loc\.OrganizeRunCovered\(0')
+Assert-True 'progress counts local / ai / unknown / failed / not-sent separately' `
+    ($org -match 'Loc\.OrganizeRunSummary\(head, failed, notSent\)' -and
+     $org -match 'Loc\.OrganizeCountsLine\(local, ai, unknown, failed\)' -and
+     $org -match 'int notSent = Math\.Max\(0, noConclusion - attemptedUnknown\)')
+Assert-True 'request count is never equated with success count' `
+    ($org -match 'Loc\.OrganizeRunAttempts\(attempted, targets\.Count\)' -and
+     $org -match 'int attempted = 0;')
 Assert-True 'request budget goes to the tooltip, not the same line as folder counts' `
     ($org -match 'OrganizeCounts\.ToolTip' -and $org -match 'complete && _organizeAll\.All\(x => !x\.IsPending\)')
 Assert-True 'a pass that did not cover everything is never called finished' `
-    ($org -match 'bool complete = allReached && notCovered == 0 && failed == 0')
+    ($org -match 'bool complete = allReached && notSent == 0 && failed == 0')
+# --- 2f. the v2.8.2 behaviour fixes (expand / lifecycle / filter) ---------------
+Assert-True 'first click on the arrow expands after lazy materialisation' `
+    ($org -match 'Materialize\(node, FolderOrganize\.ChildBudget, null, autoExpand: true\)' -and
+     $org -match 'autoExpand && kids\.Count > 0')
+Assert-True 'background materialisation still never auto-expands' `
+    ($org -match 'Materialize\(node, FolderOrganize\.ChildBudget, FolderOrganize\.AutoMaterializeBudget\(node\.Depth == 0\)\);' -and
+     $orgnode -match 'bool autoExpand = false')
+Assert-True 'a click that cannot expand says why (no silent no-op, no fake expand)' `
+    ($org -match 'OrganizeExpandBudgetReached' -and $org -match 'OrganizeExpandAlreadyListed' -and
+     $org -match 'OrganizeExpandNoChildren' -and $org -match 'OrganizeMaterializeResult\.BudgetReached')
+Assert-True 'organize identify no longer keys off the item-AI generation' `
+    ($org -match 'taskGen != _organizeGeneration \|\| scanGen != _scanGeneration' -and
+     $org -notmatch 'myData != _aiDataGeneration')
+Assert-True 'a superseded task is not allowed to touch the new task UI' `
+    ($org -match 'int myTask = \+\+_organizeTaskId;' -and $org -match 'bool Owns\(\) => myTask == _organizeTaskId;' -and
+     $org -match 'if \(Owns\(\)\)\s*\{\s*_organizeBusy = false;')
+Assert-True 'the stale path still ends with a terminal state instead of half-done' `
+    ($org -match 'if \(Owns\(\)\) SetOrganizeNote\(Loc\.OrganizeRunSuperseded\)')
+Assert-True 'filter is a view: it never mutates IsExpanded' `
+    ($org -notmatch 'foreach \(var n in _organizeAll\) if \(n\.ChildrenLoaded\) n\.Expand\(\)' -and
+     $org -match '_organizeFilterSet' -and
+     $org -match 'if \(!_organizeFilterSet\.Contains\(node\)\) return;')
+Assert-True 'filter keeps ancestor context so no orphan rows appear' `
+    ($org -match 'bool keep = n\.IsPending;' -and $org -match 'if \(Mark\(c\)\) keep = true;')
+Assert-True 'AI ordering is level 1 strictly before level 2' `
+    ($org -match '\.OrderBy\(x => x\.Level\)' -and $org -match '\.ThenByDescending\(x => x\.Size\)' -and
+     $org -notmatch '\.Where\(x => x\.IsAutoLevel[\s\S]{0,400}\.OrderByDescending\(x => x\.Size\)\s*\.ToList')
 Assert-True 'a scan in progress starts no identification pass' `
     ($org -match 'if \(_organizeBusy\) return;' -and $org -match '_organizeAutoStarted')
 Assert-True 'no full path or full file list is sent by default' `
@@ -300,8 +334,10 @@ Assert-True 'failure path really lands in Failed (not silently unknown)' `
      $orgnode -match 'if \(!HasConclusion\) _override = r\.Failed \? PurposeState\.Failed : PurposeState\.Unrecognized' -or
      $orgnode -match 'r\.Failed \? PurposeState\.Failed')
 Assert-True 'network failure / no model / budget exhaustion are stated honestly' `
-    ($org -match 'OrganizeAllFailed|OrganizePartFailed' -and
-     $org -match 'OrganizeNoModelHonest' -and $org -match 'OrganizeBudgetLeft')
+    ($org -match 'Loc\.OrganizeRunSummary\(head, failed, notSent\)' -and
+     $org -match 'Loc\.OrganizeRunPassDetail\(aiNamed, unknown, failed\)' -and
+     $org -match 'OrganizeNoModelHonest' -and $org -match 'OrganizeBudgetLeft' -and
+     $org -match 'OrganizeUnlistedTotal')
 Assert-True 'user correction never changes the folder kind (set stays expandable)' `
     ($orgnode -match 'if \(r\.Source != PurposeSource\.User && r\.Kind != FolderKind\.Unknown\) _kind = r\.Kind' -and
      $csvc -match 'Kind: FolderKind\.Unknown')
@@ -313,8 +349,9 @@ Assert-True 'third level and deeper never enter the automatic AI pass' `
     ($forg -match 'AutoChildLevel = 2' -and $org -match 'x\.IsAutoLevel' -and
      $org -match 'IsAutoLevel\s*=>|IsAutoLevel')
 Assert-True 'cancelled / stale results cannot overwrite a newer scan' `
-    ($org -match 'myGen != _organizeGeneration \|\| myData != _aiDataGeneration' -and
-     $org -match 'PurposeState\.Queued or PurposeState\.Running\) t\.ClearState\(\)')
+    ($org -match 'taskGen != _organizeGeneration \|\| scanGen != _scanGeneration' -and
+     $org -match 'PurposeState\.Queued or PurposeState\.Running\) t\.ClearState\(\)' -and
+     $org -match 'if \(Owns\(\)\)')
 Assert-True 'progress counts only real work (no double counting per target)' `
     ($org -match 'LocalRecognize\(t\);' -and $org -match 'done = Math\.Min\(targets\.Count, done \+ 1\)')
 Assert-True 'the current folder is remembered from expand / select' `
@@ -337,7 +374,8 @@ Assert-True 'queued / running states cannot show a success conclusion' `
      $orgnode -match 'if \(State is PurposeState\.Queued\) return Loc\.PurposeQueued;' -and
      $orgnode -match 'if \(State is PurposeState\.Running\) return Loc\.PurposeRunning;')
 Assert-True 'stale generations can never overwrite a new scan' `
-    ($org -match 'myGen != _organizeGeneration \|\| myData != _aiDataGeneration')
+    ($org -match 'taskGen != _organizeGeneration \|\| scanGen != _scanGeneration' -and
+     $org -notmatch 'myData != _aiDataGeneration')
 Assert-True 'local rules run before anything is sent to a model' `
     ($org -match 'if \(!t\.HasConclusion\) LocalRecognize\(t\);' -and
      $org -match 'if \(!allowAi\)' -and
@@ -691,7 +729,7 @@ if (Test-Path $publish) {
     $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
     Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
     $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
-    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.8.1*')
+    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.8.2*')
 }
 else {
     Assert-True 'publish package exists' $false

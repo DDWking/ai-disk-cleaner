@@ -1076,18 +1076,6 @@ public static class Loc
         : $"还有 {unlisted:N0} 个文件夹没有列出（也未识别）——展开或点「识别当前文件夹」再处理";
 
     /// <summary>失败原因分开报：网络不通 / 超时 都不能说成成功。</summary>
-    public static string OrganizeAllFailed => IsEn
-        ? "the model could not be reached — nothing was identified. Check the network or model settings and retry."
-        : "连不上模型，这次没有识别出任何结果。检查网络或模型设置后可以重试。";
-    public static string OrganizePartFailed(int failed) => IsEn
-        ? $"{failed:N0} folders failed (network / timeout) — they stay 'failed' and can be retried"
-        : $"有 {failed:N0} 个文件夹识别失败（网络或超时）；它们保持「失败」状态，可以统一重试";
-    public static string OrganizeBudgetLeft(int pending) => IsEn
-        ? $"{pending:N0} folders were not sent — the request budget ran out. They stay to-confirm, not identified."
-        : $"还有 {pending:N0} 个没有发送：本次请求上限用完了。它们保持「待确认」，不算识别过。";
-    public static string OrganizeNoModelHonest(int pending) => IsEn
-        ? $"{pending:N0} folders need a model and none is configured — they stay to-confirm, not identified."
-        : $"有 {pending:N0} 个文件夹需要模型判断，但还没配置模型；它们保持「待确认」，不算识别过。";
 
     public static string OrganizeWorkTitleFixed(string name, int level) => IsEn
         ? $"Working folder: {name} · level {level}"
@@ -1181,23 +1169,72 @@ public static class Loc
     public static string OrganizeRunDone => IsEn ? "identification finished" : "识别完成";
     public static string OrganizeRunIncomplete => IsEn ? "identification not finished" : "识别未完成";
     public static string OrganizeRunCanceled => IsEn ? "identification stopped" : "识别已取消";
+    public static string OrganizeRunSuperseded => IsEn
+        ? "identification not finished (the list was rebuilt)"
+        : "识别未完成（列表已重建）";
 
-    /// <summary>一句话结论计数：已识别 / AI 推测 / 未知 / 失败。</summary>
-    public static string OrganizeRunCounts(int named, int ai, int unknown, int failed) => IsEn
-        ? $"named {named:N0} (AI guess {ai:N0}) · unknown {unknown:N0} · failed {failed:N0}"
-        : $"已识别 {named:N0}（其中 AI 推测 {ai:N0}）· 未知 {unknown:N0} · 失败 {failed:N0}";
-    /// <summary>识别覆盖：真正有结论的 / 计划识别的。</summary>
-    public static string OrganizeRunCovered(int covered, int planned) => IsEn
-        ? $"{covered:N0}/{planned:N0} folders have a result" : $"{covered:N0}/{planned:N0} 个文件夹有结论";
+    /// <summary>
+    /// 分档计数：本地认出 / AI 有结论 / 未知 / 失败。
+    /// **不把这几类混成一句「待确认」**。
+    /// </summary>
+    public static string OrganizeCountsLine(int local, int ai, int unknown, int failed) => IsEn
+        ? $"local {local:N0} · AI {ai:N0} · unknown {unknown:N0} · failed {failed:N0}"
+        : $"本地 {local:N0} · AI {ai:N0} · 未知 {unknown:N0} · 失败 {failed:N0}";
+
+    /// <summary>
+    /// 终态短句。**只说页头说不出的事**（未发送 / 失败），
+    /// 不再重复「本地/AI/未知」——页头已经用同一批标签报了全局口径，
+    /// 两套不同口径的同名标签拼在一行会让人读成矛盾。
+    /// </summary>
+    public static string OrganizeRunSummary(string head, int failed, int notSent)
+    {
+        var parts = new List<string>();
+        if (failed > 0) parts.Add(IsEn ? $"failed {failed:N0}" : $"失败 {failed:N0}");
+        if (notSent > 0) parts.Add(IsEn ? $"not sent {notSent:N0}" : $"未发送 {notSent:N0}");
+        string tail = parts.Count > 0
+            ? string.Join(" · ", parts)
+            : (IsEn ? "everything was answered" : "都跑完了");
+        return head + " · " + tail;
+    }
+
+    /// <summary>这一遍识别的明细（放 Tooltip，不占顶栏那一行）。</summary>
+    public static string OrganizeRunPassDetail(int aiNamed, int unknown, int failed) => IsEn
+        ? $"this pass: AI answered {aiNamed:N0} · unknown {unknown:N0} · failed {failed:N0}"
+        : $"这一遍：AI 有结论 {aiNamed:N0} · 未知 {unknown:N0} · 失败 {failed:N0}";
+
+    /// <summary>没配模型时如实说明：保持「未识别」，不算识别过。</summary>
+    public static string OrganizeNoModelHonest(int pending) => IsEn
+        ? $"{pending:N0} folders need a model and none is configured — they stay unidentified."
+        : $"有 {pending:N0} 个文件夹需要模型判断，但还没配置模型；它们保持「未识别」，不算识别过。";
+    /// <summary>请求预算用完：剩下的叫「未发送」，不是「待确认」。</summary>
+    public static string OrganizeBudgetLeft(int notSent) => IsEn
+        ? $"{notSent:N0} folders were never sent (this pass ran out of its AI request budget)"
+        : $"还有 {notSent:N0} 个文件夹没有发送（本次 AI 请求预算用完，它们没有被问过）";
+
+    /// <summary>问过多少次（≠ 成功数）。</summary>
+    public static string OrganizeRunAttempts(int attempted, int total) => IsEn
+        ? $"{attempted:N0} of {total:N0} folders were sent to the model (a request is not a success)"
+        : $"实际问过模型 {attempted:N0} / {total:N0} 个（发过请求 ≠ 识别成功）";
+
     /// <summary>请求预算单独一行（放 Tooltip / 详情，不和文件夹数混在一行）。</summary>
     public static string OrganizeRunRequests(int used, int budget) => IsEn
         ? $"AI requests {used:N0}/{budget:N0}" : $"AI 请求 {used:N0}/{budget:N0}";
-    public static string OrganizeRunNotCovered(int notCovered) => IsEn
-        ? $"{notCovered:N0} folders were not reached (not identified)"
-        : $"还有 {notCovered:N0} 个文件夹没有跑到（不算已识别）";
 
     /// <summary>深层工作条：明确「只识别本层的直接子目录」，不是分析这个目录本身。</summary>
     public static string OrganizeIdentifyThisLevel => IsEn ? "Identify folders on this level" : "识别本层文件夹";
+
+    // ---- 展开反馈（点箭头不能没有反应，也不能假装成功） ----
+    public static string OrganizeExpandBudgetReached => IsEn
+        ? "not expanded: too many folders in this pass — rescan to try again"
+        : "没能展开：这次整理的对象数量已达上限，重新扫描后再试";
+    public static string OrganizeExpandAlreadyListed => IsEn
+        ? "nothing to expand: its sub-folders are already listed on the first level"
+        : "没什么可展开的：它的子文件夹已经在首屏那一级列出来了";
+    public static string OrganizeExpandNoChildren => IsEn
+        ? "nothing to expand: this folder has no sub-folders"
+        : "没什么可展开的：这个文件夹里没有子文件夹";
+
+
     public static string OrganizeThisLevelOnly => IsEn
         ? "only the direct sub-folders of this folder are identified — not the folder itself, and it does not go deeper"
         : "只识别这个文件夹的直接子文件夹（不分析这个文件夹本身，也不会继续深入更深目录）";

@@ -212,7 +212,6 @@ namespace AiDiskCleaner.Services
         public static string OrganizeUnlistedNote(int shown, int total, int unlisted)
             => $"listed {shown}/{total}, {unlisted} not listed (not identified)";
         public static string OrganizeUnlistedTotal(int unlisted) => $"{unlisted} not listed";
-        public static string OrganizeAllFailed => "model unreachable";
         public static string OrganizePartFailed(int failed) => $"{failed} failed";
         public static string OrganizeBudgetLeft(int pending) => $"{pending} over budget";
         public static string OrganizeNoModelHonest(int pending) => $"{pending} need a model";

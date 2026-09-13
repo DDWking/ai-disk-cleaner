@@ -86,6 +86,120 @@
 - 还差什么 / 下次谁接
 ```
 
+### 2026-09-13  DDWking（第二十七阶段：修「一级没识别 + 展开点不动」 · v2.8.2）
+> 现象：2.8.1 里**展开目录点不动**，一级目录**仍然大面积未识别**，顶栏永远停在
+> 「识别中… · 0/2503 个文件夹有结论」。
+> 两个都是**上一轮（v2.8.0/v2.8.1）引入的真 bug**，不是环境问题。
+
+**1) 先复现：把行为用例写出来，按现状跑红（13 FAIL）**
+
+新增 `tools/StartupCheck` 第 8 节，**驱动真 MainWindow 的私有路径**（反射调 `ToggleOrganize` /
+`AutoIdentifyTargets` / 筛选 / 代次判据），不是字符串断言。红的时候证据很清楚：
+
+```
+FAIL 首击箭头：节点**确实展开**了        ← 第一次点只材料化、不展开
+FAIL 再点一次：收起                      ← 于是第二次才展开、第三次才收起（整体错位一格）
+FAIL 对象到上限/子项已在首屏：给出明确反馈  ← note 为空 = 点了没反应
+FAIL 一级严格排在二级之前   [L2huge:L2,L1big:L1,L1small:L1]   ← 按容量混排
+FAIL 打开筛选：**不改变任何节点的展开状态** [D=True E=True F=True]  ← E 被强制展开
+FAIL 关闭筛选：回到打开前的展开状态        ← 关了也不收回（行集合 4 → 6）
+FAIL 逐项AI代次变化（after-duplicates）不得让整理识别任务失效  [aiGen=1]
+```
+
+**2) 根因（都在代码里，逐行可查）**
+
+| # | 根因 | 位置 |
+|---|---|---|
+| A | **材料化 ≠ 展开**：`SetChildren` 在 v2.8.0 改成默认 `autoExpand:false`（为了首屏只显示一级），但 `ToggleOrganize` 的懒加载分支只调 `Materialize` 而**没有自己展开** ⇒ 首次点箭头毫无反应，第二次才走 `else node.Expand()` | `MainWindow.Organize.cs` `ToggleOrganize` / `Materialize` |
+| B | **识别这一遍被误杀**：失效判据用的是逐项 AI 代次 `_aiDataGeneration`，而**重复检测完成后的分层重建**（`RebuildLayersAsync` → `InvalidateItemAiAfterScan`）会把它 +1 ⇒ 识别循环立刻 `break` 并 `return`，**终态 note 不写**，顶栏永远停在开始时那句「识别中…」 | `InvalidateItemAiAfterScan` / `Stale` / `RunOrganizeIdentifyAsync` |
+| C | **开始状态写死 0/N**：`SetOrganizeNote(Running + " · " + Covered(0, N))`，而计数只在终态算一次 ⇒ 跑着的这段时间顶栏就是「识别中… · 0/N」 | `RunOrganizeIdentifyAsync` |
+| D | **筛选篡改展开状态**：打开筛选时 `foreach (n in _organizeAll) if (n.ChildrenLoaded) n.Expand()`，关掉没人收回 ⇒ 永久改变（也破坏了「首屏只显示一级」）；且筛选下只加命中行、不加祖先 ⇒ **孤儿行** | `OrganizeFilter_Click` / `AddVisibleRows` |
+| E | **AI 顺序按容量混排**：`OrderByDescending(Size)` 把一、二级混在一起，大二级目录会插到一级前面 | `AutoIdentifyTargets` |
+| F | **预算被悄悄清零 + 缓存被清空**（真机日志抓到的）：`InvalidateItemAiAfterScan` 里还调了 `ResetForScan()`，它每次分层重建都跑 ⇒ 请求计数归零（**60 次预算形同失效**）、用途缓存被清（已识别的要重问）。真机日志里第一条 AI 记录就是 `requests=0`，下一条 `requests=1`，正是被清零的证据 | `InvalidateItemAiAfterScan` |
+
+**3) 修法（只碰这五件事，不动用途识别与删除隔离）**
+
+1. `Materialize` 增加 `autoExpand`（**只有用户点箭头**传 true），并且**只在真的建出子项时**展开；
+   后台材料化仍默认不展开 ⇒ 首屏还是只有一级。同时给出**明确反馈**：
+   到对象上限 / 子项已在首屏 / 没有子文件夹，各有对应文案，不再"点了没反应"、也不假装展开成功。
+2. 失效判据改成**整理数据生命周期 + 扫描代次**：`taskGen != _organizeGeneration || scanGen != _scanGeneration`。
+   逐项 AI 代次不再参与 ⇒ after-duplicates 不会误杀；**换扫描 / 重建仍然让旧任务失效**（没删守卫）。
+3. 再加一层**任务号** `_organizeTaskId`：只有当前任务能改界面；被换代/被接手的旧任务
+   **连 finally 都不许动 UI**，不会覆盖新任务的进度条、终态或统计。
+4. 筛选改成**纯视图**：可见集合 = 命中项 ∪ 它们的祖先（保留上下文、无孤儿行），
+   **一次都不碰 `IsExpanded`**，所以关掉筛选就回到打开前的样子。
+5. `AutoIdentifyTargets` 改成 `.OrderBy(Level).ThenByDescending(Size)`：**一级严格先于二级**；
+   本地规则仍先跑**全部**候选，已有结论/缓存命中的对象不进队列 ⇒ 不消耗请求。
+6. `ResetForScan()` 从 `InvalidateItemAiAfterScan` **移到** `RebuildOrganize`：只有真换扫描才清缓存/归零计数。
+7. 顶栏改成**分档计数**（本地 / AI / 未知 / 失败），终态短句只说页头说不出的事
+   （未发送 / 失败），这一遍的明细进 Tooltip；开始态只写「识别中…」，**不再写死 0/N**。
+   取消路径只写「识别已取消」。
+
+**4) 测试（行为用例先红后绿）**
+- Release 编译 **0 错 0 警**
+- **`StartupCheck` 79 PASS / 0 FAIL**（修前同一批 13 FAIL）：
+  首击展开 / 收起 / 再展开复用同一批子节点 / 箭头方向通知 / 对象上限与"子项已在首屏"的明确反馈 /
+  一级严格先于二级 / 已有结论不进队列 / 筛选不改展开状态 + 无孤儿行 + 关闭恢复 /
+  after-duplicates 不失效 + 换扫描与重建仍失效 / **缓存与请求计数只随真换扫描复位**（用本地可判定的
+  目录把缓存喂起来，`allowAi:false` 全程不联网）
+- `SafetyCheck` **984 PASS / 0 FAIL**；`UiRegressionCheck` **244 PASS / 0 FAIL**；
+  `CleanAnalyzerCheck` / `AiNoteParserCheck` / `AppRecommendationCheck` 全过；`git diff --check` 干净
+
+**5) 真实交互验收（真 EXE，从 `bin\...\win-x64` 起，不用 dist）**
+
+用 UIA 的 `InvokePattern` 点真按钮（不合成鼠标坐标），以**应用自己的日志**为准：
+
+- **首击展开**（这条以前是坏的）：
+  `13:10:23 op=toggle dir=<一个根目录> level=1 expanded=True loaded=True kids=5 rows=31`
+  ⇒ 同一击里既完成材料化（`loaded=True`）又展开（`expanded=True`），行数 26 → 31
+- **筛选只读**：点开筛选再关掉后，`'收起' 箭头仍然存在 = True`（原本展开的行没被收起）、
+  且 `'展开子文件夹' 箭头仍然存在 = True`（原本收起的行也没被强制展开）
+- **运行中状态**：`本地 89 · AI 0 · 未知 2,504 · 失败 0 · 识别中…`（**没有 0/N**）
+- **取消终态**：取消后 `… · 识别已取消`，取消按钮消失（进度区收回）
+- **完成终态**：`13:10 ` 那次跑到终态：
+  `op=identify-done targets=2504 reached=2504 attempted=60 requests=60/60 ai=9 unknown=0 failed=51 notSent=2444 complete=False`
+- **after-duplicates 之后识别还活着**（这条是 B 的正面证据）：
+  `12:21:35 layers(after-duplicates)` → `12:21:37` 起持续发请求 → `12:26:11 op=identify-done`
+- **真实 AI 链路**：真的调用了模型（非模拟），日志里 59 / 9 条带结论回复，`scrubbed=0`
+  （出站片段未命中任何密钥模式；报告里不贴任何片段内容）
+- 正常关闭：`WM_CLOSE` → 1 秒内退出（本轮多个实例一致）
+
+**6) 数字要读准（别把 reached 当识别成功）**
+- `reached=2504` 只表示**遍历到了**这些目标，**不等于**它们都被识别。
+- 两次真机运行的差别（同一份代码，真实模型）：早一次 `AI 59 / 失败 1 / 未发送 2443`；
+  晚一次 `AI 9 / 失败 51 / 未发送 2444`。**晚一次失败 51 次是真的**（服务端/网络侧不稳定），
+  界面如实显示「失败 51」并保留统一重试入口，没有粉饰成成功。
+- 结论：**一、二级自动识别仍然受 60 次请求预算限制**，未发送的 2400+ 个保持「未识别」，
+  **不能称"全部识别完"**；要更多覆盖只能重试或以后调预算（本轮刻意没加大）。
+
+**7) 打包**
+- 版本 **2.8.2**；self-contained win-x64。
+- `dist/DashaoHuo-2.8.2-20260913-win-x64/`（546 文件，含 sidecar 与两个 helper），
+  `AiDiskCleaner.exe` **2.8.2.0**；另有 `.zip` 与 `.zip.sha256`。
+  **2.7.0 / 2.8.0 / 2.8.1 目录与包原样保留。**
+- 包内 `AiDiskCleaner.dll` 与本次**验收构建**哈希一致：
+  `9079DED8882BCB6693F8ECD2B30DE1805FD2867057FBBECB2657575D5C9EA096`
+
+**8) 旧卡死进程的处理（有身份核验、没有盲杀）**
+- 两个 10:09 / 10:10 起的老实例：先用**只读**核验 `name=AiDiskCleaner`、`MainWindowHandle=0`、
+  启动日期一致；再用提权辅助程序补上 `path=…\dist\DashaoHuo-2.8.0-20260913-win-x64\AiDiskCleaner.exe`、
+  `version=2.8.0.0`，**五项全过**才逐个 `Stop-Process -Id`（停止前再核验一次名称与"无窗口"）。
+  两个都 `GONE`，没有触碰任何其它进程；**没有按 PID 盲杀、没有按名字批量结束**。
+- 副作用（正面）：它们此前每秒写满 2MB 日志、把 6MB 的日志环一直刷穿，导致上一轮**完全取不到
+  用户会话的日志证据**；清掉之后日志才可用（这轮的 AI/生命周期证据就是这么拿到的）。
+
+**9) 未验收 / 已知限制（如实说明）**
+- **高 DPI / 150% 缩放下的排版仍然没有实拍**（只按代码推算）。
+- **启动期致命路径**（MessageBox + 退出码 70）**没有被真实触发过**（现在不会触发了），
+  由 StartupCheck 的判定与提示钩子断言覆盖，**不是端到端实测**。
+- `AiSidecar` 未参与本次链路（走的内置通道）。
+- 终态短句在**失败数 > 0** 时会与页头的「失败 N」重复一次（同口径、不矛盾）；
+  属于文案冗余，本轮未再改动（避免为了文案再重编重验一遍）。
+- 早前那次真机验收是在**修显示文案之前**的构建上做的；功能修复（展开/代次/筛选/顺序/缓存）
+  与最终产物一致，显示文案（短终态、取消、无 0/N）是在**最终构建**上重新验的。
+- 真实交互验收里**没有**做「三次点箭头」那种连点脚本（UIA 每次按名字找第一个箭头，
+  展开后名字会变，可能点到下一行）；改用**应用自己的 `op=toggle` 日志**作为行为证据。
+
 ### 2026-09-13  DDWking（第二十六阶段：修 2.8.0 启动即死循环 · v2.8.1）
 > 现象：**双击 2.8.0 的 EXE 没反应，没有任何可见报错**。
 > 结论：不是权限、不是缺依赖、不是单实例锁 —— 是 `MainWindow.xaml` 里一个**编译通过、

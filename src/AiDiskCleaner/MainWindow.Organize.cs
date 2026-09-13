@@ -52,6 +52,12 @@ public partial class MainWindow
     /// <summary>重建代次：展开/重扫会让旧请求的回写作废，绝不覆盖新结果。</summary>
     private int _organizeGeneration;
 
+    /// <summary>
+    /// 识别任务号：每次启动 +1。**只有当前任务**允许改这一页的界面
+    /// （进度、终态、统计）。旧任务被换代/被接手以后连 finally 都不许动 UI。
+    /// </summary>
+    private int _organizeTaskId;
+
     /// <summary>整理列表是按哪一代扫描建的；每代只建一次，避免重复铺开。</summary>
     private int _organizeBuiltForScan = -1;
 
@@ -141,6 +147,12 @@ public partial class MainWindow
         _organizeGeneration++;
         _organizeBuiltForScan = _scanGeneration;
         CancelOrganizeWork(clearState: true);
+
+        // **真正换扫描**才把用途缓存与请求计数归零。
+        // 以前这活在 InvalidateItemAiAfterScan 里，而它每次分层重建都会跑，
+        // 于是整理页这一遍的缓存被清掉重问、请求计数被归零（预算形同失效）。
+        // 用户纠正单独存放，重扫不动它。
+        try { _folderPurpose.ResetForScan(); } catch (Exception ex) { AppLog.Record("Organize", ex, "reset purpose for scan"); }
 
         _organizeRows.Clear();
         _organizeAll.Clear();
@@ -267,22 +279,51 @@ public partial class MainWindow
         foreach (var n in level1) TryAutoMaterialize(n);
     }
 
+    /// <summary>
+    /// 一次材料化尝试的结果。**必须有返回值**：点了箭头却什么都没有时，
+    /// 界面要说清是"到上限了 / 没有子文件夹 / 子项已经在首屏那一级"，
+    /// 不能给一个没有反应的空点击，也不能假装展开了。
+    /// </summary>
+    private enum OrganizeMaterializeResult
+    {
+        /// <summary>子项已经在列表里了（新材料化出来的，或之前就材料化过的）。</summary>
+        Loaded,
+        /// <summary>这个文件夹没有子文件夹。</summary>
+        NoChildren,
+        /// <summary>子文件夹已经作为顶层对象列在首屏那一级了，这一层没有新东西可展开。</summary>
+        AlreadyElsewhere,
+        /// <summary>对象数量到上限了，这次没法材料化。</summary>
+        BudgetReached,
+    }
+
     private void TryAutoMaterialize(OrganizeNode node)
     {
         if (FolderOrganize.ObjectBudgetReached(_organizeAll.Count)) return;
         if (!FolderOrganize.ShouldAutoMaterializeChildren(
                 new OrganizeLevelPolicy(node.Level, node.Size, node.FileCount), node.Dir, node.Kind,
                 _organizeEntryPoints)) return;
+        // 后台材料化**绝不展开**（autoExpand 默认 false）：首屏只显示根的一级
         Materialize(node, FolderOrganize.ChildBudget, FolderOrganize.AutoMaterializeBudget(node.Depth == 0));
     }
 
     /// <summary>
     /// 把一个目录的直接子对象材料化出来（有预算、有去重、有上限）。
     /// 子对象的层级由父对象 + 子对象是不是系统入口一起决定（入口的直接子目录与入口同级）。
+    ///
+    /// <paramref name="autoExpand"/> 为 true 时才展开 —— **只有用户点箭头**会传 true，
+    /// 而且只在真的建出了子项时展开（否则会出现"展开了个空的"这种假成功）。
     /// </summary>
-    private void Materialize(OrganizeNode node, int childBudget, int? materializeBudget = null)
+    private OrganizeMaterializeResult Materialize(
+        OrganizeNode node, int childBudget, int? materializeBudget = null, bool autoExpand = false)
     {
-        if (FolderOrganize.ObjectBudgetReached(_organizeAll.Count)) return;
+        if (node.ChildrenLoaded)
+        {
+            if (autoExpand) node.Expand();
+            return OrganizeMaterializeResult.Loaded;
+        }
+        if (FolderOrganize.ObjectBudgetReached(_organizeAll.Count))
+            return OrganizeMaterializeResult.BudgetReached;
+
         var parentPolicy = new OrganizeLevelPolicy(node.Level, node.Size, node.FileCount);
         bool parentIsEntry = FolderOrganize.IsEntryPoint(node.FullPath, _organizeEntryPoints);
         int cap = Math.Max(childBudget, materializeBudget ?? childBudget);
@@ -301,8 +342,13 @@ public partial class MainWindow
         // 没材料化出来的子目录：如实计数 —— 它们**没有结论**，也不是「已识别」。
         // 已经是顶层对象的不算「未列出」（它们就在首页那一级）。
         int unlisted = Math.Max(0, set.Total - kids.Count - alreadyTop);
-        node.SetChildren(kids, set.Truncated || unlisted > 0, set.Total, unlisted);
+        node.SetChildren(kids, set.Truncated || unlisted > 0, set.Total, unlisted,
+            autoExpand && kids.Count > 0);
         RegisterUnlisted(node, unlisted);
+
+        if (kids.Count > 0) return OrganizeMaterializeResult.Loaded;
+        if (set.Total == 0) return OrganizeMaterializeResult.NoChildren;
+        return OrganizeMaterializeResult.AlreadyElsewhere;
     }
 
     /// <summary>累计「没有材料化、也没有结论」的直接子目录数（页头如实展示）。</summary>
@@ -318,15 +364,40 @@ public partial class MainWindow
 
     // ==================== 行渲染 ====================
 
+    /// <summary>
+    /// 「待确认筛选」的可见集合：命中的行 **加上它们的祖先**（保留上下文，不出现孤儿行）。
+    /// null = 筛选没开。**它只是视图** —— 绝不改 <see cref="OrganizeNode.IsExpanded"/>，
+    /// 所以关掉筛选就回到打开前的样子（用户本来展开的仍然展开）。
+    /// </summary>
+    private HashSet<OrganizeNode>? _organizeFilterSet;
+
     private void RefreshOrganizeRows()
     {
         if (OrganizeGrid == null) return;
+        _organizeFilterSet = null;
+        if (_organizePendingOnly)
+        {
+            var set = new HashSet<OrganizeNode>();
+            // 只遍历已经材料化出来的层：筛选不会去碰磁盘、也不会触发识别
+            bool Mark(OrganizeNode n)
+            {
+                bool keep = n.IsPending;
+                if (n.ChildrenLoaded)
+                    foreach (var c in n.Children)
+                        if (Mark(c)) keep = true;
+                if (keep) set.Add(n);
+                return keep;
+            }
+            foreach (var r in _organizeRoots) Mark(r);
+            _organizeFilterSet = set;
+        }
+
         _organizeRows.Clear();
-        int n = 0;
+        int n2 = 0;
         foreach (var r in _organizeRoots)
         {
-            AddVisibleRows(r, ref n);
-            if (FolderOrganize.RowBudgetReached(n)) break;
+            AddVisibleRows(r, ref n2);
+            if (FolderOrganize.RowBudgetReached(n2)) break;
         }
         UpdateOrganizeHeader();
     }
@@ -334,7 +405,17 @@ public partial class MainWindow
     private void AddVisibleRows(OrganizeNode node, ref int count)
     {
         if (count >= FolderOrganize.MaxRows) return;
-        if (!_organizePendingOnly || node.IsPending) { _organizeRows.Add(node); count++; }
+        if (_organizeFilterSet != null)
+        {
+            // 筛选模式：祖先与命中项都显示，顺序即树序 => 不会出现孤儿行
+            if (!_organizeFilterSet.Contains(node)) return;
+            _organizeRows.Add(node);
+            count++;
+            foreach (var c in node.Children) AddVisibleRows(c, ref count);
+            return;
+        }
+        _organizeRows.Add(node);
+        count++;
         if (!node.IsExpanded) return;
         foreach (var c in node.Children) AddVisibleRows(c, ref count);
     }
@@ -365,18 +446,22 @@ public partial class MainWindow
         // 顶层对象之间现在允许「入口与它的祖先同时出现」，
         // 所以**不能把根的容量相加**（会重复计算）。直接用扫描根的真实总量。
         long bytes = _root.Size;
-        int resolved = _organizeAll.Count(x => x.IsResolved);
-        int pending = _organizeAll.Count(x => x.IsPending);
+        // 分档计数：本地认出（含用户确认）/ AI 有结论 / 未知 / 失败。
+        // **不把它们混成一句「待确认」** —— 那会让人看不出到底哪一类有多少。
+        int local = _organizeAll.Count(x => x.HasConclusion
+            && x.Source is PurposeSource.Local or PurposeSource.User);
+        int ai = _organizeAll.Count(x => x.HasConclusion && x.Source == PurposeSource.Ai);
+        int unknown = _organizeAll.Count(x => !x.HasConclusion && x.State != PurposeState.Failed);
         int failed = _organizeAll.Count(x => x.State == PurposeState.Failed);
 
         OrganizeSub.Text = Loc.OrganizeTotals(_organizeAll.Count, bytes);
-        string line = Loc.OrganizeCounts(resolved, pending, failed);
+        string line = Loc.OrganizeCountsLine(local, ai, unknown, failed);
         if (_organizeUnlistedTotal > 0) line += " · " + Loc.OrganizeUnlistedTotal(_organizeUnlistedTotal);
         if (_organizePendingOnly) line += " · " + Loc.OrganizeFilterActive(_organizeRows.Count, _organizeAll.Count);
         if (_organizeNote.Length > 0) line += " · " + _organizeNote;
         OrganizeCounts.Text = line;
-        // 统一重试入口：只要还有待确认/失败的，就允许再跑一遍（受同一个预算约束）
-        OrganizeIdentifyAllBtn.IsEnabled = !_organizeBusy && pending > 0;
+        // 统一重试入口：还有没结论 / 需要确认 / 失败的，就允许再跑一遍（受同一个预算约束）
+        OrganizeIdentifyAllBtn.IsEnabled = !_organizeBusy && _organizeAll.Any(x => x.IsPending);
     }
 
     private void SetOrganizeNote(string text)
@@ -529,17 +614,36 @@ public partial class MainWindow
         {
             node.Collapse();
         }
+        else if (node.ChildrenLoaded)
+        {
+            // 展开不重复请求：结果还在节点上，直接显示
+            node.Expand();
+        }
         else
         {
-            // 展开不重复请求：已经材料化过就直接显示（结果仍在节点上）
-            if (!node.ChildrenLoaded) Materialize(node, FolderOrganize.ChildBudget);
-            else node.Expand();
+            // 首次展开：先材料化，**成功之后再显式展开**。
+            // 材料化与展开是两件事 —— 后台材料化（TryAutoMaterialize）刻意不展开，
+            // 所以这里必须自己展开，否则第一次点箭头看起来毫无反应。
+            var r = Materialize(node, FolderOrganize.ChildBudget, null, autoExpand: true);
+            switch (r)
+            {
+                case OrganizeMaterializeResult.BudgetReached:
+                    SetOrganizeNote(Loc.OrganizeExpandBudgetReached);
+                    break;
+                case OrganizeMaterializeResult.AlreadyElsewhere:
+                    SetOrganizeNote(Loc.OrganizeExpandAlreadyListed);
+                    break;
+                case OrganizeMaterializeResult.NoChildren:
+                    SetOrganizeNote(Loc.OrganizeExpandNoChildren);
+                    break;
+            }
         }
         // 用户展开谁，谁就是「当前文件夹」：三级及更深的手动识别就作用在它这一层
         SetOrganizeCurrent(node);
         RefreshOrganizeRows();
         AppLog.Info("Organize", $"op=toggle dir={node.Name} level={node.Level} "
-            + $"expanded={node.IsExpanded} rows={_organizeRows.Count}");
+            + $"expanded={node.IsExpanded} loaded={node.ChildrenLoaded} kids={node.Children.Count} "
+            + $"rows={_organizeRows.Count}");
     }
 
     /// <summary>
@@ -574,10 +678,10 @@ public partial class MainWindow
 
     private void OrganizeFilter_Click(object sender, RoutedEventArgs e)
     {
+        // 筛选**只是视图**：这里一次都不碰 IsExpanded。
+        // 以前打开筛选会把所有已材料化的节点全部展开、关掉又不收回，
+        // 等于悄悄改掉了用户（和首屏）的展开状态 —— 那是错的。
         _organizePendingOnly = !_organizePendingOnly;
-        // 开筛选时把已经材料化过的层级摊开：否则待确认的对象藏在折叠节点里看不见
-        if (_organizePendingOnly)
-            foreach (var n in _organizeAll) if (n.ChildrenLoaded) n.Expand();
         RefreshOrganizeRows();
         ShowOrganizeState(_organizePendingOnly && _organizeRows.Count == 0
             ? OrganizeStateKind.AllDone
@@ -615,14 +719,21 @@ public partial class MainWindow
         _ = RunOrganizeIdentifyAsync(targets, Loc.OrganizeAutoStart(targets.Count, budget), auto: true);
     }
 
-    /// <summary>自动识别范围：一、二级 + 还没有结论 + 还能往下看（重解析点不碰）。</summary>
+    /// <summary>
+    /// 自动识别范围：一、二级 + 还没有结论 + 还能往下看（重解析点不碰）。
+    ///
+    /// 顺序是**一级严格先于二级**（同级内按容量降序）：请求预算有限时先把一级铺完，
+    /// 而不是按容量把一、二级混在一起排 —— 后者会让一个很大的二级目录插到一级前面。
+    /// 已经有结论的对象（本地认出 / 用户纠正 / 缓存命中）不进这个队列，也就不消耗请求。
+    /// </summary>
     private List<OrganizeNode> AutoIdentifyTargets()
         => _organizeAll
             .Where(x => x.IsAutoLevel
                         && FolderOrganize.ShouldAutoIdentify(
                             new OrganizeLevelPolicy(x.Level, x.Size, x.FileCount),
                             x.HasConclusion, FolderPurposeRules.CanDescend(x.Dir)))
-            .OrderByDescending(x => x.Size)
+            .OrderBy(x => x.Level)
+            .ThenByDescending(x => x.Size)
             .ToList();
 
     private void OrganizeIdentifyAll_Click(object sender, RoutedEventArgs e)
@@ -641,8 +752,19 @@ public partial class MainWindow
     /// <summary>
     /// 批量识别：**只处理传进来的那一批**，不自动扩大到整盘、也不自动往更深层扩散。
     ///
-    /// 先跑一遍本地规则（不花请求）；剩下的确实需要模型时才问，而且受请求总量、
-    /// 单次超时、请求间隔、取消与扫描/重建代次多重约束。
+    /// 先跑一遍本地规则（**全部**候选，不花请求）；剩下的确实需要模型时才问，
+    /// 顺序为一级→二级，而且受请求总量、单次超时、请求间隔、取消与代次多重约束。
+    ///
+    /// 代次语义（这是上一版最要命的地方）：
+    /// <list type="bullet">
+    /// <item>失效判据只看**整理数据生命周期**（<c>_organizeGeneration</c>）与**扫描代次**
+    /// （<c>_scanGeneration</c>）。以前用的是逐项 AI 代次 <c>_aiDataGeneration</c>，
+    /// 而重复检测完成后的分层重建会把它 +1 —— 于是这一遍每次都被"误杀"在半路，
+    /// 顶栏永远停在「识别中…」，一级目录根本没被识别；</item>
+    /// <item>每次启动再领一个 <c>_organizeTaskId</c>：**只有当前任务**允许改界面。
+    /// 换扫描 / 重扫 / 新一轮识别接手之后，旧任务连 finally 都不许动 UI，
+    /// 免得把新任务的进度条、终态或统计覆盖掉。</item>
+    /// </list>
     /// </summary>
     private async Task RunOrganizeIdentifyAsync(List<OrganizeNode> targets, string scopeText, bool auto)
     {
@@ -650,7 +772,11 @@ public partial class MainWindow
         if (targets.Count == 0) return;
 
         int myGen = _organizeGeneration;
-        int myData = _aiDataGeneration;
+        int myScan = _scanGeneration;
+        int myTask = ++_organizeTaskId;
+        bool Owns() => myTask == _organizeTaskId;
+        bool StaleNow() => OrganizePassStale(myGen, myScan);
+
         bool allowAi = AiConfigured();
         int budget = FolderOrganize.MaxAiRequests;
 
@@ -670,36 +796,38 @@ public partial class MainWindow
         OrganizeScopeText.Text = scopeText + " · " + Loc.OrganizeBudget(budget);
         OrganizeScopeBar.Visibility = Visibility.Visible;
         // 顶栏这时只能报「识别中」，绝不能报完成
-        SetOrganizeNote(Loc.OrganizeRunRunning + " · " + Loc.OrganizeRunCovered(0, targets.Count));
+        // 也**不写死 0/N**：那个数字要到结束才准，写出来只会误导
+        SetOrganizeNote(Loc.OrganizeRunRunning);
 
-        int done = 0, failed = 0;
+        int done = 0;
+        int attempted = 0;
+        int attemptedUnknown = 0;
         try
         {
-            // 1) 本地 + 未知有限探索（不花任何请求）。
+            // 1) 本地规则先跑**全部**候选（不花任何请求）。
             //    覆盖范围是**传进来的整批**（一、二级全量），与界面显示上限无关；
             //    每 32 个让出一次时间片，界面不会被这一遍拖住。
             int i = 0;
             foreach (var t in targets)
             {
-                if (ct.IsCancellationRequested) break;
-                if (Stale(myGen, myData)) break;
+                if (ct.IsCancellationRequested || StaleNow()) break;
                 if (!t.HasConclusion) LocalRecognize(t);
                 if (!t.HasConclusion && !auto) ProbeUnknownLocally(t);
                 done++;
                 if (++i % 32 == 0)
                 {
-                    SetOrganizeProgress(done, targets.Count, _folderPurpose.AiRequestsUsed, budget);
+                    if (Owns()) SetOrganizeProgress(done, targets.Count, _folderPurpose.AiRequestsUsed, budget);
                     await Task.Yield();
                 }
             }
-            SetOrganizeProgress(done, targets.Count, _folderPurpose.AiRequestsUsed, budget);
+            if (Owns()) SetOrganizeProgress(done, targets.Count, _folderPurpose.AiRequestsUsed, budget);
 
             // 2) 还说不清的才用模型；没配模型就如实说，不假装成功
             if (!allowAi)
             {
                 foreach (var t in targets) if (!t.HasConclusion) t.ClearState();
-                int waiting = targets.Count(t => t.IsPending);
-                if (waiting > 0)
+                int waiting = targets.Count(t => !t.HasConclusion && t.State != PurposeState.Failed);
+                if (waiting > 0 && Owns())
                 {
                     ShowOrganizeState(OrganizeStateKind.NoModel);
                     SetOrganizeNote(Loc.OrganizeNoModelHonest(waiting));
@@ -710,71 +838,81 @@ public partial class MainWindow
             {
                 foreach (var t in targets)
                 {
-                    if (ct.IsCancellationRequested || Stale(myGen, myData)) break;
-                    if (t.HasConclusion) continue;
-                    if (_folderPurpose.AiRequestsUsed >= budget) break;
+                    if (ct.IsCancellationRequested || StaleNow()) break;
+                    if (t.HasConclusion) continue;                        // 本地/缓存已有结论：不花请求
+                    if (_folderPurpose.AiRequestsUsed >= budget) break;    // 预算用完：剩下的算「未发送」
 
                     t.SetState(PurposeState.Running);
-                    UpdateOrganizeWorkBar();
+                    if (Owns()) UpdateOrganizeWorkBar();
+                    attempted++;
                     var res = await RecognizeWithAsync(t.Dir, allowAi: true, ct).ConfigureAwait(true);
-                    if (Stale(myGen, myData)) break;     // 旧请求绝不覆盖新扫描
+                    if (StaleNow()) break;     // 旧请求绝不覆盖新扫描
                     // 用户在这期间纠正过 ⇒ 用户结论优先
                     var user = _folderPurpose.TryGetUserCorrection(t.Id);
                     t.Apply(user ?? res);
-                    // 注意：Apply 已经把「失败/超时」落成 Failed；这里**只对真正失败**补一次，
+                    // Apply 已经把「失败/超时」落成 Failed；这里只补真正失败的，
                     // 「判不出来」是未知，不能算失败（否则页头会把未知说成故障）。
                     if (!t.HasConclusion && res.Failed) t.SetState(PurposeState.Failed);
+                    else if (!t.HasConclusion) attemptedUnknown++;
                     done = Math.Min(targets.Count, done + 1);
-                    SetOrganizeProgress(done, targets.Count, _folderPurpose.AiRequestsUsed, budget);
+                    if (Owns()) SetOrganizeProgress(done, targets.Count, _folderPurpose.AiRequestsUsed, budget);
                 }
             }
 
             if (ct.IsCancellationRequested)
             {
-                // 取消：排队项回到「未识别」，不留假进度
-                foreach (var t in targets)
-                    if (!t.HasConclusion && t.State is PurposeState.Queued or PurposeState.Running) t.ClearState();
-                SetOrganizeNote(Loc.OrganizeRunCanceled + " · " + CountsLine(targets));
+                if (Owns())
+                {
+                    // 取消：排队项回到「未识别」，不留假进度。顶栏只报「已取消」，
+                    // 分档计数由页头给（避免两套同名标签拼在一行）。
+                    foreach (var t in targets)
+                        if (!t.HasConclusion && t.State is PurposeState.Queued or PurposeState.Running) t.ClearState();
+                    SetOrganizeNote(Loc.OrganizeRunCanceled);
+                }
             }
-            else if (Stale(myGen, myData))
+            else if (StaleNow())
             {
-                // 结果已经过期：什么都不写回，列表马上会被重建
-                return;
+                // 列表/扫描已经换代：结果一律不回写。
+                // 如果**没有**更新的任务接手，也要把终态说清楚，别留下半截的「识别中…」。
+                if (Owns()) SetOrganizeNote(Loc.OrganizeRunSuperseded);
             }
-            else
+            else if (Owns())
             {
-                int aiCount = targets.Count(x => x.Source == PurposeSource.Ai);
-                int localCount = targets.Count(x => x.Source == PurposeSource.Local);
-                failed = targets.Count(x => x.State == PurposeState.Failed);
-                int named = targets.Count(x => x.HasConclusion);
-                int unknown = targets.Count - named;
+                int localNamed = targets.Count(x => x.HasConclusion && x.Source == PurposeSource.Local);
+                int aiNamed = targets.Count(x => x.HasConclusion && x.Source == PurposeSource.Ai);
+                int userNamed = targets.Count(x => x.HasConclusion && x.Source == PurposeSource.User);
+                int localTotal = localNamed + userNamed;
+                int failed = targets.Count(x => x.State == PurposeState.Failed);
+                int noConclusion = targets.Count(x => !x.HasConclusion && x.State != PurposeState.Failed);
+                // 「未发送」= 预算没用完之前就没轮到它们；「未知」= 真的问过了但模型没给结论。
+                // 这两个必须分开，不能一起塞进「待确认」。
+                int notSent = Math.Max(0, noConclusion - attemptedUnknown);
+                int unknown = Math.Max(0, noConclusion - notSent);
                 int notCovered = Math.Max(0, _organizeUnlistedTotal);
 
-                // 真实终态：只有「所有目标都跑到、且没有未覆盖的条目」才算完成
+                // 「完成」= 每个目标都跑到了、没有因为预算漏发、也没有失败。
+                // 模型说"判不出来"是诚实的正常结果，不算未完成。
                 bool allReached = done >= targets.Count;
-                bool complete = allReached && notCovered == 0 && failed == 0;
-                string head = ct.IsCancellationRequested ? Loc.OrganizeRunCanceled
-                    : complete ? Loc.OrganizeRunDone
-                    : Loc.OrganizeRunIncomplete;
+                bool complete = allReached && notSent == 0 && failed == 0;
+                string head = complete ? Loc.OrganizeRunDone : Loc.OrganizeRunIncomplete;
 
-                // 顶栏：一句短结论 + 计数；请求预算与「没跑到多少」放 Tooltip，不和文件夹数混一行
-                string summary = head + " · " + Loc.OrganizeRunCounts(named, aiCount, unknown, failed)
-                    + " · " + Loc.OrganizeRunCovered(named, targets.Count);
-                if (notCovered > 0) summary += " · " + Loc.OrganizeRunNotCovered(notCovered);
-                SetOrganizeNote(summary);
+                // 顶栏：一句短结论 + 只补页头说不出的事（未发送/失败）；
+                // 这一遍的 AI/未知明细进 Tooltip，避免和页头的同名标签冲突。
+                SetOrganizeNote(Loc.OrganizeRunSummary(head, failed, notSent));
 
                 var tip = new List<string>
                 {
+                    Loc.OrganizeRunPassDetail(aiNamed, unknown, failed),
+                    // 发出去的请求数 ≠ 识别成功数：两个都写清楚
                     Loc.OrganizeRunRequests(_folderPurpose.AiRequestsUsed, budget),
-                    Loc.OrganizeProgress(done, targets.Count, _folderPurpose.AiRequestsUsed, budget),
+                    Loc.OrganizeRunAttempts(attempted, targets.Count),
                 };
-                if (failed > 0) tip.Add(Loc.OrganizePartFailed(failed));
-                if (_folderPurpose.AiRequestsUsed >= budget && unknown > 0) tip.Add(Loc.OrganizeBudgetLeft(unknown));
+                if (notSent > 0) tip.Add(Loc.OrganizeBudgetLeft(notSent));
                 if (notCovered > 0) tip.Add(Loc.OrganizeUnlistedTotal(notCovered));
                 if (OrganizeCounts != null) OrganizeCounts.ToolTip = string.Join("\n", tip);
 
-                // 终态只报「完成 / 未完成 / 失败」，绝不用「已处理」把待确认说成成功
-                if (named == 0 && failed > 0 && targets.Count > 0)
+                // 终态只报「完成 / 未完成 / 失败」，绝不用「已处理」把未知说成成功
+                if (localTotal + aiNamed == 0 && failed > 0 && targets.Count > 0)
                     ShowOrganizeState(OrganizeStateKind.Failed);
                 else if (complete && _organizeAll.All(x => !x.IsPending))
                     ShowOrganizeState(OrganizeStateKind.AllDone);
@@ -782,15 +920,19 @@ public partial class MainWindow
                     ShowOrganizeState(OrganizeStateKind.None);
 
                 AppLog.Info("Organize", $"op=identify-done auto={auto} targets={targets.Count} "
-                    + $"reached={done} named={named} unknown={unknown} failed={failed} "
-                    + $"aiUsed={_folderPurpose.AiRequestsUsed}/{budget} ai={aiCount} local={localCount} "
+                    + $"reached={done} local={localTotal} ai={aiNamed} user={userNamed} "
+                    + $"unknown={unknown} failed={failed} notSent={notSent} "
+                    + $"attempted={attempted} requests={_folderPurpose.AiRequestsUsed}/{budget} "
                     + $"notCovered={notCovered} complete={complete}");
             }
         }
         catch (OperationCanceledException)
         {
-            foreach (var t in targets) if (!t.HasConclusion) t.ClearState();
-            SetOrganizeNote(Loc.OrganizeRunCanceled);
+            if (Owns())
+            {
+                foreach (var t in targets) if (!t.HasConclusion) t.ClearState();
+                SetOrganizeNote(Loc.OrganizeRunCanceled);
+            }
         }
         catch (Exception ex)
         {
@@ -800,34 +942,37 @@ public partial class MainWindow
         }
         finally
         {
-            _organizeBusy = false;
-            // 预算用完 / 提前退出时，没结论的对象绝不能停在「排队中」——
-            // 那会让人以为还在跑。清掉流程态，落回「未识别 / 待确认」；
-            // **失败/取消的状态保留**，不被这里抹掉。
-            foreach (var t in targets)
-                if (!t.HasConclusion && t.State is PurposeState.Queued or PurposeState.Running)
-                    t.ClearState();
-            OrganizeProgressPanel.Visibility = Visibility.Collapsed;
-            OrganizeStopBtn.Visibility = Visibility.Collapsed;
-            OrganizeScopeBar.Visibility = Visibility.Collapsed;
-            RefreshOrganizeRows();
-            UpdateOrganizeWorkBar();
+            // 只有**当前任务**才收尾。被换代 / 被新任务接手的旧任务什么都不许动，
+            // 否则会把新任务的进度条藏掉、把它的统计刷成旧数据。
+            if (Owns())
+            {
+                _organizeBusy = false;
+                // 预算用完 / 提前退出时，没结论的对象绝不能停在「排队中」——
+                // 那会让人以为还在跑。清掉流程态，落回「未识别」；
+                // **失败/取消的状态保留**，不被这里抹掉。
+                foreach (var t in targets)
+                    if (!t.HasConclusion && t.State is PurposeState.Queued or PurposeState.Running)
+                        t.ClearState();
+                OrganizeProgressPanel.Visibility = Visibility.Collapsed;
+                OrganizeStopBtn.Visibility = Visibility.Collapsed;
+                OrganizeScopeBar.Visibility = Visibility.Collapsed;
+                RefreshOrganizeRows();
+                UpdateOrganizeWorkBar();
+            }
         }
     }
 
-    /// <summary>取消时的计数短句（不写「完成」）。</summary>
-    private static string CountsLine(List<OrganizeNode> targets)
-    {
-        int named = targets.Count(x => x.HasConclusion);
-        int failed = targets.Count(x => x.State == PurposeState.Failed);
-        int unknown = targets.Count - named;
-        int ai = targets.Count(x => x.Source == PurposeSource.Ai);
-        return Loc.OrganizeRunCounts(named, ai, unknown, failed);
-    }
+    /// <summary>
+    /// 整理识别任务的失效判据：**只看整理数据生命周期与扫描代次**。
+    ///
+    /// 不要去用 <c>_aiDataGeneration</c>：那是「逐项 AI 视图」的代次，
+    /// 重复检测完成后的分层重建会把它 +1，于是识别这一遍每次都被误杀在半路。
+    /// </summary>
+    private bool OrganizePassStale(int taskGen, int scanGen)
+        => taskGen != _organizeGeneration || scanGen != _scanGeneration;
 
-    /// <summary>代次守卫：列表被重建或扫描换代以后，旧请求的结果一律丢弃。</summary>
-    private bool Stale(int myGen, int myData)
-        => myGen != _organizeGeneration || myData != _aiDataGeneration;
+    /// <summary>回归测试入口：整理识别任务的失效判据。</summary>
+    public bool OrganizePassStaleForTest(int taskGen, int scanGen) => OrganizePassStale(taskGen, scanGen);
 
     private void SetOrganizeProgress(int done, int total, int used, int budget)
     {
