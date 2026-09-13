@@ -29,7 +29,7 @@
 | **非管理员模式清理不可用** | **待决定** | 递归降级扫描不设 `FileEntry.Parent`，导致所有候选被判受保护（`selectable=0`）。修法会**扩大非管理员模式的可删范围**，需你同意后再单独修（详见日志第十二阶段第 12 条） |
 | 目录树 + 当前目录列表 | 可用 | 侧栏内带占比/大小，默认收起；浏览状态与清理范围分离 |
 | 单位显示 | 可用 | 只显示 KB / MB / G |
-| 崩溃修复 | 可用 | 递归改迭代、孤儿文件不再堆到根 |
+| 崩溃修复 | 可用 | 递归改迭代、孤儿文件不再堆到根；崩溃处理器有**重入闸 + 启动期致命闩锁**，半初始化窗口不碰控件，启动期致命记录原始原因后**受控非零退出**，第一现场单独存 `first-crash.log`（不被日志风暴轮转掉）；`tools/StartupCheck` 真的加载编译后 BAML + 真实控件树断言启动 |
 | 删除前预检（安全） | 可用 | `DeletionPlan` / `DeletionPreflight` / `DeletionExecutor`：存在性、路径身份（file id）、大小/时间、占用、保护路径、父子去重；逐项结局一项不丢 |
 | 统一取消 | 可用 | 扫描 / 分析 / 软件清点 / 残留扫描 / AI / 卸载后重扫各有 CTS，顶栏「停止」一键全停；代次守卫保证旧结果不覆盖新结果 |
 | 扫描质量报告 | 可用 | 主页面只留一句「扫描完成 · 部分内容未检测」；来源（MFT/递归）· 文件/目录数 · 耗时 · 跳过目录/权限/路径错误/重解析点/解析失败/孤儿记录 · 候选总数/去重/重复命中 全在「扫描详情」里 |
@@ -85,6 +85,123 @@
 - 做了什么
 - 还差什么 / 下次谁接
 ```
+
+### 2026-09-13  DDWking（第二十六阶段：修 2.8.0 启动即死循环 · v2.8.1）
+> 现象：**双击 2.8.0 的 EXE 没反应，没有任何可见报错**。
+> 结论：不是权限、不是缺依赖、不是单实例锁 —— 是 `MainWindow.xaml` 里一个**编译通过、
+> 运行时非法**的 XAML 属性值，加上崩溃处理器自己的死循环把现场证据刷掉了。
+
+**1) 根因（已本地复现，不是推测）**
+
+- `MainWindow.xaml` 第 1372 行：`RowHeight="Auto" MinRowHeight="46"`（2.7.0 是 `RowHeight="46"`）。
+- `System.Windows.Controls.DataGrid.RowHeight` 是**普通 `double`，没有 TypeConverter**
+  （对比 `FrameworkElement.Height/Width` 有 `TypeConverterAttribute`）。所以 `"Auto"` 在
+  **BAML 加载期**抛 `XamlParseException`（内层 `FormatException: The input string 'Auto'
+  was not in a correct format.`）。**编译器不检查这个值，所以编译 0 错 0 警照样出包。**
+- 复现方式（与 BAML 加载同一条路）：`XamlReader.Parse('<DataGrid RowHeight="Auto"/>')` 抛异常；
+  `RowHeight="NaN"` 与 `RowHeight="46"` 都正常。`LengthConverter` 对 `"NaN"` 返回 `double.NaN`。
+
+**2) 为什么用户看到的是「没反应」而不是报错**
+
+1. `App.xaml` 有 `StartupUri="MainWindow.xaml"` → 构造 `MainWindow` → `InitializeComponent()`
+   在第 1372 行抛异常，**窗口从未建出来**（实测 `MainWindowHandle=0`）。
+2. 因为解析中断，XAML 里**第 1372 行之后**的 `x:Name` 字段全没赋值 —— 其中就有
+   `AlertText`（第 2503 行）、`Overlay`（第 2326 行）。
+3. `DispatcherUnhandledException`（`OnStartup` 第一件事就注册）捕获 → `Crash(ex)`；
+   当时 `Application.MainWindow` 已经是那个**半初始化**的窗口，于是走到
+   `w.Dispatcher.BeginInvoke(() => w.ShowCrash(ex.Message))`。
+4. `ShowCrash` → `ShowAlert` → `AlertText.Text` → **NullReferenceException**；
+   而第 72 行是 `BeginInvoke`，这个 NRE 又回到 `DispatcherUnhandledException` → `Crash()` →
+   第 4 步 → **无限递归**。进程驻留、没有窗口、CPU 约 88% 空转。
+5. 实测证据：`crash.log` / `app.log`(.1/.2) 共 **6MB 全是同一条 NRE**（一秒上万条），
+   崩溃处理器**把自己要用的证据轮转掉了** —— 原始 `XamlParseException` 事后完全查不到。
+   最近失败时间：2026-09-13 10:12:20 起（10:00:02 打出的 2.8.0），一直持续到被发现。
+
+**3) 修了什么（只碰启动与异常处理，不动识别产品设计）**
+
+| # | 修法 | 要点 |
+|---|---|---|
+| 1 | `RowHeight="Auto"` → **`RowHeight="NaN"`** | `NaN` 就是「自动行高」，详情展开时行照样能变高；`MinRowHeight="46"` 保留，行不会被压扁 |
+| 2 | 崩溃处理器加**启动期致命闩锁** | 判定过一次启动期致命，后续异常一律丢弃 —— 这是死循环的正面开关 |
+| 3 | 崩溃处理器加**重入闸** | 处理器自己在记录/提示时再抛，直接返回；`finally` 才释放闸 |
+| 4 | **异步提示回调自身安全** | `BeginInvoke` 里的 `ShowCrash` 再包一层 `try/catch`（它一旦抛就会重新触发 `DispatcherUnhandledException`，光靠"进入前设闸、离开时复位"挡不住异步递归） |
+| 5 | **半初始化判定** `MainWindow.IsUiReady` | 构造函数**最后一行**才置 true；崩溃处理只在 `IsUiReady` 为真时才碰窗口控件 |
+| 6 | 半初始化/启动期走**独立于 MainWindow 控件**的安全提示 | `MessageBox` + 脱敏后的原始异常；连提示都失败也不抛 |
+| 7 | 启动期致命 ⇒ **受控非零退出**（`FatalStartupExitCode = 70`） | 不再"吞掉异常继续跑"，避免留下没有窗口的空转进程 |
+| 8 | 新增 `Services/CrashFirstRecord.cs` | **每次运行只记第一条**原始异常；独立文件 `first-crash.log`（自己的 256KB 上限，只滚自己）；过 `LogRedactor` 脱敏；写不了也绝不抛；**不删用户任何旧日志/配置** |
+| 9 | 运行期异常提示**有界**（最多 3 次） | 运行期异常风暴也不会刷屏 |
+
+**4) 为什么以前那套测试没拦住（本轮补的运行时防线）**
+
+- `UiRegressionCheck` 是**字符串/AST 断言**：它从不判断 `RowHeight` 的**值合不合法**，
+  而 XAML 编译期也不检查 —— 于是"编译通过 + 断言全绿 + 窗口打不开"可以同时成立。
+  **字符串测试永远抓不到这一类"运行期才炸的 XAML 值"。**
+- 新增 `tools/StartupCheck`（WPF 宿主，**真的加载编译后的 BAML**，就是 `StartupUri` 那条路）：
+  1. 编译产物里确实有 BAML 资源；
+  2. `new App(); app.InitializeComponent();` 加载 App.xaml 资源；
+  3. `new MainWindow()` —— **2.8.0 就是在这一步炸的**；
+  4. `IsUiReady` 为真 + 关键命名控件（`AlertText`/`Overlay`/`OrganizeGrid`/…）都已赋值；
+  5. `OrganizeGrid.RowHeight` 是 `NaN`、`MinRowHeight >= 46`；
+  6. 崩溃处理：启动期致命 / 运行期 / 抑制 / 提示钩子自己抛 / 日志目录不可写；
+  7. **真实控件树**上量详情展开：行高确实变大、详情块**完全落在行内（没被裁切）**、收起后回到原高。
+- 先保留失败证据再修：改 `RowHeight` 之前跑 StartupCheck 得到
+  `FAIL MainWindow 构造 / BAML 解析 [FormatException: The input string 'Auto' was not in a correct format.]`，
+  修完同一条用例转绿。
+
+**5) 测试结果（离线部分）**
+- Release 编译 **0 错 0 警**（`dotnet build -c Release -r win-x64`）
+- **`StartupCheck` 52 PASS / 0 FAIL**（新增，真实 BAML + 真实控件树布局）
+- `SafetyCheck` 983 PASS / 0 FAIL；`UiRegressionCheck` **233 PASS / 0 FAIL**（+11 条启动防线断言）
+- `CleanAnalyzerCheck` / `AiNoteParserCheck` / `AppRecommendationCheck` 全过；`git diff --check` 干净
+
+**6) 真实启动验收（与离线测试分开记录）**
+- 验收对象：**`bin\...\win-x64\AiDiskCleaner.exe`（2.8.1.0）**，不是 dist。
+- 11:39:56 启动 → `hasExited=False`、**`MainWindowHandle=657850`、标题「大扫货」**、
+  `responding=True`、无 `first-crash.log`。
+- **实拍截图**（1000×700，54KB）：真实主窗口，页头「文件夹整理 · 2,592 个文件夹 · 377 G」，
+  **首屏只有一级且全部收起**（每行都是右向箭头），系统语义结论正确显示：
+  Windows→Windows 操作系统文件、ProgramData→共享程序数据、用户目录→用户文件和应用数据、
+  Program Files→程序安装目录、Program Files (x86)→32 位程序安装目录、Downloads→下载文件、
+  Local→本地应用数据、Roaming→漫游应用数据；**首屏没有 System32 / WinSxS**。
+- 布局：880×600 ↔ 1400×880 来回改尺寸，`responding=True`、进程不退。
+- **正常关闭**：`WM_CLOSE` → **1 秒内退出**（这一轮 4 次实例全部如此）。
+- 全程没有出现新的崩溃循环（`first-crash.log` 始终不存在）。
+- ❌ **没有做真实鼠标点击展开详情**：应用带 `requireAdministrator`，非管理员进程发消息被 UIPI 拦；
+  提权辅助进程又**有时落在别的窗口工作站**（`EnumWindows` 看到 0 个窗口）。
+  改为用 **StartupCheck 的真实控件树布局断言**覆盖这一项（行高变大 + 详情块完全落在行内），
+  并如实标注"不是鼠标实测"。
+
+**7) 打包**
+- 版本 **2.8.1**；self-contained win-x64。
+- 产物：`dist/DashaoHuo-2.8.1-20260913-win-x64/`（546 个文件，含 `sidecar/AiSidecar.exe`、
+  `THIRD-PARTY/`、`SteamHelper.exe`、`StoreAppHelper.exe`），`AiDiskCleaner.exe` 版本 **2.8.1.0**；
+  另有 `.zip` 与 `.zip.sha256`。**2.7.0 / 2.8.0 旧目录与旧包都原样保留。**
+- 包里的 `AiDiskCleaner.dll` 与本次**验收构建**哈希一致：
+  `9AE3916072658A48CA918651FB91A2B904EAF0751A2267D97F8592B73C188467`
+  ⇒ 打的就是验收过的那份代码。
+
+**8) 仍未验收 / 已知限制**
+- **真实鼠标点击展开详情**未做（见 6，环境限制）；由 StartupCheck 的控件树断言替代。
+- **真实 AI 调用**依旧没有；`AI 推测 / 待确认 / 失败 / 取消` 只有离线断言。
+- 高 DPI / 150% 缩放下的排版仍未实测（只按代码推算）。
+- 启动期致命路径（`MessageBox` + 退出码 70）**没有被真实触发过一次**（因为已经不会触发了），
+  它由 StartupCheck 的判定与提示钩子断言覆盖，**不是端到端实测**。
+- 两个 2.8.0 的旧实例（现在已不再占用）当时无法从非管理员 shell 结束 —— 这是提权进程的固有限制，
+  应用本身没有单实例锁，不影响新版本启动。
+
+**9) 过程中的坑（下次别踩）**
+- **XAML 属性值合法性和编译是两码事**：`RowHeight="Auto"` 编译通过、运行期才炸。
+  凡是 `double`/`Length` 类属性，值合法性只能用"真的加载一次 BAML"来兜。
+- **日志滚动会把第一现场删掉**：崩溃风暴一秒能写几 MB，`app.log`(2MB×3) 与 `crash.log`(512KB)
+  瞬间被刷穿。所以第一现场必须**单独文件 + 每次运行只写一条**。
+- **`Dispatcher.BeginInvoke` 里的回调必须自己包 `try`**：只在调用前后设/复位闸挡不住异步递归。
+- **半初始化窗口不能碰**：构造函数中途抛异常时，异常点之后的 `x:Name` 字段全是 null。
+- **提权进程的两个坑**：非管理员 shell 既结束不了它、也发不了窗口消息（UIPI）；
+  用 `Start-Process -Verb RunAs` 起的辅助进程**有时在别的窗口工作站**（`EnumWindows` 看到 0 个窗口，
+  但 `Process.MainWindowHandle` 还能用）；`-WindowStyle Hidden` 会让子 GUI 进程的窗口**继承隐藏**，
+  于是"看起来没窗口"—— 验收 GUI 必须显式 `-WindowStyle Normal`。
+- **PS 5.1 老坑**：不支持 `??`；`-File` 读无 BOM 的 UTF-8 会按 GBK 解，中文注释能把后面的代码吃掉
+  （临时脚本一律写成纯 ASCII）。
 
 ### 2026-09-13  DDWking（第二十五阶段：按 Grok 4.6 第二意见校准首屏与系统语义 · v2.8.0）
 > 问题：v2.7.0 虽然做了「两级自动识别」，但**首屏一打开就把 WinSxS / System32 这类二级目录摊出来了**；

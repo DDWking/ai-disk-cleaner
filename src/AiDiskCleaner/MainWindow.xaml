@@ -1369,7 +1369,7 @@
             <!-- 唯一的滚动列表：扁平、细分隔线、行虚拟化，不做嵌套滚动 -->
             <DataGrid x:Name="OrganizeGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
                       HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                      BorderThickness="0" RowHeight="Auto" MinRowHeight="46" Margin="0,0,2,0"
+                      BorderThickness="0" RowHeight="NaN" MinRowHeight="46" Margin="0,0,2,0"
                       RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
                       HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
                       SelectionMode="Single" SelectionUnit="FullRow"
