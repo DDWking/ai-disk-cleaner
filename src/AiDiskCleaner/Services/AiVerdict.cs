@@ -103,11 +103,18 @@ public static class AiVerdict
 
         int total = items.Count;
         long totalBytes = Sum(items);
-        string headline = cleanable.Count > 0
-            ? Loc.AiHeadlineClean(cleanable.Count, FileEntry.FormatSize(Sum(cleanable)))
-            : review.Count > 0
-                ? Loc.AiHeadlineReview(review.Count, FileEntry.FormatSize(Sum(review)))
-                : Loc.AiHeadlineNothing;
+        string purpose = ai != null && !string.IsNullOrWhiteSpace(ai.Purpose) ? ai.Purpose.Trim() : "";
+        string headline;
+        if (cleanable.Count > 0)
+            headline = Loc.AiHeadlineClean(cleanable.Count, FileEntry.FormatSize(Sum(cleanable)));
+        else if (purpose.Length > 0 && review.Count > 0)
+            headline = Loc.AiHeadlineIdentifiedReview(purpose, review.Count, FileEntry.FormatSize(Sum(review)));
+        else if (purpose.Length > 0)
+            headline = Loc.AiHeadlineIdentified(purpose);
+        else if (review.Count > 0)
+            headline = Loc.AiHeadlineReview(review.Count, FileEntry.FormatSize(Sum(review)));
+        else
+            headline = Loc.AiHeadlineNothing;
 
         return new AiVerdictResult(headline, BuildNote(items, localIdentity, ai, cleanable),
             buckets, cleanable, BuildWhy(items, localIdentity, ai, cleanable.Count, review.Count, keep.Count), mixed);
@@ -125,7 +132,8 @@ public static class AiVerdict
         var bits = new List<string>();
 
         string what = "";
-        if (!string.IsNullOrWhiteSpace(identity)) what = identity.Trim();
+        if (ai != null && !string.IsNullOrWhiteSpace(ai.Purpose)) what = ai.Purpose.Trim();
+        else if (!string.IsNullOrWhiteSpace(identity)) what = identity.Trim();
         else
         {
             var sig = AppSignatures.FriendlyName(items[0].FullPath);

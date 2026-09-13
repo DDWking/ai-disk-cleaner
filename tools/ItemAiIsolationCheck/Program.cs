@@ -362,6 +362,9 @@ public static class Program
             && cs.Contains("case OrganizeNode node:", StringComparison.Ordinal));
         Check("没有新增自动/批量请求入口",
             !cs.Contains("AnalyzeCurrentCategory", StringComparison.Ordinal));
+        Check("整理单项 AI 结束后刷新用途列与未识别筛选",
+            cs.Contains("RefreshOrganizeAfterItemAi(view)", StringComparison.Ordinal)
+            && cs.Contains("if (view.Source != ItemAiSource.Organize) return;", StringComparison.Ordinal));
     }
 
     /// <summary>从 bin 往上找到仓库根（PROGRESS.md 所在），读源文件。</summary>

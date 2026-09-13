@@ -20,7 +20,8 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         Id = id;
         Depth = depth;
         RelativePath = relativePath;
-        Ai = new ItemAiView { ScopeKey = dir.FullPath };
+        Ai = new ItemAiView { ScopeKey = dir.FullPath, Source = ItemAiSource.Organize };
+        Ai.PropertyChanged += OnItemAiChanged;
     }
 
     /// <summary>
@@ -95,26 +96,41 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     public string PurposeName => _purposeName;
     public string PurposeCategory => _purposeCategory;
     public string Basis => _basis;
-    public PurposeSource Source => _source;
+    /// <summary>
+    /// 展示用来源。本地/用户结论优先；用户点过单项 AI 且给出了用途时，
+    /// 按 AI 推测展示 —— **不写进用途缓存、不改任何清理字段**。
+    /// </summary>
+    public PurposeSource Source => _purposeName.Length > 0
+        ? _source
+        : HasItemAiPurpose ? PurposeSource.Ai : _source;
     public bool NeedsConfirm => _needsConfirm;
     public FolderKind Kind => _kind;
 
+    /// <summary>
+    /// 用户点过这一项的 AI、并且模型给出了非空用途。
+    /// 只影响展示（用途列 / 未识别筛选 / 页头 AI 计数），不 Store、不改 Risk。
+    /// </summary>
+    bool HasItemAiPurpose =>
+        !Ai.IsStale
+        && Ai.Status == ItemAiStatus.Done
+        && Ai.Result is { Purpose.Length: > 0 };
+
     /// <summary>有结论才算「已识别」—— 没有结论时状态不允许是成功。</summary>
-    public bool HasConclusion => _purposeName.Length > 0;
+    public bool HasConclusion => _purposeName.Length > 0 || HasItemAiPurpose;
 
     /// <summary>
     /// 界面状态。排队/处理中只由流程写入（<see cref="SetState"/>），
     /// 所以**排队时不可能显示 AI 成功结论**。
     /// </summary>
     public PurposeState State => _override
-        ?? (_source switch
+        ?? (Source switch
         {
             PurposeSource.None => PurposeState.Unrecognized,
-            _ => _needsConfirm ? PurposeState.NeedsConfirm : PurposeState.Recognized,
+            _ => _needsConfirm && !HasItemAiPurpose ? PurposeState.NeedsConfirm : PurposeState.Recognized,
         });
 
     /// <summary>本地识别 / AI 推测 / 你确认的。没有结论时为空。</summary>
-    public string SourceText => _source switch
+    public string SourceText => Source switch
     {
         PurposeSource.Local => Loc.PurposeFromLocal,
         PurposeSource.Ai => Loc.PurposeFromAi,
@@ -131,6 +147,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (State is PurposeState.Running) return Loc.PurposeRunning;
             if (State is PurposeState.Failed) return Loc.PurposeFailed;
             if (_purposeName.Length > 0) return _purposeName;
+            if (HasItemAiPurpose) return Ai.Result!.Purpose;
             if (_needsConfirm) return Loc.PurposeUnclear;
             return Loc.PurposeUnrecognized;
         }
@@ -145,8 +162,16 @@ public sealed class OrganizeNode : INotifyPropertyChanged
                 return Loc.OrganizeWaitNoResult;
             if (State is PurposeState.Failed) return Loc.OrganizeRetryHint;
             if (_purposeName.Length == 0)
+            {
+                if (HasItemAiPurpose)
+                {
+                    string ai = Loc.PurposeFromAi;
+                    string basis = Ai.Result!.Basis;
+                    return basis.Length > 0 ? ai + " · " + basis : ai;
+                }
                 return _needsConfirm ? Loc.PurposeNeedsConfirm : Loc.PurposeIdentify;
-            string s = _source == PurposeSource.None ? "" : SourceText;
+            }
+            string s = Source == PurposeSource.None ? "" : SourceText;
             if (_basis.Length > 0) s = s.Length > 0 ? s + " · " + _basis : _basis;
             if (_needsConfirm) s = s.Length > 0 ? s + " · " + Loc.PurposeNeedsConfirm : Loc.PurposeNeedsConfirm;
             return s;
@@ -154,10 +179,10 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     }
 
     /// <summary>只有「有结论」的行才用正常文字色；没结论一律弱化。</summary>
-    public bool IsResolved => HasConclusion && !_needsConfirm;
+    public bool IsResolved => HasConclusion && (!_needsConfirm || HasItemAiPurpose);
 
-    /// <summary>排到「待确认」筛选里的行。</summary>
-    public bool IsPending => !HasConclusion || _needsConfirm || State == PurposeState.Failed;
+    /// <summary>排到「未识别」筛选里的行。用户点过 AI 且已给出用途的，不再算未识别。</summary>
+    public bool IsPending => !HasConclusion || (_needsConfirm && !HasItemAiPurpose) || State == PurposeState.Failed;
 
     /// <summary>
     /// 行内「展开 / 收起」文案。
@@ -238,6 +263,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (_sampleNames.Count > 0)
                 bits.Add(Loc.OrganizeDetailSamples(string.Join(", ", _sampleNames)));
             if (_basis.Length > 0) bits.Add(_basis);
+            else if (HasItemAiPurpose && Ai.Result!.Basis.Length > 0) bits.Add(Ai.Result.Basis);
             sb.Append(bits.Count > 0 ? string.Join(" · ", bits) : Loc.OrganizeDetailNoEvidence);
             string src = SourceText;
             if (src.Length > 0) sb.Append('\n').Append(Loc.OrganizeDetailSource(src));
@@ -408,6 +434,29 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// 单项 AI 出了用途之后，用途列 / 筛选 / 页头绑定要跟着变。
+    /// 只 Raise 展示属性，不 Apply、不 Store、不碰任何清理字段。
+    /// </summary>
+    void OnItemAiChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not (nameof(ItemAiView.Result)
+            or nameof(ItemAiView.Status)
+            or nameof(ItemAiView.IsStale)
+            or nameof(ItemAiView.HasResult)
+            or null))
+            return;
+        Raise(nameof(HasConclusion));
+        Raise(nameof(PurposeText));
+        Raise(nameof(PurposeDetail));
+        Raise(nameof(Source));
+        Raise(nameof(SourceText));
+        Raise(nameof(IsPending));
+        Raise(nameof(IsResolved));
+        Raise(nameof(DetailText));
+        Raise(nameof(State));
+    }
 
     void RaiseAll()
     {

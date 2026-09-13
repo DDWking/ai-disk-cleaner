@@ -844,7 +844,7 @@
                 Background="{DynamicResource PanelLeft}"
                 BorderBrush="{DynamicResource GridLine}" BorderThickness="1"
                 Visibility="{Binding Ai.IsExpanded, Converter={StaticResource BoolToVisible}}">
-          <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto"
+          <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto"
                         HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
               <!-- 1) 一句结论 -->
@@ -879,6 +879,10 @@
                         ToolTip="只勾选符合本地清理资格的项，之后仍会走清理确认"
                         AutomationProperties.Name="选择这些文件"
                         Visibility="{Binding Ai.CanSelect, Converter={StaticResource BoolToVisible}}"/>
+                <Button Style="{StaticResource LinkButton}" Padding="8,3" FontSize="11" Margin="8,0,0,0"
+                        Content="重新分析" Click="ItemAiRetry_Click"
+                        AutomationProperties.Name="重新分析这一项"
+                        Visibility="{Binding Ai.HasResult, Converter={StaticResource BoolToVisible}}"/>
               </StackPanel>
 
               <!-- 4) 详细依据：默认折叠，需要时才看 -->
@@ -930,12 +934,6 @@
             </StackPanel>
           </ScrollViewer>
         </Border>
-              <!-- 已有结果时提供重新分析；不每次展开都请求模型 -->
-              <Button Style="{StaticResource LinkButton}" HorizontalAlignment="Left"
-                      Margin="0,8,0,0" FontSize="11" Content="重新分析"
-                      Click="ItemAiRetry_Click"
-                      AutomationProperties.Name="重新分析这一项"
-                      Visibility="{Binding Ai.HasResult, Converter={StaticResource BoolToVisible}}"/>
       </StackPanel>
     </DataTemplate>
 

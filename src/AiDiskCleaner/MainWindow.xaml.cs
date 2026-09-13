@@ -2879,7 +2879,18 @@ public partial class MainWindow : Window, IAnalystHost
             // 只有登记的仍是自己这一条时才移除：晚到的旧请求不能删掉新请求的取消源
             _itemAiRunning.RemoveIfCurrent(view.IsolationKey, cts);
             try { cts.Dispose(); } catch { }
+            RefreshOrganizeAfterItemAi(view);
         }
+    }
+
+    /// <summary>
+    /// 整理页单项 AI 结束后，用途列 / 「未识别」筛选 / 页头计数要跟上。
+    /// 只刷新展示，不改 Risk / CanDelete / Selected。
+    /// </summary>
+    void RefreshOrganizeAfterItemAi(ItemAiView view)
+    {
+        if (view.Source != ItemAiSource.Organize) return;
+        RefreshOrganizeRows();
     }
 
     /// <summary>

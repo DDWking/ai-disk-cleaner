@@ -824,6 +824,13 @@ public static class Loc
     public static string AiHeadlineReview(int count, string size) => IsEn
         ? $"{count:N0} item(s) need your confirmation ({size}) — can't be called safe yet"
         : $"有 {count:N0} 项需要你确认（{size}），暂时不能确定是否安全";
+    /// <summary>用户点过 AI 且认出了用途：结论先说「这是什么」，不再用「未识别 / 不能确定是否安全」。</summary>
+    public static string AiHeadlineIdentified(string purpose) => IsEn
+        ? $"Identified as {purpose}"
+        : $"识别为「{purpose}」";
+    public static string AiHeadlineIdentifiedReview(string purpose, int count, string size) => IsEn
+        ? $"Identified as {purpose} — {count:N0} item(s) ({size}) still need your confirmation"
+        : $"识别为「{purpose}」，有 {count:N0} 项（{size}）仍需你确认";
     public static string AiHeadlineNothing => IsEn
         ? "Nothing here is worth cleaning right now"
         : "这里暂时没有建议清理的内容";

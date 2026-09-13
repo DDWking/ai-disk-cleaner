@@ -103,6 +103,9 @@ namespace AiDiskCleaner.Services
         public static string AiReasonKeep => "protected";
         public static string AiHeadlineClean(int c, string s) => $"Suggest cleaning {c} item(s) - about {s} can be freed";
         public static string AiHeadlineReview(int c, string s) => $"{c} item(s) need your confirmation ({s})";
+        public static string AiHeadlineIdentified(string p) => $"Identified as {p}";
+        public static string AiHeadlineIdentifiedReview(string p, int c, string s)
+            => $"Identified as {p} — {c} item(s) ({s}) still need your confirmation";
         public static string AiHeadlineNothing => "Nothing here is worth cleaning right now";
         public static string AiBucketStat(int c, string s) => $"{c} item(s) · {s}";
         public static string AiSelectTheseFiles => "Select these files";
