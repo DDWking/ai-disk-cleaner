@@ -95,9 +95,24 @@ public static class AiGateway
         return _provider;
     }
 
+    /// <summary>
+    /// 出站请求计数（**所有**走网关的请求都在这里 +1，sidecar 与内置 HTTP 都算）。
+    ///
+    /// 存在的意义是把「后台悄悄发请求」变成可测的事实：回归测试用它断言
+    /// 「扫描 / 切页 / 展开 / 筛选 = 0 次请求」，这比翻日志可靠。
+    /// </summary>
+    private static int _sentCount;
+
+    /// <summary>本进程内已经发出去的模型请求次数（含失败与重试前的那一次）。</summary>
+    public static int SentCount => Volatile.Read(ref _sentCount);
+
+    /// <summary>测试用：清零计数。</summary>
+    public static void ResetSentCountForTest() => Volatile.Write(ref _sentCount, 0);
+
     /// <summary>发一次请求。onDelta 可为空（整段模式）。</summary>
     public static async Task<AiReply> SendAsync(AiRequest request, Action<string>? onDelta, CancellationToken ct)
     {
+        Interlocked.Increment(ref _sentCount);
         var provider = Resolve();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);

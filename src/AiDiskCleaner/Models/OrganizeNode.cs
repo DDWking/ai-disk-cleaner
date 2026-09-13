@@ -20,7 +20,17 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         Id = id;
         Depth = depth;
         RelativePath = relativePath;
+        Ai = new ItemAiView { ScopeKey = dir.FullPath };
     }
+
+    /// <summary>
+    /// 这一项的**单项 AI 分析**状态（用户点了行里的 AI 按钮才有内容）。
+    ///
+    /// 语义与清理页逐项分析完全一致：这是什么 / 删除可能影响什么 / 依据 / 缺什么。
+    /// 它是**展示态**，不参与 Risk / CanDelete / Selected，也绝不自动勾选或删除。
+    /// 一个对象 = 一次有限的摘要请求；重复点击走缓存或去重，不会重复发。
+    /// </summary>
+    public ItemAiView Ai { get; }
 
     /// <summary>对应的真实目录条目（容量、子节点都从这里来）。</summary>
     public FileEntry Dir { get; }

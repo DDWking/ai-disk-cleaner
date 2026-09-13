@@ -958,10 +958,11 @@ public static class Loc
         : "处理中，还没有结论";
 
     public static string OrganizeFilterAll => IsEn ? "All" : "全部";
-    public static string OrganizeFilterPending => IsEn ? "To confirm" : "待确认";
+    // 「未识别」不是「待确认任务」：没有结论就是没有结论，不给人一个待办的压力。
+    public static string OrganizeFilterPending => IsEn ? "unidentified" : "未识别";
     public static string OrganizeFilterPendingTip => IsEn
-        ? "Show only folders that are not identified yet (plus ones you should confirm)"
-        : "只看还没认出来、以及需要你确认的文件夹";
+        ? "Show only folders with no conclusion yet (a filter over the view; it changes nothing else)"
+        : "只看还没有结论的文件夹（只是换个看法，不改任何识别状态）";
     public static string OrganizeFilterActive(int shown, int total) => IsEn
         ? $"showing {shown:N0} of {total:N0}"
         : $"只显示 {shown:N0} / {total:N0} 个";
