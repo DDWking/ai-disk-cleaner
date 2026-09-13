@@ -355,7 +355,7 @@ Assert-True 'deep levels are manual only (no automatic pass exists to enter)' `
      $org -notmatch 'IsAutoLevel\s*&&' -and $org -notmatch 'AutoIdentifyTargets')
 Assert-True 'a cancelled or stale per-item request cannot overwrite a new scan' `
     ($org -match '_organizeGeneration\+\+' -and
-     $cs -match '_itemAiRunning' -and $cs -match 'ItemAiStatus\.Canceled')
+     $cs -match '_itemAiRunning' -and $cs -match 'ItemAiCancelStatus\.Resolve')
 Assert-True 'the page counts per object, never per batch target' `
     ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
      $org -notmatch 'done = Math\.Min\(targets\.Count, done \+ 1\)')

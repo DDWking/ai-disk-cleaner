@@ -839,6 +839,74 @@ public static class Program
         SetFld(win, "_apps", new List<AppUninstallItem>());
         SetFld(win, "_uninstallTabVisited", false);
         ResetOrganizeCollections(win);
+
+        // ---------- 静默清点必须可取消：用户点「停止」不能拿它没办法 ----------
+        // 钩子模拟「长跑清点」：记下传进来的 token 并阻塞，直到它被取消才退出。
+        var hookStarted = new ManualResetEventSlim(false);
+        CancellationToken silentToken = default;
+        BcuUninstallService.ListAppsOverrideForTest = (_, ct) =>
+        {
+            silentToken = ct;
+            hookStarted.Set();
+            ct.WaitHandle.WaitOne(5000);   // 有界：没被取消也不能把测试挂死
+            ct.ThrowIfCancellationRequested();
+            return new List<AppUninstallItem>();
+        };
+
+        // 卸载页 UI / 当前页基线：取消期间同样一次都不许动
+        var cancelPanel = NamedField(win, "UninstallProgressPanel") as FrameworkElement;
+        var cancelBar = NamedField(win, "UninstallProgressBar") as ProgressBar;
+        var cancelProgressText = NamedField(win, "UninstallProgressText") as TextBlock;
+        var cancelRefreshBtn = NamedField(win, "UninstallRefreshBtn") as Button;
+        var cancelRunBtn = NamedField(win, "UninstallRunBtn") as Button;
+        bool cancelPanelBefore = cancelPanel?.Visibility == Visibility.Visible;
+        bool cancelRefreshBefore = cancelRefreshBtn?.IsEnabled ?? false;
+        bool cancelRunBefore = cancelRunBtn?.IsEnabled ?? false;
+        double cancelBarBefore = cancelBar?.Value ?? -1;
+        string cancelTextBefore = cancelProgressText?.Text ?? "";
+        string cancelTabBefore = Fld<object>(win, "_rightTab").ToString() ?? "";
+
+        Call(win, "MaybeLoadAppsInBackground");    // 走静默清点（后台长跑）
+        Check("静默清点真的把 ListApps 跑起来了（测试钩子已进入）",
+            hookStarted.Wait(5000), "hook 未在 5s 内启动");
+        Check("静默清点传给 ListApps 的 token 可取消（不是 CancellationToken.None）",
+            silentToken.CanBeCanceled, $"CanBeCanceled={silentToken.CanBeCanceled}");
+
+        Call(win, "StopEverything");               // 用户点「停止」
+        Check("StopEverything 取消了静默清点正在用的那个 token",
+            silentToken.IsCancellationRequested,
+            $"IsCancellationRequested={silentToken.IsCancellationRequested}");
+
+        // 等清点收口（取消 ⇒ finally 里清 busy）。测试宿主没有消息循环，要自己泵 dispatcher。
+        PumpDispatcher(() => !Fld<bool>(win, "_silentInventoryBusy"), 8000);
+        Check("被取消的静默清点收口（_silentInventoryBusy 归位）",
+            !Fld<bool>(win, "_silentInventoryBusy"), "still busy");
+        Check("被取消的静默清点不采纳任何清单",
+            NamedField(win, "_silentInventory") == null, "stale list adopted");
+        Check("取消静默清点不切页、不写卸载页 UI、不进卸载页状态",
+            (Fld<object>(win, "_rightTab").ToString() ?? "") == cancelTabBefore
+            && (cancelPanel?.Visibility == Visibility.Visible) == cancelPanelBefore
+            && (cancelRefreshBtn?.IsEnabled ?? false) == cancelRefreshBefore
+            && (cancelRunBtn?.IsEnabled ?? false) == cancelRunBefore
+            && (cancelBar?.Value ?? -1) == cancelBarBefore
+            && (cancelProgressText?.Text ?? "") == cancelTextBefore
+            && !Fld<bool>(win, "_listingApps") && !Fld<bool>(win, "_uninstallTabVisited"),
+            $"tab={Fld<object>(win, "_rightTab")} panel={cancelPanel?.Visibility} "
+            + $"refresh={cancelRefreshBtn?.IsEnabled} run={cancelRunBtn?.IsEnabled} "
+            + $"bar={cancelBar?.Value} text={cancelProgressText?.Text} "
+            + $"listing={Fld<bool>(win, "_listingApps")} visited={Fld<bool>(win, "_uninstallTabVisited")}");
+
+        // 清理：别把替身、取消标记和残留留给后面的用例
+        BcuUninstallService.ListAppsOverrideForTest = null;
+        Fld<WorkState>(win, "_work").ResetCancel();
+        SetFld(win, "_silentInventory", null);
+        SetFld(win, "_silentInventoryGeneration", -1);
+        SetFld(win, "_silentInventoryBusy", false);
+        SetFld(win, "_listingApps", false);
+        SetFld(win, "_apps", new List<AppUninstallItem>());
+        SetFld(win, "_uninstallTabVisited", false);
+        ResetOrganizeCollections(win);
+        hookStarted.Dispose();
     }
 
     /// <summary>
