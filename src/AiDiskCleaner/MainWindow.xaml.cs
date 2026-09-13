@@ -2828,7 +2828,11 @@ public partial class MainWindow : Window, IAnalystHost
     void InvalidateItemAiAfterScan()
     {
         _aiDataGeneration++;
-        _folderPurpose.ResetForScan();   // 新扫描 ⇒ 旧的用途结论过期（用户纠正单独保留）
+        // 注意：这里**不**动用途识别的缓存与请求计数。
+        // 逐项 AI 代次在**每次分层重建**都会 +1（包括重复检测完成后的那次），
+        // 而用途缓存/计数属于**整理页那一遍**的生命周期：在这里清会导致
+        // ①已识别的结果被丢掉重问、②请求计数被归零（60 次的预算形同失效）。
+        // 现在只有真正换扫描时（RebuildOrganize）才 ResetForScan。
         _purposeCache.Clear();           // 侧栏那份结果也随扫描作废（新树会是新的对象）
         foreach (var loc in _layered.Purposes.SelectMany(p => p.Locations))
         {

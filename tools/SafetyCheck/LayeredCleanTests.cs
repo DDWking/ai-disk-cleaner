@@ -1060,9 +1060,15 @@ public static class LayeredCleanTests
             genSvc.TryGetUserCorrection(new FolderId(@"D:\kept", 99))?.PurposeName == "我的资料");
         check("重扫后缓存清空、请求计数归零",
             genSvc.CacheCount == 0 && genSvc.AiRequestsUsed == 0);
-        check("每次重建都推进代次，旧回调会被 Stale 拦掉",
+        check("每次重建都推进代次，旧回调会被整理生命周期判据拦掉",
             orgText.Contains("_organizeGeneration++", StringComparison.Ordinal)
-            && orgText.Contains("myGen != _organizeGeneration || myData != _aiDataGeneration", StringComparison.Ordinal));
+            && orgText.Contains("taskGen != _organizeGeneration || scanGen != _scanGeneration", StringComparison.Ordinal)
+            // 逐项 AI 代次**不得**再当整理识别的失效判据（重复检测后会误杀）
+            && !orgText.Contains("myData != _aiDataGeneration", StringComparison.Ordinal));
+        check("被换代/被接手的旧任务不许动新任务的界面",
+            orgText.Contains("int myTask = ++_organizeTaskId;", StringComparison.Ordinal)
+            && orgText.Contains("bool Owns() => myTask == _organizeTaskId;", StringComparison.Ordinal)
+            && orgText.Contains("if (Owns())", StringComparison.Ordinal));
         check("排队项在取消后回到「未识别」，不留假进度",
             orgText.Contains("PurposeState.Queued or PurposeState.Running) t.ClearState()", StringComparison.Ordinal)
             || orgText.Contains("PurposeState.Queued or PurposeState.Running)  t.ClearState()", StringComparison.Ordinal));
@@ -1072,7 +1078,8 @@ public static class LayeredCleanTests
         check("请求预算用完时如实说明剩下的没发送",
             orgText.Contains("OrganizeBudgetLeft", StringComparison.Ordinal));
         check("失败数量如实进页头统计",
-            orgText.Contains("Loc.OrganizePartFailed(failed)", StringComparison.Ordinal));
+            orgText.Contains("Loc.OrganizeRunSummary(head, failed, notSent)", StringComparison.Ordinal)
+            && orgText.Contains("Loc.OrganizeRunPassDetail(aiNamed, unknown, failed)", StringComparison.Ordinal));
         check("本地先出结果、AI 后台补（本地这一遍不 await 请求）",
             System.Text.RegularExpressions.Regex.IsMatch(
                 orgText, @"if \(!t\.HasConclusion\) LocalRecognize\(t\);[\s\S]{0,400}await Task\.Yield\(\);"));

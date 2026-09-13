@@ -126,6 +126,9 @@ public static class Program
         Console.WriteLine("== 7. 详情展开 / 不裁切：真实控件树布局断言 ==");
         if (win != null) DetailLayoutTests(win);
 
+        Console.WriteLine("== 8. 整理页交互行为：首击展开 / 上限反馈 / 一级优先 / 筛选只读 / 代次生命周期 ==");
+        if (win != null) OrganizeInteractionTests(win);
+
         Console.WriteLine();
         Console.WriteLine($"PASS {_pass}   FAIL {_fail}");
         foreach (var f in Failures) Console.WriteLine("  - " + f);
@@ -365,6 +368,275 @@ public static class Program
             if (hit != null) return hit;
         }
         return null;
+    }
+
+    // ---------------- 整理页交互行为（真 MainWindow，反射驱动真实私有路径） ----------------
+
+    static T Fld<T>(object o, string name)
+        => (T)(o.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(o)
+               ?? throw new InvalidOperationException("field null: " + name));
+
+    static void SetFld(object o, string name, object? v)
+        => o.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(o, v);
+
+    static object? Call(object o, string name, params object?[] args)
+        => o.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(o, args);
+
+    static void ResetOrganizeCollections(MainWindow win)
+    {
+        Fld<List<OrganizeNode>>(win, "_organizeAll").Clear();
+        Fld<List<OrganizeNode>>(win, "_organizeRoots").Clear();
+        Fld<Dictionary<FileEntry, OrganizeNode>>(win, "_organizeByDir").Clear();
+        Fld<System.Collections.ObjectModel.ObservableCollection<OrganizeNode>>(win, "_organizeRows").Clear();
+        SetFld(win, "_organizeNote", "");
+    }
+
+    static FileEntry MakeDir(string name, string path, long size, FileEntry? parent = null, int childDirs = 0)
+    {
+        var e = new FileEntry
+        {
+            Name = name, FullPath = path, Kind = EntryKind.Directory, Size = size,
+            Parent = parent, FolderCount = childDirs,
+        };
+        parent?.Children.Add(e);
+        return e;
+    }
+
+    /// <summary>
+    /// 这些是**行为**用例（真的调 ToggleOrganize / AutoIdentifyTargets / 筛选 / 代次判据），
+    /// 不是字符串断言。它们先按现状跑红，修完转绿。
+    /// </summary>
+    static void OrganizeInteractionTests(MainWindow win)
+    {
+        // ---------- 8.1 首次点击箭头：懒加载之后必须真的展开 ----------
+        ResetOrganizeCollections(win);
+        var rootA = MakeDir("RootA", @"X:\RootA", 1000, null, 2);
+        MakeDir("a1", @"X:\RootA\a1", 600, rootA);
+        MakeDir("a2", @"X:\RootA\a2", 400, rootA);
+        var nodeA = new OrganizeNode(rootA, new FolderId(rootA.FullPath, 1), 0, "RootA");
+        nodeA.SetLevel(1);
+        nodeA.SetChildDirCount(2);
+        Fld<List<OrganizeNode>>(win, "_organizeAll").Add(nodeA);
+        Fld<List<OrganizeNode>>(win, "_organizeRoots").Add(nodeA);
+
+        Check("懒加载前 ChildrenLoaded=false（确实还没材料化）", !nodeA.ChildrenLoaded);
+        Call(win, "ToggleOrganize", nodeA);
+        Check("首击箭头：子项被材料化出来",
+            nodeA.ChildrenLoaded && nodeA.Children.Count == 2, nodeA.Children.Count.ToString());
+        Check("首击箭头：节点**确实展开**了（v2.8.0/2.8.1 就是在这里失效）", nodeA.IsExpanded);
+
+        var kidsFirst = nodeA.Children.ToList();
+        Call(win, "ToggleOrganize", nodeA);
+        Check("再点一次：收起", !nodeA.IsExpanded);
+        Call(win, "ToggleOrganize", nodeA);
+        Check("第三次：展开且复用同一批子节点（展开不重新材料化）",
+            nodeA.IsExpanded && nodeA.Children.Count == 2
+            && nodeA.Children.All(k => kidsFirst.Contains(k)),
+            nodeA.Children.Count.ToString());
+        Check("展开状态会通知界面（箭头方向跟着变）",
+            nodeA.ExpandGlyphKey == "IconChevronDown", nodeA.ExpandGlyphKey);
+
+        // ---------- 8.2 对象上限：必须明确反馈，不能无反应也不能假装展开 ----------
+        ResetOrganizeCollections(win);
+        var all = Fld<List<OrganizeNode>>(win, "_organizeAll");
+        var backup = all.ToList();
+        all.Clear();
+        var filler = new OrganizeNode(
+            MakeDir("filler", @"X:\filler", 1), new FolderId(@"X:\filler", 1), 0, "filler");
+        for (int i = 0; i < FolderOrganize.MaxObjects; i++) all.Add(filler);
+
+        var rootB = MakeDir("RootB", @"X:\RootB", 1000, null, 1);
+        MakeDir("b1", @"X:\RootB\b1", 500, rootB);
+        var nodeB = new OrganizeNode(rootB, new FolderId(rootB.FullPath, 1), 0, "RootB");
+        nodeB.SetLevel(1);
+        nodeB.SetChildDirCount(1);
+        SetFld(win, "_organizeNote", "");
+        Call(win, "ToggleOrganize", nodeB);
+        Check("对象到上限：不假装展开（不显示空展开态）", !nodeB.IsExpanded);
+        Check("对象到上限：给出明确反馈（不是点了没反应）",
+            Fld<string>(win, "_organizeNote").Length > 0, Fld<string>(win, "_organizeNote"));
+        all.Clear();
+        all.AddRange(backup);
+
+        // ---------- 8.3 子目录全在首屏（没有新东西可展开）：也要有反馈 ----------
+        ResetOrganizeCollections(win);
+        var rootC = MakeDir("RootC", @"X:\RootC", 1000, null, 1);
+        var c1 = MakeDir("c1", @"X:\RootC\c1", 500, rootC);
+        var nodeC = new OrganizeNode(rootC, new FolderId(rootC.FullPath, 1), 0, "RootC");
+        nodeC.SetLevel(1);
+        nodeC.SetChildDirCount(1);
+        Fld<List<OrganizeNode>>(win, "_organizeAll").Add(nodeC);
+        Fld<List<OrganizeNode>>(win, "_organizeRoots").Add(nodeC);
+        // 先把它唯一的子项当成「已经是顶层对象」登记，模拟"子项就在首屏"
+        var childTop = new OrganizeNode(c1, new FolderId(c1.FullPath, 1), 0, "c1");
+        Fld<Dictionary<FileEntry, OrganizeNode>>(win, "_organizeByDir")[c1] = childTop;
+        SetFld(win, "_organizeNote", "");
+        Call(win, "ToggleOrganize", nodeC);
+        Check("子项已在首屏：不显示一个空的展开态", !nodeC.IsExpanded);
+        Check("子项已在首屏：给出明确反馈",
+            Fld<string>(win, "_organizeNote").Length > 0, Fld<string>(win, "_organizeNote"));
+
+        // ---------- 8.4 自动识别顺序：一级严格先于二级 ----------
+        ResetOrganizeCollections(win);
+        var all2 = Fld<List<OrganizeNode>>(win, "_organizeAll");
+        var lvl1Small = MakeDir("L1small", @"X:\L1small", 10, null, 1);
+        MakeDir("s", @"X:\L1small\s", 5, lvl1Small);
+        var n1 = new OrganizeNode(lvl1Small, new FolderId(lvl1Small.FullPath, 1), 0, "L1small");
+        n1.SetLevel(1); n1.SetChildDirCount(1);
+        var lvl2Huge = MakeDir("L2huge", @"X:\L2huge", 9_000_000, null, 1);
+        MakeDir("h", @"X:\L2huge\h", 1, lvl2Huge);
+        var n2 = new OrganizeNode(lvl2Huge, new FolderId(lvl2Huge.FullPath, 1), 1, "L2huge");
+        n2.SetLevel(2); n2.SetChildDirCount(1);
+        var lvl1Big = MakeDir("L1big", @"X:\L1big", 5_000_000, null, 1);
+        MakeDir("b", @"X:\L1big\b", 1, lvl1Big);
+        var n3 = new OrganizeNode(lvl1Big, new FolderId(lvl1Big.FullPath, 1), 0, "L1big");
+        n3.SetLevel(1); n3.SetChildDirCount(1);
+        all2.Add(n1); all2.Add(n2); all2.Add(n3);
+
+        var targets = ((System.Collections.IEnumerable)Call(win, "AutoIdentifyTargets")!)
+            .Cast<OrganizeNode>().ToList();
+        int lastL1 = targets.FindLastIndex(t => t.Level == 1);
+        int firstL2 = targets.FindIndex(t => t.Level == 2);
+        Check("自动识别目标包含一、二级", lastL1 >= 0 && firstL2 >= 0,
+            string.Join(",", targets.Select(t => t.Name + ":L" + t.Level)));
+        Check("一级严格排在二级之前（不是按容量混排）",
+            firstL2 < 0 || lastL1 < firstL2,
+            string.Join(",", targets.Select(t => t.Name + ":L" + t.Level)));
+        Check("已经有一级时，先做一级（第一个就是 level 1）",
+            targets.Count > 0 && targets[0].Level == 1,
+            targets.Count > 0 ? targets[0].Name + ":L" + targets[0].Level : "empty");
+
+        // 已有结论 / 缓存命中的对象不占请求预算：有结论的不该进目标队列
+        n1.Apply(new FolderPurposeResult(n1.Id, "已知", "应用", "本地", PurposeSource.Local, false,
+            FolderKind.Concrete));
+        var targets2 = ((System.Collections.IEnumerable)Call(win, "AutoIdentifyTargets")!)
+            .Cast<OrganizeNode>().ToList();
+        Check("已有结论的对象不进自动队列（不消耗请求）",
+            targets2.All(t => !ReferenceEquals(t, n1)) && targets2.Count == targets.Count - 1,
+            targets2.Count + " vs " + targets.Count);
+
+        // ---------- 8.5 筛选只是视图：不永久篡改展开状态、不留孤儿行 ----------
+        ResetOrganizeCollections(win);
+        // D：展开；E：材料化但收起（用来验证"筛选不会偷偷展开它"）
+        var rootD = MakeDir("RootD", @"X:\RootD", 1000, null, 1);
+        MakeDir("d1", @"X:\RootD\d1", 900, rootD);            // 没有结论 => pending
+        var rootE = MakeDir("RootE", @"X:\RootE", 500, null, 1);
+        MakeDir("e1", @"X:\RootE\e1", 400, rootE);
+        // F：父项**有结论**（不 pending），子项没有结论（pending）=> 必须保留父项做上下文
+        var rootF = MakeDir("RootF", @"X:\RootF", 300, null, 1);
+        var f1 = MakeDir("f1", @"X:\RootF\f1", 200, rootF, 1);
+        MakeDir("f11", @"X:\RootF\f1\f11", 100, f1);
+
+        OrganizeNode Mk(FileEntry d, int level, int childDirs)
+        {
+            var n = new OrganizeNode(d, new FolderId(d.FullPath, 1), 0, d.Name ?? "");
+            n.SetLevel(level);
+            n.SetChildDirCount(childDirs);
+            Fld<List<OrganizeNode>>(win, "_organizeAll").Add(n);
+            Fld<List<OrganizeNode>>(win, "_organizeRoots").Add(n);
+            return n;
+        }
+        var nodeD = Mk(rootD, 1, 1);
+        var nodeE = Mk(rootE, 1, 1);
+        var nodeF = Mk(rootF, 1, 1);
+
+        Call(win, "ToggleOrganize", nodeD);       // 材料化 + 展开
+        Call(win, "ToggleOrganize", nodeE);       // 材料化 + 展开
+        Call(win, "ToggleOrganize", nodeE);       // 再收起 => 材料化但收起
+        Call(win, "ToggleOrganize", nodeF);       // 材料化 + 展开
+        // 给 f1 一个结论（不 pending），它的子项 f11 仍然 pending
+        var f1Node = nodeF.Children.FirstOrDefault(c => c.Name == "f1");
+        if (f1Node != null)
+            f1Node.Apply(new FolderPurposeResult(f1Node.Id, "已知", "应用", "本地",
+                PurposeSource.Local, false, FolderKind.Concrete));
+
+        Check("准备状态：D 展开 / E 材料化但收起 / F 展开",
+            nodeD.IsExpanded && nodeE.ChildrenLoaded && !nodeE.IsExpanded && nodeF.IsExpanded,
+            $"D={nodeD.IsExpanded} E.Loaded={nodeE.ChildrenLoaded} E={nodeE.IsExpanded} F={nodeF.IsExpanded}");
+
+        int rowsBefore = Fld<System.Collections.ObjectModel.ObservableCollection<OrganizeNode>>(win, "_organizeRows").Count;
+
+        Call(win, "OrganizeFilter_Click", null, new RoutedEventArgs());
+        Check("打开筛选：**不改变任何节点的展开状态**（原本收起的仍收起）",
+            nodeD.IsExpanded && !nodeE.IsExpanded && nodeF.IsExpanded,
+            $"D={nodeD.IsExpanded} E={nodeE.IsExpanded} F={nodeF.IsExpanded}");
+
+        var rows = Fld<System.Collections.ObjectModel.ObservableCollection<OrganizeNode>>(win, "_organizeRows")
+            .ToList();
+        var rootsNow = Fld<List<OrganizeNode>>(win, "_organizeRoots");
+        Check("筛选下没有孤儿行（匹配子项的祖先作为上下文保留）",
+            !HasOrphan(rows, rootsNow), string.Join(" > ", rows.Select(r => r.Name)));
+
+        Call(win, "OrganizeFilter_Click", null, new RoutedEventArgs());
+        Check("关闭筛选：回到打开前的展开状态（用户本来展开的仍展开）",
+            nodeD.IsExpanded && !nodeE.IsExpanded && nodeF.IsExpanded,
+            $"D={nodeD.IsExpanded} E={nodeE.IsExpanded} F={nodeF.IsExpanded}");
+        int rowsAfter = Fld<System.Collections.ObjectModel.ObservableCollection<OrganizeNode>>(win, "_organizeRows").Count;
+        Check("关闭筛选：行集合回到打开前的样子", rowsAfter == rowsBefore, $"{rowsBefore} -> {rowsAfter}");
+
+        // ---------- 8.6 代次生命周期：逐项AI代次变化不得让整理识别失效 ----------
+        ResetOrganizeCollections(win);
+        int taskGen = Fld<int>(win, "_organizeGeneration");
+        int scanGen = Fld<int>(win, "_scanGeneration");
+        Check("刚建好的任务不算失效", !win.OrganizePassStaleForTest(taskGen, scanGen));
+        Call(win, "InvalidateItemAiAfterScan");     // 模拟「重复检测完成后的分层重建」
+        Check("逐项AI代次变化（after-duplicates）**不得**让整理识别任务失效",
+            !win.OrganizePassStaleForTest(taskGen, scanGen),
+            "organizeGen=" + Fld<int>(win, "_organizeGeneration")
+            + " scanGen=" + Fld<int>(win, "_scanGeneration")
+            + " aiGen=" + Fld<int>(win, "_aiDataGeneration"));
+        SetFld(win, "_scanGeneration", scanGen + 1);
+        Check("换扫描代次必须让旧任务失效", win.OrganizePassStaleForTest(taskGen, scanGen));
+        SetFld(win, "_scanGeneration", scanGen);
+
+        // ---------- 8.7 用途缓存与请求计数只随「真换扫描」复位 ----------
+        // 先用一个**本地就能判定**的目录把缓存喂起来（allowAi:false ⇒ 绝不联网）
+        var svc = Fld<FolderPurposeService>(win, "_folderPurpose");
+        var nmDir = MakeDir("node_modules", @"X:\nodeproj\node_modules", 900_000, null);
+        FileEntry? nmFile = new FileEntry
+        {
+            Name = "package.json", FullPath = @"X:\nodeproj\node_modules\package.json",
+            Kind = EntryKind.File, Size = 10, Parent = nmDir,
+        };
+        nmDir.Children.Add(nmFile);
+        var nmRes = svc.RecognizeAsync(nmDir, new FolderId(nmDir.FullPath, 1), 1, "node_modules",
+            allowAi: false, provider: null, model: null, sendFullPath: false,
+            configSignature: "cfg", ct: CancellationToken.None).GetAwaiter().GetResult();
+        Check("本地能判定的目录进了用途缓存（且没联网）",
+            nmRes.HasConclusion && svc.CacheCount > 0, svc.CacheCount.ToString());
+        Check("本地结论不消耗请求预算", svc.AiRequestsUsed == 0, svc.AiRequestsUsed.ToString());
+
+        int cacheBefore = svc.CacheCount;
+        Call(win, "InvalidateItemAiAfterScan");     // after-duplicates 那次重建
+        Check("分层重建**不得**清掉用途缓存（否则已识别的会重问）",
+            svc.CacheCount == cacheBefore, $"{cacheBefore} -> {svc.CacheCount}");
+        Call(win, "RebuildOrganize");               // 真正换扫描
+        Check("真换扫描才把用途缓存归零", svc.CacheCount == 0, svc.CacheCount.ToString());
+        Check("整理列表重建必须让旧任务失效", win.OrganizePassStaleForTest(taskGen, scanGen));
+
+        ResetOrganizeCollections(win);
+    }
+
+    /// <summary>行里出现"父项不在行里"或"父项排在子项之后"就是孤儿行。</summary>
+    static bool HasOrphan(List<OrganizeNode> rows, List<OrganizeNode> roots)
+    {
+        var parent = new Dictionary<OrganizeNode, OrganizeNode>();
+        void Map(OrganizeNode n)
+        {
+            foreach (var c in n.Children) { parent[c] = n; Map(c); }
+        }
+        foreach (var r in roots) Map(r);
+
+        var index = new Dictionary<OrganizeNode, int>();
+        for (int i = 0; i < rows.Count; i++) index[rows[i]] = i;
+
+        foreach (var n in rows)
+        {
+            if (!parent.TryGetValue(n, out var p)) continue;   // 顶层，正常
+            if (!index.TryGetValue(p, out int pi)) return true; // 父项没出现在行里 => 孤儿
+            if (pi > index[n]) return true;                     // 父项排在子项之后 => 顺序错乱
+        }
+        return false;
     }
 
     static bool ResourceExists(string uri)
