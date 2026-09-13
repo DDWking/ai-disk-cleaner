@@ -11,7 +11,8 @@ namespace ItemAiIsolationCheck;
 /// <item>整理树的结果绝不携带清理动作能力（不能勾选、不能定位清理明细），即使被硬塞进同一个结论；</item>
 /// <item>清理页的一个文件与整理页的一个文件夹**同路径**时，请求登记键不同，取消/移除互不误伤；</item>
 /// <item>同路径的清理/整理请求不共享模型缓存（来源进缓存版本）；</item>
-/// <item>「有用途/影响但建议档位认不出来」仍然算有用，不丢成「没有可用结果」。</item>
+/// <item>「有用途/影响但建议档位认不出来」仍然算有用，不丢成「没有可用结果」；</item>
+/// <item>用户主动取消与超时被正确区分（不拿「是否正在扫描」当取消原因）。</item>
 /// </list>
 /// 复用了 SafetyCheck 的离线桩面（Loc / AiClient / App），不联网、不碰真实用户数据。
 /// 运行：dotnet run --project tools/ItemAiIsolationCheck
@@ -50,6 +51,7 @@ public static class Program
             RunningRegistryTests();
             CacheIsolationTests();
             UsabilityContractTests();
+            CancelStatusTests();
             WindowWiringTests();
         }
         finally
@@ -251,7 +253,78 @@ public static class Program
         AiClient.Handler = null;
     }
 
-    // ---------------- 6. 窗口接线（离线无法编译主工程，做接线守卫） ----------------
+    // ---------------- 6. 取消 / 超时的归属 ----------------
+
+    /// <summary>
+    /// 行为用例：逐项请求抛 OperationCanceledException 之后，界面该记 Canceled 还是 Timeout。
+    ///
+    /// 两种取消来自不同的取消源：
+    /// <list type="bullet">
+    /// <item>用户取消 = 窗口持有的**外层 cts** 被 Cancel（点「取消这一项」/「全部停止」）；</item>
+    /// <item>超时 = <see cref="ItemAiService.Timeout"/> 到点时，取消的是
+    ///       ItemAiService 里 <c>CreateLinkedTokenSource(ct)</c> 派生出的 timeoutCts，
+    ///       **外层 cts 不会被取消**。</item>
+    /// </list>
+    /// 「是否正在扫描」不属于取消原因：扫描用另一条取消链，既不会取消逐项请求，
+    /// 也不能说明这一项为什么停。判据里混进 _scanning，用户取消就会被误报成超时。
+    /// </summary>
+    static void CancelStatusTests()
+    {
+        Section("取消/超时归属：用户取消是 Canceled，链接超时源触发才是 Timeout");
+
+        // 判据只接受「外层（用户）取消源」。若有人再把「是否正在扫描」加回参数，
+        // 这里就先红：扫描状态本来就不属于取消原因。
+        var resolveParams = typeof(ItemAiCancelStatus).GetMethod("Resolve")?.GetParameters();
+        Check("判定函数只接受「外层取消源」一个输入（扫描状态不得参与）",
+            resolveParams is { Length: 1 }
+            && resolveParams[0].ParameterType == typeof(CancellationToken),
+            resolveParams is null ? "找不到 Resolve" : resolveParams.Length.ToString());
+
+        // 场景一：用户主动取消（外层 cts.Cancel），**且此刻正在扫描**。
+        // 现状（把 _scanning 掺进判据）会在这里落进 Timeout —— 本次修的就是它。
+        using (var scanningCts = new CancellationTokenSource())
+        {
+            scanningCts.Cancel();
+            var st = ItemAiCancelStatus.Resolve(scanningCts.Token);
+            Check("用户取消 + 正在扫描 ⇒ Canceled（不得标成超时）",
+                st == ItemAiStatus.Canceled, st.ToString());
+        }
+
+        // 场景二：用户主动取消，且当前没有在扫描。
+        using (var idleCts = new CancellationTokenSource())
+        {
+            idleCts.Cancel();
+            var st = ItemAiCancelStatus.Resolve(idleCts.Token);
+            Check("用户取消 + 未扫描 ⇒ Canceled", st == ItemAiStatus.Canceled, st.ToString());
+        }
+
+        // 场景三：真超时。用**真实的链接取消源**复现 ItemAiService 的超时路径：
+        // timeoutCts 触发，外层 cts 保持未取消。
+        using (var outerCts = new CancellationTokenSource())
+        using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(outerCts.Token))
+        {
+            timeoutCts.CancelAfter(TimeSpan.Zero);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (!timeoutCts.IsCancellationRequested && sw.ElapsedMilliseconds < 2000)
+                Thread.Sleep(5);
+
+            Check("超时源确实触发了（链接源已取消）", timeoutCts.IsCancellationRequested);
+            Check("超时不会反向取消外层（用户）取消源", !outerCts.IsCancellationRequested);
+
+            var st = ItemAiCancelStatus.Resolve(outerCts.Token);
+            Check("真超时（外层未取消）⇒ Timeout，即使正在扫描", st == ItemAiStatus.Timeout, st.ToString());
+        }
+
+        // 边界：两个源都没取消却抛了 OperationCanceledException（例如底层 HttpClient
+        // 自己取消）—— 不是用户取消，归 Timeout，不能反过来记成 Canceled。
+        using (var noneCts = new CancellationTokenSource())
+        {
+            var st = ItemAiCancelStatus.Resolve(noneCts.Token);
+            Check("外层未取消 ⇒ Timeout（不冤枉成用户取消）", st == ItemAiStatus.Timeout, st.ToString());
+        }
+    }
+
+    // ---------------- 7. 窗口接线（离线无法编译主工程，做接线守卫） ----------------
 
     static void WindowWiringTests()
     {
@@ -280,6 +353,10 @@ public static class Program
             !cs.Contains("_itemAiRunning.Remove(view.ScopeKey)", StringComparison.Ordinal));
         Check("可用性判定走合同函数（不因 Unknown 丢用途/影响）",
             cs.Contains("bool usable = ItemAiPrompt.IsUsable(result);", StringComparison.Ordinal));
+        Check("取消/超时判定走 ItemAiCancelStatus，且只看外层（用户）取消源",
+            cs.Contains("ItemAiCancelStatus.Resolve(cts.Token)", StringComparison.Ordinal));
+        Check("不再把 _scanning 混进取消原因",
+            !cs.Contains("cts.IsCancellationRequested && !_scanning", StringComparison.Ordinal));
         Check("清理树的本地结论路径仍在（未误伤清理页）",
             cs.Contains("AiVerdict.Build(items", StringComparison.Ordinal)
             && cs.Contains("case OrganizeNode node:", StringComparison.Ordinal));

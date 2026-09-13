@@ -125,6 +125,31 @@ public sealed class ItemAiService
 }
 
 /// <summary>
+/// 逐项请求被取消后，界面状态该记 <see cref="ItemAiStatus.Canceled"/> 还是
+/// <see cref="ItemAiStatus.Timeout"/>。
+///
+/// 两种取消来自**不同的取消源**，可以精确区分：
+/// <list type="bullet">
+/// <item>**用户取消**：点「取消这一项」或「全部停止」，取消的是窗口持有的外层 cts；</item>
+/// <item>**超时**：<see cref="ItemAiService.Timeout"/> 到点时，取消的是
+///       ItemAiService 里 <c>CreateLinkedTokenSource(ct)</c> 派生出来的 timeoutCts ——
+///       链接只单向传播，**外层 cts 不会被取消**。</item>
+/// </list>
+/// 所以判据就是「外层（用户）取消源是否已取消」，**与当前是否正在扫描无关**：
+/// 扫描走的是另一条取消链（<c>_scanCts</c> / WorkState），它既不会取消在飞的逐项请求，
+/// 也不能说明这一项为什么停。把 _scanning 掺进判据，会把「扫描期间的主动取消」
+/// 误报成超时。
+/// </summary>
+public static class ItemAiCancelStatus
+{
+    /// <summary>外层（用户）取消源已取消 ⇒ Canceled；否则是链接超时源触发 ⇒ Timeout。</summary>
+    public static ItemAiStatus Resolve(CancellationToken userToken)
+        => userToken.IsCancellationRequested
+            ? ItemAiStatus.Canceled
+            : ItemAiStatus.Timeout;
+}
+
+/// <summary>
 /// 在飞请求登记表：按「来源 + 稳定标识」（<see cref="ItemAiView.IsolationKey"/>）登记取消源。
 ///
 /// 存在的理由很具体：清理页的一个文件与整理页的一个文件夹可能**同路径**。

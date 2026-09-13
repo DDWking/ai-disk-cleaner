@@ -2764,10 +2764,9 @@ public partial class MainWindow : Window, IAnalystHost
         catch (OperationCanceledException)
         {
             if (myReq != view.RequestId) return;
-            // 区分「用户取消」与「超时」
-            view.Status = cts.IsCancellationRequested && !_scanning
-                ? ItemAiStatus.Canceled
-                : ItemAiStatus.Timeout;
+            // 区分「用户取消」与「超时」：用户取消与超时用的是两条不同的取消源，
+            // 只看外层 cts —— 不许掺「是否正在扫描」（判据见 ItemAiCancelStatus）
+            view.Status = ItemAiCancelStatus.Resolve(cts.Token);
         }
         catch (Exception ex)
         {
