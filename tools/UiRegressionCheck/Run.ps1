@@ -1,4 +1,4 @@
-# UI / behaviour regression check (ASCII only on purpose).
+﻿# UI / behaviour regression check (ASCII only on purpose).
 #
 # Guards the interface behaviour that was finished on 2026-09-10 so a later
 # refactor cannot quietly roll it back:
