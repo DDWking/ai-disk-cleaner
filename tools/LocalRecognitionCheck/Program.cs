@@ -26,6 +26,7 @@ public static class Program
         StartupSnapshotOnceTests();
         MainScanPathHitTests();
         EvidenceWiringTests();
+        EvidenceRefreshTests();
         IsolationTests();
 
         Console.WriteLine();
@@ -440,6 +441,53 @@ public static class Program
         // 不注入证据时行为与以前一致（不会凭空认产品）
         var plain = FolderPurposeRules.RecognizeLocally(Dir(@"D:\Studio\A"), Sum(Dir(@"D:\Studio\A")));
         Check("不注入证据时不会凭空认产品", !plain.HasConclusion, plain.PurposeName);
+    }
+
+    // ------------------------------------------------------------------ 6b) 证据异步换代（清单后到）
+
+    /// <summary>
+    /// 已安装清单是**扫描之后**才异步到达的：先识别 ⇒ 没有结论；清单注入后重算 ⇒ 认到产品。
+    /// 关键前提：**「没有结论」绝不能进缓存**，否则第二轮会直接命中旧结论，永远补不上安装位置。
+    /// </summary>
+    static void EvidenceRefreshTests()
+    {
+        Section("证据异步换代：先未知、清单后到，重算能认出安装位置（无结论不进缓存）");
+
+        var r = new FakeResolver().Set(SystemPathId.Pictures, @"D:\图片");
+        var sys = SystemPathSnapshot.Capture(r);
+        var svc = new FolderPurposeService(new LocalEvidenceService(InstalledLocationSnapshot.Empty, sys));
+
+        var dir = Dir(@"D:\Studio\A");
+        var id = new FolderId(dir.FullPath, 1);
+        var before = svc.RecognizeAsync(dir, id, 0, @"D:\Studio\A",
+            allowAi: false, provider: null, model: null, sendFullPath: false,
+            configSignature: "cfg", ct: CancellationToken.None).GetAwaiter().GetResult();
+        Check("清单未到时是「没有结论」", !before.HasConclusion, before.PurposeName);
+        Check("无结论不进缓存（否则注入清单后永远修不回来）",
+            svc.CacheCount == 0, svc.CacheCount.ToString());
+
+        // 清单异步到达：换掉证据（系统语义沿用同一份快照）
+        var snapshot = InstalledLocationSnapshot.Build(new[]
+        {
+            new InstalledAppLocation("AppA", @"D:\Studio\A"),
+        });
+        svc.Evidence = new LocalEvidenceService(snapshot, sys);
+
+        var after = svc.RecognizeAsync(dir, id, 0, @"D:\Studio\A",
+            allowAi: false, provider: null, model: null, sendFullPath: false,
+            configSignature: "cfg", ct: CancellationToken.None).GetAwaiter().GetResult();
+        Check("证据换代后重算认到产品名", after.HasConclusion && after.PurposeName == "AppA",
+            after.PurposeName);
+        Check("重算结论来源是本地（不是 AI、不是用户）",
+            after.Source == PurposeSource.Local && !after.NeedsConfirm, after.Source.ToString());
+
+        // 用户纠正仍然压过安装清单：重算不许覆盖
+        svc.SetUserCorrection(id, "我的资料", "文档");
+        var corrected = svc.RecognizeAsync(dir, id, 0, @"D:\Studio\A",
+            allowAi: false, provider: null, model: null, sendFullPath: false,
+            configSignature: "cfg", ct: CancellationToken.None).GetAwaiter().GetResult();
+        Check("重算不会覆盖用户纠正", corrected.Source == PurposeSource.User
+            && corrected.PurposeName == "我的资料", $"{corrected.Source}/{corrected.PurposeName}");
     }
 
     // ------------------------------------------------------------------ 7) 用途 ≠ 可删

@@ -21,8 +21,18 @@ namespace AiDiskCleaner.Services;
 /// </summary>
 public static class BcuUninstallService
 {
+    /// <summary>
+    /// 测试钩子：非 null 时**替代**真实注册表 / Store 枚举（只给离线行为检查用）。
+    /// 生产路径永远是 null，行为与以前完全一致。
+    /// </summary>
+    public static Func<IProgress<ScanProgress>?, CancellationToken, List<AppUninstallItem>>?
+        ListAppsOverrideForTest { get; set; }
+
     public static List<AppUninstallItem> ListApps(IProgress<ScanProgress>? progress, CancellationToken ct)
     {
+        // 测试替身：让离线检查能在不碰真实注册表的前提下驱动「清单到达」这条路径
+        if (ListAppsOverrideForTest is { } hook) return hook(progress, ct);
+
         PremadeDialogs.SendErrorAction ??= ex => Trace.WriteLine("BCU: " + ex);
         UninstallToolsGlobalConfig.ScanRegistry = true;
         UninstallToolsGlobalConfig.ScanStoreApps = true;

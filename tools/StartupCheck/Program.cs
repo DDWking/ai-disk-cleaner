@@ -138,7 +138,10 @@ public static class Program
         Console.WriteLine("== 8. 整理页交互行为：首击展开 / 上限反馈 / 一级优先 / 筛选只读 / 代次生命周期 ==");
         if (win != null) OrganizeInteractionTests(win);
 
-        Console.WriteLine("== 9. 新方向：默认清理页 / 零后台请求 / 无批量入口 / 单项 AI ==");
+        Console.WriteLine("== 9. 已安装清单静默刷新：不进卸载页也认得出安装位置 ==");
+        if (win != null) SilentInventoryTests(win);
+
+        Console.WriteLine("== 10. 新方向：默认清理页 / 零后台请求 / 无批量入口 / 单项 AI ==");
         if (win != null) ProductDirectionTests(win);
 
         Console.WriteLine();
@@ -646,6 +649,210 @@ public static class Program
             if (pi > index[n]) return true;                     // 父项排在子项之后 => 顺序错乱
         }
         return false;
+    }
+
+    /// <summary>
+    /// 已安装清单的**静默刷新**行为（驱动真 MainWindow 的私有路径）：
+    /// 不进卸载页也能拿到安装位置证据、证据到位后补认没有结论的整理对象，
+    /// 而且全程不动卸载页 UI、不动当前页、不重建树、不发 AI。
+    /// 清单用 <see cref="BcuUninstallService.ListAppsOverrideForTest"/> 喂假数据，不碰真实注册表。
+    /// </summary>
+    static void SilentInventoryTests(MainWindow win)
+    {
+        var svc = Fld<FolderPurposeService>(win, "_folderPurpose");
+
+        // 干净起点：没有清单、没进过卸载页、当前不在卸载页
+        ResetOrganizeCollections(win);
+        SetFld(win, "_apps", new List<AppUninstallItem>());
+        SetFld(win, "_uninstallTabVisited", false);
+        SetFld(win, "_listingApps", false);
+        SetFld(win, "_silentInventoryBusy", false);
+        SetFld(win, "_silentInventory", null);
+        SetFld(win, "_silentInventoryGeneration", -1);
+        int scanGeneration = Fld<int>(win, "_scanGeneration");
+
+        string silentRoot = @"X:\Probe\SilentApp";
+        var silentDir = MakeDir("SilentApp", silentRoot, 1024, null, 1);
+        MakeDir("sub", silentRoot + @"\sub", 10, silentDir);
+        var silentNode = new OrganizeNode(silentDir, new FolderId(silentDir.FullPath, scanGeneration), 0, "SilentApp");
+        silentNode.SetLevel(1);
+        silentNode.SetChildDirCount(1);
+        Fld<List<OrganizeNode>>(win, "_organizeAll").Add(silentNode);
+        Fld<List<OrganizeNode>>(win, "_organizeRoots").Add(silentNode);
+
+        // 清单没到之前：本地认不出这个安装位置
+        Call(win, "LocalRecognize", silentNode);
+        Check("清单未到时安装位置保持未知", !silentNode.HasConclusion, silentNode.PurposeName);
+
+        // 用测试钩子喂一份「刚清点出来的清单」
+        BcuUninstallService.ListAppsOverrideForTest = (_, _) => new List<AppUninstallItem>
+        {
+            new() { AppId = "t-silent", Name = "ProbeApp", InstallLocation = silentRoot },
+        };
+
+        // 卸载页 UI 基线：静默路径一次都不许动它们
+        var progressPanel = NamedField(win, "UninstallProgressPanel") as FrameworkElement;
+        var refreshBtn = NamedField(win, "UninstallRefreshBtn") as Button;
+        var runBtn = NamedField(win, "UninstallRunBtn") as Button;
+        bool panelBefore = progressPanel?.Visibility == Visibility.Visible;
+        bool refreshBefore = refreshBtn?.IsEnabled ?? false;
+        bool runBefore = runBtn?.IsEnabled ?? false;
+        string tabBefore = Fld<object>(win, "_rightTab").ToString() ?? "";
+
+        // 走静默清点路径（**不调 ShowRightTab(Uninstall)**）
+        Call(win, "MaybeLoadAppsInBackground");
+        PumpDispatcher(() => NamedField(win, "_silentInventory") != null, 5000);
+
+        Check("不打开卸载页也能拿到已安装清单（静默清点真的跑了）",
+            NamedField(win, "_silentInventory") is List<AppUninstallItem> { Count: 1 });
+        Check("静默清点后安装位置被本地认出（产品名 + 来源本地）",
+            silentNode.HasConclusion && silentNode.PurposeName == "ProbeApp"
+            && silentNode.Source == PurposeSource.Local,
+            $"{silentNode.PurposeName}/{silentNode.Source}");
+        Check("静默清点不切页（没有 ShowRightTab）",
+            (Fld<object>(win, "_rightTab").ToString() ?? "") == tabBefore, tabBefore);
+        Check("静默清点不动卸载页进度条",
+            (progressPanel?.Visibility == Visibility.Visible) == panelBefore,
+            $"before={panelBefore} now={progressPanel?.Visibility}");
+        Check("静默清点不禁用卸载页按钮",
+            (refreshBtn?.IsEnabled ?? false) == refreshBefore
+            && (runBtn?.IsEnabled ?? false) == runBefore,
+            $"refresh={refreshBtn?.IsEnabled} run={runBtn?.IsEnabled}");
+
+        // ---------- 先未知 → 注入真安装路径 → 重算 ⇒ 变成产品名、来源本地 ----------
+        string lateRoot = @"X:\Probe\LateApp";
+        var lateDir = MakeDir("LateApp", lateRoot, 2048, null, 1);
+        MakeDir("bin", lateRoot + @"\bin", 20, lateDir);
+        var lateNode = new OrganizeNode(lateDir, new FolderId(lateDir.FullPath, scanGeneration), 0, "LateApp");
+        lateNode.SetLevel(1);
+        lateNode.SetChildDirCount(1);
+        Fld<List<OrganizeNode>>(win, "_organizeAll").Add(lateNode);
+        Fld<List<OrganizeNode>>(win, "_organizeRoots").Add(lateNode);
+        Call(win, "LocalRecognize", lateNode);
+        Check("注入之前该节点是未知", !lateNode.HasConclusion, lateNode.PurposeName);
+
+        Call(win, "InjectInstalledEvidence", new List<AppUninstallItem>
+        {
+            new() { AppId = "t-late", Name = "LateProduct", InstallLocation = lateRoot },
+        });
+        string tabBeforeFirstRecompute = Fld<object>(win, "_rightTab").ToString() ?? "";
+        Call(win, "ApplyInstalledEvidenceToOrganize");
+        Check("注入安装清单后重算：未知节点变成产品名且来源本地",
+            lateNode.HasConclusion && lateNode.PurposeName == "LateProduct"
+            && lateNode.Source == PurposeSource.Local,
+            $"{lateNode.PurposeName}/{lateNode.Source}");
+        Check("重算不改当前页（_rightTab 不动）",
+            (Fld<object>(win, "_rightTab").ToString() ?? "") == tabBeforeFirstRecompute,
+            $"{tabBeforeFirstRecompute} -> {Fld<object>(win, "_rightTab")}");
+
+        // ---------- 用户纠正过的节点不被安装清单覆盖 ----------
+        string correctedRoot = @"X:\Probe\Corrected";
+        var correctedDir = MakeDir("Corrected", correctedRoot, 4096, null);
+        var correctedNode = new OrganizeNode(
+            correctedDir, new FolderId(correctedDir.FullPath, scanGeneration), 0, "Corrected");
+        correctedNode.SetLevel(1);
+        Fld<List<OrganizeNode>>(win, "_organizeAll").Add(correctedNode);
+        Fld<List<OrganizeNode>>(win, "_organizeRoots").Add(correctedNode);
+        Call(win, "LocalRecognize", correctedNode);
+        svc.SetUserCorrection(correctedNode.Id, "我的资料", "文档");
+        correctedNode.Apply(svc.TryGetUserCorrection(correctedNode.Id)!);
+
+        // 同一份清单里再放一个**仍然未知**的安装位置：这一轮重算必须真的动到东西，
+        // 否则「不重建树 / 不改展开」这几条断言会退化成「什么都没做」。
+        string witnessRoot = @"X:\Probe\Witness";
+        var witnessDir = MakeDir("Witness", witnessRoot, 512, null, 1);
+        MakeDir("data", witnessRoot + @"\data", 8, witnessDir);
+        var witnessNode = new OrganizeNode(
+            witnessDir, new FolderId(witnessDir.FullPath, scanGeneration), 0, "Witness");
+        witnessNode.SetLevel(1);
+        witnessNode.SetChildDirCount(1);
+        Fld<List<OrganizeNode>>(win, "_organizeAll").Add(witnessNode);
+        Fld<List<OrganizeNode>>(win, "_organizeRoots").Add(witnessNode);
+        Call(win, "LocalRecognize", witnessNode);
+        Check("见证节点在注入前是未知", !witnessNode.HasConclusion, witnessNode.PurposeName);
+
+        Call(win, "InjectInstalledEvidence", new List<AppUninstallItem>
+        {
+            new() { AppId = "t-corrected", Name = "ShouldNotWin", InstallLocation = correctedRoot },
+            new() { AppId = "t-witness", Name = "WitnessProduct", InstallLocation = witnessRoot },
+        });
+
+        // ---------- 重算的边界：不改当前页 / 不重建树 / 不改展开状态 / 不发 AI ----------
+        Call(win, "ToggleOrganize", silentNode);       // 让它处于展开且已材料化
+        bool expandedBefore = silentNode.IsExpanded;
+        bool loadedBefore = silentNode.ChildrenLoaded;
+        int objectCountBefore = Fld<List<OrganizeNode>>(win, "_organizeAll").Count;
+        var refsBefore = Fld<List<OrganizeNode>>(win, "_organizeAll").ToList();
+        string tabBeforeRecompute = Fld<object>(win, "_rightTab").ToString() ?? "";
+        AiGateway.ResetSentCountForTest();
+
+        Call(win, "ApplyInstalledEvidenceToOrganize");
+
+        Check("重算确实动了：见证节点被补认成产品名、来源本地",
+            witnessNode.HasConclusion && witnessNode.PurposeName == "WitnessProduct"
+            && witnessNode.Source == PurposeSource.Local,
+            $"{witnessNode.PurposeName}/{witnessNode.Source}");
+        Check("已有用户纠正的节点不被安装清单覆盖",
+            correctedNode.PurposeName == "我的资料" && correctedNode.Source == PurposeSource.User,
+            $"{correctedNode.PurposeName}/{correctedNode.Source}");
+        Check("重算不重建整棵树（对象集合与对象实例都不变）",
+            Fld<List<OrganizeNode>>(win, "_organizeAll").Count == objectCountBefore
+            && Fld<List<OrganizeNode>>(win, "_organizeAll").All(n => refsBefore.Contains(n)),
+            Fld<List<OrganizeNode>>(win, "_organizeAll").Count.ToString());
+        Check("重算不改展开状态 / 材料化状态",
+            silentNode.IsExpanded == expandedBefore && silentNode.ChildrenLoaded == loadedBefore,
+            $"expanded={silentNode.IsExpanded} loaded={silentNode.ChildrenLoaded}");
+        Check("重算不改当前页（_rightTab 不动）",
+            (Fld<object>(win, "_rightTab").ToString() ?? "") == tabBeforeRecompute,
+            $"{tabBeforeRecompute} -> {Fld<object>(win, "_rightTab")}");
+        Check("重算不发任何模型请求（真实出站计数为 0）",
+            AiGateway.SentCount == 0, "SentCount=" + AiGateway.SentCount);
+
+        // ---------- 代次守卫：旧清点的结果不许覆盖新扫描 ----------
+        string staleRoot = @"X:\Probe\StaleApp";
+        var staleDir = MakeDir("StaleApp", staleRoot, 256, null, 1);
+        MakeDir("x", staleRoot + @"\x", 4, staleDir);
+        var staleNode = new OrganizeNode(
+            staleDir, new FolderId(staleDir.FullPath, scanGeneration), 0, "StaleApp");
+        staleNode.SetLevel(1);
+        staleNode.SetChildDirCount(1);
+        Fld<List<OrganizeNode>>(win, "_organizeAll").Add(staleNode);
+        Fld<List<OrganizeNode>>(win, "_organizeRoots").Add(staleNode);
+        Call(win, "LocalRecognize", staleNode);
+        Check("旧扫描的节点在代次守卫前是未知", !staleNode.HasConclusion, staleNode.PurposeName);
+
+        var staleList = new List<AppUninstallItem>
+        {
+            new() { AppId = "t-stale", Name = "StaleProduct", InstallLocation = staleRoot },
+        };
+        var adoptedStale = Call(win, "AdoptInstalledInventory", staleList, scanGeneration - 1);
+        Check("旧代次的清点被丢弃（不采纳）", adoptedStale is false, adoptedStale?.ToString() ?? "null");
+        Check("旧代次清点不覆盖新扫描（节点仍是未知）",
+            !staleNode.HasConclusion, staleNode.PurposeName);
+
+        // 清理测试替身与静默清点残留，避免影响后面的用例
+        BcuUninstallService.ListAppsOverrideForTest = null;
+        SetFld(win, "_silentInventory", null);
+        SetFld(win, "_silentInventoryGeneration", -1);
+        SetFld(win, "_silentInventoryBusy", false);
+        SetFld(win, "_listingApps", false);
+        SetFld(win, "_apps", new List<AppUninstallItem>());
+        SetFld(win, "_uninstallTabVisited", false);
+        ResetOrganizeCollections(win);
+    }
+
+    /// <summary>
+    /// 测试宿主没有消息循环：把排队的 dispatcher 续体跑掉（有界等待，不锁死）。
+    /// 静默清点是 `await Task.Run(...)`，它的续体要靠这里才会执行。
+    /// </summary>
+    static void PumpDispatcher(Func<bool> done, int timeoutMs)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (!done() && sw.ElapsedMilliseconds < timeoutMs)
+        {
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                () => { }, System.Windows.Threading.DispatcherPriority.Background);
+        }
     }
 
     /// <summary>
