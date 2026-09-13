@@ -7,16 +7,15 @@ Windows 下的磁盘占用分析工具。直接读 NTFS 的 `$MFT`，秒级扫�
 ## 功能
 
 - MFT 秒扫：按 `$MFT` data run 读完整主文件表，不靠递归 `Directory.GetFiles`
-- 左边目录树：按占用排序，显示占比和大小
-- 右边当前目录：文件夹 + 文件，默认按大小降序
+- 侧栏目录树 + 当前目录：按占用排序，显示占比和大小；文件名搜索
+- 清理中心（默认首页）：扫描后按用途分层归类（清理候选 → 位置 → 文件详情）；默认一项都不勾，清理前有独立检查页，删除进回收站
+- 文件夹整理（辅助入口）：本地识别文件夹用途；可对单个文件夹按需发起 AI 分析（不自动、不批量）
 - 顶部显示卷容量：总共 / 已用 / 可用
-- 文件名搜索（当前目录）
-- 左下角文件分析师：扫完发大根目录 + 大文件；可下钻、搜清理项、勾选安全项（临时/转储/回收站，以及非系统大文件）。删除仍要你点按钮
 - 卸载页：列出已装软件（注册表 + 商店应用 + Steam 游戏 + Windows 功能），勾选后走官方卸载程序；卸完可扫残留，勾选后才删。引擎来自 [Bulk Crap Uninstaller](https://github.com/Klocman/Bulk-Crap-Uninstaller)（Apache 2.0）
 
 ## 下载
 
-[Release v1.1.0](https://github.com/DDWking/ai-disk-cleaner/releases/tag/v1.1.0) 里有 Windows x64 压缩包。解压后右键 `AiDiskCleaner.exe` → 以管理员身份运行。需要已安装 [.NET 8 桌面运行时](https://dotnet.microsoft.com/download/dotnet/8.0)。
+[Release v2.9.0](https://github.com/DDWking/ai-disk-cleaner/releases/tag/v2.9.0) 里有 Windows x64 压缩包。解压后右键 `AiDiskCleaner.exe` → 以管理员身份运行。需要已安装 [.NET 8 桌面运行时](https://dotnet.microsoft.com/download/dotnet/8.0)。
 
 ## 运行
 
@@ -26,7 +25,7 @@ Windows 下的磁盘占用分析工具。直接读 NTFS 的 `$MFT`，秒级扫�
 cd src\AiDiskCleaner
 dotnet build
 # 以管理员身份运行
-.\bin\Debug\net8.0-windows\AiDiskCleaner.exe
+.\bin\Debug\net8.0-windows10.0.18362.0\AiDiskCleaner.exe
 ```
 
 首次启动会弹出 UAC。拒绝的话扫不了 MFT，会回退到很慢的递归扫描。

@@ -666,6 +666,33 @@ public static class Program
         Check("扫描开始不会强制切页（RunScanAsync 里没有 ShowRightTab）",
             runScan.Length > 0 && !runScan.Contains("ShowRightTab(", StringComparison.Ordinal));
 
+        // 行为验证：真正跑一遍「扫描完成后的整理重建」。这是
+        // RunScan → FinishScanAsync → RunCleanPipelineAsync → RebuildOrganize 的最后一跳，
+        // 用真实私有路径驱动，不靠搜字符串。用户在扫描前自己切到整理页，
+        // 重建完成后必须还在整理页 —— 不许被拽回清理页。
+        ResetOrganizeCollections(win);
+        var pageRoot = MakeDir("KeepPageRoot", @"X:\KeepPageRoot", 4096, null, 1);
+        MakeDir("kp1", @"X:\KeepPageRoot\kp1", 2048, pageRoot);
+        var savedRoot = NamedField(win, "_root");
+        var tabType = typeof(MainWindow).GetNestedType("RightTab", BindingFlags.NonPublic)!;
+        try
+        {
+            SetFld(win, "_root", pageRoot);
+            Call(win, "ShowRightTab", Enum.Parse(tabType, "Organize"));
+            Check("扫描前用户停在整理页（准备状态）",
+                Fld<object>(win, "_rightTab").ToString() == "Organize",
+                Fld<object>(win, "_rightTab").ToString() ?? "");
+            Call(win, "RebuildOrganize");
+            Check("扫描重建后仍在整理页（不被拽回清理页）",
+                Fld<object>(win, "_rightTab").ToString() == "Organize",
+                Fld<object>(win, "_rightTab").ToString() ?? "");
+        }
+        finally
+        {
+            SetFld(win, "_root", savedRoot);
+            Call(win, "ShowRightTab", Enum.Parse(tabType, "Clean"));
+        }
+
         // ---------- 9.2 导航顺序：清理在前 ----------
         var xaml = ReadSource("src/AiDiskCleaner/MainWindow.xaml");
         int iClean = xaml.IndexOf("TabCleanBtn", StringComparison.Ordinal);
@@ -753,6 +780,36 @@ public static class Program
         Check("整理页对象有自己的 AI 展示态（结果缓存就在这里，不会串到别项）",
             !ReferenceEquals(node2.Ai, node.Ai) && node2.Ai.ScopeKey == @"X:\One",
             node2.Ai.ScopeKey + " vs " + node.Ai.ScopeKey);
+
+        // ---------- 9.6 本地证据**确实接线**（不是字符串存在） ----------
+        // 启动时构造 MainWindow 就注入 LocalEvidenceService：系统 KnownFolder 快照 +
+        // 已安装位置快照。这里走真实字段/真实识别路径验证，不搜源文件字符串。
+        var purpose = Fld<FolderPurposeService>(win, "_folderPurpose");
+        Check("FolderPurposeService 拿到本地证据（构造时注入，不是 null）",
+            purpose.Evidence != null);
+        Check("注入的是 LocalEvidenceService（真系统快照 + 安装位置服务，非占位类型）",
+            purpose.Evidence is LocalEvidenceService,
+            purpose.Evidence?.GetType().Name ?? "null");
+        if (purpose.Evidence is LocalEvidenceService ev)
+        {
+            Check("启动即建立系统语义快照（重定向下载/桌面/图片等至少有一项）",
+                ev.SystemRoles().Count > 0, ev.SystemRoles().Count.ToString());
+        }
+
+        // 安装清单叠加：走真实 InjectInstalledEvidence → _folderPurpose.Evidence → LocalRecognize，
+        // 用「安装位置被本地认出」证明证据链路真的通了，而不是只存在一个类名。
+        var appRoot = MakeDir("DemoApp", @"D:\DemoApp", 500_000, null, 0);
+        var appList = new List<AppUninstallItem>
+        {
+            new AppUninstallItem { Name = "DemoApp", InstallLocation = @"D:\DemoApp" },
+        };
+        Call(win, "InjectInstalledEvidence", appList);
+        var appNode = new OrganizeNode(appRoot, new FolderId(appRoot.FullPath, 1), 0, "DemoApp");
+        Call(win, "LocalRecognize", appNode);
+        Check("注入安装清单后：该安装位置被本地认出（真实证据链路，非字符串）",
+            appNode.HasConclusion && appNode.PurposeName == "DemoApp"
+            && appNode.Source == PurposeSource.Local,
+            $"has={appNode.HasConclusion} name={appNode.PurposeName} source={appNode.Source}");
     }
 
     /// <summary>读仓库里的源文件（从 bin 往上找到仓库根）：用于断言"某个入口不存在"。</summary>
