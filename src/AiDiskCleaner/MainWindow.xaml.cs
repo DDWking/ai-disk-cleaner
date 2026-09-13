@@ -230,6 +230,13 @@ public partial class MainWindow : Window, IAnalystHost
     private int _silentInventoryGeneration = -1;
     /// <summary>静默清点拿到的清单：用户之后打开卸载页可以直接复用，同一代扫描不跑第二遍 ListApps。</summary>
     private List<AppUninstallItem>? _silentInventory;
+    /// <summary>
+    /// 静默清点**自己的** CTS。绝不能和 <see cref="_uninstallCts"/> 共用一个槽：
+    /// <see cref="LoadApps"/> 一开头就 <see cref="StartOperation"/> 取消旧槽，
+    /// 用户进卸载页会把正在跑的长任务静默清点立刻掐掉，破坏「卸载页复用静默清单」。
+    /// 停止按钮另有 <see cref="StopEverything"/> 显式取消它。
+    /// </summary>
+    private CancellationTokenSource? _silentInventoryCts;
     private BulkUninstallTask? _uninstallTask;
     private bool _aiAppsBusy;
     private CancellationTokenSource? _aiAppsStop;
@@ -703,6 +710,8 @@ public partial class MainWindow : Window, IAnalystHost
         CancelQuietly(_dupCts);
         CancelQuietly(_snapshotCts);
         CancelQuietly(_uninstallCts);
+        // 静默清点是长跑任务，停止按钮必须能取消它（它有自己的 CTS，见 _silentInventoryCts）
+        CancelQuietly(_silentInventoryCts);
         CancelQuietly(_aiStop);
         CancelQuietly(_aiAppsStop);
         CancelQuietly(_aiConfigCts);
@@ -1158,7 +1167,7 @@ public partial class MainWindow : Window, IAnalystHost
     /// 不禁用卸载按钮、不改当前页 —— 用户没进卸载页就不该看到任何跳动。
     ///
     /// 代次守卫：清点在旧扫描上发起时，结果不许盖到新扫描（新扫描会自己再清一次）。
-    /// 失败只记日志，绝不打断清理 / 整理界面。
+    /// 失败只记日志，绝不打断清理 / 整理界面；**用户取消不是故障**，同样不记失败。
     /// </summary>
     private async Task LoadInstalledEvidenceSilentlyAsync()
     {
@@ -1166,12 +1175,21 @@ public partial class MainWindow : Window, IAnalystHost
         _silentInventoryBusy = true;
         int myScanGeneration = _scanGeneration;
         bool adopted = false;
+        // 静默清点是长跑任务，要有**自己的**可取消 token（独立于卸载页的 _uninstallCts）：
+        // 用户在卸载页重扫不会掐掉它，用户点「停止」能取消它。
+        using var op = StartOperation(ref _silentInventoryCts, "Evidence");
+        var ct = op.Token;
         try
         {
             // progress 传 null：静默路径一次都不写卸载页控件
-            var list = await Task.Run(() => BcuUninstallService.ListApps(null, CancellationToken.None))
+            var list = await Task.Run(() => BcuUninstallService.ListApps(null, ct), ct)
                 .ConfigureAwait(true);
             adopted = AdoptInstalledInventory(list, myScanGeneration);
+        }
+        catch (OperationCanceledException)
+        {
+            // 用户按了停止（或换了一代清点）：不是故障，不记 AppLog 失败、不弹提示。
+            op.Canceled("silent app inventory canceled");
         }
         catch (Exception ex)
         {
