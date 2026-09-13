@@ -85,6 +85,19 @@
 - 还差什么 / 下次谁接
 ```
 
+### 2026-09-13  打包 v2.9.2（integrate/release-head）
+- 交互确认后合入：用户点过单项 AI 且有用途结论时，整理页不再显示「未识别」、清理中心不再显示「用途待确认」；结果卡高度收紧，「重新分析」放到操作行。不自动/批量 AI，不改 Risk / CanDelete / Selected。
+- 版本 **2.9.2**；self-contained win-x64。
+- `dist/DashaoHuo-2.9.2-20260913-win-x64/`（546 文件，含 sidecar 与 SteamHelper / StoreAppHelper），
+  `AiDiskCleaner.exe` **2.9.2.0**；另有 `.zip` 与 `.zip.sha256`。
+- 包内 `AiDiskCleaner.dll` 与本次验收构建哈希一致：
+  `88578370F13BA8F7EC3D71A415DCBE77F2097923E4640928BD0A027983AC0A62`
+- zip SHA256：
+  `6C5EE6FDE5DF48BDB55BEE72FF1198D4A3865AD0FEDEC30A162E3680FBCAADA2`
+- 验收：SafetyCheck 996/0；ItemAiIsolationCheck 49/0；LocalRecognitionCheck 57/0；
+  MftDosFallbackCheck 27/0；StartupCheck 128/0；CleanupPresentationCheck 36/0；
+  UiRegressionCheck 0 FAIL（含 published exe 2.9.2.0）。
+
 ### 2026-09-13  打包 v2.9.1（integrate/release-head）
 - 版本 **2.9.1**；self-contained win-x64。本轮修复（静默安装清单 / MFT DOS 回退 / 单项 AI 取消归属）不当成 2.9.0。
 - `dist/DashaoHuo-2.9.1-20260913-win-x64/`（546 文件，含 sidecar 与 SteamHelper / StoreAppHelper），

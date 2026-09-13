@@ -741,7 +741,7 @@ if (Test-Path -LiteralPath $distDir) {
         $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
         Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
         $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
-        Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.9.1*')
+        Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.9.2*')
     }
     else {
         Assert-True 'publish package exists (dist/ present but no DashaoHuo-*-win-x64 package)' $false
