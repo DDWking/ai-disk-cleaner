@@ -85,6 +85,15 @@
 - 还差什么 / 下次谁接
 ```
 
+### 2026-09-13  打包 v2.9.1（integrate/release-head）
+- 版本 **2.9.1**；self-contained win-x64。本轮修复（静默安装清单 / MFT DOS 回退 / 单项 AI 取消归属）不当成 2.9.0。
+- `dist/DashaoHuo-2.9.1-20260913-win-x64/`（546 文件，含 sidecar 与 SteamHelper / StoreAppHelper），
+  `AiDiskCleaner.exe` **2.9.1.0**；另有 `.zip` 与 `.zip.sha256`。
+- 包内 `AiDiskCleaner.dll` 与本次验收构建哈希一致：
+  `53BA8847AF6F494A5E23708D646CA689869F002C71DBB5C8CADB5A0A1EEE6637`
+- zip SHA256：
+  `73FB96D6FBF3C576070A02463544BB501A54B106888BAECA159884A03A94A862`
+
 ### 2026-09-13  发布准备审查（独立分支 release-prep-review，未推送）
 > 独立发布准备审查：只动发布 / 文档 / 检查脚本，不改核心生产逻辑。
 
