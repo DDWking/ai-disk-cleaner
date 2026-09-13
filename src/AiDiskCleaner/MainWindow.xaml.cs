@@ -669,7 +669,8 @@ public partial class MainWindow : Window, IAnalystHost
     private void ApplyStatusToPage()
     {
         if (HeaderStats == null) return;
-        HeaderStats.Text = _rightTab == RightTab.Clean ? _workStatus : "";
+        // 文件夹整理页也有自己的进度与取消，顶栏同样要能看到状态
+        HeaderStats.Text = _rightTab is RightTab.Clean or RightTab.Organize ? _workStatus : "";
         HeaderStats.Visibility = HeaderStats.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -684,6 +685,8 @@ public partial class MainWindow : Window, IAnalystHost
         CancelQuietly(_aiStop);
         CancelQuietly(_aiAppsStop);
         CancelQuietly(_aiConfigCts);
+        // 文件夹整理页的识别也要能被「停止」一起停掉（否则顶栏显示已停、识别还在后台发请求）
+        CancelOrganizeWork(clearState: false);
         // 标记「正在取消」：按钮立刻变成不可再点，并给出反馈，不等任务真正退出。
         _work.RequestCancel();
         UpdateStopButton();

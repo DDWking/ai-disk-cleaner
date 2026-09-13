@@ -12,22 +12,24 @@ namespace AiDiskCleaner;
 ///
 /// 这一页是**实际工作区**，不是说明页：
 /// <list type="bullet">
-/// <item>扫描后直接把本地整理出来的文件夹对象列出来（名称 / 用途 / 容量 / 必要操作）；</item>
-/// <item>本地能判断的**自动**认出，不需要逐个点按钮；</item>
-/// <item>看不出来的才需要显式点「识别这些文件夹」，并有范围、数量、预算、进度与取消；</item>
-/// <item>默认铺两层，收纳目录继续直接子目录，具体对象停止内部逐项分类；</item>
-/// <item>平台游戏库这类容器**保留往里找游戏的入口**。</item>
+/// <item>扫描一结束就直接列出本地整理出来的文件夹对象（名称 / 用途 / 容量 / 真实路径）；</item>
+/// <item>**自动识别一、二级**：本地能判断的当场认出，本地说不清的扫描后在后台批量补 AI，
+/// 用户不需要逐个点按钮；</item>
+/// <item>**三级及更深一律不自动调用 AI** —— 进入到具体文件夹后，才用「识别当前文件夹」
+/// 显式分析**当前这一层**的直接子目录（有范围说明、请求数量、取消、超时、重试）；</item>
+/// <item>平台游戏库这类容器保留往里找游戏的入口，但同样只铺到二级。</item>
 /// </list>
 ///
 /// 安全边界：这里**没有**任何删除/选择代码。识别不改 Risk / CanDelete / Selected，
 /// 不自动选择、不移动、不归档真实文件；「在资源管理器中打开」只打开目录，不执行任何程序。
+/// 送给模型的内容有硬上限并强制脱敏（见 <see cref="SourceSnippetReader"/>）。
 /// </summary>
 public partial class MainWindow
 {
     /// <summary>列表数据源（扁平：展开时把子对象插到父对象后面）。</summary>
     private readonly ObservableCollection<OrganizeNode> _organizeRows = new();
 
-    /// <summary>所有已经材料化出来的对象（批量识别的范围就是它）。</summary>
+    /// <summary>所有已经材料化出来的对象（自动识别的范围就是它）。</summary>
     private readonly List<OrganizeNode> _organizeAll = new();
 
     /// <summary>按真实目录索引，保证同一个目录只有一个对象（不重复建节点）。</summary>
@@ -42,7 +44,7 @@ public partial class MainWindow
     /// <summary>「待确认」筛选：只看还没认出来的（避免满屏重复的「未识别」）。</summary>
     private bool _organizePendingOnly;
 
-    /// <summary>正在批量识别（同一时刻只允许一个，避免重复请求）。</summary>
+    /// <summary>正在识别（自动批量或当前文件夹，同一时刻只允许一个，避免重复请求）。</summary>
     private bool _organizeBusy;
 
     private CancellationTokenSource? _organizeStop;
@@ -58,6 +60,12 @@ public partial class MainWindow
 
     /// <summary>右键目标。</summary>
     private OrganizeNode? _organizeMenuNode;
+
+    /// <summary>「当前文件夹」：三级手动识别的目标（展开/点选都会更新它）。</summary>
+    private OrganizeNode? _organizeCurrent;
+
+    /// <summary>自动识别是否已经跑过一次（同一次扫描不重复自动跑）。</summary>
+    private bool _organizeAutoStarted;
 
     private enum OrganizeStateKind { None, NoScan, Scanning, Empty, NoModel, Failed, AllDone }
 
@@ -76,18 +84,29 @@ public partial class MainWindow
         ColOrgSize.Header = Loc.OrganizeColSize;
         ColOrgAction.Header = Loc.OrganizeColAction;
         OrganizeTitle.Text = Loc.TabOrganize;
-        OrganizeIdentifyAllBtn.Content = Loc.OrganizeIdentifyAll;
+        OrganizeIdentifyAllBtn.Content = Loc.OrganizeRetryPending;
+        OrganizeIdentifyAllBtn.ToolTip = Loc.OrganizeRetryPendingTip;
+        System.Windows.Automation.AutomationProperties.SetName(
+            OrganizeIdentifyAllBtn, Loc.OrganizeRetryPendingTip);
         OrganizeStopBtn.Content = Loc.OrganizeStop;
         OrganizeFilterPendingBtn.ToolTip = Loc.OrganizeFilterPendingTip;
         System.Windows.Automation.AutomationProperties.SetName(
             OrganizeFilterPendingBtn, Loc.OrganizeFilterPendingTip);
+        if (OrganizeIdentifyCurrentBtn != null)
+        {
+            OrganizeIdentifyCurrentBtn.Content = Loc.OrganizeIdentifyCurrent;
+            OrganizeIdentifyCurrentBtn.ToolTip = Loc.OrganizeIdentifyCurrentTip;
+            System.Windows.Automation.AutomationProperties.SetName(
+                OrganizeIdentifyCurrentBtn, Loc.OrganizeIdentifyCurrentTip);
+        }
         OrgCtxOpen.Header = Loc.OrganizeOpen;
         OrgCtxCopy.Header = Loc.OrganizeCopyPath;
-        OrgCtxIdentify.Header = Loc.PurposeIdentify;
         OrgCtxCorrect.Header = Loc.PurposeCorrect;
         OrgCtxExpand.Header = Loc.OrganizeExpand;
+        OrgCtxIdentifyCurrent.Header = Loc.OrganizeIdentifyCurrent;
         ApplyOrganizeColumnPriority(OrganizeContentWidth());
         UpdateOrganizeHeader();
+        UpdateOrganizeWorkBar();
     }
 
     /// <summary>主内容区可用宽度（窄窗口下按列让位，不让文字被裁成残缺）。</summary>
@@ -105,7 +124,7 @@ public partial class MainWindow
     {
         if (OrganizeGrid == null || ColOrgAction == null || ColOrgSize == null) return;
         bool tight = width > 0 && width < 780;
-        ColOrgAction.Width = new DataGridLength(tight ? 132 : 196);
+        ColOrgAction.Width = new DataGridLength(tight ? 104 : 132);
         ColOrgSize.Visibility = width > 0 && width < 620 ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -114,6 +133,7 @@ public partial class MainWindow
     /// <summary>
     /// 用当前扫描结果重建整理对象。**只读扫描树**，不碰磁盘、不调模型。
     /// 每次重建都推进代次，旧识别结果不会再回写到新列表。
+    /// 建完就启动**一、二级的自动识别**（本地立即完成，AI 在后台批量补）。
     /// </summary>
     private void RebuildOrganize()
     {
@@ -128,12 +148,16 @@ public partial class MainWindow
         _organizeRoots.Clear();
         _organizeNote = "";
         _organizePendingOnly = false;
+        _organizeCurrent = null;
+        _organizeAutoStarted = false;
+        _organizeUnlistedTotal = 0;
         UpdateOrganizeFilterLabel();
 
         if (_root == null)
         {
             ShowOrganizeState(OrganizeStateKind.NoScan);
             UpdateOrganizeHeader();
+            UpdateOrganizeWorkBar();
             return;
         }
 
@@ -141,42 +165,51 @@ public partial class MainWindow
         {
             var rs = FolderOrganize.BuildRoots(_root);
             _organizeEntryPoints = rs.EntryPoints;
-            foreach (var d in rs.Roots) _organizeRoots.Add(CreateOrganizeNode(d, 0));
+            foreach (var d in rs.Roots) _organizeRoots.Add(CreateOrganizeNode(d, 0, FolderOrganize.ForRoot(d)));
 
             if (_organizeRoots.Count == 0)
             {
                 ShowOrganizeState(OrganizeStateKind.Empty);
                 UpdateOrganizeHeader();
+                UpdateOrganizeWorkBar();
                 return;
             }
 
-            // 默认两层 + 系统入口路径例外：本地能判断的这里就认出来了，无需逐个点
+            // 一、二级自动铺开（材料化时才建对象，所以层级在最外层算一次、逐层传下去）
             foreach (var n in _organizeRoots) AutoMaterialize(n);
 
             if (rs.Skipped > 0) _organizeNote = Loc.OrganizeSkippedNoAccess(rs.Skipped);
             ShowOrganizeState(OrganizeStateKind.None);
             RefreshOrganizeRows();
             AppLog.Info("Organize", $"op=build roots={_organizeRoots.Count} objects={_organizeAll.Count} "
-                + $"rows={_organizeRows.Count} entries={_organizeEntryPoints.Count} skipped={rs.Skipped}");
+                + $"rows={_organizeRows.Count} entries={_organizeEntryPoints.Count} skipped={rs.Skipped} "
+                + $"levels=1-{OrganizeLevelPolicy.AutoChildLevel}");
         }
         catch (Exception ex)
         {
             AppLog.Record("Organize", ex, "organize build");
             ShowOrganizeState(OrganizeStateKind.Failed);
             UpdateOrganizeHeader();
+            UpdateOrganizeWorkBar();
+            return;
         }
+
+        // 扫描完成即自动识别一、二级：本地这一遍就地完成，AI 在后台补
+        StartOrganizeAutoIdentify();
     }
 
-    private OrganizeNode CreateOrganizeNode(FileEntry dir, int depth)
+    private OrganizeNode CreateOrganizeNode(FileEntry dir, int depth, OrganizeLevelPolicy policy)
     {
         if (_organizeByDir.TryGetValue(dir, out var existing)) return existing;
 
         string rel = RelativeOf(dir);
+        bool isEntry = FolderOrganize.IsEntryPoint(dir.FullPath, _organizeEntryPoints);
         var node = new OrganizeNode(dir, new FolderId(dir.FullPath, _aiDataGeneration), depth, rel)
         {
-            IsSystemEntry = FolderOrganize.IsEntryPoint(dir.FullPath, _organizeEntryPoints),
+            IsSystemEntry = isEntry,
             IsPlatformContainer = FolderOrganize.KeepsObjectEntries(dir),
         };
+        node.SetLevel(policy.Level);
         node.SetChildDirCount(FolderOrganize.DirectChildDirs(dir, 0).Total);
         _organizeByDir[dir] = node;
         _organizeAll.Add(node);
@@ -211,28 +244,57 @@ public partial class MainWindow
         if (local.HasConclusion) node.Apply(local);
     }
 
-    /// <summary>自动铺开：默认两层 + 系统入口路径例外；到行数上限就停（用户仍可手动展开）。</summary>
+    /// <summary>
+    /// 自动铺开：**最多两级**；层数到顶、或对象是「具体对象」就停。
+    ///
+    /// 注意：铺开预算与**识别覆盖**是两回事 —— 这里为了不让一个目录的
+    /// 几十万子目录把界面拖死，每个节点仍有行数上限；没铺出来的子目录会如实
+    /// 标成「未识别 + 未列出」，绝不假装识别过。
+    /// </summary>
     private void AutoMaterialize(OrganizeNode node)
     {
         if (FolderOrganize.RowBudgetReached(_organizeAll.Count)) return;
-        if (!FolderOrganize.ShouldAutoMaterialize(
-                node.Dir, node.Kind, node.Depth, _organizeEntryPoints)) return;
-        Materialize(node, FolderOrganize.ChildBudget);
+        if (!FolderOrganize.ShouldAutoMaterializeChildren(
+                new OrganizeLevelPolicy(node.Level, node.Size, node.FileCount), node.Dir, node.Kind,
+                _organizeEntryPoints)) return;
+        Materialize(node, FolderOrganize.ChildBudget, FolderOrganize.AutoMaterializeBudget(node.Depth == 0));
         foreach (var c in node.Children) AutoMaterialize(c);
     }
 
-    /// <summary>把一个目录的直接子对象材料化出来（有预算、有去重、有上限）。</summary>
-    private void Materialize(OrganizeNode node, int budget)
+    /// <summary>
+    /// 把一个目录的直接子对象材料化出来（有预算、有去重、有上限）。
+    /// 子对象的层级由父对象 + 子对象是不是系统入口一起决定（入口的直接子目录与入口同级）。
+    /// </summary>
+    private void Materialize(OrganizeNode node, int childBudget, int? materializeBudget = null)
     {
         if (FolderOrganize.RowBudgetReached(_organizeAll.Count)) return;
-        var set = FolderOrganize.DirectChildDirs(node.Dir, budget);
+        var parentPolicy = new OrganizeLevelPolicy(node.Level, node.Size, node.FileCount);
+        bool parentIsEntry = FolderOrganize.IsEntryPoint(node.FullPath, _organizeEntryPoints);
+        int cap = Math.Max(childBudget, materializeBudget ?? childBudget);
+        var set = FolderOrganize.DirectChildDirs(node.Dir, cap);
         var kids = new List<OrganizeNode>(set.Dirs.Count);
         foreach (var d in set.Dirs)
         {
             if (FolderOrganize.RowBudgetReached(_organizeAll.Count)) break;
-            kids.Add(CreateOrganizeNode(d, node.Depth + 1));
+            bool isEntry = FolderOrganize.IsEntryPoint(d.FullPath, _organizeEntryPoints);
+            kids.Add(CreateOrganizeNode(d, node.Depth + 1,
+                FolderOrganize.ForChild(parentPolicy, d, isEntry, parentIsEntry)));
         }
-        node.SetChildren(kids, set.Truncated || kids.Count < set.Total, set.Total);
+        // 没材料化出来的子目录：如实计数 —— 它们**没有结论**，也不是「已识别」
+        int unlisted = Math.Max(0, set.Total - kids.Count);
+        node.SetChildren(kids, set.Truncated || unlisted > 0, set.Total, unlisted);
+        RegisterUnlisted(node, unlisted);
+    }
+
+    /// <summary>累计「没有材料化、也没有结论」的直接子目录数（页头如实展示）。</summary>
+    private int _organizeUnlistedTotal;
+
+    private void RegisterUnlisted(OrganizeNode node, int unlisted)
+    {
+        int before = node.UnlistedChildCount;
+        if (unlisted == before) return;
+        _organizeUnlistedTotal += unlisted - before;
+        if (_organizeUnlistedTotal < 0) _organizeUnlistedTotal = 0;
     }
 
     // ==================== 行渲染 ====================
@@ -267,7 +329,7 @@ public partial class MainWindow
             : Loc.OrganizeFilterPending;
     }
 
-    /// <summary>页头统计：对象数 / 容量 / 已认出 / 待确认，外加一次性短提示。</summary>
+    /// <summary>页头统计：对象数 / 容量 / 已认出 / 待确认 / 失败，外加一次性短提示。</summary>
     private void UpdateOrganizeHeader()
     {
         if (OrganizeSub == null) return;
@@ -285,12 +347,15 @@ public partial class MainWindow
         foreach (var r in _organizeRoots) bytes += r.Size;
         int resolved = _organizeAll.Count(x => x.IsResolved);
         int pending = _organizeAll.Count(x => x.IsPending);
+        int failed = _organizeAll.Count(x => x.State == PurposeState.Failed);
 
         OrganizeSub.Text = Loc.OrganizeTotals(_organizeAll.Count, bytes);
-        string line = Loc.OrganizeCounts(resolved, pending);
+        string line = Loc.OrganizeCounts(resolved, pending, failed);
+        if (_organizeUnlistedTotal > 0) line += " · " + Loc.OrganizeUnlistedTotal(_organizeUnlistedTotal);
         if (_organizePendingOnly) line += " · " + Loc.OrganizeFilterActive(_organizeRows.Count, _organizeAll.Count);
         if (_organizeNote.Length > 0) line += " · " + _organizeNote;
         OrganizeCounts.Text = line;
+        // 统一重试入口：只要还有待确认/失败的，就允许再跑一遍（受同一个预算约束）
         OrganizeIdentifyAllBtn.IsEnabled = !_organizeBusy && pending > 0;
     }
 
@@ -298,6 +363,71 @@ public partial class MainWindow
     {
         _organizeNote = text ?? "";
         UpdateOrganizeHeader();
+    }
+
+    // ==================== 「当前文件夹」工作区（三级手动识别） ====================
+
+    /// <summary>展开 / 点选一个对象 ⇒ 它成为「当前文件夹」，工作区跟着更新。</summary>
+    private void SetOrganizeCurrent(OrganizeNode? node)
+    {
+        _organizeCurrent = node;
+        UpdateOrganizeWorkBar();
+    }
+
+    /// <summary>
+    /// 工作区条：显示当前文件夹、本次**只分析这一层**、请求数量，以及主操作
+    /// 「识别当前文件夹」。三级及更深不会有任何自动调用，入口就在这里。
+    /// </summary>
+    private void UpdateOrganizeWorkBar()
+    {
+        if (OrganizeWorkBar == null) return;
+        var node = _organizeCurrent;
+        if (node == null || _root == null)
+        {
+            OrganizeWorkBar.Visibility = Visibility.Collapsed;
+            return;
+        }
+        OrganizeWorkBar.Visibility = Visibility.Visible;
+        OrganizeWorkTitle.Text = Loc.OrganizeWorkTitleFixed(node.Name, node.Level);
+        OrganizeWorkPath.Text = node.FullPath;
+
+        var plan = FolderOrganize.PlanFor(node.Name, node.FullPath, node.Level, node.ChildDirCount);
+        string scope = Loc.OrganizeWorkScope(plan.DirectChildTotal, plan.RequestBudget);
+        // 三级及更深额外说明：不会自动深入更深目录
+        if (plan.ManualOnly) scope += " · " + Loc.OrganizeDeepOnly;
+        OrganizeWorkScope.Text = scope;
+        OrganizeIdentifyCurrentBtn.IsEnabled = !_organizeBusy && plan.DirectChildTotal > 0;
+    }
+
+    /// <summary>进入当前文件夹：只把**这一层**的直接子目录材料化出来，不继续往下展开。</summary>
+    private List<OrganizeNode> OpenCurrentFolderChildren(int budget)
+    {
+        var node = _organizeCurrent;
+        if (node == null) return new List<OrganizeNode>();
+        if (!FolderPurposeRules.CanDescend(node.Dir)) return new List<OrganizeNode>();
+        Materialize(node, Math.Max(1, budget));
+        return node.Children.ToList();
+    }
+
+    private void OrganizeIdentifyCurrent_Click(object sender, RoutedEventArgs e)
+    {
+        if (_organizeBusy) { SetOrganizeNote(Loc.OrganizeWaitNoResult); return; }
+        var node = _organizeCurrent;
+        if (node == null) { SetOrganizeNote(Loc.OrganizeWorkNone); return; }
+
+        // 先把这一层铺出来，再对**这一层直接子目录**做识别：范围与界面写的完全一致
+        int budget = FolderOrganize.RequestBudgetFor(node.ChildDirCount);
+        var scope = OpenCurrentFolderChildren(budget);
+        if (scope.Count == 0) { SetOrganizeNote(Loc.OrganizeWorkNone); return; }
+        _ = RunOrganizeIdentifyAsync(scope, Loc.OrganizeWorkScope(scope.Count, budget), auto: false);
+    }
+
+    private void OrganizeIdentifyCurrentMenu_Click(object sender, RoutedEventArgs e)
+    {
+        var node = _organizeMenuNode ?? _organizeCurrent;
+        if (node == null) return;
+        SetOrganizeCurrent(node);
+        OrganizeIdentifyCurrent_Click(sender, e);
     }
 
     // ==================== 状态框 ====================
@@ -383,13 +513,26 @@ public partial class MainWindow
             if (!node.ChildrenLoaded) Materialize(node, FolderOrganize.ChildBudget);
             else node.Expand();
         }
+        // 用户展开谁，谁就是「当前文件夹」：三级及更深的手动识别就作用在它这一层
+        SetOrganizeCurrent(node);
         RefreshOrganizeRows();
-        AppLog.Info("Organize", $"op=toggle dir={node.Name} expanded={node.IsExpanded} rows={_organizeRows.Count}");
+        AppLog.Info("Organize", $"op=toggle dir={node.Name} level={node.Level} "
+            + $"expanded={node.IsExpanded} rows={_organizeRows.Count}");
     }
 
     private void OrganizeExpandMenu_Click(object sender, RoutedEventArgs e)
     {
         if (_organizeMenuNode != null) ToggleOrganize(_organizeMenuNode);
+    }
+
+    /// <summary>双击一行 = 进入这个文件夹（展开它，并把「识别当前文件夹」指向它）。</summary>
+    private void OrganizeGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as DataGrid)?.SelectedItem is OrganizeNode n)
+        {
+            if (!n.IsExpanded) ToggleOrganize(n);
+            else SetOrganizeCurrent(n);
+        }
     }
 
     // ==================== 待确认筛选 ====================
@@ -406,39 +549,70 @@ public partial class MainWindow
             : OrganizeStateKind.None);
     }
 
-    // ==================== 识别（单项 + 批量） ====================
+    // ==================== 识别（自动批量 + 当前文件夹） ====================
+
+    /// <summary>
+    /// 扫描完成后自动跑一遍：范围是**一、二级里还没认出来的对象**。
+    /// 本地这一遍立即完成；本地说不清的才排队问模型（后台、有预算、可取消）。
+    /// </summary>
+    private void StartOrganizeAutoIdentify()
+    {
+        if (_organizeAutoStarted) return;
+        _organizeAutoStarted = true;
+        if (_organizeBusy) return;
+
+        var targets = AutoIdentifyTargets();
+        if (targets.Count == 0) return;
+
+        bool allowAi = AiConfigured();
+        int budget = FolderOrganize.MaxAiRequests;
+        // 没有配置模型、或本地已经全认出来了 ⇒ 不发任何请求，也不显示进度条
+        bool anyNeedsModel = targets.Any(t => !t.HasConclusion);
+        if (!allowAi && anyNeedsModel)
+        {
+            ShowOrganizeState(OrganizeStateKind.NoModel);
+            SetOrganizeNote(Loc.OrganizeDeepOnly);
+            return;
+        }
+        if (!allowAi) return;
+
+        SetOrganizeNote(Loc.OrganizeAutoStart(targets.Count, budget));
+        _ = RunOrganizeIdentifyAsync(targets, Loc.OrganizeAutoStart(targets.Count, budget), auto: true);
+    }
+
+    /// <summary>自动识别范围：一、二级 + 还没有结论 + 还能往下看（重解析点不碰）。</summary>
+    private List<OrganizeNode> AutoIdentifyTargets()
+        => _organizeAll
+            .Where(x => x.IsAutoLevel
+                        && FolderOrganize.ShouldAutoIdentify(
+                            new OrganizeLevelPolicy(x.Level, x.Size, x.FileCount),
+                            x.HasConclusion, FolderPurposeRules.CanDescend(x.Dir)))
+            .OrderByDescending(x => x.Size)
+            .ToList();
 
     private void OrganizeIdentifyAll_Click(object sender, RoutedEventArgs e)
     {
+        // 统一重试入口：已经在跑就当作取消
         if (_organizeBusy) { CancelOrganizeWork(clearState: false); return; }
         var targets = _organizeAll.Where(x => x.IsPending)
             .OrderByDescending(x => x.Size).ToList();
         if (targets.Count == 0) { ShowOrganizeState(OrganizeStateKind.AllDone); return; }
-        _ = RunOrganizeIdentifyAsync(targets);
-    }
-
-    private void OrganizeIdentifyOne_Click(object sender, RoutedEventArgs e)
-    {
-        OrganizeNode? node = (sender as FrameworkElement)?.Tag as OrganizeNode
-            ?? (sender as FrameworkElement)?.DataContext as OrganizeNode
-            ?? _organizeMenuNode;
-        if (node == null) return;
-        if (_organizeBusy) { SetOrganizeNote(Loc.OrganizeWaitNoResult); return; }
-        _ = RunOrganizeIdentifyAsync(new List<OrganizeNode> { node });
+        _ = RunOrganizeIdentifyAsync(targets, Loc.OrganizeIdentifyScope(targets.Count), auto: false);
     }
 
     private void OrganizeStop_Click(object sender, RoutedEventArgs e)
         => CancelOrganizeWork(clearState: false);
 
     /// <summary>
-    /// 批量识别：**只处理用户点名的那一批**，不自动扩大到整盘。
+    /// 批量识别：**只处理传进来的那一批**，不自动扩大到整盘、也不自动往更深层扩散。
     ///
-    /// 先跑一遍本地规则（不花请求）；剩下的确实需要模型时才问，
-    /// 而且受请求总量、超时、取消与扫描代次三重约束。
+    /// 先跑一遍本地规则（不花请求）；剩下的确实需要模型时才问，而且受请求总量、
+    /// 单次超时、请求间隔、取消与扫描/重建代次多重约束。
     /// </summary>
-    private async Task RunOrganizeIdentifyAsync(List<OrganizeNode> targets)
+    private async Task RunOrganizeIdentifyAsync(List<OrganizeNode> targets, string scopeText, bool auto)
     {
         if (_root == null) { ShowOrganizeState(OrganizeStateKind.NoScan); return; }
+        if (targets.Count == 0) return;
 
         int myGen = _organizeGeneration;
         int myData = _aiDataGeneration;
@@ -452,28 +626,30 @@ public partial class MainWindow
         OrganizeProgressPanel.Visibility = Visibility.Visible;
         OrganizeStopBtn.Visibility = Visibility.Visible;
         OrganizeIdentifyAllBtn.IsEnabled = false;
+        OrganizeIdentifyCurrentBtn.IsEnabled = false;
         OrganizeProgressBar.Value = 0;
         ShowOrganizeState(OrganizeStateKind.None);
 
         // 排队：**排队期间不显示任何成功结论**（文案由 State 决定）
         foreach (var t in targets) if (!t.HasConclusion) t.SetState(PurposeState.Queued);
-        OrganizeScopeText.Text = Loc.OrganizeIdentifyScope(targets.Count) + " · " + Loc.OrganizeBudget(budget);
+        OrganizeScopeText.Text = scopeText + " · " + Loc.OrganizeBudget(budget);
         OrganizeScopeBar.Visibility = Visibility.Visible;
 
-        int done = 0;
+        int done = 0, failed = 0;
         int aiBefore = _folderPurpose.AiRequestsUsed;
         try
         {
-            // 1) 本地 + 未知有限探索（不花任何请求）
+            // 1) 本地 + 未知有限探索（不花任何请求）。
+            //    覆盖范围是**传进来的整批**（一、二级全量），与界面显示上限无关；
+            //    每 32 个让出一次时间片，界面不会被这一遍拖住。
             int i = 0;
             foreach (var t in targets)
             {
                 if (ct.IsCancellationRequested) break;
                 if (Stale(myGen, myData)) break;
                 if (!t.HasConclusion) LocalRecognize(t);
-                if (!t.HasConclusion) ProbeUnknownLocally(t);
+                if (!t.HasConclusion && !auto) ProbeUnknownLocally(t);
                 done++;
-                // 一屏上千个对象时也让出时间片，界面不会被这一遍拖住
                 if (++i % 32 == 0)
                 {
                     SetOrganizeProgress(done, targets.Count, _folderPurpose.AiRequestsUsed, budget);
@@ -486,9 +662,13 @@ public partial class MainWindow
             if (!allowAi)
             {
                 foreach (var t in targets) if (!t.HasConclusion) t.ClearState();
-                int left = targets.Count(t => t.IsPending);
-                if (left > 0) ShowOrganizeState(OrganizeStateKind.NoModel);
-                AppLog.Info("Organize", $"op=identify local-only targets={targets.Count} pending={left}");
+                int waiting = targets.Count(t => t.IsPending);
+                if (waiting > 0)
+                {
+                    ShowOrganizeState(OrganizeStateKind.NoModel);
+                    SetOrganizeNote(Loc.OrganizeNoModelHonest(waiting));
+                }
+                AppLog.Info("Organize", $"op=identify local-only targets={targets.Count} pending={waiting} auto={auto}");
             }
             else
             {
@@ -499,17 +679,25 @@ public partial class MainWindow
                     if (_folderPurpose.AiRequestsUsed >= budget) break;
 
                     t.SetState(PurposeState.Running);
+                    UpdateOrganizeWorkBar();
                     var res = await RecognizeWithAsync(t.Dir, allowAi: true, ct).ConfigureAwait(true);
                     if (Stale(myGen, myData)) break;     // 旧请求绝不覆盖新扫描
                     // 用户在这期间纠正过 ⇒ 用户结论优先
                     var user = _folderPurpose.TryGetUserCorrection(t.Id);
                     t.Apply(user ?? res);
+                    // 已经是 Running/失败后落地的状态：只有还停在流程态里才算这一轮失败
+                    if (!t.HasConclusion && t.State is PurposeState.Queued or PurposeState.Running)
+                        t.SetState(PurposeState.Failed);
+                    done = Math.Min(targets.Count, done + 1);
+                    SetOrganizeProgress(done, targets.Count, _folderPurpose.AiRequestsUsed, budget);
                 }
             }
 
             if (ct.IsCancellationRequested)
             {
-                foreach (var t in targets) if (!t.HasConclusion) t.ClearState();
+                // 取消：排队项回到「未识别」，不留假进度
+                foreach (var t in targets)
+                    if (!t.HasConclusion && t.State is PurposeState.Queued or PurposeState.Running) t.ClearState();
                 SetOrganizeNote(Loc.PurposeCancelled);
             }
             else if (Stale(myGen, myData))
@@ -522,13 +710,26 @@ public partial class MainWindow
                 int aiUsed = Math.Max(0, _folderPurpose.AiRequestsUsed - aiBefore);
                 int aiCount = targets.Count(x => x.Source == PurposeSource.Ai);
                 int localCount = targets.Count(x => x.Source == PurposeSource.Local);
-                SetOrganizeNote(Loc.OrganizeResultNote(aiCount, localCount)
-                    + (aiUsed > 0 ? " · " + Loc.OrganizeProgress(done, targets.Count,
-                        _folderPurpose.AiRequestsUsed, budget) : ""));
-                // 请求上限到了：把「为什么剩下的没结果」说清楚，不让人以为卡住了
-                if (_folderPurpose.AiRequestsUsed >= budget && targets.Any(x => x.IsPending))
-                    SetOrganizeNote(Loc.OrganizeBudgetUsed(_folderPurpose.AiRequestsUsed));
-                if (_organizeAll.All(x => !x.IsPending)) ShowOrganizeState(OrganizeStateKind.AllDone);
+                failed = targets.Count(x => x.State == PurposeState.Failed);
+                int pending = targets.Count(x => x.IsPending);
+                string note = Loc.OrganizeAutoDone(done, pending, failed,
+                    _folderPurpose.AiRequestsUsed, budget);
+                if (!auto) note = Loc.OrganizeResultNote(aiCount, localCount) + " · " + note;
+                // 失败 / 预算用完 / 未列出的条目都要**如实补一句**，不能只报「已处理多少」
+                if (failed > 0) note += " · " + Loc.OrganizePartFailed(failed);
+                if (_folderPurpose.AiRequestsUsed >= budget && pending > 0)
+                    note += " · " + Loc.OrganizeBudgetLeft(pending);
+                if (_organizeUnlistedTotal > 0)
+                    note += " · " + Loc.OrganizeUnlistedTotal(_organizeUnlistedTotal);
+                SetOrganizeNote(note);
+                // 全部失败（比如断网）：页面状态直接说清「什么都没识别出来」
+                if (pending > 0 && failed == targets.Count && targets.Count > 0)
+                    ShowOrganizeState(OrganizeStateKind.Failed);
+                else if (_organizeAll.All(x => !x.IsPending))
+                    ShowOrganizeState(OrganizeStateKind.AllDone);
+                AppLog.Info("Organize", $"op=identify-done auto={auto} targets={targets.Count} "
+                    + $"done={done} pending={pending} failed={failed} aiUsed={aiUsed} ai={aiCount} "
+                    + $"local={localCount} unlisted={_organizeUnlistedTotal}");
             }
         }
         catch (OperationCanceledException)
@@ -554,6 +755,7 @@ public partial class MainWindow
             OrganizeStopBtn.Visibility = Visibility.Collapsed;
             OrganizeScopeBar.Visibility = Visibility.Collapsed;
             RefreshOrganizeRows();
+            UpdateOrganizeWorkBar();
         }
     }
 
@@ -573,7 +775,7 @@ public partial class MainWindow
     /// </summary>
     private void ProbeUnknownLocally(OrganizeNode node)
     {
-        // 收纳/混合走共享规则；**未知目录**只有整理页在用户点名识别时多看一层
+        // 收纳/混合走共享规则；**未知目录**只有用户点名识别时多看一层
         bool allowed = FolderOrganize.ShouldProbeUnknown(node.Dir, node.Kind, node.Depth)
                        || FolderPurposeService.ShouldDescend(node.Dir, node.Kind, node.Depth);
         if (!allowed) return;
@@ -613,7 +815,7 @@ public partial class MainWindow
     private void OrganizeMenu_Opened(object sender, RoutedEventArgs e)
     {
         var n = _organizeMenuNode;
-        if (OrgCtxIdentify != null) OrgCtxIdentify.IsEnabled = n is { HasConclusion: false };
+        if (n != null) SetOrganizeCurrent(n);
         if (OrgCtxOpen != null) OrgCtxOpen.IsEnabled = n != null;
         if (OrgCtxCopy != null) OrgCtxCopy.IsEnabled = n != null;
         if (OrgCtxExpand != null)
@@ -621,6 +823,9 @@ public partial class MainWindow
             OrgCtxExpand.IsEnabled = n?.CanExpand == true;
             OrgCtxExpand.Header = n?.IsExpanded == true ? Loc.OrganizeCollapse : Loc.OrganizeExpand;
         }
+        // 「识别当前文件夹」只在还能往下看的对象上出现
+        if (OrgCtxIdentifyCurrent != null)
+            OrgCtxIdentifyCurrent.IsEnabled = n is { CanExpand: true };
         FillOrganizeCorrectMenu(n);
     }
 
@@ -653,7 +858,7 @@ public partial class MainWindow
         if (res != null) node.Apply(res);
         SetOrganizeNote(Loc.PurposeCorrected(picked));
         RefreshOrganizeRows();
-        AppLog.Info("Organize", $"op=correct dir={node.Name} value={picked}");
+        AppLog.Info("Organize", $"op=correct dir={node.Name} level={node.Level} value={picked}");
     }
 
     private void OrganizeOpen_Click(object sender, RoutedEventArgs e)
@@ -661,7 +866,7 @@ public partial class MainWindow
         var node = _organizeMenuNode
             ?? (sender as FrameworkElement)?.Tag as OrganizeNode
             ?? (sender as FrameworkElement)?.DataContext as OrganizeNode;
-        if (node != null) RevealOrganize(node);
+        if (node != null) { SetOrganizeCurrent(node); RevealOrganize(node); }
     }
 
     private void OrganizeReveal_Click(object sender, RoutedEventArgs e)

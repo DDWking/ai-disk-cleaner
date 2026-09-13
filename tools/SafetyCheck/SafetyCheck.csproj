@@ -73,6 +73,8 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\ItemAiPrompt.cs" Link="ItemAiPrompt.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AiVerdict.cs" Link="AiVerdict.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderPurpose.cs" Link="FolderPurpose.cs" />
+    <!-- 脱敏片段读取：白名单 + 密钥过滤，必须测真代码 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\SourceSnippet.cs" Link="SourceSnippet.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderPurposeService.cs" Link="FolderPurposeService.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderOrganize.cs" Link="FolderOrganize.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\OrganizeNode.cs" Link="OrganizeNode.cs" />

@@ -938,9 +938,6 @@ public static class Loc
     public static string OrganizeTotals(int objects, long bytes) => IsEn
         ? $"{objects:N0} folders · {FileEntry.FormatSize(bytes)}"
         : $"{objects:N0} 个文件夹 · {FileEntry.FormatSize(bytes)}";
-    public static string OrganizeCounts(int resolved, int pending) => IsEn
-        ? $"named {resolved:N0} · to confirm {pending:N0}"
-        : $"已认出 {resolved:N0} · 待确认 {pending:N0}";
 
     public static string OrganizeIdentifyAll => IsEn ? "Identify these folders" : "识别这些文件夹";
     public static string OrganizeIdentifyScope(int count) => IsEn
@@ -1027,6 +1024,87 @@ public static class Loc
     public static string OrganizePurposeUnknownAi => IsEn
         ? "the model did not give a usable answer"
         : "模型没有给出可用的结论";
+
+    // ---- 自动识别（两级）与「识别当前文件夹」（三级及更深） ----
+
+    /// <summary>片段说明也写进提示词里，让模型知道自己看的是什么。</summary>
+    public static string PurposeAiSnippetHeader => IsEn
+        ? "Filtered snippets (README / project config / manifests only; secrets, tokens and accounts are masked):"
+        : "经过筛选的片段（只有 README / 项目配置 / 清单文件；密钥、Token、账号已脱敏）：";
+
+    /// <summary>范围声明：送出前给用户看的口径，和实际发出去的内容同源。</summary>
+    public static string OrganizeSendNote => IsEn
+        ? "Only folder name, bounded structure summary, file-type mix, a few sample names and filtered README/config snippets are sent. No full path and no full file list. Secrets, tokens and account names are masked."
+        : "只发送目录名、受控的结构摘要、文件类型分布、少量代表文件名，以及经过筛选的 README/配置片段；不发送完整路径，也不上传完整文件清单。密钥、Token、账号等已脱敏。";
+
+    public static string OrganizeAutoStart(int count, int budget) => IsEn
+        ? $"Scan finished — identifying the {count:N0} folders on levels 1-2 automatically (at most {budget:N0} AI requests)"
+        : $"扫描完成，正在自动识别一、二级共 {count:N0} 个文件夹（最多发 {budget:N0} 次 AI 请求）";
+
+    public static string OrganizeAutoDone(int done, int pending, int failed, int used, int budget) => IsEn
+        ? $"auto pass finished · handled {done:N0} · waiting {pending:N0} · failed {failed:N0} · AI requests {used:N0}/{budget:N0}"
+        : $"自动识别结束 · 已处理 {done:N0} · 待处理 {pending:N0} · 失败 {failed:N0} · AI 请求 {used:N0}/{budget:N0}";
+
+    public static string OrganizeCounts(int resolved, int pending, int failed) => IsEn
+        ? $"named {resolved:N0} · to confirm {pending:N0} · failed {failed:N0}"
+        : $"已认出 {resolved:N0} · 待确认 {pending:N0} · 失败 {failed:N0}";
+
+    public static string OrganizeRetryPending => IsEn ? "Retry the rest" : "重试待确认 / 失败";
+    public static string OrganizeRetryPendingTip => IsEn
+        ? "Run the whole pass again for folders that are still unknown or failed (same request budget)"
+        : "对还没认出来或失败的文件夹再跑一遍（仍然受同一个请求上限约束）";
+    public static string OrganizeDeepOnly => IsEn
+        ? "level 3 and deeper are never identified automatically — open a folder and use the button below"
+        : "三级及更深不会自动识别；进入具体文件夹后用下面的按钮";
+
+    /// <summary>层级标注（只进悬停，不占主视觉）。</summary>
+    public static string OrganizeLevelAuto(int level) => IsEn
+        ? $"level {level} · identified automatically"
+        : $"第 {level} 级 · 自动识别范围";
+    public static string OrganizeLevelDeep(int level) => IsEn
+        ? $"level {level} · identify on demand only"
+        : $"第 {level} 级 · 只在点「识别当前文件夹」时处理";
+
+    /// <summary>没列出来的子目录：如实说出「已列出 X / 共 Y / 还有 N 个未列出（未识别）」。</summary>
+    public static string OrganizeUnlistedNote(int shown, int total, int unlisted) => IsEn
+        ? $"listed {shown:N0} of {total:N0} · {unlisted:N0} not listed (not identified)"
+        : $"已列出 {shown:N0} / 共 {total:N0} · 还有 {unlisted:N0} 个未列出（未识别）";
+
+    /// <summary>页头汇总：还有多少条目根本没列出来。</summary>
+    public static string OrganizeUnlistedTotal(int unlisted) => IsEn
+        ? $"{unlisted:N0} folders are not listed (and not identified) — expand a folder or identify that level"
+        : $"还有 {unlisted:N0} 个文件夹没有列出（也未识别）——展开或点「识别当前文件夹」再处理";
+
+    /// <summary>失败原因分开报：网络不通 / 超时 都不能说成成功。</summary>
+    public static string OrganizeAllFailed => IsEn
+        ? "the model could not be reached — nothing was identified. Check the network or model settings and retry."
+        : "连不上模型，这次没有识别出任何结果。检查网络或模型设置后可以重试。";
+    public static string OrganizePartFailed(int failed) => IsEn
+        ? $"{failed:N0} folders failed (network / timeout) — they stay 'failed' and can be retried"
+        : $"有 {failed:N0} 个文件夹识别失败（网络或超时）；它们保持「失败」状态，可以统一重试";
+    public static string OrganizeBudgetLeft(int pending) => IsEn
+        ? $"{pending:N0} folders were not sent — the request budget ran out. They stay to-confirm, not identified."
+        : $"还有 {pending:N0} 个没有发送：本次请求上限用完了。它们保持「待确认」，不算识别过。";
+    public static string OrganizeNoModelHonest(int pending) => IsEn
+        ? $"{pending:N0} folders need a model and none is configured — they stay to-confirm, not identified."
+        : $"有 {pending:N0} 个文件夹需要模型判断，但还没配置模型；它们保持「待确认」，不算识别过。";
+
+    public static string OrganizeWorkTitleFixed(string name, int level) => IsEn
+        ? $"Working folder: {name} · level {level}"
+        : $"当前文件夹：{name} · 第 {level} 级";
+    public static string OrganizeWorkScope(int children, int budget) => IsEn
+        ? $"this run only looks at the {children:N0} direct sub-folders of this folder · up to {budget:N0} AI requests · it does not go deeper on its own"
+        : $"本次只分析这一层的 {children:N0} 个直接子文件夹 · 最多发 {budget:N0} 次请求 · 不会自己继续深入更深目录";
+    public static string OrganizeIdentifyCurrent => IsEn ? "Identify this folder" : "识别当前文件夹";
+    public static string OrganizeIdentifyCurrentTip => IsEn
+        ? "Analyse only the direct sub-folders of the selected folder. Nothing else is sent."
+        : "只分析选中文件夹的直接子文件夹，不会扩大到别的地方。";
+    public static string OrganizeWorkNone => IsEn
+        ? "Expand or click a folder to work on that level"
+        : "展开或点选一个文件夹，就能在这一层做识别";
+    public static string OrganizeWorkPathHidden => IsEn
+        ? "(full path shown on hover)"
+        : "（完整路径在悬停里看）";
 
     /// <summary>已知对象的内部目录（名字判定，不读内容）。</summary>
     public static string PurposeKnownInternal => IsEn ? "inside an app/project" : "程序内部目录";

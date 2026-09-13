@@ -21,7 +21,6 @@ public enum PurposeSource { None, Local, Ai, User }
 
 /// <summary>界面要表达的状态。没有有效结果时**不允许**显示成「已识别」。</summary>
 public enum PurposeState { Unrecognized, Queued, Running, Recognized, NeedsConfirm, Failed }
-
 /// <summary>
 /// 目录的**稳定标识**：完整路径 + 扫描代次。
 /// 结果一律按它关联，不依赖显示名称，也不接受 AI 返回的路径。
@@ -53,6 +52,14 @@ public sealed record FolderSummary(
 {
     /// <summary>摘要里实际取了多少个代表样本（如实写出来，不声称看了全部）。</summary>
     public int SampleCount => SampleNames.Count;
+
+    /// <summary>
+    /// 结构指纹：类型分布 + 代表文件名 + 直接子目录名。
+    /// 参与缓存键，所以「目录结构变了」这一类变化也会让旧结论失效。
+    /// 只由本地摘要算出来，不含任何用户数据。
+    /// </summary>
+    public string KindSignature =>
+        string.Join(",", TypeMix) + "|" + string.Join(",", SampleNames) + "|" + string.Join(",", SampleDirs);
 }
 
 /// <summary>一次识别结论。</summary>
@@ -69,14 +76,32 @@ public sealed record FolderPurposeResult(
     public static FolderPurposeResult None(FolderId id, FolderKind kind = FolderKind.Unknown)
         => new(id, "", "", "", PurposeSource.None, false, kind);
 
+    /// <summary>识别失败（网络不通 / 超时 / 供应商报错）：**和「还没识别」不是一回事**。</summary>
+    public static FolderPurposeResult Failure(FolderId id, FolderKind kind = FolderKind.Unknown)
+        => new(id, "", "", "", PurposeSource.None, false, kind) { Failed = true };
+
+    /// <summary>这次识别**失败**了（不是「没结论」）。默认 false。</summary>
+    public bool Failed { get; init; }
+
     /// <summary>有结论才算「已识别」；本地/模型都没给出可用内容时不能当成功。</summary>
     public bool HasConclusion => PurposeName.Length > 0;
 
-    public PurposeState State => Source switch
-    {
-        PurposeSource.None => PurposeState.Unrecognized,
-        _ => NeedsConfirm ? PurposeState.NeedsConfirm : PurposeState.Recognized,
-    };
+    /// <summary>
+    /// 状态映射（四种结论 + 流程态，互不冒充）：
+    /// <list type="bullet">
+    /// <item>有结论且无需确认 ⇒ <see cref="PurposeState.Recognized"/>（本地识别 / 用户确认）；</item>
+    /// <item>有结论但需要确认（模型推测）⇒ <see cref="PurposeState.NeedsConfirm"/>；</item>
+    /// <item>请求失败 / 超时 / 网络不通 ⇒ <see cref="PurposeState.Failed"/>；</item>
+    /// <item>其余没有结论 ⇒ <see cref="PurposeState.Unrecognized"/>。</item>
+    /// </list>
+    /// </summary>
+    public PurposeState State => Failed
+        ? PurposeState.Failed
+        : Source switch
+        {
+            PurposeSource.None => PurposeState.Unrecognized,
+            _ => NeedsConfirm ? PurposeState.NeedsConfirm : PurposeState.Recognized,
+        };
 
     public string SourceText => Source switch
     {
@@ -106,6 +131,12 @@ public static class FolderPurposeRules
 
     /// <summary>一个目录至少有这么多「像独立对象」的直接子目录，才算收纳目录。</summary>
     public const int ContainerMinChildren = 4;
+
+    /// <summary>子目录小到这个尺寸以下、又没有独立对象证据时，不构成「集合」。</summary>
+    public const long TrivialChildBytes = 1024 * 1024;
+
+    /// <summary>「像独立对象」的子目录至少要占到这么大，小集合才不至于被漏判。</summary>
+    public const int StrongChildBytes = 8 * 1024 * 1024;
 
     /// <summary>
     /// 系统盘入口：通过系统路径解析，**不硬编码 C 盘或用户名**。
@@ -212,36 +243,55 @@ public static class FolderPurposeRules
 
     /// <summary>
     /// 判断目录性质：收纳 / 具体对象 / 未知 / 混合。
+    ///
+    /// 这里**刻意不绑定任何具体例子**（不认「某个盘名/某个开发板项目名」）：
+    /// 只看通用证据 —— 目录名命中的已知签名、子目录的规模、
+    /// 以及子目录里有多少个像独立对象。这样小集合（2–3 个真实子目录）
+    /// 也不会因为「数量不到 4」被漏判成「未知」。
     /// </summary>
     public static FolderKind ClassifyKind(FileEntry dir)
     {
         // 0) 已知对象内部（.git / node_modules / winsxs …）：就是具体对象，不再下钻
         if (IsKnownLeafDir(dir.Name)) return FolderKind.Concrete;
 
-        // 1) 认出具体对象（本地签名）——但平台容器例外，它要继续往里找
-        bool known = AppSignatures.Match(dir.FullPath) != null
-                     || !string.IsNullOrWhiteSpace(AppSignatures.FriendlyName(dir.FullPath));
-        if (known && !IsObjectContainer(dir.FullPath)) return FolderKind.Concrete;
+        // 1) 这个目录**自己**命中已知签名才算「具体对象」。
+        //    注意：只是「里面装着已知程序」不等于自己是程序 —— 那是集合，应该让人往下看。
+        bool knownSelf = IsKnownObject(dir.FullPath);
 
-        var kids = dir.ChildList.Where(c => c.IsDirectory).ToList();
-        if (kids.Count == 0) return known ? FolderKind.Concrete : FolderKind.Unknown;
+        var kids = dir.ChildList.Where(c => c.IsDirectory)
+            .Where(c => !c.IsReparsePoint && !c.IsFilesGroup).ToList();
+        if (kids.Count == 0)
+            return knownSelf ? FolderKind.Concrete : FolderKind.Unknown;
 
-        // 2) 多个「像独立对象」的直接子目录 ⇒ 收纳目录
-        int concrete = 0, unknownSmall = 0;
+        // 2) 统计「像独立对象」的直接子目录
+        int strong = 0;          // 有内容、像独立对象的子目录
         foreach (var k in kids)
-        {
-            bool kKnown = AppSignatures.Match(k.FullPath) != null;
-            if (kKnown) concrete++;
-            else if (k.Size < 1L * 1024 * 1024) unknownSmall++;   // 很小的无名目录不构成「独立对象」
-        }
+            if (k.Size >= TrivialChildBytes || IsKnownObject(k.FullPath)) strong++;
 
-        if (kids.Count >= ContainerMinChildren && concrete + (kids.Count - unknownSmall - concrete) >= 3)
-            return concrete > 0 ? FolderKind.Mixed : FolderKind.Container;
-        if (known) return FolderKind.Concrete;
-        if (concrete > 0) return FolderKind.Mixed;
+        // 3) 平台容器：认出平台后**仍然要能往里找游戏**
         if (IsObjectContainer(dir.FullPath)) return FolderKind.Container;
+
+        // 4) 收纳目录：多个独立子目录。
+        //    小集合放宽到「2 个有内容的子目录」也能算集合，避免只认 4 个以上。
+        if (kids.Count >= ContainerMinChildren && strong >= 3)
+            return knownSelf ? FolderKind.Mixed : FolderKind.Container;
+
+        long strongBytes = 0;
+        foreach (var k in kids) if (k.Size >= TrivialChildBytes) strongBytes += k.Size;
+        bool substantial = dir.Size > 0 && strongBytes * 2 >= dir.Size;   // 大头都在子目录里
+        if (kids.Count >= 2 && strong >= 2 && (strongBytes >= StrongChildBytes || substantial))
+            return knownSelf ? FolderKind.Mixed : FolderKind.Container;
+
+        if (knownSelf) return FolderKind.Concrete;
+        if (strong > 0) return FolderKind.Mixed;   // 有独立子对象，但也夹着说不清的小目录
         return FolderKind.Unknown;
     }
+
+    /// <summary>这个目录**自己**是不是「已知的软件 / 缓存对象」（只看路径签名，不读内容）。</summary>
+    public static bool IsKnownObject(string? path)
+        => !string.IsNullOrWhiteSpace(path)
+           && (AppSignatures.Match(path) != null
+               || !string.IsNullOrWhiteSpace(AppSignatures.FriendlyName(path)));
 
     /// <summary>
     /// 本地识别：能用可靠规则说清楚就直接给结论，说不清就返回 None（由上层决定要不要问 AI）。
@@ -336,6 +386,22 @@ public static class FolderPurposeRules
     /// 给模型看的**有上限**摘要。不列整盘清单，不含完整私人路径（交由调用方脱敏）。
     /// </summary>
     public static string BuildAiInput(FolderSummary sum, bool sendFullPath, int maxChars)
+        => BuildAiInput(sum, sendFullPath, maxChars, null);
+
+    /// <summary>
+    /// 给模型看的**有上限**摘要，外加**经白名单与脱敏筛选**的 README / 项目配置 / 清单片段。
+    ///
+    /// 默认口径（安全要求，不是可选项）：
+    /// <list type="bullet">
+    /// <item>只发目录名 + 受控结构摘要 + 文件类型分布 + 少量代表文件名 + 程序元数据；</item>
+    /// <item>**不发完整路径**（<paramref name="sendFullPath"/> 为假时走脱敏），
+    /// **不发完整文件清单**；</item>
+    /// <item>片段只来自 <see cref="SourceSnippetReader"/> 的白名单，且已脱敏；</item>
+    /// <item>「最近修改」只作为时间事实出现，**不会**被写成「最近使用」。</item>
+    /// </list>
+    /// </summary>
+    public static string BuildAiInput(
+        FolderSummary sum, bool sendFullPath, int maxChars, SnippetSet? snippets)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(Loc.PurposeAiHeader);
@@ -345,11 +411,37 @@ public static class FolderPurposeRules
         sb.AppendLine("subfolders: " + sum.DirectFolderCount);
         sb.AppendLine("files: " + sum.FileCount);
         if (sum.TypeMix.Count > 0) sb.AppendLine("types: " + string.Join(", ", sum.TypeMix));
-        if (sum.SampleNames.Count > 0) sb.AppendLine("samples: " + string.Join(", ", sum.SampleNames));
+        if (sum.SampleNames.Count > 0)
+            sb.AppendLine("samples(" + sum.SampleNames.Count + " of " + sum.FileCount + "): "
+                + string.Join(", ", sum.SampleNames));
+        if (sum.SampleDirs.Count > 0)
+            sb.AppendLine("subfolder names: " + string.Join(", ", sum.SampleDirs));
         if (sum.ProductHint.Length > 0) sb.AppendLine("product: " + sum.ProductHint);
-        if (sum.Modified != default) sb.AppendLine("modified: " + sum.Modified.ToString("yyyy-MM-dd"));
-        string s = sb.ToString();
-        return s.Length <= maxChars ? s : s[..maxChars];
+        // 时间事实：只写「最后修改」，不推断「最近使用」——我们确实没有使用记录。
+        if (sum.Modified != default) sb.AppendLine("last modified: " + sum.Modified.ToString("yyyy-MM-dd"));
+
+        string body = sb.ToString();
+        if (snippets is { Any: true })
+        {
+            string extra = Loc.PurposeAiSnippetHeader + "\n" + SourceSnippetCollector.FormatForAi(snippets);
+            string combined = body + extra;
+            // 片段是辅助材料：宁可截断片段，也不能把结构化摘要挤掉
+            if (combined.Length <= maxChars) return combined;
+            return combined[..maxChars];
+        }
+        return body.Length <= maxChars ? body : body[..maxChars];
+    }
+
+    /// <summary>
+    /// 送出去之前自检：还有没有漏掉的密钥 / 完整用户路径。
+    /// 返回 false 时调用方应当**不发**（宁可不识别也不外泄）。
+    /// </summary>
+    public static bool IsSafeOutbound(string? payload)
+    {
+        if (string.IsNullOrEmpty(payload)) return true;
+        if (!PathRedactor.IsRedacted(payload)) return false;
+        // 我们自己的占位符不算泄漏；其余情况必须与脱敏结果完全一致
+        return SourceSnippetReader.LooksClean(payload);
     }
 
     /// <summary>

@@ -141,6 +141,7 @@ namespace AiDiskCleaner.Services
         public static string PurposeDeepen => "Look deeper";
         public static string PurposeCorrect => "Correct";
         public static string PurposeAiHeader => "identify one folder";
+        public static string PurposeAiSnippetHeader => "filtered snippets";
         public static string PurposeAiSystem => "system";
         public static string OrganizeWaitNoResult => "waiting, no result yet";
         public static string OrganizeRetryHint => "failed, you can retry";
@@ -149,6 +150,31 @@ namespace AiDiskCleaner.Services
         public static string OrganizeDeepen => "Identify inside";
         public static string OrganizeIdentifyOne => "Identify";
         public static string OrganizePlatformTag => "games live inside";
+        public static string OrganizeEntryPointTag => "system entry";
+        public static string OrganizeLevelAuto(int level) => $"level {level} auto";
+        public static string OrganizeLevelDeep(int level) => $"level {level} on demand";
+        public static string OrganizeWorkNone => "pick a folder first";
+        public static string OrganizeWorkScope(int children, int budget) => $"this level only: {children} children, {budget} requests";
+        public static string OrganizeWorkPathHidden => "(path on hover)";
+        public static string OrganizeDeepOnly => "level 3 and deeper are never automatic";
+        public static string OrganizeSendNote => "name, structure, type mix, a few samples, filtered snippets";
+        public static string OrganizeAutoStart(int count, int budget) => $"auto {count} / {budget}";
+        public static string OrganizeAutoDone(int done, int pending, int failed, int used, int budget)
+            => $"done {done} pending {pending} failed {failed} ai {used}/{budget}";
+        public static string OrganizeCounts(int resolved, int pending, int failed)
+            => $"named {resolved} to confirm {pending} failed {failed}";
+        public static string OrganizeRetryPending => "Retry the rest";
+        public static string OrganizeRetryPendingTip => "retry pending or failed";
+        public static string OrganizeWorkTitleFixed(string name, int level) => $"{name} level {level}";
+        public static string OrganizeUnlistedNote(int shown, int total, int unlisted)
+            => $"listed {shown}/{total}, {unlisted} not listed (not identified)";
+        public static string OrganizeUnlistedTotal(int unlisted) => $"{unlisted} not listed";
+        public static string OrganizeAllFailed => "model unreachable";
+        public static string OrganizePartFailed(int failed) => $"{failed} failed";
+        public static string OrganizeBudgetLeft(int pending) => $"{pending} over budget";
+        public static string OrganizeNoModelHonest(int pending) => $"{pending} need a model";
+        public static string OrganizeIdentifyCurrent => "Identify this folder";
+        public static string OrganizeIdentifyCurrentTip => "only this level";
         public static string OrganizeChildBudgetNote(int shown, int total) => $"{shown}/{total} shown";
         public static string OrganizeBudgetUsed(int used) => $"budget {used} used";
         public static string OtherFilesTitle => "Other files";
