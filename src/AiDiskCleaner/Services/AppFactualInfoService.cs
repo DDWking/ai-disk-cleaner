@@ -25,7 +25,12 @@ public sealed record AppFactualInfo(
 /// <item>**不联网、不调模型** —— 客户端信息不出去，描述也不需要生成式猜测；</item>
 /// <item>**不碰磁盘** —— 不 Directory.Exists、不遍历目录，只看清单里已有的字段；</item>
 /// <item>**不做名字子串判断** —— 名字里出现「浏览器」不会让它变成浏览器，
-/// 出现「2345」也不会被贴捆绑标签；性质只看结构化字段（卸载程序/安装路径/清单标记）；</item>
+/// 出现「2345」也不会被贴捆绑标签；性质只看结构化字段（安装位置/清单标记）；</item>
+/// <item>**卸载宿主不等于产品归属** —— 第三方 MSI 也走
+/// <c>C:\Windows\System32\msiexec.exe /x {guid}</c>，rundll32 同样是宿主工具；
+/// 卸载程序位于 Windows 目录内只说明「通过系统工具卸载」，**不能据此断言系统自带**；</item>
+/// <item>**不盲信早期标记** —— 不看 <see cref="AppUninstallItem.InboxComponent"/>（它可能正是
+/// 由卸载宿主路径算出来的），只认卸载清单的真实系统来源标志与实际安装位置；</item>
 /// <item>**没有依据就如实未知** —— 只有名字的条目不会被编出一段用途；</item>
 /// <item>**不评价该不该卸载** —— 描述里不出现「建议卸载/可以删/建议保留」这类结论。</item>
 /// </list>
@@ -73,13 +78,17 @@ public static class AppFactualInfoService
         bool hasInstallDate = app.InstallDate != DateTime.MinValue;
         bool hasSizeRecord = app.SizeBytes > 0 || app.HasMeasuredSize;
 
-        var kind = DetectKind(app);
+        // 卸载命令行只当「怎么卸」的事实，**不当产品归属证据**：msiexec / rundll32 是系统宿主。
+        var uninstall = InspectUninstall(app);
+        bool hasUninstall = uninstall.Exe.Length > 0;
+
+        var kind = DetectKind(app, hasUninstall);
         bool structural = kind is AppSourceKind.WindowsInboxComponent
             or AppSourceKind.WindowsFeature
             or AppSourceKind.ProtectedSystemEntry
             or AppSourceKind.SteamItem;
         bool hasRecords = publisher.Length > 0 || version.Length > 0 || location.Length > 0
-            || hasInstallDate || hasSizeRecord;
+            || hasInstallDate || hasSizeRecord || hasUninstall;
 
         // 只有名字：没有任何可核对的东西。如实未知，不编用途、不贴标签。
         if (!structural && !hasRecords)
@@ -93,6 +102,7 @@ public static class AppFactualInfoService
         if (version.Length > 0) evidence.Add(AppPurposeText.VersionRecord(version));
         if (location.Length > 0) evidence.Add(AppPurposeText.LocationRecord(location));
         if (hasInstallDate) evidence.Add(AppPurposeText.InstallDateRecord(app.InstallDateText));
+        AddUninstallEvidence(uninstall, evidence);
         AddFootprint(app, evidence);
         if (app.IsProtected) evidence.Add(AppPurposeText.MarkProtected);
         if (app.SystemComponent) evidence.Add(AppPurposeText.MarkSystemComponent);
@@ -102,23 +112,37 @@ public static class AppFactualInfoService
         // 只写「检测到在运行」这一件确认过的事；未知不写成「没在运行」。
         if (app.RunningState == AppRunningState.Running) evidence.Add(AppPurposeText.RunningNow);
 
-        string summary = BuildSummary(kind, publisher, version, location);
+        string summary = BuildSummary(app, kind, publisher, version, location);
         var confidence = structural ? AppInfoConfidence.LocalEvidence : AppInfoConfidence.RecordOnly;
         return new(kind, confidence, summary, evidence);
     }
 
     /// <summary>
-    /// 性质判定：只看结构化证据，**绝不看名字**。
-    /// 顺序 = 证据强度：系统目录结构 → Windows 功能清单 → 受保护标记 → Steam 清单 → 普通清单。
+    /// 性质判定：只看**卸载清单的真实系统来源标志与实际安装位置**，绝不看名字，
+    /// 也不看卸载宿主程序在不在 Windows 目录里。
+    ///
+    /// 顺序 = 证据强度：实际安装位置在系统目录 → Windows 功能清单 → 系统/受保护标志
+    /// → Steam 清单 → 普通清单。
     /// </summary>
-    static AppSourceKind DetectKind(AppUninstallItem app)
+    static AppSourceKind DetectKind(AppUninstallItem app, bool hasUninstall)
     {
-        if (IsInboxComponent(app)) return AppSourceKind.WindowsInboxComponent;
+        if (IsWindowsInstallLocation(app)) return AppSourceKind.WindowsInboxComponent;
         if (app.GroupKey == 2) return AppSourceKind.WindowsFeature;
         if (app.IsProtected || app.SystemComponent || app.GroupKey == 3)
             return AppSourceKind.ProtectedSystemEntry;
         if (app.GroupKey == 1) return AppSourceKind.SteamItem;
-        return app.CanUninstall ? AppSourceKind.InstalledApplication : AppSourceKind.NoUninstaller;
+        return app.CanUninstall || hasUninstall
+            ? AppSourceKind.InstalledApplication
+            : AppSourceKind.NoUninstaller;
+    }
+
+    static void AddUninstallEvidence(UninstallHost host, List<string> evidence)
+    {
+        if (!host.InWindows) return;
+        // 系统宿主工具（msiexec / rundll32）只说明卸载方式，不说明产品归属。
+        evidence.Add(host.IsSystemTool
+            ? AppPurposeText.ViaSystemTool(host.Name)
+            : AppPurposeText.ViaWindowsUninstaller(host.Name));
     }
 
     static void AddFootprint(AppUninstallItem app, List<string> evidence)
@@ -140,10 +164,11 @@ public static class AppFactualInfoService
             evidence.Add(AppPurposeText.FootprintWhy(app.FootprintNote));
     }
 
-    static string BuildSummary(AppSourceKind kind, string publisher, string version, string location)
+    static string BuildSummary(AppUninstallItem app, AppSourceKind kind,
+        string publisher, string version, string location)
     {
         var parts = new List<string>(3);
-        string label = KindLabel(kind);
+        string label = KindLabel(app, kind);
         if (label.Length > 0) parts.Add(label);
         if (publisher.Length > 0) parts.Add(AppPurposeText.SummaryPublisher(publisher));
         if (version.Length > 0) parts.Add(AppPurposeText.SummaryVersion(version));
@@ -156,14 +181,20 @@ public static class AppFactualInfoService
         return text;
     }
 
-    static string KindLabel(AppSourceKind kind) => kind switch
+    static string KindLabel(AppUninstallItem app, AppSourceKind kind) => kind switch
     {
         AppSourceKind.InstalledApplication => AppPurposeText.KindInstalled,
         AppSourceKind.NoUninstaller => AppPurposeText.KindNoUninstaller,
         AppSourceKind.SteamItem => AppPurposeText.KindSteam,
         AppSourceKind.WindowsFeature => AppPurposeText.KindWindowsFeature,
         AppSourceKind.WindowsInboxComponent => AppPurposeText.KindInbox,
-        AppSourceKind.ProtectedSystemEntry => AppPurposeText.KindProtected,
+        // 「受保护」和「系统组件」是两件不同的事实，分别如实写，不合并成一句笼统的话。
+        AppSourceKind.ProtectedSystemEntry => (app.IsProtected, app.SystemComponent) switch
+        {
+            (true, true) => AppPurposeText.KindProtectedSystem,
+            (false, true) => AppPurposeText.KindSystemComponent,
+            _ => AppPurposeText.KindProtected,
+        },
         _ => "",
     };
 
@@ -178,22 +209,52 @@ public static class AppFactualInfoService
         _ => "",
     };
 
-    // ---- 结构化判定（与「建议」无关，只回答「它在不在系统目录里」）----
+    // ---- 结构化判定（与「建议」无关）----
 
     /// <summary>
-    /// 是不是 Windows 自带组件 / 设备软件：卸载程序或安装位置落在 Windows 目录内。
-    /// 清单里已经打好的 <see cref="AppUninstallItem.InboxComponent"/> 优先；
-    /// 没打时按同样的结构规则本地重算一次（不靠名字）。
+    /// 只有**实际安装位置**落在 Windows 目录内才算系统自带组件 / 设备软件。
+    ///
+    /// 刻意**不看卸载程序路径**，也**不看清单里早期算好的 <see cref="AppUninstallItem.InboxComponent"/>**：
+    /// 第三方 MSI 的卸载命令同样位于 <c>C:\Windows\System32\msiexec.exe</c>，
+    /// 只看卸载路径会把普通软件误判成系统自带（该标记本身可能正是这样生成的）。
     /// </summary>
-    static bool IsInboxComponent(AppUninstallItem app)
+    static bool IsWindowsInstallLocation(AppUninstallItem app)
     {
-        if (app.InboxComponent) return true;
         string win = WindowsDirectory;
         if (win.Length == 0) return false;
-        string exe = UninstallExecutable(app.Entry?.UninstallString);
-        if (exe.Length > 0 && IsPathWithin(exe, win)) return true;
         string location = NormalizePath(app.InstallLocation);
         return location.Length > 0 && IsPathWithin(location, win);
+    }
+
+    /// <summary>
+    /// 卸载命令行里的事实：可执行文件是谁、在不在 Windows 目录内、是不是系统宿主工具。
+    /// 这些只说明「怎么卸」，**不说明产品属于谁**。
+    /// </summary>
+    readonly record struct UninstallHost(string Exe, string Name, bool InWindows, bool IsSystemTool);
+
+    static UninstallHost InspectUninstall(AppUninstallItem app)
+    {
+        string exe = NormalizePath(UninstallExecutable(app.Entry?.UninstallString));
+        if (exe.Length == 0) return new("", "", false, false);
+        string win = WindowsDirectory;
+        bool inWindows = win.Length > 0 && IsPathWithin(exe, win);
+        string name = FileName(exe);
+        return new(exe, name, inWindows, inWindows && IsSystemUninstallHost(name));
+    }
+
+    /// <summary>
+    /// Windows 自带的卸载宿主工具：普通第三方软件的卸载也会调用它们，
+    /// 所以「通过 msiexec 卸载」不能证明软件是系统自带。
+    /// </summary>
+    static bool IsSystemUninstallHost(string name)
+        => name.Equals("msiexec.exe", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("rundll32.exe", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>取路径最后一段（纯字符串，不碰磁盘）。</summary>
+    static string FileName(string path)
+    {
+        int i = path.LastIndexOf('\\');
+        return i >= 0 ? path[(i + 1)..] : path;
     }
 
     /// <summary>Windows 目录由系统 API 解析，不硬编码盘符。</summary>
@@ -249,12 +310,14 @@ internal static class AppPurposeText
     public static string KindSteam => En ? "Steam entry" : "Steam 清单条目";
     public static string KindWindowsFeature => En ? "Windows optional feature" : "Windows 可选功能";
     public static string KindInbox => En ? "Windows inbox component" : "Windows 自带组件";
-    public static string KindProtected => En ? "Protected system component" : "受保护的系统组件";
+    public static string KindProtectedSystem => En ? "Protected system component" : "受保护的系统组件";
+    public static string KindSystemComponent => En ? "System component" : "系统组件";
+    public static string KindProtected => En ? "Protected entry" : "受保护的条目";
 
     // ---- 依据（悬停用，说明这个结论凭什么）----
     public static string BasisInbox => En
-        ? "Basis: the uninstaller or install location is inside the Windows directory (structural check)"
-        : "依据：卸载程序或安装位置位于 Windows 系统目录内（结构化判定）";
+        ? "Basis: the actual install location is inside the Windows directory (structural check)"
+        : "依据：实际安装位置位于 Windows 系统目录内（结构化判定）";
     public static string BasisWindowsFeature => En
         ? "Source: Windows feature list"
         : "来源：Windows 功能清单";
@@ -284,6 +347,14 @@ internal static class AppPurposeText
     public static string InstallDateRecord(string value) => En
         ? "Install date (registry record): " + value
         : "安装日期（注册表记录）：" + value;
+
+    // 卸载方式：宿主工具只说明怎么卸，不说明产品归属。
+    public static string ViaSystemTool(string name) => En
+        ? "Uninstalled via a Windows system tool: " + name
+        : "通过系统工具卸载：" + name;
+    public static string ViaWindowsUninstaller(string name) => En
+        ? "Uninstalled via a program inside the Windows directory: " + name
+        : "通过系统目录内的卸载程序卸载：" + name;
 
     public static string FootprintMeasured(string size) => En
         ? "Footprint: " + size + " (measured by scan)"

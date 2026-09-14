@@ -210,15 +210,104 @@ Check("自带组件描述里没有「建议保留」这类结论", !HasClaim(mst
 Check("自带组件的依据写清是结构判定（Windows 系统目录）",
     mstsc.PurposeHint.Contains("Windows 系统目录"));
 
-var byCommand = App("Some OS Thing", "", 0);
-byCommand.Entry = new ApplicationUninstallerEntry
+// ---- 卸载宿主不等于系统自带（真实误识别修正）----
+// 第三方 MSI 的卸载命令是 C:\Windows\System32\msiexec.exe /x {guid}，rundll32 同样是宿主工具；
+// 它们只说明「怎么卸」，不能证明产品属于 Windows。
+// 只有**实际安装位置**在 Windows 内才是结构化证据；早期的 InboxComponent 标记也不能盲信。
+
+// (a) 普通第三方 MSI：装在 Program Files，卸载走 msiexec 全路径
+var thirdPartyMsi = App("Third Party MSI", @"C:\Program Files\Vendor\App", 3L << 30);
+thirdPartyMsi.Publisher = "Vendor Inc";
+thirdPartyMsi.Version = "2.0";
+thirdPartyMsi.Entry = new ApplicationUninstallerEntry
+{
+    UninstallString = "\"C:\\Windows\\System32\\msiexec.exe\" /x {11111111-2222-3333-4444-555555555555}",
+};
+AppFactualInfoService.Apply(thirdPartyMsi);
+CheckD("msiexec 卸载的第三方软件不得断言系统自带",
+    thirdPartyMsi.PurposeKind == AppSourceKind.InstalledApplication,
+    thirdPartyMsi.PurposeKind.ToString());
+CheckD("msiexec 只保守表述「通过系统工具卸载」",
+    thirdPartyMsi.PurposeHint.Contains("通过系统工具卸载")
+    && thirdPartyMsi.PurposeHint.Contains("msiexec.exe"),
+    thirdPartyMsi.PurposeHint);
+Check("msiexec 第三方软件描述不含「Windows 自带组件」",
+    !thirdPartyMsi.PurposeText.Contains("Windows 自带组件"));
+
+// (b) 大小写 / 正反斜杠变体同样识别为系统工具（仍不当自带）
+var msiVariant = App("MSI Variant", @"D:\Apps\Variant", 1L << 30);
+msiVariant.Entry = new ApplicationUninstallerEntry
+{
+    UninstallString = "C:/WINDOWS/SYSTEM32/MSIEXEC.EXE /x {ABCDEFAB-0000-0000-0000-000000000000}",
+};
+AppFactualInfoService.Apply(msiVariant);
+CheckD("大小写/斜杠变体的 msiexec 也不当自带，且仍写系统工具",
+    msiVariant.PurposeKind != AppSourceKind.WindowsInboxComponent
+    && msiVariant.PurposeHint.Contains("通过系统工具卸载")
+    && msiVariant.PurposeHint.Contains("msiexec.exe", StringComparison.OrdinalIgnoreCase),
+    msiVariant.PurposeText + " | " + msiVariant.PurposeHint);
+
+// (c) rundll32 宿主
+var rundll = App("Rundll Hosted", @"C:\Program Files\Vendor\Rundll", 2L << 30);
+rundll.Entry = new ApplicationUninstallerEntry
+{
+    UninstallString = "\"C:\\Windows\\System32\\rundll32.exe\" "
+        + "\"C:\\Program Files\\Vendor\\Rundll\\setup.dll\",Uninstall",
+};
+AppFactualInfoService.Apply(rundll);
+CheckD("rundll32 宿主也只算系统工具卸载",
+    rundll.PurposeKind != AppSourceKind.WindowsInboxComponent
+    && rundll.PurposeHint.Contains("通过系统工具卸载")
+    && rundll.PurposeHint.Contains("rundll32.exe"),
+    rundll.PurposeKind.ToString());
+
+// (d) 普通第三方安装位置 vs 早期 InboxComponent 标记冲突：不盲信标记
+var wronglyFlagged = App("Wrongly Flagged", @"C:\Program Files\Vendor\Flagged", 1L << 30);
+wronglyFlagged.InboxComponent = true;
+wronglyFlagged.Entry = new ApplicationUninstallerEntry
+{
+    UninstallString = "\"C:\\Windows\\System32\\msiexec.exe\" /x {99999999-0000-0000-0000-000000000000}",
+};
+AppFactualInfoService.Apply(wronglyFlagged);
+CheckD("早期 InboxComponent=true 不被盲信（第三方安装位置冲突）",
+    wronglyFlagged.PurposeKind != AppSourceKind.WindowsInboxComponent,
+    wronglyFlagged.PurposeKind.ToString());
+
+// (e) 只有卸载程序在 Windows 内、没有 Windows 安装位置：保守，不断言自带
+var windowsHostedOnly = App("Windows Hosted Only", "", 0);
+windowsHostedOnly.Entry = new ApplicationUninstallerEntry
 {
     UninstallString = "\"" + Path.Combine(windowsDir, "System32", "mstsc.exe") + "\" /uninstall",
 };
-AppFactualInfoService.Apply(byCommand);
-CheckD("卸载程序位于系统目录内也算自带组件（不靠名字）",
-    byCommand.PurposeKind == AppSourceKind.WindowsInboxComponent,
-    byCommand.PurposeKind.ToString());
+AppFactualInfoService.Apply(windowsHostedOnly);
+CheckD("只有卸载程序在系统目录内 ⇒ 不断言系统自带",
+    windowsHostedOnly.PurposeKind != AppSourceKind.WindowsInboxComponent,
+    windowsHostedOnly.PurposeKind.ToString());
+CheckD("只有卸载程序在系统目录内 ⇒ 保守表述卸载方式",
+    windowsHostedOnly.PurposeHint.Contains("通过系统目录内的卸载程序卸载")
+    && windowsHostedOnly.PurposeHint.Contains("mstsc.exe"),
+    windowsHostedOnly.PurposeHint);
+
+// (f) 真正 Windows 安装位置仍然是自带组件（原有正确判定保留）
+var realInbox = App("Windows Real", Path.Combine(windowsDir, "System32"), 0);
+realInbox.Entry = new ApplicationUninstallerEntry
+{
+    UninstallString = "\"" + Path.Combine(windowsDir, "System32", "mstsc.exe") + "\" /uninstall",
+};
+AppFactualInfoService.Apply(realInbox);
+CheckD("真正 Windows 安装位置 ⇒ 自带组件（结构化证据）",
+    realInbox.PurposeKind == AppSourceKind.WindowsInboxComponent
+    && realInbox.PurposeConfidence == AppInfoConfidence.LocalEvidence,
+    realInbox.PurposeKind.ToString());
+
+// (g) 清单真实系统来源标志（SystemComponent）仍作为系统证据，与卸载宿主无关
+var sysFlag = App("Flagged System", @"D:\Vendor\SysFlag", 0);
+sysFlag.SystemComponent = true;
+AppFactualInfoService.Apply(sysFlag);
+CheckD("清单 SystemComponent 标志仍作为系统来源证据",
+    sysFlag.PurposeKind == AppSourceKind.ProtectedSystemEntry
+    && sysFlag.PurposeText.Contains("系统组件"),
+    sysFlag.PurposeText);
 
 var feature = App("Some Feature", "", 0);
 feature.GroupKey = 2;
@@ -240,7 +329,10 @@ CheckD("Steam 条目按清单标明",
 // 7) Describe 是纯函数；事实补全全程不调模型 / 网络
 // =====================================================================
 int callsBefore = AiClient.CallCount;
-AppFactualInfoService.Apply(new[] { known, mstsc, byCommand, feature, steam, bare, bloatNamed });
+AppFactualInfoService.Apply(new[]
+{
+    known, mstsc, windowsHostedOnly, thirdPartyMsi, rundll, realInbox, feature, steam, bare, bloatNamed,
+});
 Check("事实描述不触发任何模型 / 网络调用", AiClient.CallCount == callsBefore);
 
 var probe = App("probe", @"C:\Apps\Probe", 1234);
