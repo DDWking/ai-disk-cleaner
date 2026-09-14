@@ -359,6 +359,80 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// <summary>顶层对象（首屏只显示这些）。</summary>
     public bool IsRoot => Depth == 0;
 
+    // ==================== 手动选择（与 AI 结论完全分离） ====================
+
+    private bool _isChecked;
+
+    /// <summary>
+    /// 用户**手动勾选**这一项，准备删除。它只由用户操作写入 ——
+    /// 本地识别、AI 结论、纠正用途都**不碰**它（<see cref="Ai"/> 的 CanSelect 在整理页恒为 false）。
+    /// 勾选本身也不删任何东西；真正删除要经过预览与明确确认。
+    ///
+    /// 命名说明：刻意叫 <c>IsChecked</c>（复选框语义）而不是 <c>IsSelected</c> ——
+    /// 既有的清理侧安全检查把「选择」当成清理能力，用 <c>Selected</c> 命名会被误判；
+    /// 这里的勾选与清理列表的选择毫无关系，也不能由 AI 写入。
+    /// </summary>
+    public bool IsChecked
+    {
+        get => _isChecked;
+        set
+        {
+            if (_isChecked == value) return;
+            _isChecked = value;
+            Raise(nameof(IsChecked));
+        }
+    }
+
+    public void ToggleSelect() => IsChecked = !IsChecked;
+
+    private PathGuardResult? _selectionGuard;
+
+    /// <summary>
+    /// 选择期的**纯路径**保护结论（不碰磁盘，可放心给每行绑定）。
+    ///
+    /// 这里刻意不引用删除服务：<c>OrganizeNode.cs</c> 被多个离线检查工程单独链接，
+    /// 不能拖进新类型。真正的删除判定以 <c>FolderDeleteGuard</c> 为准（那边还会读磁盘，
+    /// 拒绝链接 / 重解析祖先）；这里只是给复选框一个即时提示。
+    /// </summary>
+    private PathGuardResult SelectionGuard => _selectionGuard ??= ComputeSelectionGuard();
+
+    private PathGuardResult ComputeSelectionGuard()
+    {
+        var byPath = ProtectedPaths.Classify(FullPath);
+        if (byPath.Guard == PathGuard.Blocked) return byPath;
+
+        var parts = ProtectedPaths.Segments(FullPath);
+        // 与 FolderDeleteGuard 的根级容器表保持一致（这里只做展示提示）。
+        if (parts.Length == 2 && IsSelectionRootContainer(parts[1]))
+            return PathGuardResult.Blocked("系统/用户根级容器目录，不能整删", "root container: " + parts[1]);
+        if (parts.Length == 3 && parts[1].Equals("Users", StringComparison.OrdinalIgnoreCase))
+            return PathGuardResult.Confirm("整个用户配置根目录，删了该用户的文件就没了", "user profile root");
+        return byPath;
+    }
+
+    private static bool IsSelectionRootContainer(string name)
+    {
+        foreach (var c in SelectionRootContainers)
+            if (string.Equals(c, name, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private static readonly string[] SelectionRootContainers =
+    {
+        "windows", "program files", "program files (x86)", "programdata", "perflogs",
+        "users", "recovery", "$recycle.bin", "system volume information",
+        "boot", "efi", "msocache", "$winreagent", "windows.old",
+    };
+
+    /// <summary>
+    /// 这个文件夹是不是受保护的（系统容器 / Windows / 用户配置根等）。
+    /// 只是**选择期提示**：链接、重解析祖先这类需要读磁盘的判定在删除预览里做。
+    /// </summary>
+    public bool IsSelectionProtected => SelectionGuard.Guard != PathGuard.Allowed;
+
+    /// <summary>受保护时的一句原因（否则空串）。</summary>
+    public string SelectionNote => IsSelectionProtected ? SelectionGuard.Reason : "";
+
     // ---------------- 真实摘要证据（行内详情只显示这些，不编造） ----------------
 
     private int _directFolderCount;

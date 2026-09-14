@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>FolderDeleteCheck</AssemblyName>
+    <RootNamespace>FolderDeleteCheck</RootNamespace>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Stubs.cs" />
+    <Compile Include="Fakes.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" Link="FileEntry.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\DeletionModels.cs" Link="DeletionModels.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\FolderDeleteModels.cs" Link="FolderDeleteModels.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ProtectedPaths.cs" Link="ProtectedPaths.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\IFileSystemProbe.cs" Link="IFileSystemProbe.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\DeletionPreflight.cs" Link="DeletionPreflight.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\FolderDeleteGuard.cs" Link="FolderDeleteGuard.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\FolderSelectionService.cs" Link="FolderSelectionService.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\IFolderRecycleOperation.cs" Link="IFolderRecycleOperation.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\FolderDeleteService.cs" Link="FolderDeleteService.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Native\FolderRecycleNative.cs" Link="FolderRecycleNative.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ShellRecycleOperation.cs" Link="ShellRecycleOperation.cs" />
+  </ItemGroup>
+</Project>
