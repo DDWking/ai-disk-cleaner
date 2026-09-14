@@ -18,8 +18,37 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $proj = Join-Path $repo 'tools\StartupCheck\StartupCheck.csproj'
 
+# Prefer an SDK-capable dotnet. PATH may resolve to a runtime-only install (no SDK).
+#
+# NOTE (PS 5.1): with $ErrorActionPreference = 'Stop', redirecting a native command's
+# stderr (`2>$null`) raises NativeCommandError and kills the script - which made this
+# check look broken on a machine whose PATH dotnet is runtime-only. So: temporarily
+# relax the preference, merge stderr with 2>&1, and decide by exit code + real output.
+function Find-Dotnet {
+    $candidates = @()
+    $onPath = Get-Command dotnet -ErrorAction SilentlyContinue
+    if ($onPath -and $onPath.Source) { $candidates += $onPath.Source }
+    $userDotnet = Join-Path $env:USERPROFILE '.dotnet\dotnet.exe'
+    if (Test-Path -LiteralPath $userDotnet) { $candidates += $userDotnet }
+    foreach ($candidate in $candidates) {
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $sdks = (& $candidate --list-sdks 2>&1 | Out-String)
+            $code = $LASTEXITCODE
+        }
+        catch { $sdks = ''; $code = 1 }
+        finally { $ErrorActionPreference = $prev }
+        if ($code -eq 0 -and $sdks -match '\d+\.\d+\.\d+') { return $candidate }
+    }
+    throw 'No .NET SDK found (neither dotnet on PATH nor ~/.dotnet/dotnet.exe has an SDK).'
+}
+
+$dotnet = Find-Dotnet
+Write-Output "dotnet: $dotnet"
+
 Write-Output 'Building StartupCheck (Release)...'
-$build = & dotnet build $proj -c Release --nologo -v quiet 2>&1
+$build = & $dotnet build $proj -c Release --nologo -v quiet 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Output $build
     Write-Output 'FAIL: StartupCheck did not build.'
@@ -32,5 +61,5 @@ if (-not (Test-Path $dll)) {
     exit 1
 }
 
-& dotnet $dll
+& $dotnet $dll
 exit $LASTEXITCODE

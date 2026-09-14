@@ -77,6 +77,37 @@ namespace AiDiskCleaner.Services
         public static string Analyzing => "analyzing";
         public static string AgeText(int days) => days + "d";
 
+        // ---- 位置行内展开（清理页）----
+        public static string ViewFilesAction => "view files";
+        public static string CollapseFilesAction => "hide files";
+        public static string InlineFilesCount(int shown, int total) => $"{shown}/{total} items";
+        public static string InlineFilesHidden(int hidden) => $"{hidden} more";
+        public static string InlineFilesScope => "candidates only";
+        public static string OpenFullListAction => "full list";
+        public static string OpenFullListTip => "open the side panel";
+        public static string KeptItemBadge => "kept";
+        public static string FileNameHeader => "File";
+        public static string FileModifiedHeader => "Modified";
+        public static string FileSizeHeader => "Size";
+
+        // ---- 整理页展开状态 / 未知与空的区分 ----
+        public static string OrganizeSizeNotScanned => "unknown (not scanned)";
+        public static string OrganizeSizeEmpty => "no content found";
+        public static string OrganizeStateNotScanned => "not scanned (link)";
+        public static string OrganizeStateFilesOnly(int files) => $"files only / {files}";
+        public static string OrganizeStateEmpty => "empty";
+        public static string OrganizeTipNotScanned => "link not followed";
+        public static string OrganizeTipFilesOnly => "no sub-folders; use the file button";
+        public static string OrganizeTipEmpty => "nothing found in this scan";
+        public static string OrganizeFilesCount(int shown, int total) => $"{shown}/{total} files";
+        public static string OrganizeFilesMore(int hidden) => $"{hidden} more - open the folder to see all";
+        public static string OrganizeFilesScope => "read-only list";
+
+        // ---- 规则明确的批量勾选（预览弹层）----
+        public static string RuleSelectNoEligible => "nothing matches the formal rules";
+        public static string RuleSelectSummary(int files, string size, int kinds) => $"{files} items / {size} / {kinds} kinds";
+        public static string RuleSelectExcludedNote(int files, int kinds, string size) => $"excluded {kinds} kinds / {files} items / {size}";
+
         public static string AiEdit => "edit";
         public static string AiDelProvider => "delete";
         public static string AiCustomTag => "custom";

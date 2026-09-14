@@ -49,6 +49,8 @@ public static class CleanItemFactory
             Handling = hit.Handling,
             Risk = finalRisk,
             CanDelete = canDelete,
+            // 规则的证据强度原样带上：「批量选择规则明确的项」只能靠它，不靠路径字符串猜
+            Evidence = hit.Evidence,
             Selected = hit.Selected && canDelete && finalRisk != CleanRisk.Keep,
             Entry = e,
             IsDirectory = e.IsDirectory,

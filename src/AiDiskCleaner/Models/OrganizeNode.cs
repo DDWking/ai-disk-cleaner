@@ -5,6 +5,31 @@ using AiDiskCleaner.Services;
 namespace AiDiskCleaner.Models;
 
 /// <summary>
+/// 一个文件夹的内容形态。**这是为了回答「为什么这一行没有展开箭头」** ——
+/// 以前没有箭头就是没有箭头，用户看不出是「真的空」「只有文件」「是个链接没扫」
+/// 还是「只是没扫到」，而 0 KB 又把它们全都指成了「空」。
+/// </summary>
+public enum FolderContentKind
+{
+    /// <summary>还没判断出来。</summary>
+    Unknown,
+    /// <summary>有直接子文件夹 —— 可以展开（箭头是有效的）。</summary>
+    ChildDirs,
+    /// <summary>没有子文件夹，但有文件 —— **不伪造箭头**，给「查看文件」入口。</summary>
+    FilesOnly,
+    /// <summary>扫描结果里没有任何内容。说「空」必须限定在「这次扫描看到的」范围内。</summary>
+    Empty,
+    /// <summary>重解析点 / 链接：本次扫描**没有进去**，所以内容与占用都未知。</summary>
+    NotScanned,
+}
+
+/// <summary>「只有文件」的那一类目录在行内列出来的一个文件（**只读展示，不带任何删除能力**）。</summary>
+public sealed record OrganizeFileRow(string Name, string SizeText, string ModifiedText, string FullPath)
+{
+    public string Hint => FullPath.Length > 0 ? FullPath : Name;
+}
+
+/// <summary>
 /// 「文件夹整理」页里的一个文件夹对象。
 ///
 /// 它**只描述用途与容量**，没有 Risk / CanDelete / Selected 这类字段 ——
@@ -75,9 +100,164 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     public string Name => Dir.Name;
     public string FullPath => Dir.FullPath;
     public long Size => Dir.Size;
-    public string SizeText => FileEntry.FormatSize(Dir.Size);
+
+    /// <summary>
+    /// 容量那一格。
+    /// **未扫描的（链接 / 重解析点）绝不显示 0 KB** ——「没进去看」和「里面是空的」
+    /// 是两回事，0 KB 会把后者说成前者。空目录也换成明确的「扫描无内容」，不用 0 暗示。
+    /// </summary>
+    public string SizeText => ContentKind switch
+    {
+        FolderContentKind.NotScanned => Loc.OrganizeSizeNotScanned,
+        FolderContentKind.Empty => Loc.OrganizeSizeEmpty,
+        _ => FileEntry.FormatSize(Dir.Size),
+    };
+
     public int FileCount => Dir.FileCount;
     public int FolderCount => Dir.FolderCount;
+
+    // ==================== 内容形态：解释「为什么没有展开箭头」 ====================
+
+    private bool _directFileCountKnown;
+    private int _directFileCount;
+
+    /// <summary>直接子**文件**数（不是递归的 FileCount）。</summary>
+    public int DirectFileCount
+    {
+        get
+        {
+            if (!_directFileCountKnown)
+            {
+                int n = 0;
+                foreach (var c in Dir.ChildList) if (!c.IsDirectory) n++;
+                _directFileCount = n;
+                _directFileCountKnown = true;
+            }
+            return _directFileCount;
+        }
+    }
+
+    /// <summary>
+    /// 内容形态。判定只看**扫描树里真实存在的东西**，不猜：
+    /// 链接一律 NotScanned；有直接子目录 ⇒ 可展开；没有子目录但有文件 ⇒ FilesOnly；
+    /// 两样都没有 ⇒ Empty（文案限定为「这次扫描里没有内容」）。
+    /// </summary>
+    public FolderContentKind ContentKind
+    {
+        get
+        {
+            if (!FolderPurposeRules.CanDescend(Dir)) return FolderContentKind.NotScanned;
+            if (ChildDirCount > 0) return FolderContentKind.ChildDirs;
+            if (DirectFileCount > 0) return FolderContentKind.FilesOnly;
+            return FolderContentKind.Empty;
+        }
+    }
+
+    /// <summary>「只有文件」的行要有一个**有效**的查看入口，而不是伪造一个展开箭头。</summary>
+    public bool CanViewFiles => ContentKind == FolderContentKind.FilesOnly;
+
+    /// <summary>
+    /// 容量列下面那行短状态。有箭头或常态时不占位置（返回空串）。
+    /// </summary>
+    public string ContentStateText => ContentKind switch
+    {
+        FolderContentKind.NotScanned => Loc.OrganizeStateNotScanned,
+        FolderContentKind.FilesOnly => Loc.OrganizeStateFilesOnly(DirectFileCount),
+        FolderContentKind.Empty => Loc.OrganizeStateEmpty,
+        _ => "",
+    };
+
+    public bool HasContentState => ContentStateText.Length > 0;
+
+    /// <summary>悬停解释这一行为什么没有箭头 / 为什么写未知。</summary>
+    public string ContentStateTip => ContentKind switch
+    {
+        FolderContentKind.NotScanned => Loc.OrganizeTipNotScanned,
+        FolderContentKind.FilesOnly => Loc.OrganizeTipFilesOnly,
+        FolderContentKind.Empty => Loc.OrganizeTipEmpty,
+        _ => "",
+    };
+
+    // ==================== 「只有文件」的行内查看（只读、有界） ====================
+
+    /// <summary>行内最多列几个文件（刻意有界，不做嵌套滚动）。</summary>
+    public const int InlineFileLimit = 12;
+
+    private bool _filesOpen;
+    private bool _filesLoaded;
+    private IReadOnlyList<OrganizeFileRow> _files = Array.Empty<OrganizeFileRow>();
+
+    public bool IsFilesOpen
+    {
+        get => _filesOpen;
+        private set
+        {
+            if (_filesOpen == value) return;
+            _filesOpen = value;
+            Raise(nameof(IsFilesOpen));
+            Raise(nameof(FilesToggleText));
+        }
+    }
+
+    /// <summary>
+    /// 这个文件夹自己的文件。**展开之前恒为空**（惰性）：
+    /// 绑定不会为了「可能被展开」就把整页目录的文件都排一遍。
+    /// </summary>
+    public IReadOnlyList<OrganizeFileRow> VisibleFiles => _files;
+
+    public int HiddenFileCount => Math.Max(0, DirectFileCount - _files.Count);
+
+    public string FilesNote
+    {
+        get
+        {
+            if (!_filesLoaded) return "";
+            string head = Loc.OrganizeFilesCount(_files.Count, DirectFileCount);
+            return HiddenFileCount > 0 ? head + " · " + Loc.OrganizeFilesMore(HiddenFileCount) : head;
+        }
+    }
+
+    public string FilesToggleText => _filesOpen ? Loc.CollapseFilesAction : Loc.ViewFilesAction;
+
+    public void ToggleFiles() => SetFilesOpen(!_filesOpen);
+
+    public void SetFilesOpen(bool open)
+    {
+        if (open && !_filesLoaded) EnsureFiles();
+        IsFilesOpen = open;
+        Raise(nameof(FilesNote));
+        Raise(nameof(VisibleFiles));
+        Raise(nameof(HiddenFileCount));
+    }
+
+    /// <summary>
+    /// 惰性建行：只取直接子文件里最大的前几个。
+    /// **只读展示**：这里没有任何勾选、没有清理资格、也没有删除入口 ——
+    /// 整理页绝不因为「看了一个文件夹」就获得清理能力。
+    /// </summary>
+    private void EnsureFiles()
+    {
+        _filesLoaded = true;
+        var rows = new List<(long Size, OrganizeFileRow Row)>();
+        foreach (var c in Dir.ChildList)
+        {
+            if (c.IsDirectory) continue;
+            rows.Add((Math.Max(0, c.Allocated > 0 ? c.Allocated : c.Size), new OrganizeFileRow(
+                c.Name ?? "",
+                FileEntry.FormatSize(c.Size),
+                c.Modified == DateTime.MinValue ? "" : c.Modified.ToString("yyyy-MM-dd HH:mm"),
+                c.FullPath ?? "")));
+        }
+        // 按占用降序：用户最想先看到大的那几个
+        _files = rows
+            .OrderByDescending(x => x.Size)
+            .ThenBy(x => x.Row.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Take(InlineFileLimit)
+            .Select(x => x.Row)
+            .ToList();
+    }
+
+    public string FilesScopeText => Loc.OrganizeFilesScope;
 
     /// <summary>这个对象在树里的缩进（像素）。不引用 WPF 类型，便于离线测试。</summary>
     public double IndentWidth => Depth * 18.0;

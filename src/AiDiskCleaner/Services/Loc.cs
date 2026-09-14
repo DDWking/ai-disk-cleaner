@@ -573,9 +573,13 @@ public static class Loc
              : $"对 {n:N0} 个软件运行官方卸载程序？每个都可能弹出自己的窗口。";
     public static string UninstallConfirmDetails(IEnumerable<string> names, int n, string size, bool warning) =>
         IsEn
-            ? $"You are about to run official uninstallers for {n:N0} apps ({size}).\n\n{string.Join("\n", names)}"
+            ? $"You are about to run official uninstallers for {n:N0} apps.\n"
+              + $"Combined disk footprint: {size} — the best available number (measured scan or the "
+              + "installer's own record), not a promise of freed space.\n\n" + string.Join("\n", names)
               + (warning ? "\n\nSome selected apps have warnings. Review them before confirming." : "")
-            : $"即将对 {n:N0} 个软件运行官方卸载程序，预计释放 {size}。\n\n{string.Join("\n", names)}"
+            : $"即将对 {n:N0} 个软件运行官方卸载程序。\n"
+              + $"所选项目的磁盘占用合计 {size} —— 这是目前最可信的一个数（扫描实测或安装记录写的），"
+              + "不等于卸载后一定能释放这么多。\n\n" + string.Join("\n", names)
               + (warning ? "\n\n部分软件有提醒，请确认后再继续。" : "");
     public static string UninstallProtected => IsEn ? "Protected" : "受保护";
     public static string UninstallGroupOk => IsEn ? "Can uninstall" : "可卸载";
@@ -590,25 +594,75 @@ public static class Loc
              : $"对 {n:N0} 项运行卸载（含 {features:N0} 个 Windows 功能）？功能走 DISM，可能要重启。";
     public static string UninstallNoWay => IsEn ? "No uninstaller" : "无法卸载";
     public static string UninstallGroupRecommend(int n) => IsEn ? $"Suggested to uninstall ({n:N0})" : $"建议卸载（{n:N0}）";
-    public static string UninstallGroupConsider(int n) => IsEn ? $"Consider ({n:N0})" : $"可以考虑（{n:N0}）";
+    public static string UninstallGroupConsider(int n) => IsEn ? $"Needs a look ({n:N0})" : $"需要看一下（{n:N0}）";
     public static string UninstallGroupKeep(int n) => IsEn ? $"Suggested to keep ({n:N0})" : $"建议保留（{n:N0}）";
+    /// <summary>没有足够证据的一档。**中性**：不叫「可以考虑」，也不假装有结论。</summary>
+    public static string UninstallGroupNeutral(int n) => IsEn ? $"Not assessed ({n:N0})" : $"未评估（{n:N0}）";
     public static string AppRecommendationLabel(AppRecommendationDecision decision) => decision switch
     {
         AppRecommendationDecision.Recommend => IsEn ? "Recommend uninstall" : "建议卸载",
         AppRecommendationDecision.Keep => IsEn ? "Keep" : "建议保留",
-        _ => IsEn ? "Consider" : "可以考虑",
+        AppRecommendationDecision.Neutral => IsEn ? "Not assessed" : "未评估",
+        _ => IsEn ? "Worth a look" : "需要看一下",
     };
     public static string AppKeepSystem => IsEn ? "System or protected component" : "系统或受保护组件";
     public static string AppKeepNoUninstaller => IsEn ? "No usable uninstaller was found" : "没有可用的卸载程序";
     public static string AppKeepCritical => IsEn ? "Runtime, driver, security, or virtualization component" : "运行库、驱动、安全或虚拟化组件";
+    /// <summary>Windows 自带组件 / 厂商驱动：本页不给卸载建议（也没有可信占用）。</summary>
+    public static string AppKeepInboxComponent =>
+        IsEn ? "Windows component or device software; this page does not suggest removing it"
+             : "Windows 自带组件或设备软件，本页不提供卸载建议";
     public static string AppConsiderRunning => IsEn ? "Currently running" : "当前正在运行";
     public static string AppRunningWarning => IsEn ? "Close it before uninstalling" : "卸载前请先退出软件";
-    public static string AppConsiderRunningUnknown => IsEn ? "Running state could not be verified" : "无法确认是否正在运行";
-    public static string AppRunningUnknownWarning => IsEn ? "Verify it is closed before uninstalling" : "卸载前请确认软件已退出";
+    /// <summary>运行状态只作为事实说明，不当成卸载依据。</summary>
+    public static string RunningStateText(AppRunningState state) => state switch
+    {
+        AppRunningState.Running => IsEn ? "Running: yes" : "运行状态：正在运行",
+        AppRunningState.NotRunning => IsEn ? "Running: no" : "运行状态：未在运行",
+        _ => IsEn ? "Running: could not be verified" : "运行状态：未能确认",
+    };
     public static string AppRecommendBloat => IsEn ? "Known bundled or unwanted software pattern" : "符合常见捆绑或不需要软件特征";
-    public static string AppConsiderLarge => IsEn ? "Large install footprint; confirm that you no longer need it" : "占用空间较大，请确认是否还需要";
-    public static string AppConsiderStartup => IsEn ? "Starts with Windows; review whether it is needed" : "会随系统启动，请确认是否还需要";
-    public static string AppConsiderUnknown => IsEn ? "No strong uninstall signal; review manually" : "没有足够依据自动判断，请自行核对";
+    /// <summary>中性档不给理由 —— 理由栏只写有证据的话，不写套话。</summary>
+    public static string AppNeutralReason => "";
+
+    // ---- 占用可信度：扫描实测 / 安装记录估计 / 未测得，三者必须一眼分清 ----
+    /// <summary>安装记录里的体积（不是实测）。</summary>
+    public static string AppSizeFromRecord(string size) =>
+        IsEn ? $"~{size} (install record)" : $"约 {size}（安装记录）";
+    /// <summary>没有实测、也没有可信记录时照实说未知。</summary>
+    public static string AppSizeUnknown => IsEn ? "unknown" : "未知";
+    /// <summary>实测到 0 字节：这是「这次扫描里没找到内容」，不是「卸载能释放 0」。</summary>
+    public static string AppSizeMeasuredEmpty => IsEn ? "0 KB (found nothing)" : "0 KB（扫描未找到内容）";
+    /// <summary>占用为什么没测到 —— 悬停里说清，不让用户以为是软件真的只有这么大。</summary>
+    public static string AppFootprintNotMeasured(string why) =>
+        IsEn ? $"Footprint not attributable to this app: {why}" : $"占用未归属到这个软件：{why}";
+    public static string AppFootprintWhyShared =>
+        IsEn ? "the install path is shared with other apps" : "安装目录与其他软件共用";
+    public static string AppFootprintWhySystemDir =>
+        IsEn ? "the install path is inside the Windows directory" : "安装路径在 Windows 系统目录里";
+    public static string AppFootprintWhyGenericRoot =>
+        IsEn ? "the recorded path is a generic parent folder, not this app's own folder" : "记录的是通用父目录，不是这个软件自己的目录";
+    public static string AppFootprintWhyNotScanned =>
+        IsEn ? "the folder is not covered by the scanned drive(s)" : "这个目录不在本次扫描的盘里";
+    public static string AppFootprintWhyMissing =>
+        IsEn ? "the recorded folder does not exist" : "记录的目录不存在";
+    public static string AppFootprintWhyUnreadable =>
+        IsEn ? "the running state could not be verified, so size was not measured" : "运行状态未能确认，因此没有实测";
+    /// <summary>磁盘占用 ≠ 卸载可释放量。这句话必须写在确认框里。</summary>
+    public static string AppFootprintNotEqualFree =>
+        IsEn ? "Disk footprint is not the same as what an uninstall actually frees."
+             : "磁盘占用不等于卸载实际能释放的空间。";
+    public static string UninstallConfirmSizeNote =>
+        IsEn ? "size shown is the best available number (measured scan or install record), not a promise"
+             : "上面这个数是目前最可信的一个（扫描实测或安装记录），不是承诺";
+    public static string AppSizeColumnHeader => IsEn ? "Footprint" : "占用";
+    public static string AppSizeColumnTip => IsEn
+        ? "Measured from the scan when possible; otherwise the installer's own record (marked). Unknown stays unknown."
+        : "能实测就用扫描结果；否则用安装记录写的数（会标出来）。两者都没有就写「未知」。";
+    /// <summary>建议列不是证据就不要往上写东西。</summary>
+    public static string AppNeutralHint => IsEn
+        ? "No uninstall signal was found. Search, sort by footprint, or uninstall it manually."
+        : "没有找到卸载依据。可以搜索、按占用排序，或自己直接卸载。";
     public static string UninstallAiNotConfigured => IsEn
         ? "Local rules are being used. AI is optional and never controls uninstall."
         : "当前使用本地规则。AI 可选，且永远不会直接控制卸载。";
@@ -1009,6 +1063,35 @@ public static class Loc
         : $"只列出 {shown:N0} / {total:N0} 个子文件夹";
     public static string OrganizeEntryPointTag => IsEn ? "system entry" : "系统入口";
     public static string OrganizePlatformTag => IsEn ? "games live inside" : "里面有游戏";
+
+    // ---- 展开状态：为什么这一行没有箭头 / 为什么写未知（不是 0 KB） ----
+    /// <summary>链接 / 重解析点：本次扫描没有进去，占用与内容都未知。</summary>
+    public static string OrganizeSizeNotScanned => IsEn ? "unknown (not scanned)" : "未知（未扫描）";
+    /// <summary>空目录：只敢说「这次扫描里没有内容」，不拿 0 KB 暗示。</summary>
+    public static string OrganizeSizeEmpty => IsEn ? "no content found" : "扫描无内容";
+    public static string OrganizeStateNotScanned => IsEn ? "not scanned (link)" : "未扫描（链接）";
+    public static string OrganizeStateFilesOnly(int files) => IsEn
+        ? $"files only · {files:N0}"
+        : $"只有文件 · {files:N0}";
+    public static string OrganizeStateEmpty => IsEn ? "empty" : "空";
+    public static string OrganizeTipNotScanned => IsEn
+        ? "This is a link or reparse point. The scan did not follow it, so its size and contents are unknown — not zero."
+        : "这是链接或系统重解析点。本次扫描没有跟进去，所以内容和占用都是未知，不是 0。";
+    public static string OrganizeTipFilesOnly => IsEn
+        ? "No sub-folders here, so there is nothing to expand. Use the file button to list its files."
+        : "这一层没有子文件夹，所以没有可展开的箭头。用文件按钮可以看它里面的文件。";
+    public static string OrganizeTipEmpty => IsEn
+        ? "Nothing was found inside this folder in this scan. That is not the same as a link that was skipped."
+        : "本次扫描在这个文件夹里没有找到内容。这和「链接被跳过」不是一回事。";
+    public static string OrganizeFilesCount(int shown, int total) => IsEn
+        ? $"{shown:N0} of {total:N0} file(s), largest first"
+        : $"共 {total:N0} 个文件，按占用列出前 {shown:N0} 个";
+    public static string OrganizeFilesMore(int hidden) => IsEn
+        ? $"{hidden:N0} more — open the folder to see all"
+        : $"另有 {hidden:N0} 个，打开文件夹看全部";
+    public static string OrganizeFilesScope => IsEn
+        ? "Read-only list of this folder's own files. The organize page never deletes anything."
+        : "这里只列这个文件夹自己的文件，只读。整理页不做任何删除。";
     public static string OrganizeSkippedLinks(int n) => IsEn
         ? $"{n:N0} links / groups skipped (not followed)"
         : $"跳过 {n:N0} 个链接或散文件组（不跟随）";
@@ -1497,6 +1580,77 @@ public static class Loc
         ? $"{copies:N0} copies of the same content across {folders:N0} folder(s)"
         : $"同一份内容共 {copies:N0} 个，分散在 {folders:N0} 个文件夹";
     public static string EstUnknown => IsEn ? "size unknown" : "空间未知";
+
+    // ============ 位置行内展开候选文件（不用先跑 AI） ============
+    public static string ViewFilesAction => IsEn ? "View its files" : "查看文件";
+    public static string CollapseFilesAction => IsEn ? "Hide its files" : "收起文件";
+    public static string InlineFilesCount(int shown, int total) => IsEn
+        ? $"{shown:N0} of {total:N0} candidate item(s), largest first"
+        : $"共 {total:N0} 项候选，按占用从大到小列出 {shown:N0} 项";
+    public static string InlineFilesHidden(int hidden) => IsEn
+        ? $"{hidden:N0} more not listed here"
+        : $"另有 {hidden:N0} 项未在这里列出";
+    /// <summary>行内列表与「在资源管理器中打开」是两件事，必须说清。</summary>
+    public static string InlineFilesScope => IsEn
+        ? "These are this app's cleanup candidates only — not every file in the folder. "
+          + "Use the folder icon to open the real folder in Explorer."
+        : "这里只列这一处的清理候选，不是文件夹里的全部文件。要看真实目录请用文件夹图标。";
+    public static string OpenFullListAction => IsEn ? "Full list (searchable)" : "完整列表（可搜索）";
+    public static string OpenFullListTip => IsEn
+        ? "Open the side panel with search, paging and per-item reasons"
+        : "打开右侧明细面板：可搜索、分页，并逐项看理由";
+    public static string KeptItemBadge => IsEn ? "kept" : "保留";
+    public static string FileModifiedHeader => IsEn ? "Modified" : "修改时间";
+    public static string FileNameHeader => IsEn ? "File" : "文件名";
+    public static string FileSizeHeader => IsEn ? "Size" : "大小";
+    public static string FilesOpenFor(string name) => IsEn ? $"Files · {name}" : $"文件 · {name}";
+
+    // ============ 「选择规则明确的清理项」（批量决策，但只走正式规则） ============
+    /// <summary>动作名必须说清它选的是**规则明确**的那部分，不是「推荐清理」。</summary>
+    public static string RuleSelectAction => IsEn ? "Select rule-clear items" : "选择规则明确的清理项";
+    public static string RuleSelectActionTip => IsEn
+        ? "Ticks only items the formal rules marked safe with signature-level evidence and that pass the protection check. You see the list first."
+        : "只勾选正式规则判定为安全、证据达到签名级、且通过保护检查的项。会先给你看清单。";
+    public static string RuleSelectTitle => IsEn ? "Rule-clear items" : "规则明确的清理项";
+    public static string RuleSelectSummary(int files, string size, int kinds) => IsEn
+        ? $"{files:N0} item(s) · about {size} · {kinds:N0} kind(s)"
+        : $"{files:N0} 项 · 约 {size} · {kinds:N0} 类";
+    public static string RuleSelectNoEligible => IsEn
+        ? "Nothing in this scan matches the formal rules. Pick items yourself."
+        : "本次扫描里没有符合正式规则的项，请自己挑。";
+    /// <summary>把「选了什么」和「没选什么」同时说清，避免用户以为已经全清了。</summary>
+    public static string RuleSelectNote => IsEn
+        ? "Only cache / temp / dump items that the rules themselves identified with signature-level "
+          + "evidence are ticked. Large files, old files, downloads, archives, videos, personal data and "
+          + "anything unknown are NOT included — those stay manual. Caches are not all safe to delete "
+          + "without impact, so glance at this list first."
+        : "这里只会勾上「规则自己认出、证据到签名级」的缓存 / 临时 / 转储项。"
+          + "大文件、旧文件、下载内容、压缩包、视频、个人资料和未知对象都不在其中，仍要你自己挑。"
+          + "缓存也不是全都删了没影响，勾完请先看一眼这个清单。";
+    public static string RuleSelectConfirm => IsEn ? "Tick these items" : "确认勾选这些";
+    public static string RuleSelectCancel => IsEn ? "Cancel" : "取消";
+    public static string RuleSelectColExclude => IsEn ? "Exclude" : "排除";
+    public static string RuleSelectColPurpose => IsEn ? "Kind" : "类别";
+    public static string RuleSelectColImpact => IsEn ? "What removing it does" : "清掉会怎样";
+    public static string RuleSelectColFiles => IsEn ? "Items" : "项数";
+    public static string RuleSelectColSize => IsEn ? "About" : "约占用";
+    public static string RuleSelectColSample => IsEn ? "Examples" : "例子";
+    public static string RuleSelectExcludeTip => IsEn
+        ? "Tick to leave this kind out of the batch selection"
+        : "勾上表示这一类不参与本次批量选择";
+    public static string RuleSelectExcludedNote(int files, int kinds, string size) => IsEn
+        ? $"Excluded: {kinds:N0} kind(s) · {files:N0} item(s) · about {size}"
+        : $"已排除：{kinds:N0} 类 · {files:N0} 项 · 约 {size}";
+    public static string RuleSelectApplied(int files, string size) => IsEn
+        ? $"Ticked {files:N0} rule-clear item(s) (about {size}). The cleanup check still runs before anything is deleted."
+        : $"已按规则勾选 {files:N0} 项（约 {size}）。删除前仍会走清理前检查。";
+    public static string RuleSelectNothingNew => IsEn
+        ? "Those items were already ticked."
+        : "这些项本来就已经勾上了。";
+    /// <summary>写入前重新核对时被拦下的条数（保护路径 / 资格变化）。</summary>
+    public static string RuleSelectRecheckSkipped(int n) => IsEn
+        ? $"{n:N0} item(s) were skipped by the pre-write protection re-check"
+        : $"有 {n:N0} 项在写入前复检时被保护规则拦下，未勾选";
     /// <summary>风险分区标题。**叫「清理候选」而不是「建议清理」** —— 改个名字不等于规则没问题，
     /// 但至少不要再让界面替用户下「可以删」的结论。</summary>
     public static string LayerSafe => IsEn ? "Cleanup candidates" : "清理候选";

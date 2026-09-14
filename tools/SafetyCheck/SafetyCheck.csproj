@@ -14,9 +14,11 @@
     <Compile Include="FakeProbe.cs" />
     <Compile Include="Stubs.cs" />
     <Compile Include="LayeredCleanTests.cs" />
+    <Compile Include="ReviewFixesTests.cs" />
 
     <Compile Include="..\..\src\AiDiskCleaner\Models\DeletionModels.cs" Link="DeletionModels.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" Link="FileEntry.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\CleanEvidence.cs" Link="CleanEvidence.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanItem.cs" Link="CleanItem.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanGroupNodes.cs" Link="CleanGroupNodes.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\ScanQuality.cs" Link="ScanQuality.cs" />
@@ -43,6 +45,8 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\AiNoteParser.cs" Link="AiNoteParser.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleContracts.cs" Link="CleanRuleContracts.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanItemFactory.cs" Link="CleanItemFactory.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleEligibility.cs" Link="CleanRuleEligibility.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\CleanRuleSelectPreview.cs" Link="CleanRuleSelectPreview.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\DuplicateDetector.cs" Link="DuplicateDetector.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\DuplicateScanService.cs" Link="DuplicateScanService.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanListSnapshot.cs" Link="CleanListSnapshot.cs" />

@@ -506,6 +506,20 @@ public partial class MainWindow
         if ((sender as FrameworkElement)?.DataContext is OrganizeNode n) ToggleOrganize(n);
     }
 
+    /// <summary>
+    /// 「只有文件」那一行的文件按钮：就地列出这个文件夹自己的文件。
+    /// **纯只读展示** —— 不改展开状态、不触发识别、不碰任何清理字段。
+    /// </summary>
+    private void OrganizeFiles_Click(object sender, RoutedEventArgs e)
+    {
+        var node = (sender as FrameworkElement)?.Tag as OrganizeNode
+            ?? (sender as FrameworkElement)?.DataContext as OrganizeNode;
+        if (node == null) return;
+        node.ToggleFiles();
+        AppLog.Info("Organize", $"op=files dir={node.Name} open={node.IsFilesOpen} "
+            + $"listed={node.VisibleFiles.Count} direct={node.DirectFileCount} kind={node.ContentKind}");
+    }
+
     private void ToggleOrganize(OrganizeNode node)
     {
         if (node.IsExpanded)

@@ -12,6 +12,9 @@ namespace UninstallTools
 {
     public class ApplicationUninstallerEntry
     {
+        /// <summary>卸载命令行（结构化判定「Windows 自带组件」要用它，不是靠名字猜）。</summary>
+        public string UninstallString { get; set; } = "";
+        public string RegistryPath { get; set; } = "";
     }
 }
 
@@ -57,12 +60,24 @@ namespace AiDiskCleaner.Services
         public static string AppKeepCritical => "critical";
         public static string AppConsiderRunning => "running";
         public static string AppRunningWarning => "close first";
-        public static string AppConsiderRunningUnknown => "state unknown";
-        public static string AppRunningUnknownWarning => "verify closed";
         public static string AppRecommendBloat => "bloat";
-        public static string AppConsiderLarge => "large";
-        public static string AppConsiderStartup => "startup";
-        public static string AppConsiderUnknown => "unknown";
+        public static string AppNeutralReason => "";
+        public static string AppKeepInboxComponent => "inbox";
+        public static string AppSizeFromRecord(string size) => "~" + size + " (record)";
+        public static string AppSizeUnknown => "unknown";
+        public static string AppSizeMeasuredEmpty => "0 KB (found nothing)";
+        public static string AppFootprintNotMeasured(string why) => "not measured: " + why;
+        public static string AppFootprintWhyShared => "shared";
+        public static string AppFootprintWhySystemDir => "system dir";
+        public static string AppFootprintWhyGenericRoot => "generic root";
+        public static string AppFootprintWhyNotScanned => "not scanned";
+        public static string AppFootprintWhyMissing => "missing";
+        public static string AppFootprintWhyUnreadable => "unreadable";
+        public static string AppFootprintNotEqualFree => "footprint != freed";
+        public static string UninstallConfirmSizeNote => "size is not a promise";
+        public static string AppNeutralHint => "no signal";
+        public static string AppSizeColumnHeader => "Footprint";
+        public static string AppSizeColumnTip => "measured / record / unknown";
         public static string AppSizeEstimated => " est.";
         public static string FootprintInstall(string size) => "install: " + size;
         public static string FootprintUserData(string size) => "userdata: " + size;
@@ -70,5 +85,6 @@ namespace AiDiskCleaner.Services
         public static string FootprintReclaimable(string size) => "reclaimable: " + size;
         public static string AiMark => "AI";
         public static string AppRecommendationLabel(AppRecommendationDecision decision) => decision.ToString();
+        public static string RunningStateText(AppRunningState state) => state.ToString();
     }
 }

@@ -134,7 +134,8 @@ public sealed class AppGroupConverter : IValueConverter
         {
             0 => Loc.UninstallGroupRecommend(n),
             1 => Loc.UninstallGroupConsider(n),
-            _ => Loc.UninstallGroupKeep(n),
+            2 => Loc.UninstallGroupKeep(n),
+            _ => Loc.UninstallGroupNeutral(n),
         };
     }
 
@@ -533,6 +534,12 @@ public partial class MainWindow : Window, IAnalystHost
             System.Windows.Automation.AutomationProperties.SetName(CleanMoreBtn, "更多操作");
         }
         if (ClearSelectionBtn != null) ClearSelectionBtn.Content = Loc.ClearSelection;
+        if (RuleSelectBtn != null)
+        {
+            RuleSelectBtn.Content = Loc.RuleSelectAction;
+            RuleSelectBtn.ToolTip = Loc.RuleSelectActionTip;
+            System.Windows.Automation.AutomationProperties.SetName(RuleSelectBtn, Loc.RuleSelectAction);
+        }
         if (CheckAndCleanBtn != null) CheckAndCleanBtn.Content = Loc.CleanSelectedItems;
         // ViewSelectedBtn 是「清单图标 + 数量」，文字与数量由 UpdateSelectionUi 统一维护，
         // 这里**不能**再覆盖它的 Content —— 那会把图标换成纯文字。
@@ -1995,16 +2002,17 @@ public partial class MainWindow : Window, IAnalystHost
         => OpenOverlay(Loc.AboutTitle, about: true);
 
     private void OpenOverlay(string title, bool settings = false, bool about = false, bool alert = false,
-        bool confirm = false, bool selection = false)
+        bool confirm = false, bool selection = false, bool ruleSelect = false)
     {
         DialogTitle.Text = title;
         SettingsBody.Visibility = settings ? Visibility.Visible : Visibility.Collapsed;
         ProvEditBody.Visibility = Visibility.Collapsed;
         AboutBody.Visibility = about ? Visibility.Visible : Visibility.Collapsed;
         SelectionBody.Visibility = selection ? Visibility.Visible : Visibility.Collapsed;
+        RuleSelectBody.Visibility = ruleSelect ? Visibility.Visible : Visibility.Collapsed;
         AlertBody.Visibility = alert || confirm ? Visibility.Visible : Visibility.Collapsed;
-        ConfirmButtons.Visibility = confirm ? Visibility.Visible : Visibility.Collapsed;
-        DialogClose.Visibility = confirm ? Visibility.Collapsed : Visibility.Visible;
+        ConfirmButtons.Visibility = confirm || ruleSelect ? Visibility.Visible : Visibility.Collapsed;
+        DialogClose.Visibility = confirm || ruleSelect ? Visibility.Collapsed : Visibility.Visible;
         if (settings)
         {
             HighlightThemeButtons();
@@ -2058,6 +2066,10 @@ public partial class MainWindow : Window, IAnalystHost
     void HideOverlay()
     {
         SaveAiFields();
+        // 确认 / 取消按钮的文案是「按弹层定的」，关掉时恢复默认，
+        // 免得下一次 AskConfirm 顶着上一次的「确认勾选这些」。
+        ConfirmYesBtn.Content = Loc.Yes;
+        ConfirmNoBtn.Content = Loc.No;
         if (ProvEditBody.Visibility == Visibility.Visible && OverlayRoot.Visibility == Visibility.Visible)
         {
             ProvEditBody.Visibility = Visibility.Collapsed;
@@ -2113,18 +2125,22 @@ public partial class MainWindow : Window, IAnalystHost
     private void ConfirmNo_Click(object sender, RoutedEventArgs e)
     {
         _confirmYes = null;
+        // 取消 = 什么都没发生：预览直接丢掉，一个勾都不会写
+        DiscardRuleSelectPreview();
         HideOverlay();
     }
 
     private void CloseOverlay_Click(object sender, RoutedEventArgs e)
     {
         _confirmYes = null;
+        DiscardRuleSelectPreview();
         HideOverlay();
     }
 
     private void Overlay_Click(object sender, MouseButtonEventArgs e)
     {
         _confirmYes = null;
+        DiscardRuleSelectPreview();
         HideOverlay();
     }
 
@@ -3438,16 +3454,62 @@ public partial class MainWindow : Window, IAnalystHost
     private void LocationViewFiles_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not CleanLocationNode node) return;
-        _locationScrollOffset = FindScrollViewer(LocationList)?.VerticalOffset ?? 0;
-        OpenDetail(node);
+        ToggleLocationFiles(node);
     }
 
     /// <summary>
-    /// 点位置行的**名称区域**进入文件明细。
-    /// 复选框、AI 按钮、路径图标各自处理自己的点击，不会触发这里
-    /// （它们都在别的 Grid 列上，且各自有 Click 处理器）。
+    /// 点位置行的**名称区域** = 就地展开这一处的候选文件。
+    /// 复选框、AI 按钮、文件夹图标各自处理自己的点击（不同 Grid 列 + 各自 Click 处理器），
+    /// 不会误触展开。
     /// </summary>
     private void LocationRowOpen_Click(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not CleanLocationNode node) return;
+        ToggleLocationFiles(node);
+    }
+
+    /// <summary>
+    /// 行内展开 / 收起这一处的候选文件。
+    ///
+    /// 展开是**惰性**的（第一次展开才建列表，且只取前 N 条）；
+    /// 收起时把外层列表的滚动位置记下来再恢复，避免内容变矮之后视口跳走。
+    /// 选择状态挂在 <see cref="CleanItem"/> 实例上，收起再展开**一项都不会丢**。
+    /// </summary>
+    private void ToggleLocationFiles(CleanLocationNode node)
+    {
+        var sv = FindScrollViewer(LocationList);
+        double before = sv?.VerticalOffset ?? 0;
+        bool opening = !node.IsFilesOpen;
+        node.ToggleFiles();
+        if (opening)
+        {
+            _locationScrollOffset = before;
+            AppLog.Info("Clean", $"op=inline-files dir={node.DisplayName} open=True "
+                + $"listed={node.VisibleFiles.Count} total={node.FileCount}");
+        }
+        else
+        {
+            // 收起后内容变矮：等布局跑完再把滚动位置落回合理值
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                var view = FindScrollViewer(LocationList);
+                if (view == null) return;
+                double target = Math.Min(before, Math.Max(0, view.ScrollableHeight));
+                view.ScrollToVerticalOffset(target);
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
+
+    /// <summary>行内列表里的勾选框：TwoWay 绑定已写好 <c>CleanItem.Selected</c>，这里只刷新派生显示。</summary>
+    private void InlineFileCheck_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not CleanItem) return;
+        e.Handled = true;
+        RefreshAfterSelectionChange();
+    }
+
+    /// <summary>需要搜索 / 分页时才进右侧明细面板 —— 这是行内列表唯一的「更多」入口。</summary>
+    private void LocationOpenFull_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not CleanLocationNode node) return;
         _locationScrollOffset = FindScrollViewer(LocationList)?.VerticalOffset ?? 0;
@@ -4877,6 +4939,9 @@ public partial class MainWindow : Window, IAnalystHost
             view.SortDescriptions.Clear();
             view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(AppUninstallItem.RecommendationGroupKey)));
             view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.RecommendationGroupKey), ListSortDirection.Ascending));
+            // 「可信占用排序」：扫描实测的先排，其次安装记录估计，最后是未知。
+            // 不让假数字和真数字混在一起排。
+            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.SizeConfidenceRank), ListSortDirection.Ascending));
             view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.ActualSizeBytes), ListSortDirection.Descending));
             view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.Name), ListSortDirection.Ascending));
             view.Filter = FilterApp;

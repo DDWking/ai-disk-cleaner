@@ -64,6 +64,12 @@ public static class BcuUninstallService
         }
         bool steam = e.UninstallerKind == UninstallerType.Steam;
         bool feature = e.UninstallerKind == UninstallerType.WindowsFeature;
+        // Windows 自带组件 / 设备软件：结构化判定（卸载程序路径或安装路径落在 Windows 目录内）。
+        // 实测依据：本机 mstsc 那条 `Microsoft® Windows® Operating System` 的
+        // BCU SystemComponent/IsProtected 都是 false，但卸装命令与安装位置都在 C:\Windows 下。
+        bool inbox = false;
+        try { inbox = AppRecommendationService.IsInboxComponent(e.UninstallString, e.InstallLocation); }
+        catch (Exception ex) { AppLog.Record("Uninstall", ex, "inbox component check"); }
         int group = e.IsProtected ? 3 : feature ? 2 : steam ? 1 : 0;
         string pub = e.PublisherTrimmed ?? "";
         if (pub.Length == 0 && steam) pub = "Steam";
@@ -84,6 +90,7 @@ public static class BcuUninstallService
             CanUninstall = e.UninstallPossible && !e.IsProtected && !e.SystemComponent && !feature,
             IsProtected = e.IsProtected,
             SystemComponent = e.SystemComponent,
+            InboxComponent = inbox,
             HasStartup = e.HasStartups,
             GroupKey = group,
             IconBytes = TryIconBytes(e),

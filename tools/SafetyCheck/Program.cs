@@ -35,6 +35,7 @@ public static class Program
         WorkStateTests();
         CleanListSnapshotTests();
         LayeredCleanTests.Run(Check, Section);
+        ReviewFixesTests.Run(Check, Section);
         ErrorClassificationTests();
         DiagnosticsTests();
 

@@ -7,16 +7,20 @@ Windows 下的磁盘占用分析工具。直接读 NTFS 的 `$MFT`，秒级扫�
 ## 功能
 
 - MFT 秒扫：按 `$MFT` data run 读完整主文件表，不靠递归 `Directory.GetFiles`
-- 左边目录树：按占用排序，显示占比和大小
-- 右边当前目录：文件夹 + 文件，默认按大小降序
+- 侧栏目录树 + 当前目录：按占用排序，显示占比和大小；文件名搜索
+- 清理中心（默认首页）：扫描后按用途分层归类（清理候选 → 位置 → 文件详情）；默认一项都不勾，清理前有独立检查页，删除进回收站
+- 清理位置**行内直接看候选文件**（文件名 / 大小 / 修改时间 / 勾选），不用先跑 AI；要搜索或分页时再打开右侧明细面板
+- **选择规则明确的清理项**：只勾「正式规则判定为安全 + 证据到签名级 + 通过保护检查」的缓存/临时/转储项，先给预览、可逐类排除、确认后才勾；大文件、旧文件、下载、压缩包、视频、个人资料和未知对象始终人工选择
+- 文件夹整理（辅助入口）：本地识别文件夹用途；可对单个文件夹按需发起 AI 分析（不自动、不批量）。有子目录才有展开箭头；只有文件的目录给文件入口而不伪造箭头；链接未扫描与空目录分开表达，不会用 0 KB 暗示
 - 顶部显示卷容量：总共 / 已用 / 可用
-- 文件名搜索（当前目录）
-- 左下角文件分析师：扫完发大根目录 + 大文件；可下钻、搜清理项、勾选安全项（临时/转储/回收站，以及非系统大文件）。删除仍要你点按钮
 - 卸载页：列出已装软件（注册表 + 商店应用 + Steam 游戏 + Windows 功能），勾选后走官方卸载程序；卸完可扫残留，勾选后才删。引擎来自 [Bulk Crap Uninstaller](https://github.com/Klocman/Bulk-Crap-Uninstaller)（Apache 2.0）
+  - 没有依据的软件保持**中性（未评估）**，不再用「无法确认是否正在运行」这类套话制造建议
+  - 占用显式区分**扫描实测 / 安装记录估计 / 未知**；共享安装目录与系统目录不把整棵树算给某一个软件；未测得显示「未知」而不是 0
+  - Windows 自带组件与设备驱动（按卸载程序路径 / 安装路径结构判定）不进泛化卸载建议与建议批选
 
 ## 下载
 
-[Release v1.1.0](https://github.com/DDWking/ai-disk-cleaner/releases/tag/v1.1.0) 里有 Windows x64 压缩包。解压后右键 `AiDiskCleaner.exe` → 以管理员身份运行。需要已安装 [.NET 8 桌面运行时](https://dotnet.microsoft.com/download/dotnet/8.0)。
+[Release v2.10.0](https://github.com/DDWking/ai-disk-cleaner/releases/tag/v2.10.0) 里有 Windows x64 压缩包。解压后右键 `AiDiskCleaner.exe` → 以管理员身份运行。需要已安装 [.NET 8 桌面运行时](https://dotnet.microsoft.com/download/dotnet/8.0)。
 
 ## 运行
 
@@ -26,7 +30,7 @@ Windows 下的磁盘占用分析工具。直接读 NTFS 的 `$MFT`，秒级扫�
 cd src\AiDiskCleaner
 dotnet build
 # 以管理员身份运行
-.\bin\Debug\net8.0-windows\AiDiskCleaner.exe
+.\bin\Debug\net8.0-windows10.0.18362.0\AiDiskCleaner.exe
 ```
 
 首次启动会弹出 UAC。拒绝的话扫不了 MFT，会回退到很慢的递归扫描。

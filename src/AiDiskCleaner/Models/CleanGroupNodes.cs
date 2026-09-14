@@ -256,6 +256,7 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
     public ItemAiView? ExistingAi => _ai;
 
     /// <summary>悬停：软件名 + 实际路径 + 技术细节。</summary>
+    /// <summary>悬停：软件名 + 实际路径 + 技术细节。</summary>
     public string HintText
     {
         get
@@ -269,6 +270,110 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
     }
 
     public string FileCountText => Loc.LocationFiles(FileCount);
+
+    // ==================== 行内展开：直接看这一处的候选文件 ====================
+    //
+    // 需求背景（实拍反馈）：以前要看具体文件，必须先进右侧明细面板、或者先跑一次
+    // 单项 AI 再从 AI 结果里点「查看文件」—— 等于每看一个文件夹都要绕一圈。
+    // 现在点位置行**就地展开**这一处的候选文件（文件名 / 大小 / 修改时间 / 勾选），
+    // 不需要 AI，也不离开当前界面。
+    //
+    // 三条硬约束：
+    //   1) 惰性：**只在这一处被展开时**才建列表，而且只取前 <see cref="InlineFileLimit"/> 条，
+    //      按占用降序 —— 不会为了一次展开把全盘文件都加载进来；
+    //   2) 复用同一份模型：列表里就是本位置真正的 <see cref="CleanItem"/> 实例，
+    //      勾选直接写回同一份状态，不存在「行内一套、明细又一套」；
+    //   3) 不加任何删除能力：这里只是看与勾，执行仍然只从底部「清理已选项目」走。
+
+    /// <summary>
+    /// 行内一次最多列出多少条候选。
+    /// **刻意不设成几百条**：行内的这一块不做嵌套滚动（那会和外层虚拟化列表抢滚轮），
+    /// 所以它只负责「一眼看清这一处主要是些什么」，剩下的交给「完整列表」按钮。
+    /// </summary>
+    public const int InlineFileLimit = 30;
+
+    private bool _filesOpen;
+    private bool _filesLoaded;
+    private IReadOnlyList<CleanItem> _visibleFiles = Array.Empty<CleanItem>();
+
+    /// <summary>这一处的候选文件是否已就地展开。</summary>
+    public bool IsFilesOpen
+    {
+        get => _filesOpen;
+        private set
+        {
+            if (_filesOpen == value) return;
+            _filesOpen = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(FilesGlyphKey));
+            OnPropertyChanged(nameof(FilesToggleText));
+        }
+    }
+
+    /// <summary>有没有东西可看（有候选项就允许展开）。</summary>
+    public bool CanShowFiles => FileCount > 0;
+
+    /// <summary>
+    /// 行内的候选文件。
+    /// **展开之前恒为空**：绑定不会顺手把每一行的候选都排序建一遍
+    /// （那等于为了「可能被展开」把整页的候选都加载进来）。只有真的展开过才返回内容。
+    /// </summary>
+    public IReadOnlyList<CleanItem> VisibleFiles => _visibleFiles;
+
+    /// <summary>因上限没有列出的条数。</summary>
+    public int HiddenFileCount => Math.Max(0, FileCount - _visibleFiles.Count);
+
+    public bool HasHiddenFiles => _filesLoaded && HiddenFileCount > 0;
+
+    /// <summary>列表说明：「共 385 项候选 · 按占用列出前 200 项」。</summary>
+    public string FilesNote
+    {
+        get
+        {
+            if (!_filesLoaded) return "";
+            string head = Loc.InlineFilesCount(_visibleFiles.Count, FileCount);
+            return HasHiddenFiles ? head + " · " + Loc.InlineFilesHidden(HiddenFileCount) : head;
+        }
+    }
+
+    public string FilesGlyphKey => _filesOpen ? "IconChevronDown" : "IconChevronRight";
+    public string FilesToggleText => _filesOpen ? Loc.CollapseFilesAction : Loc.ViewFilesAction;
+    public string NameHeaderText => Loc.FileNameHeader;
+    public string ModifiedHeaderText => Loc.FileModifiedHeader;
+    public string SizeHeaderText => Loc.FileSizeHeader;
+    public string FilesScopeText => Loc.InlineFilesScope;
+    public string FullListButtonText => Loc.OpenFullListAction;
+    public string FullListTipText => Loc.OpenFullListTip;
+
+    /// <summary>展开 / 收起行内文件列表（展开是惰性的，只在第一次真的建列表）。</summary>
+    public void ToggleFiles() => SetFilesOpen(!_filesOpen);
+
+    public void SetFilesOpen(bool open)
+    {
+        if (open && !_filesLoaded) EnsureFiles();
+        IsFilesOpen = open;
+        OnPropertyChanged(nameof(FilesNote));
+        OnPropertyChanged(nameof(HasHiddenFiles));
+        OnPropertyChanged(nameof(VisibleFiles));
+        RaiseSelectionChanged();
+    }
+
+    /// <summary>
+    /// 惰性建行。按占用降序取前 <see cref="InlineFileLimit"/> 条 ——
+    /// 用户最想先看到的是大的那些；剩下的如实计数，不做「加载更多」的假动作。
+    /// </summary>
+    private void EnsureFiles()
+    {
+        _filesLoaded = true;
+        if (Items.Count == 0)
+        {
+            _visibleFiles = Array.Empty<CleanItem>();
+            return;
+        }
+        _visibleFiles = Items.Count <= InlineFileLimit
+            ? Items.OrderByDescending(x => x.Size).ToList()
+            : Items.OrderByDescending(x => x.Size).Take(InlineFileLimit).ToList();
+    }
 }
 
 /// <summary>

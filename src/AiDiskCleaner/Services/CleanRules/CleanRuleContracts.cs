@@ -2,21 +2,8 @@ using AiDiskCleaner.Models;
 
 namespace AiDiskCleaner.Services.CleanRules;
 
-/// <summary>
-/// 证据强度。决定的不是「能不能删」，而是「界面敢不敢替用户打勾」。
-/// 规则必须如实声明自己的证据有多硬，不要为了好看往上抬。
-/// </summary>
-public enum EvidenceLevel
-{
-    /// <summary>没有任何证据。</summary>
-    None = 0,
-    /// <summary>启发式：路径像临时目录、扩展名像垃圾、时间长没动过。</summary>
-    Heuristic = 1,
-    /// <summary>命中了维护中的签名表（认得出这是什么）。</summary>
-    Signature = 2,
-    /// <summary>已经验证过：算过哈希、解析过快捷方式目标、问过系统。</summary>
-    Verified = 3,
-}
+// 证据强度 EvidenceLevel 定义在 AiDiskCleaner.Models（见 Models/CleanEvidence.cs）：
+// 它是候选自己的属性（CleanItem.Evidence），要一路走到界面，不属于某一条规则。
 
 /// <summary>规则把条目投到报告的哪个列表。</summary>
 public enum CleanRuleTarget

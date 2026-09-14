@@ -29,6 +29,9 @@
     <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" />
     <!-- CleanItem 的用途分类引用 CleanPurpose 枚举（证据驱动分类，规则契约的一部分） -->
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanPurpose.cs" />
+    <!-- CleanItem 现在带规则声明的证据等级（EvidenceLevel），枚举在 Models 里；
+         批量勾选按它判断，不再靠路径里有没有 "cache" 这种字符串猜。 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Models\CleanEvidence.cs" />
   </ItemGroup>
 
 </Project>

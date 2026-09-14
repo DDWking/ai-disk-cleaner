@@ -175,12 +175,19 @@ public static class AppRecommendationService
         CancellationToken ct)
     {
         var indexed = fileList
-            .Select(x => new FileUsage(Normalize(x.FullPath), Math.Max(0, x.Allocated > 0 ? x.Allocated : x.Size)))
+            .Select(x => new FileUsage(NormalizePath(x.FullPath), Math.Max(0, x.Allocated > 0 ? x.Allocated : x.Size)))
             .Where(x => x.Path.Length > 0)
             .OrderBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        // 本次扫描覆盖了哪些盘的根：安装目录不在这上面时，**根本没有数据**，
+        // 不能把「没测到」说成软件的体积。
+        var scannedRoots = indexed
+            .Select(x => Path.GetPathRoot(x.Path) ?? "")
+            .Where(x => x.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var locations = appList
-            .Select(app => new AppLocation(app, Normalize(app.InstallLocation)))
+            .Select(app => new AppLocation(app, NormalizePath(app.InstallLocation)))
             .ToList();
         var overlappingApps = FindOverlappingApps(locations);
         var processes = GetProcessPaths();
@@ -191,9 +198,38 @@ public static class AppRecommendationService
             var app = item.App;
             long actual = 0;
             long installBytes = 0, userBytes = 0, cacheBytes = 0;
-            bool canMeasureUsage = IsUsableInstallLocation(item.Location)
-                && !overlappingApps.Contains(app);
-            if (canMeasureUsage)
+            string skipNote = "";
+            bool attributable = IsUsableInstallLocation(item.Location);
+            if (!attributable)
+            {
+                skipNote = item.Location.Length == 0
+                    ? Loc.AppFootprintWhyMissing
+                    : Loc.AppFootprintWhyGenericRoot;
+            }
+            else if (!CanAttributeLocation(item.Location, out string rootWhy))
+            {
+                attributable = false;
+                skipNote = rootWhy;
+            }
+            else if (overlappingApps.Contains(app))
+            {
+                // 安装目录和别的软件重叠（含「父目录被多个软件共用」）：
+                // 整棵树的总量**不属于任何单个软件**，谁都不给。
+                attributable = false;
+                skipNote = Loc.AppFootprintWhyShared;
+            }
+            else
+            {
+                string locationRoot = Path.GetPathRoot(item.Location) ?? "";
+                if (locationRoot.Length > 0 && scannedRoots.Count > 0 && !scannedRoots.Contains(locationRoot))
+                {
+                    // 跨盘：安装目录不在本次扫描的盘里，没有数据可算。
+                    attributable = false;
+                    skipNote = Loc.AppFootprintWhyNotScanned;
+                }
+            }
+
+            if (attributable)
             {
                 int start = LowerBound(indexed, item.Location);
                 for (int i = start; i < indexed.Count; i++)
@@ -219,14 +255,20 @@ public static class AppRecommendationService
                 item.Location,
                 IsUsableInstallLocation(item.Location),
                 processes);
+            // 只有真测到内容才算「实测」。测到 0 不等于「这个软件是 0 字节」，
+            // 所以这里如实落回安装记录 / 未知（见 AppUninstallItem.FootprintSource）。
+            bool measured = attributable && actual > 0;
+            if (!measured && skipNote.Length == 0 && !Directory.Exists(item.Location))
+                skipNote = Loc.AppFootprintWhyMissing;
             usage.Add(new AppUsage(
                 app,
-                actual > 0 ? actual : app.SizeBytes,
-                actual > 0,
+                measured ? actual : app.SizeBytes,
+                measured,
                 runningState,
-                installBytes,
-                userBytes,
-                cacheBytes));
+                measured ? installBytes : 0,
+                measured ? userBytes : 0,
+                measured ? cacheBytes : 0,
+                measured ? "" : skipNote));
         }
         return usage;
     }
@@ -238,6 +280,7 @@ public static class AppRecommendationService
             item.App.ActualSizeBytes = item.ActualSizeBytes;
             item.App.HasMeasuredSize = item.HasMeasuredSize;
             item.App.RunningState = item.RunningState;
+            item.App.FootprintNote = item.FootprintNote;
             // 占用拆分：安装目录 / 用户数据 / 缓存（可释放）
             item.App.InstallDirBytes = item.InstallDirBytes;
             item.App.UserDataBytes = item.UserDataBytes;
@@ -251,34 +294,56 @@ public static class AppRecommendationService
             return Keep(1, Loc.AppKeepSystem);
         if (!app.CanUninstall)
             return Keep(1, Loc.AppKeepNoUninstaller);
+        // Windows 自带组件 / 厂商驱动软件：由**卸载程序路径或安装路径**结构判定，
+        // 不是靠名字里出现「windows」这种子串（那会把真正的软件也误伤）。
+        if (app.InboxComponent || IsInboxComponent(app))
+            return Keep(0.9, Loc.AppKeepInboxComponent);
         if (IsSafetyCritical(app))
             return Keep(0.9, Loc.AppKeepCritical);
+        // 「正在运行」是**一件具体的、可核实的事**，值得用户看一眼；
+        // 但它同时也意味着现在卸载会失败，所以只到「需要看一下」，永不 Recommend。
         if (app.RunningState == AppRunningState.Running)
             return Consider(0.95, Loc.AppConsiderRunning, Loc.AppRunningWarning);
-        if (app.RunningState == AppRunningState.Unknown)
-            return Consider(0.9, Loc.AppConsiderRunningUnknown, Loc.AppRunningUnknownWarning);
+        // 命中已知捆绑软件特征：这是**有依据的结论**，理由栏写这条依据。
+        // 但「没法确认它没在跑」时不得升到「建议卸载」—— 只降一档，理由仍然是真信号。
         if (IsKnownBloat(app))
-            return Recommend(0.86, Loc.AppRecommendBloat);
-        if (app.ActualSizeBytes >= 5L * 1024 * 1024 * 1024)
-            return Consider(0.72, Loc.AppConsiderLarge);
-        if (app.HasStartup)
-            return Consider(0.66, Loc.AppConsiderStartup);
-        return Consider(0.55, Loc.AppConsiderUnknown);
+        {
+            return app.RunningState == AppRunningState.NotRunning
+                ? Recommend(0.86, Loc.AppRecommendBloat)
+                : Consider(0.72, Loc.AppRecommendBloat);
+        }
+        // 其余一律**中性**。以前这里会依次用「无法确认是否正在运行」「占用空间较大」
+        // 「会随系统启动」「没有足够依据」把它们全塞进「可以考虑」，207 行全是同一句套话，
+        // 没有任何决策价值。没有依据就是没有依据。
+        return Neutral();
     }
+
+    /// <summary>
+    /// 中性档：不说可以卸，也不说别卸，理由栏留空（不写套话）。
+    /// </summary>
+    static AppRecommendation Neutral()
+        => new()
+        {
+            Decision = AppRecommendationDecision.Neutral,
+            Confidence = 0,
+            Reason = Loc.AppNeutralReason,
+            DataWarning = "",
+        };
 
     static AppRecommendation EnforceSafety(AppUninstallItem app, AppRecommendation result)
     {
         var local = LocalRule(app);
-        if (app.IsProtected || app.SystemComponent || app.GroupKey == 2 || !app.CanUninstall || IsSafetyCritical(app))
+        if (app.IsProtected || app.SystemComponent || app.GroupKey == 2 || !app.CanUninstall
+            || app.InboxComponent || IsInboxComponent(app) || IsSafetyCritical(app))
             return local;
         if (app.RunningState != AppRunningState.NotRunning
             && result.Decision == AppRecommendationDecision.Recommend)
         {
+            // 运行状态没确认（或确认在跑）时，模型不许把它抬到「建议卸载」；
+            // 同时明确告诉用户先退出软件 —— 这句话只在真的有这回事时出现，
+            // 不再像以前那样挂在两百多行上。
             result.Decision = AppRecommendationDecision.Consider;
-            string warning = app.RunningState == AppRunningState.Running
-                ? Loc.AppRunningWarning
-                : Loc.AppRunningUnknownWarning;
-            result.DataWarning = AppendWarning(result.DataWarning, warning);
+            result.DataWarning = AppendWarning(result.DataWarning, Loc.AppRunningWarning);
         }
         result.Confidence = Math.Clamp(result.Confidence, 0, 1);
         if (string.IsNullOrWhiteSpace(result.Reason)) result.Reason = local.Reason;
@@ -291,11 +356,120 @@ public static class AppRecommendationService
         return BloatNames.Any(x => text.Contains(x, StringComparison.CurrentCultureIgnoreCase));
     }
 
+    /// <summary>
+    /// 运行库 / 驱动 / 安全 / 虚拟化组件：按**名字签名表**判定。
+    /// 注意这里**不含**「Windows 自带组件」那条结构化判定 ——
+    /// 那个由 <see cref="IsInboxComponent(AppUninstallItem)"/> 单独判定，
+    /// 因为两者的理由文案不同，用户看到的原因必须是准确的那一条。
+    /// </summary>
     static bool IsSafetyCritical(AppUninstallItem app)
     {
         string text = string.Join(" ", app.Name, app.Publisher, app.InstallLocation);
         return SafetyCriticalNames.Any(x => text.Contains(x, StringComparison.CurrentCultureIgnoreCase));
     }
+
+    /// <summary>Windows 目录（含 System32 / SysWOW64 / WinSxS），由系统 API 解析，不写死盘符。</summary>
+    static string WindowsDirectory
+        => Environment.GetFolderPath(Environment.SpecialFolder.Windows).TrimEnd('\\');
+
+    /// <summary>
+    /// 这个条目是不是 Windows 自带组件 / 设备软件。
+    ///
+    /// 依据是**结构**，不是名字：卸载命令行里的可执行文件在 Windows 目录内，
+    /// 或者记录下来的安装位置在 Windows 目录内。
+    /// 实测依据：本机 `Microsoft® Windows® Operating System` 的卸装命令是
+    /// `"C:\Windows\System32\mstsc.exe" /uninstall`、安装位置 `C:\Windows\System32`，
+    /// 但 BCU 的 SystemComponent / IsProtected 都是 false —— 只用 BCU 的标记会漏掉它。
+    /// </summary>
+    public static bool IsInboxComponent(AppUninstallItem app)
+        => app.InboxComponent || IsInboxComponent(app.Entry?.UninstallString, app.InstallLocation);
+
+    /// <summary>同上，但直接吃原始字段（BCU 清点阶段就要把标记落下来）。</summary>
+    public static bool IsInboxComponent(string? uninstallString, string? installLocation)
+    {
+        string win = WindowsDirectory;
+        if (win.Length == 0) return false;
+        string exe = UninstallExecutable(uninstallString);
+        if (exe.Length > 0 && IsPathWithin(exe, win)) return true;
+        string location = NormalizePath(installLocation);
+        return location.Length > 0 && IsPathWithin(location, win);
+    }
+
+    /// <summary>从卸载命令行里取出可执行文件路径（带引号或不带引号都认）。</summary>
+    internal static string UninstallExecutable(string? command)
+    {
+        string s = (command ?? "").Trim();
+        if (s.Length == 0) return "";
+        if (s[0] == '"')
+        {
+            int end = s.IndexOf('"', 1);
+            return end > 1 ? s[1..end].Trim() : "";
+        }
+        int sp = s.IndexOf(' ');
+        return (sp > 0 ? s[..sp] : s).Trim();
+    }
+
+    // ---- 通用父目录 / 系统目录：不能把整棵树算成某一个软件的占用 ----
+
+    /// <summary>系统盘上的通用父目录、用户根目录、临时目录：它们不是「某个软件的安装目录」。</summary>
+    private static readonly Lazy<string[]> GenericRoots = new(() =>
+    {
+        var roots = new List<string>();
+        void Add(Environment.SpecialFolder f)
+        {
+            try
+            {
+                string p = Environment.GetFolderPath(f);
+                if (!string.IsNullOrWhiteSpace(p)) roots.Add(p);
+            }
+            catch { /* 解析不出来就不加，不猜 */ }
+        }
+        Add(Environment.SpecialFolder.Windows);
+        Add(Environment.SpecialFolder.System);
+        Add(Environment.SpecialFolder.SystemX86);
+        Add(Environment.SpecialFolder.ProgramFiles);
+        Add(Environment.SpecialFolder.ProgramFilesX86);
+        Add(Environment.SpecialFolder.CommonApplicationData);
+        Add(Environment.SpecialFolder.UserProfile);
+        Add(Environment.SpecialFolder.LocalApplicationData);
+        Add(Environment.SpecialFolder.ApplicationData);
+        try
+        {
+            string temp = Path.GetTempPath();
+            if (!string.IsNullOrWhiteSpace(temp)) roots.Add(temp);
+        }
+        catch { }
+        return roots.Select(Normalize).Where(x => x.Length > 1).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    });
+
+    /// <summary>
+    /// 这个安装位置能不能把整棵树的占用算给这一个软件。
+    /// 不能的情况分三类，界面必须分别说清楚（见 <see cref="FootprintSkip"/>）。
+    /// </summary>
+    internal static bool CanAttributeLocation(string location, out string why)
+    {
+        why = "";
+        if (location.Length == 0) { why = Loc.AppFootprintWhyMissing; return false; }
+        if (IsVolumeRoot(location)) { why = Loc.AppFootprintWhyGenericRoot; return false; }
+        // Windows 目录之内：那是操作系统的树，不是软件自己的目录。
+        string win = WindowsDirectory;
+        if (win.Length > 0 && IsPathWithin(location, win))
+        {
+            why = Loc.AppFootprintWhySystemDir;
+            return false;
+        }
+        // 正好等于一个通用父目录（Program Files / ProgramData / 用户目录 / Temp …）
+        if (GenericRoots.Value.Any(root => location.Equals(root, StringComparison.OrdinalIgnoreCase)))
+        {
+            why = Loc.AppFootprintWhyGenericRoot;
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>路径规范化：去引号、统一分隔符、去尾反斜杠。空串表示不可用。</summary>
+    internal static string NormalizePath(string? path)
+        => (path ?? "").Trim().Trim('"').Replace('/', '\\').TrimEnd('\\');
 
     static bool AiConfigured()
     {
@@ -341,8 +515,7 @@ public static class AppRecommendationService
         return low;
     }
 
-    static string Normalize(string? path)
-        => (path ?? "").Trim().Trim('"').Replace('/', '\\').TrimEnd('\\');
+    static string Normalize(string? path) => NormalizePath(path);
 
     /// <summary>占用拆分的三类。用户最关心的是「不卸软件也能删的是哪块」。</summary>
     internal enum FootprintKind { InstallDir, UserData, Cache }
@@ -550,7 +723,8 @@ public readonly record struct AppUsage(
     AppRunningState RunningState,
     long InstallDirBytes = 0,
     long UserDataBytes = 0,
-    long CacheBytes = 0)
+    long CacheBytes = 0,
+    string FootprintNote = "")
 {
     /// <summary>估计可释放：缓存部分（不动软件、不动用户数据）。</summary>
     public long ReclaimableBytes => CacheBytes;

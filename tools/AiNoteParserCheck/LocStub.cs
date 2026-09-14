@@ -7,6 +7,8 @@ namespace AiDiskCleaner.Services;
 /// </summary>
 public static class Loc
 {
+    /// <summary>不可删候选在行内列表里的标记（CleanItem.KeptBadge 用）。</summary>
+    public static string KeptItemBadge => "保留";
     public static string RiskSafe => "可安全删除";
     public static string RiskConfirm => "需确认";
     public static string RiskKeep => "别删";

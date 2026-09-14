@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using AiDiskCleaner;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
+using AiDiskCleaner.Services.CleanRules;
 
 namespace StartupCheck;
 
@@ -32,6 +33,32 @@ public static class Program
             _fail++;
             Failures.Add(name + (detail is null ? "" : "  [" + detail + "]"));
         }
+    }
+
+    /// <summary>带诊断信息的断言：失败时把实际值打出来（与其它检查工具一致）。</summary>
+    static void CheckD(string name, bool ok, string? detail) => Check(name, ok, detail);
+
+    /// <summary>
+    /// 一个**非空 RoutedEvent** 的 RoutedEventArgs。
+    /// 裸 <c>new RoutedEventArgs()</c>（不带事件）在 <c>e.Handled = true</c> 时会抛
+    /// InvalidOperationException —— 那是 WPF 的要求，不是被测代码的 bug。
+    /// </summary>
+    static RoutedEventArgs ClickArgs()
+        => new(System.Windows.Controls.Primitives.ButtonBase.ClickEvent);
+
+    /// <summary>造一条有真实 FileEntry（含父目录）的候选，复检路径才走得通。</summary>
+    static CleanItem WithEntry(CleanItem item, string parentDir)
+    {
+        item.Entry = new FileEntry
+        {
+            Name = item.Name,
+            FullPath = item.FullPath,
+            Kind = EntryKind.File,
+            Size = item.Size,
+            Modified = new DateTime(2026, 1, 2, 3, 4, 5),
+            Parent = MakeDir("parent", parentDir, item.Size, null, 0),
+        };
+        return item;
     }
 
     [STAThread]
@@ -137,9 +164,34 @@ public static class Program
 
         Console.WriteLine("== 8. 整理页交互行为：首击展开 / 上限反馈 / 一级优先 / 筛选只读 / 代次生命周期 ==");
         if (win != null) OrganizeInteractionTests(win);
+        if (win != null) ReviewFixesWiringTests(win);
 
         Console.WriteLine("== 9. 新方向：默认清理页 / 零后台请求 / 无批量入口 / 单项 AI ==");
         if (win != null) ProductDirectionTests(win);
+
+        // 进程内的「正常关闭」回归。**这不是 EXE 端到端关闭实测**：
+        // 本会话 shell 不是管理员，而 AiDiskCleaner.exe 带 requireAdministrator，
+        // 非提权进程给提权窗口发 WM_CLOSE 会被 UIPI 直接拒掉（实测 PostMessage 返回 false）。
+        // 所以这里在**真 MainWindow + 真控件树**上跑一遍关闭路径，作为可自动化的那一半证据，
+        // 端到端关闭仍然需要一次提权会话（如实写在交付说明里）。
+        Console.WriteLine("== 10. 真 MainWindow 的正常关闭路径（进程内，真控件树） ==");
+        if (win != null)
+        {
+            int crashesBefore = CrashFirstRecord.SaveCount;
+            bool closed = false;
+            string closeError = "";
+            try
+            {
+                win.Close();
+                closed = true;
+            }
+            catch (Exception ex) { closeError = Describe(ex); }
+            CheckD("真 MainWindow 走正常关闭路径不抛异常", closed, closeError);
+            CheckD("关闭后窗口不再可见", !win.IsVisible, win.IsVisible.ToString());
+            CheckD("关闭过程没有触发崩溃处理器",
+                CrashFirstRecord.SaveCount == crashesBefore,
+                $"{crashesBefore} -> {CrashFirstRecord.SaveCount}");
+        }
 
         Console.WriteLine();
         Console.WriteLine($"PASS {_pass}   FAIL {_fail}");
@@ -569,7 +621,7 @@ public static class Program
 
         int rowsBefore = Fld<System.Collections.ObjectModel.ObservableCollection<OrganizeNode>>(win, "_organizeRows").Count;
 
-        Call(win, "OrganizeFilter_Click", null, new RoutedEventArgs());
+        Call(win, "OrganizeFilter_Click", null, ClickArgs());
         Check("打开筛选：**不改变任何节点的展开状态**（原本收起的仍收起）",
             nodeD.IsExpanded && !nodeE.IsExpanded && nodeF.IsExpanded,
             $"D={nodeD.IsExpanded} E={nodeE.IsExpanded} F={nodeF.IsExpanded}");
@@ -580,7 +632,7 @@ public static class Program
         Check("筛选下没有孤儿行（匹配子项的祖先作为上下文保留）",
             !HasOrphan(rows, rootsNow), string.Join(" > ", rows.Select(r => r.Name)));
 
-        Call(win, "OrganizeFilter_Click", null, new RoutedEventArgs());
+        Call(win, "OrganizeFilter_Click", null, ClickArgs());
         Check("关闭筛选：回到打开前的展开状态（用户本来展开的仍展开）",
             nodeD.IsExpanded && !nodeE.IsExpanded && nodeF.IsExpanded,
             $"D={nodeD.IsExpanded} E={nodeE.IsExpanded} F={nodeF.IsExpanded}");
@@ -666,6 +718,33 @@ public static class Program
         Check("扫描开始不会强制切页（RunScanAsync 里没有 ShowRightTab）",
             runScan.Length > 0 && !runScan.Contains("ShowRightTab(", StringComparison.Ordinal));
 
+        // 行为验证：真正跑一遍「扫描完成后的整理重建」。这是
+        // RunScan → FinishScanAsync → RunCleanPipelineAsync → RebuildOrganize 的最后一跳，
+        // 用真实私有路径驱动，不靠搜字符串。用户在扫描前自己切到整理页，
+        // 重建完成后必须还在整理页 —— 不许被拽回清理页。
+        ResetOrganizeCollections(win);
+        var pageRoot = MakeDir("KeepPageRoot", @"X:\KeepPageRoot", 4096, null, 1);
+        MakeDir("kp1", @"X:\KeepPageRoot\kp1", 2048, pageRoot);
+        var savedRoot = NamedField(win, "_root");
+        var tabType = typeof(MainWindow).GetNestedType("RightTab", BindingFlags.NonPublic)!;
+        try
+        {
+            SetFld(win, "_root", pageRoot);
+            Call(win, "ShowRightTab", Enum.Parse(tabType, "Organize"));
+            Check("扫描前用户停在整理页（准备状态）",
+                Fld<object>(win, "_rightTab").ToString() == "Organize",
+                Fld<object>(win, "_rightTab").ToString() ?? "");
+            Call(win, "RebuildOrganize");
+            Check("扫描重建后仍在整理页（不被拽回清理页）",
+                Fld<object>(win, "_rightTab").ToString() == "Organize",
+                Fld<object>(win, "_rightTab").ToString() ?? "");
+        }
+        finally
+        {
+            SetFld(win, "_root", savedRoot);
+            Call(win, "ShowRightTab", Enum.Parse(tabType, "Clean"));
+        }
+
         // ---------- 9.2 导航顺序：清理在前 ----------
         var xaml = ReadSource("src/AiDiskCleaner/MainWindow.xaml");
         int iClean = xaml.IndexOf("TabCleanBtn", StringComparison.Ordinal);
@@ -717,8 +796,8 @@ public static class Program
         Call(win, "ToggleOrganize", node);
         Call(win, "ToggleOrganize", node);
         // 4) 筛选开 / 关
-        Call(win, "OrganizeFilter_Click", null, new RoutedEventArgs());
-        Call(win, "OrganizeFilter_Click", null, new RoutedEventArgs());
+        Call(win, "OrganizeFilter_Click", null, ClickArgs());
+        Call(win, "OrganizeFilter_Click", null, ClickArgs());
         // 5) 切页来回
         Call(win, "ShowRightTab", Enum.Parse(typeof(MainWindow).GetNestedType("RightTab", BindingFlags.NonPublic)!, "Clean"));
         Call(win, "ShowRightTab", Enum.Parse(typeof(MainWindow).GetNestedType("RightTab", BindingFlags.NonPublic)!, "Organize"));
@@ -753,6 +832,334 @@ public static class Program
         Check("整理页对象有自己的 AI 展示态（结果缓存就在这里，不会串到别项）",
             !ReferenceEquals(node2.Ai, node.Ai) && node2.Ai.ScopeKey == @"X:\One",
             node2.Ai.ScopeKey + " vs " + node.Ai.ScopeKey);
+
+        // ---------- 9.6 本地证据**确实接线**（不是字符串存在） ----------
+        // 启动时构造 MainWindow 就注入 LocalEvidenceService：系统 KnownFolder 快照 +
+        // 已安装位置快照。这里走真实字段/真实识别路径验证，不搜源文件字符串。
+        var purpose = Fld<FolderPurposeService>(win, "_folderPurpose");
+        Check("FolderPurposeService 拿到本地证据（构造时注入，不是 null）",
+            purpose.Evidence != null);
+        Check("注入的是 LocalEvidenceService（真系统快照 + 安装位置服务，非占位类型）",
+            purpose.Evidence is LocalEvidenceService,
+            purpose.Evidence?.GetType().Name ?? "null");
+        if (purpose.Evidence is LocalEvidenceService ev)
+        {
+            Check("启动即建立系统语义快照（重定向下载/桌面/图片等至少有一项）",
+                ev.SystemRoles().Count > 0, ev.SystemRoles().Count.ToString());
+        }
+
+        // 安装清单叠加：走真实 InjectInstalledEvidence → _folderPurpose.Evidence → LocalRecognize，
+        // 用「安装位置被本地认出」证明证据链路真的通了，而不是只存在一个类名。
+        var appRoot = MakeDir("DemoApp", @"D:\DemoApp", 500_000, null, 0);
+        var appList = new List<AppUninstallItem>
+        {
+            new AppUninstallItem { Name = "DemoApp", InstallLocation = @"D:\DemoApp" },
+        };
+        Call(win, "InjectInstalledEvidence", appList);
+        var appNode = new OrganizeNode(appRoot, new FolderId(appRoot.FullPath, 1), 0, "DemoApp");
+        Call(win, "LocalRecognize", appNode);
+        Check("注入安装清单后：该安装位置被本地认出（真实证据链路，非字符串）",
+            appNode.HasConclusion && appNode.PurposeName == "DemoApp"
+            && appNode.Source == PurposeSource.Local,
+            $"has={appNode.HasConclusion} name={appNode.PurposeName} source={appNode.Source}");
+    }
+
+    // ==================================================================
+    // 10. 本轮（体验版）四项改动：驱动**真 MainWindow / 真控件**
+    // ==================================================================
+
+    static void ReviewFixesWiringTests(MainWindow win)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== 10. 本轮改动（卸载可信度 / 行内看文件 / 整理展开态 / 规则批选） ==");
+
+        // ---------- 10.1 「选择规则明确的清理项」：真按钮 + 真弹层 + 真两段式 ----------
+        var ruleBtn = NamedField(win, "RuleSelectBtn") as System.Windows.Controls.Button;
+        Check("清理首页有「选择规则明确的清理项」按钮",
+            ruleBtn != null && !string.IsNullOrWhiteSpace(ruleBtn.Content?.ToString()),
+            ruleBtn?.Content?.ToString() ?? "null");
+
+        // 造一份真实分层结果：2 条规则明确 + 1 条启发式 + 1 条大文件
+        var clearA = new CleanItem
+        {
+            Name = "a.bin", FullPath = @"C:\Users\x\AppData\Local\Temp\cache\a.bin", Size = 1000,
+            Reason = "cache", Purpose = CleanPurpose.AppCache, Risk = CleanRisk.Safe, CanDelete = true,
+            Evidence = EvidenceLevel.Signature,
+        };
+        var clearB = new CleanItem
+        {
+            Name = "b.dmp", FullPath = @"C:\Windows\Temp\b.dmp", Size = 4000,
+            Reason = "dump", Purpose = CleanPurpose.Dump, Risk = CleanRisk.Safe, CanDelete = true,
+            Evidence = EvidenceLevel.Signature,
+        };
+        var heuristicOnly = new CleanItem
+        {
+            Name = "c.bin", FullPath = @"C:\Users\x\AppData\Local\Temp\maybe\c.bin", Size = 2000,
+            Reason = "looks like temp", Purpose = CleanPurpose.Temp, Risk = CleanRisk.Safe,
+            CanDelete = true, Evidence = EvidenceLevel.Heuristic,
+        };
+        var bigFile = new CleanItem
+        {
+            Name = "movie.mkv", FullPath = @"C:\media\movie.mkv", Size = 9_000_000_000,
+            Reason = "large", Purpose = CleanPurpose.Large, Risk = CleanRisk.Confirm, CanDelete = true,
+            Evidence = EvidenceLevel.Signature,
+        };
+        WithEntry(clearA, @"C:\Users\x\AppData\Local\Temp\cache");
+        WithEntry(clearB, @"C:\Windows\Temp");
+        WithEntry(heuristicOnly, @"C:\Users\x\AppData\Local\Temp\maybe");
+        var report = new CleanReport();
+        report.Cleanable.Add(clearA);
+        report.Cleanable.Add(clearB);
+        report.Cleanable.Add(heuristicOnly);
+        report.LargeFiles.Add(bigFile);
+        var layered = CleanGroupingService.Build(
+            new[] { clearA, clearB, heuristicOnly, bigFile });
+
+        var savedReport = NamedField(win, "_report");
+        var savedLayered = NamedField(win, "_layered");
+        try
+        {
+            SetFld(win, "_report", report);
+            SetFld(win, "_layered", layered);
+
+            Call(win, "RuleSelect_Click", ruleBtn!, ClickArgs());
+            var preview = NamedField(win, "_ruleSelectPreview");
+            Check("点按钮只出预览，**一个都不勾**",
+                preview != null && !clearA.Selected && !clearB.Selected
+                && !heuristicOnly.Selected && !bigFile.Selected);
+            Check("预览弹层真的打开了（OverlayRoot 可见）",
+                (NamedField(win, "OverlayRoot") as System.Windows.FrameworkElement)?.Visibility
+                    == Visibility.Visible);
+            var ruleBody = NamedField(win, "RuleSelectBody") as System.Windows.FrameworkElement;
+            Check("弹层里显示的是规则批选这一块", ruleBody?.Visibility == Visibility.Visible);
+
+            var grid = NamedField(win, "RuleSelectGrid") as System.Windows.Controls.DataGrid;
+            var groups = grid?.ItemsSource as System.Collections.IEnumerable;
+            int groupCount = groups == null ? 0 : groups.Cast<object>().Count();
+            Check("预览按类别列出（本次 2 类）", groupCount == 2, groupCount.ToString());
+
+            // 「取消」= 不调用确认：必须什么都没发生
+            Call(win, "DiscardRuleSelectPreview");
+            Check("取消后不产生任何勾选",
+                !clearA.Selected && !clearB.Selected && !heuristicOnly.Selected && !bigFile.Selected);
+
+            // 「确认」：只有规则明确的那 2 条被勾上
+            Call(win, "RuleSelect_Click", ruleBtn!, ClickArgs());
+            Call(win, "ConfirmYes_Click", win, ClickArgs());
+            Check("确认后只勾规则明确的两项",
+                clearA.Selected && clearB.Selected && !heuristicOnly.Selected && !bigFile.Selected,
+                $"{clearA.Selected}/{clearB.Selected}/{heuristicOnly.Selected}/{bigFile.Selected}");
+            Check("大文件与启发式项没有被顺手带走（人工选择保留）",
+                !bigFile.Selected && !heuristicOnly.Selected);
+            var note = NamedField(win, "CleanSelectionNote") as System.Windows.Controls.TextBlock;
+            CheckD("底部说明告诉用户「已按规则勾选 N 项，执行前仍会走检查」",
+                note != null && note.Text.Contains("勾选", StringComparison.Ordinal), note?.Text ?? "null");
+            Check("AI 没有任何机会改变资格：AI 字段全程为空也没有影响",
+                clearA.AiNote.Length == 0 && clearA.AiSuggested == false);
+        }
+        finally
+        {
+            Call(win, "DiscardRuleSelectPreview");
+            Call(win, "CloseOverlay_Click", win, ClickArgs());
+            SetFld(win, "_report", savedReport);
+            SetFld(win, "_layered", savedLayered);
+        }
+
+        // 没有规则明确的项 ⇒ 不给预览（只出一条说明）
+        var onlyHeuristic = CleanGroupingService.Build(new[] { heuristicOnly, bigFile });
+        Check("没有规则明确的项时不弹预览（CleanRuleSelectPreview.Build 返回 null）",
+            CleanRuleSelectPreview.Build(onlyHeuristic) == null);
+
+        // ---------- 10.2 行内看文件：点位置行就地展开，不绕 AI、不进明细面板 ----------
+        var locItem = new CleanItem
+        {
+            Name = "x.bin", FullPath = @"C:\Users\x\AppData\Local\Temp\cache\x.bin", Size = 1234,
+            Purpose = CleanPurpose.AppCache, Risk = CleanRisk.Safe, CanDelete = true,
+            Evidence = EvidenceLevel.Signature,
+            Entry = new FileEntry
+            {
+                Name = "x.bin", FullPath = @"C:\Users\x\AppData\Local\Temp\cache\x.bin",
+                Kind = EntryKind.File, Size = 1234, Modified = new DateTime(2026, 1, 2, 3, 4, 5),
+                Parent = MakeDir("cache", @"C:\Users\x\AppData\Local\Temp\cache", 1234, null, 0),
+            },
+        };
+        // 位置节点通过**真实分组服务**产生，不手工拼 —— 保证用的就是界面那一份
+        var locNode = CleanGroupingService.Build(new[] { locItem })
+            .Purposes.SelectMany(p => p.Locations).First();
+        var rowHost = new System.Windows.Controls.Button { DataContext = locNode };
+        Call(win, "LocationRowOpen_Click", rowHost,
+            new System.Windows.Input.MouseButtonEventArgs(
+                System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left));
+        Check("点位置行 = 就地展开候选文件（不是跳明细面板）",
+            locNode.IsFilesOpen && NamedField(win, "_openLocation") == null,
+            $"open={locNode.IsFilesOpen} detail={(NamedField(win, "_openLocation") != null)}");
+        Check("行内列表显示文件名/大小/修改时间",
+            locNode.VisibleFiles.Count == 1
+            && locNode.VisibleFiles[0].ModifiedText.Length > 0
+            && locNode.VisibleFiles[0].SizeText.Length > 0,
+            locNode.VisibleFiles.Count.ToString());
+        Check("行内看文件**不需要 AI**（没有建立任何 AI 视图）",
+            NamedField(locItem, "_ai") == null);
+        var inlineHost = new System.Windows.Controls.CheckBox { DataContext = locItem };
+        locItem.Selected = true;
+        Call(win, "InlineFileCheck_Click", inlineHost, ClickArgs());
+        Check("行内勾选写回同一份状态（位置三态同步）", locNode.SelectedCount == 1);
+        Call(win, "LocationViewFiles_Click", rowHost, ClickArgs());
+        Check("再点一次收起，且选择不丢", !locNode.IsFilesOpen && locItem.Selected);
+        Call(win, "LocationOpenFull_Click", rowHost, ClickArgs());
+        Check("只有需要搜索时才进右侧明细面板（单一「更多」入口）",
+            NamedField(win, "_openLocation") != null);
+        Call(win, "CloseDetail");
+
+        // 行内列表刻意不做嵌套滚动：外层虚拟化列表不能被内层滚动区抢滚轮
+        var xaml = ReadSource("src/AiDiskCleaner/MainWindow.xaml");
+        int inlineStart = xaml.IndexOf("行内展开：这一处的候选文件", StringComparison.Ordinal);
+        int inlineEnd = inlineStart < 0 ? -1 : xaml.IndexOf("AI 结果展开区", inlineStart, StringComparison.Ordinal);
+        string inlineBlock = inlineStart >= 0 && inlineEnd > inlineStart
+            ? xaml[inlineStart..inlineEnd] : "";
+        Check("行内文件块是有的（定位到了模板片段）", inlineBlock.Length > 0);
+        Check("行内文件块里没有自己的 ScrollViewer / 可滚动 ListBox（避免嵌套滚动）",
+            inlineBlock.Length > 0
+            && !inlineBlock.Contains("<ScrollViewer", StringComparison.Ordinal)
+            && !inlineBlock.Contains("<ListBox", StringComparison.Ordinal));
+        Check("行内文件块绑的是真正的 CleanItem 复选框（能勾选）",
+            inlineBlock.Contains("Mode=TwoWay", StringComparison.Ordinal)
+            && inlineBlock.Contains("CanDelete", StringComparison.Ordinal));
+        Check("行内文件块明确区分「应用内查看」与「资源管理器定位」",
+            xaml.Contains("IconFolderOpen", StringComparison.Ordinal)
+            && xaml.Contains("在资源管理器中打开", StringComparison.Ordinal));
+
+        // ---------- 10.3 整理页：无箭头的原因、只有文件的入口、未知 ≠ 0KB ----------
+        // 「只有文件」：不伪造箭头，但有一个**真的能点**的文件入口
+        var filesOnlyDir = MakeDir("PerfLogsLike", @"X:\PerfLogsLike", 2048, null, 0);
+        var rf = new FileEntry
+        {
+            Name = "one.log", FullPath = @"X:\PerfLogsLike\one.log", Kind = EntryKind.File,
+            Size = 2048, Modified = new DateTime(2026, 2, 3, 4, 5, 6), Parent = filesOnlyDir,
+        };
+        filesOnlyDir.Children.Add(rf);
+        ResetOrganizeCollections(win);
+        var filesOnlyNode = new OrganizeNode(filesOnlyDir, new FolderId(filesOnlyDir.FullPath, 1), 0, "PerfLogsLike");
+        filesOnlyNode.SetChildDirCount(FolderOrganize.DirectChildDirs(filesOnlyDir, 0).Total);
+        var filesHost = new System.Windows.Controls.Button { DataContext = filesOnlyNode };
+        Check("只有文件：形态判定为 FilesOnly 且没有展开箭头",
+            filesOnlyNode.ContentKind == FolderContentKind.FilesOnly && !filesOnlyNode.CanExpand);
+        Call(win, "OrganizeFiles_Click", filesHost, ClickArgs());
+        Check("只有文件：文件入口真的能展开，并且列出文件",
+            filesOnlyNode.IsFilesOpen && filesOnlyNode.VisibleFiles.Count == 1,
+            filesOnlyNode.VisibleFiles.Count.ToString());
+        Check("只有文件：展开文件**不动**展开状态、也不触发子对象材料化",
+            !filesOnlyNode.IsExpanded && !filesOnlyNode.ChildrenLoaded);
+        Call(win, "OrganizeFiles_Click", filesHost, ClickArgs());
+        Check("只有文件：再点一次收起", !filesOnlyNode.IsFilesOpen);
+
+        // 链接 / 重解析点：本次没进去 ⇒ 未知，且**不是 0 KB**
+        var linkDir = MakeDir("LinkedDir", @"X:\LinkedDir", 0, null, 0);
+        linkDir.IsReparsePoint = true;
+        var linkNode = new OrganizeNode(linkDir, new FolderId(linkDir.FullPath, 1), 0, "LinkedDir");
+        linkNode.SetChildDirCount(0);
+        CheckD("链接：容量写「未知（未扫描）」，不是 0 KB",
+            linkNode.SizeText == Loc.OrganizeSizeNotScanned && !linkNode.SizeText.Contains("0 KB"),
+            linkNode.SizeText);
+        Check("链接：不给展开箭头、也不给文件入口",
+            !linkNode.CanExpand && !linkNode.CanViewFiles);
+        CheckD("链接：状态字与空目录**明确区分**",
+            linkNode.ContentStateText != Loc.OrganizeStateEmpty,
+            linkNode.ContentStateText);
+
+        var emptyDir = MakeDir("EmptyDir", @"X:\EmptyDir", 0, null, 0);
+        var emptyNode = new OrganizeNode(emptyDir, new FolderId(emptyDir.FullPath, 1), 0, "EmptyDir");
+        emptyNode.SetChildDirCount(0);
+        CheckD("空目录：容量写「扫描无内容」，不是 0 KB",
+            emptyNode.SizeText == Loc.OrganizeSizeEmpty, emptyNode.SizeText);
+
+        // 整理页对象**没有清理能力**（结构性断言，防止以后有人往上加字段）
+        var organizeProps = typeof(OrganizeNode).GetProperties().Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+        Check("整理对象没有 Selected / CanDelete / Risk / Verdict 这类清理能力",
+            !organizeProps.Contains("Selected") && !organizeProps.Contains("CanDelete")
+            && !organizeProps.Contains("Risk") && !organizeProps.Contains("Verdict"),
+            string.Join(",", organizeProps.Where(p => p is "Selected" or "CanDelete" or "Risk" or "Verdict")));
+
+        // 整理页仍然只有「单项 AI」这一个模型入口（不能因为本轮改动多出批量入口）
+        var organizeSource = ReadSource("src/AiDiskCleaner/MainWindow.Organize.cs");
+        Check("整理页没有多出批量识别入口（仍然只有单项 AI）",
+            !organizeSource.Contains("StartOrganizeAutoIdentify", StringComparison.Ordinal)
+            && !organizeSource.Contains("OrganizeIdentifyAllBtn", StringComparison.Ordinal));
+
+        // ---------- 10.4 卸载页：中性档 + 不为「无法确认运行状态」编建议 ----------
+        var ordinary = new AppUninstallItem
+        {
+            AppId = "ordinary", Name = "Some Ordinary App", InstallLocation = @"C:\Apps\Ordinary",
+            SizeBytes = 1000, ActualSizeBytes = 1000, CanUninstall = true,
+            RunningState = AppRunningState.Unknown,
+        };
+        var rule = AppRecommendationService.LocalRule(ordinary);
+        Check("未知应用落中性档，不再产出「可以考虑 · 无法确认是否正在运行」",
+            rule.Decision == AppRecommendationDecision.Neutral && rule.Reason.Length == 0,
+            rule.Decision + "/" + rule.Reason);
+        AppRecommendationService.ApplyLocalRules(new[] { ordinary });
+        CheckD("中性档只显示「未评估」",
+            ordinary.RecommendationText == Loc.AppRecommendationLabel(AppRecommendationDecision.Neutral),
+            ordinary.RecommendationText);
+        Check("中性档不被自动勾选", !ordinary.Selected);
+
+        // 系统条目：结构判定（卸载程序在 Windows 目录内）⇒ 不进泛化建议
+        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var inboxApp = new AppUninstallItem
+        {
+            AppId = "inbox", Name = "Microsoft Windows Operating System",
+            InstallLocation = Path.Combine(windowsDir, "System32"),
+            SizeBytes = 0, ActualSizeBytes = 0, CanUninstall = true,
+            RunningState = AppRunningState.Unknown,
+            Entry = new UninstallTools.ApplicationUninstallerEntry
+            {
+                UninstallString = "\"" + Path.Combine(windowsDir, "System32", "mstsc.exe") + "\" /uninstall",
+            },
+        };
+        var inboxRule = AppRecommendationService.LocalRule(inboxApp);
+        CheckD("系统/驱动条目不进「可以考虑」",
+            inboxRule.Decision != AppRecommendationDecision.Consider, inboxRule.Decision.ToString());
+        Check("系统/驱动条目的理由是结构判定的结果",
+            inboxRule.Decision == AppRecommendationDecision.Keep
+            && inboxRule.Reason == Loc.AppKeepInboxComponent, inboxRule.Reason);
+
+        // 「选择建议项」只作用于「建议卸载」，中性/保留都不在内
+        var mix = new List<AppUninstallItem>
+        {
+            new() { AppId = "r", Name = "2345 helper", InstallLocation = @"C:\Apps\Bloat",
+                    SizeBytes = 10, CanUninstall = true, RunningState = AppRunningState.NotRunning },
+            ordinary,
+            inboxApp,
+        };
+        AppRecommendationService.ApplyLocalRules(mix, clearSelection: true);
+        var selectable = mix.Where(x => x.CanUninstall
+            && x.Recommendation == AppRecommendationDecision.Recommend).ToList();
+        CheckD("按建议勾选只覆盖「建议卸载」那一档",
+            selectable.Count == 1 && selectable[0].AppId == "r",
+            string.Join(",", selectable.Select(x => x.AppId)));
+
+        // ---------- 10.5 占用三态在真条目上的显示 ----------
+        var measured = new AppUninstallItem
+        {
+            AppId = "m", Name = "measured", ActualSizeBytes = 1_500_000, HasMeasuredSize = true,
+        };
+        var recordOnly = new AppUninstallItem { AppId = "e", Name = "record", SizeBytes = 900_000 };
+        var noNumber = new AppUninstallItem { AppId = "u", Name = "unknown" };
+        CheckD("实测：直接写数字，不带「估算」",
+            measured.ActualSizeText == AppUninstallItem.FormatFootprint(1_500_000),
+            measured.ActualSizeText);
+        CheckD("只有安装记录：显式标注来源",
+            recordOnly.ActualSizeText.StartsWith("约", StringComparison.Ordinal)
+            && recordOnly.ActualSizeText.Contains("安装记录", StringComparison.Ordinal),
+            recordOnly.ActualSizeText);
+        CheckD("两样都没有：写「未知」而不是 0",
+            noNumber.ActualSizeText == Loc.AppSizeUnknown, noNumber.ActualSizeText);
+        Check("三种来源的排序权重是 实测 < 记录 < 未知",
+            measured.SizeConfidenceRank < recordOnly.SizeConfidenceRank
+            && recordOnly.SizeConfidenceRank < noNumber.SizeConfidenceRank);
+        CheckD("占用悬停里写明「磁盘占用不等于卸载能释放的量」",
+            measured.FootprintHint.Contains(Loc.AppFootprintNotEqualFree),
+            measured.FootprintHint);
     }
 
     /// <summary>读仓库里的源文件（从 bin 往上找到仓库根）：用于断言"某个入口不存在"。</summary>

@@ -51,6 +51,12 @@ public sealed class CleanItem : INotifyPropertyChanged
     /// <summary>风险档位，决定行高亮颜色。</summary>
     public CleanRisk Risk { get; set; } = CleanRisk.Confirm;
     public bool CanDelete { get; set; } = true;
+    /// <summary>
+    /// 产生这条候选的**规则声明的证据强度**。以前这个字段在工厂里被丢掉了，
+    /// 于是「批量选择」只能靠路径里有没有 "cache" 这种字符串猜 —— 现在按规则说话。
+    /// AI 完全不参与这个字段。
+    /// </summary>
+    public EvidenceLevel Evidence { get; set; } = EvidenceLevel.Heuristic;
     public bool AiSuggested { get; set; }
 
     string _aiNote = "";
@@ -125,6 +131,19 @@ public sealed class CleanItem : INotifyPropertyChanged
     public bool IsDirectory { get; set; }
 
     public string SizeText => FileEntry.FormatSize(Size);
+
+    /// <summary>
+    /// 修改时间（行内文件列表要显示它，让用户不用点开就能判断「这是什么时候的东西」）。
+    /// 拿不到就留空，不编造。
+    /// </summary>
+    public string ModifiedText => Entry != null && Entry.Modified != DateTime.MinValue
+        ? Entry.Modified.ToString("yyyy-MM-dd HH:mm")
+        : "";
+
+    /// <summary>不可删的候选项在行内列表里也要看得见，但勾选框必须禁用并说明原因。</summary>
+    public bool IsKeptFromDeletion => !CanDelete;
+
+    public string KeptBadge => CanDelete ? "" : Loc.KeptItemBadge;
 
     /// <summary>表格分组用：0 = 建议清理（安全），1 = 需要你确认。「别删」不进列表。</summary>
     public int RiskGroupKey => Risk == CleanRisk.Safe ? 0 : 1;

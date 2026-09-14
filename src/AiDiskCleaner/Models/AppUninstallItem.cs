@@ -13,11 +13,12 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
     private long _actualSizeBytes;
     private bool _hasMeasuredSize;
     private AppRunningState _runningState = AppRunningState.Unknown;
-    private AppRecommendationDecision _recommendation = AppRecommendationDecision.Consider;
+    private AppRecommendationDecision _recommendation = AppRecommendationDecision.Neutral;
     private string _recommendationReason = "";
     private string _recommendationWarning = "";
     private double _recommendationConfidence;
     private bool _aiSuggested;
+    private string _footprintNote = "";
 
     public bool Selected
     {
@@ -45,6 +46,8 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
             _actualSizeBytes = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ActualSizeText));
+            OnPropertyChanged(nameof(SizeConfidenceRank));
+            OnPropertyChanged(nameof(FootprintHint));
         }
     }
     public bool HasMeasuredSize
@@ -56,13 +59,53 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
             _hasMeasuredSize = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ActualSizeText));
+            OnPropertyChanged(nameof(FootprintSource));
+            OnPropertyChanged(nameof(SizeConfidenceRank));
+            OnPropertyChanged(nameof(FootprintHint));
         }
     }
+
+    /// <summary>
+    /// 占用为什么没测到（共享目录 / 系统目录 / 不在扫描范围内 / 目录不存在 …）。
+    /// 只用于把话说清楚，绝不在这里编造数字。
+    /// </summary>
+    public string FootprintNote
+    {
+        get => _footprintNote;
+        set
+        {
+            if (_footprintNote == value) return;
+            _footprintNote = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(FootprintHint));
+        }
+    }
+
+    /// <summary>这一格的数字从哪来：实测 / 安装记录 / 未知。三者显示文案完全不同。</summary>
+    public AppFootprintSource FootprintSource
+    {
+        get
+        {
+            if (HasMeasuredSize) return AppFootprintSource.Measured;
+            return SizeBytes > 0 ? AppFootprintSource.InstallRecord : AppFootprintSource.Unknown;
+        }
+    }
+
+    /// <summary>
+    /// 「可信占用排序」用的分级：0 = 扫描实测，1 = 安装记录估计，2 = 未知。
+    /// 实测优先，估的排后面，没有的排最后 —— 不让假数字混在真数字里。
+    /// </summary>
+    public int SizeConfidenceRank => (int)FootprintSource;
     public DateTime InstallDate { get; set; }
     public string InstallLocation { get; set; } = "";
     public bool CanUninstall { get; set; }
     public bool IsProtected { get; set; }
     public bool SystemComponent { get; set; }
+    /// <summary>
+    /// Windows 自带组件 / 设备驱动软件（由卸载程序路径或安装路径**结构判定**，不靠名字猜）。
+    /// 这类条目不属于用户装的软件，不能进泛化卸载建议，也不进「选择建议项」。
+    /// </summary>
+    public bool InboxComponent { get; set; }
     public bool HasStartup { get; set; }
     public AppRunningState RunningState
     {
@@ -74,6 +117,7 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsRunning));
             OnPropertyChanged(nameof(IsRunningKnown));
+            OnPropertyChanged(nameof(RecommendationHint));
         }
     }
     public bool IsRunning => RunningState == AppRunningState.Running;
@@ -87,9 +131,59 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
     public ApplicationUninstallerEntry? Entry { get; set; }
 
     public string SizeText => SizeBytes <= 0 ? "—" : FileEntry.FormatSize(SizeBytes);
-    public string ActualSizeText => ActualSizeBytes <= 0
-        ? SizeText
-        : FileEntry.FormatSize(ActualSizeBytes) + (HasMeasuredSize ? "" : Loc.AppSizeEstimated);
+
+    /// <summary>
+    /// 占用那一格。**三种来源的文案必须一眼分得开**：
+    /// 扫描实测 = 直接写数；安装记录 = 「约 X（安装记录）」；两样都没有 = 「未知」。
+    /// 「0 G（估算）」这种既没有信息量、又让人以为软件只有 0 的写法已经取消。
+    /// </summary>
+    public string ActualSizeText
+    {
+        get
+        {
+            if (HasMeasuredSize)
+                return ActualSizeBytes > 0
+                    ? FormatFootprint(ActualSizeBytes)
+                    : Loc.AppSizeMeasuredEmpty;
+            if (SizeBytes > 0) return Loc.AppSizeFromRecord(FormatFootprint(SizeBytes));
+            return Loc.AppSizeUnknown;
+        }
+    }
+
+    /// <summary>悬停：占用来源 + 为什么没测到 + 拆分。数字口径写清楚，不承诺等于卸载可释放量。</summary>
+    public string FootprintHint
+    {
+        get
+        {
+            var bits = new List<string>();
+            bits.Add(Loc.AppSizeColumnTip);
+            if (!HasMeasuredSize && FootprintNote.Length > 0)
+                bits.Add(Loc.AppFootprintNotMeasured(FootprintNote));
+            if (HasFootprintBreakdown) bits.Add(FootprintText);
+            bits.Add(Loc.AppFootprintNotEqualFree);
+            return string.Join(Environment.NewLine, bits);
+        }
+    }
+
+    /// <summary>
+    /// 体积格式化：**绝不把小值四舍五入成 0**。
+    /// 1 字节就是「&lt; 1 KB」，400 MB 就是「400 MB」，不会变成「0 G」。
+    /// </summary>
+    public static string FormatFootprint(long bytes)
+    {
+        if (bytes <= 0) return "0 KB";
+        if (bytes < 1024) return "< 1 KB";
+        if (bytes < 1024L * 1024)
+            return Math.Max(1, (long)Math.Round(bytes / 1024.0)) + " KB";
+        if (bytes < 1024L * 1024 * 1024)
+        {
+            double mb = bytes / (1024.0 * 1024);
+            return (mb >= 100 ? Math.Round(mb).ToString("0") : mb.ToString("0.0")) + " MB";
+        }
+        double g = bytes / (1024.0 * 1024 * 1024);
+        return (g >= 100 ? Math.Round(g).ToString("0") : g.ToString("0.0")) + " G";
+    }
+
     public string InstallDateText => InstallDate == DateTime.MinValue ? "—" : InstallDate.ToString("yyyy-MM-dd");
 
     // ---- 占用拆分：安装目录 / 用户数据 / 缓存 / 估计可释放 ----
@@ -152,6 +246,7 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(RecommendationGroupKey));
             OnPropertyChanged(nameof(RecommendationText));
+            OnPropertyChanged(nameof(RecommendationHint));
         }
     }
 
@@ -170,6 +265,7 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
             _recommendationReason = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(RecommendationText));
+            OnPropertyChanged(nameof(RecommendationHint));
         }
     }
 
@@ -182,6 +278,7 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
             _recommendationWarning = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(RecommendationText));
+            OnPropertyChanged(nameof(RecommendationHint));
         }
     }
 
@@ -206,6 +303,21 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
             string warning = string.IsNullOrWhiteSpace(RecommendationWarning) ? "" : " · " + RecommendationWarning;
             string ai = AiSuggested ? " · " + Loc.AiMark : "";
             return label + reason + warning + ai;
+        }
+    }
+
+    /// <summary>
+    /// 建议列的悬停：建议 + （中性档时）为什么没有建议 + 占用来源说明。
+    /// 套话只留在悬停里，而且只在确实有内容可讲的时候才出现。
+    /// </summary>
+    public string RecommendationHint
+    {
+        get
+        {
+            var bits = new List<string> { RecommendationText };
+            if (Recommendation == AppRecommendationDecision.Neutral) bits.Add(Loc.AppNeutralHint);
+            bits.Add(Loc.RunningStateText(RunningState));
+            return string.Join(Environment.NewLine, bits);
         }
     }
 

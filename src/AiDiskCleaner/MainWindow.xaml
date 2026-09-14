@@ -49,6 +49,8 @@
     <Geometry x:Key="IconCopy">M9 2h9a2 2 0 0 1 2 2v11h-2V4H9V2zM5 6h9a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 2v12h9V8H5z</Geometry>
     <Geometry x:Key="IconFolderOpen">M2 5a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1H4v9h2.2l2.6-7H22l-3 8.4A2 2 0 0 1 17.1 20H4a2 2 0 0 1-2-2V5z</Geometry>
     <Geometry x:Key="IconLink">M10.6 13.4a1 1 0 0 1 0-1.4l1.4-1.4a1 1 0 0 1 1.4 1.4l-1.4 1.4a1 1 0 0 1-1.4 0zM7.8 16.2l-1.4 1.4a3 3 0 0 1-4.2-4.2l3.5-3.5a3 3 0 0 1 4.2 0l1.4 1.4-1.4 1.4-1.4-1.4a1 1 0 0 0-1.4 0L3.6 14.8a1 1 0 0 0 1.4 1.4l1.4-1.4 1.4 1.4zm8.4-8.4 1.4-1.4a3 3 0 0 1 4.2 4.2l-3.5 3.5a3 3 0 0 1-4.2 0l-1.4-1.4 1.4-1.4 1.4 1.4a1 1 0 0 0 1.4 0l3.5-3.5a1 1 0 0 0-1.4-1.4l-1.4 1.4-1.4-1.4z</Geometry>
+    <!-- 「只有文件」的目录：文件按钮用它（不伪造展开箭头） -->
+    <Geometry x:Key="IconFileLines">M6 2h8l4 4v16H6V2zm7 1.6V7h3.4L13 3.6zM8.5 11h7v1.6h-7V11zm0 3.4h7v1.6h-7v-1.6zm0 3.4h4.6V19.4H8.5v-1.6z</Geometry>
 
     <!-- 统一图标按钮：32~36 DIP 点击区，悬停/按下/禁用/键盘焦点四态齐全。
          ToolTip 与 AutomationProperties.Name 由使用处按语义设置。 -->
@@ -1345,7 +1347,7 @@
                     <DataTemplate>
                       <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,3,6,3">
                         <Border Width="{Binding IndentWidth}" Height="1"/>
-                        <!-- 展开箭头：纯导航，不做识别 -->
+                        <!-- 展开箭头：纯导航，不做识别。**只有真的有子文件夹才出现**。 -->
                         <Button Style="{StaticResource IconButton}" Width="20" Height="20" Padding="0"
                                 VerticalAlignment="Center" Margin="0,0,4,0"
                                 Visibility="{Binding CanExpand, Converter={StaticResource BoolToVisible}}"
@@ -1353,6 +1355,16 @@
                                 AutomationProperties.Name="{Binding ExpandTip}">
                           <Path Data="{Binding ExpandGlyphKey, Converter={StaticResource IconKey}}"
                                 Width="10" Height="10" Stretch="Uniform"
+                                Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        </Button>
+                        <!-- 「只有文件」的行没有子文件夹可展开，但要看文件仍然有**有效入口**：
+                             一个文件按钮，就地列出这个文件夹自己的文件。**不伪造箭头**。 -->
+                        <Button Style="{StaticResource IconButton}" Width="20" Height="20" Padding="0"
+                                VerticalAlignment="Center" Margin="0,0,4,0"
+                                Visibility="{Binding CanViewFiles, Converter={StaticResource BoolToVisible}}"
+                                Click="OrganizeFiles_Click" ToolTip="{Binding FilesToggleText}"
+                                AutomationProperties.Name="{Binding FilesToggleText}">
+                          <Path Data="{StaticResource IconFileLines}" Width="11" Height="11" Stretch="Uniform"
                                 Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                         </Button>
                         <StackPanel VerticalAlignment="Center">
@@ -1446,23 +1458,67 @@
                                      Foreground="{DynamicResource Placeholder}"
                                      Text="{Binding Ai.ProgressText}"/>
                         </StackPanel>
+                        <!-- 「只有文件」的目录：就地列出它自己的文件（**只读、有界、不嵌套滚动**）。
+                             整理页没有任何删除能力，这里也不会给。 -->
+                        <Border Margin="0,4,0,1" Padding="8,6" CornerRadius="4"
+                                Background="{DynamicResource SelectBg}"
+                                Visibility="{Binding IsFilesOpen, Converter={StaticResource BoolToVisible}}">
+                          <StackPanel>
+                            <TextBlock Text="{Binding FilesNote}" FontSize="10.5" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextDim}"/>
+                            <ItemsControl ItemsSource="{Binding VisibleFiles}" Margin="0,4,0,0">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                  <Grid Height="22">
+                                    <Grid.ColumnDefinitions>
+                                      <ColumnDefinition Width="*"/>
+                                      <ColumnDefinition Width="Auto"/>
+                                      <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="11"
+                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding Hint}"
+                                               Foreground="{DynamicResource Text}"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding ModifiedText}" FontSize="10"
+                                               Margin="0,0,10,0" MinWidth="98" TextAlignment="Right"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextMuted}"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding SizeText}" FontSize="10.5"
+                                               MinWidth="70" TextAlignment="Right" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource AccentDim}"/>
+                                  </Grid>
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="{Binding FilesScopeText}" FontSize="10" Margin="0,4,0,0"
+                                       TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"/>
+                          </StackPanel>
+                        </Border>
                       </StackPanel>
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <DataGridTextColumn x:Name="ColOrgSize" Header="容量" Binding="{Binding SizeText}"
-                                    SortMemberPath="Size" Width="80" MinWidth="80" CanUserResize="False"
-                                    IsReadOnly="True">
-                  <DataGridTextColumn.ElementStyle>
-                    <Style TargetType="TextBlock">
-                      <Setter Property="HorizontalAlignment" Value="Right"/>
-                      <Setter Property="Margin" Value="0,0,6,0"/>
-                      <Setter Property="Foreground" Value="{DynamicResource AccentDim}"/>
-                      <Setter Property="VerticalAlignment" Value="Center"/>
-                    </Style>
-                  </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
+                <!-- 容量：未知/空/只有文件各有明确说法，**不拿 0 KB 暗示空目录** -->
+                <DataGridTemplateColumn x:Name="ColOrgSize" Header="容量" SortMemberPath="Size"
+                                        Width="96" MinWidth="96" CanUserResize="False" IsReadOnly="True">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                      <StackPanel VerticalAlignment="Center" Margin="0,3,6,3">
+                        <TextBlock Text="{Binding SizeText}" FontSize="12" TextAlignment="Right"
+                                   Foreground="{DynamicResource AccentDim}"
+                                   ToolTip="{Binding ContentStateTip}"/>
+                        <!-- 这一行为什么没有展开箭头：只在这三种情况下才占位置 -->
+                        <TextBlock Text="{Binding ContentStateText}" FontSize="10" Margin="0,1,0,0"
+                                   TextAlignment="Right" TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource TextMuted}"
+                                   ToolTip="{Binding ContentStateTip}"
+                                   Visibility="{Binding HasContentState,
+                                                Converter={StaticResource BoolToVisible}}"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
 
                 <!-- 操作：**没有逐项「识别」按钮**，也**没有第二套展开按钮** ——
                      左边那个箭头是唯一的展开/收起入口；这里只留「在资源管理器中打开」。 -->
@@ -1615,6 +1671,12 @@
                   </StackPanel>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                  <!-- 规则明确的批量勾选：只在用户主动点的时候跑，而且先给预览。
+                       它是「少点几下」，不是「替你决定」——执行仍然要走清理前检查。 -->
+                  <Button x:Name="RuleSelectBtn" Content="选择规则明确的清理项"
+                          Style="{StaticResource GhostButton}" Padding="12,6" FontSize="12"
+                          Margin="0,0,8,0" Click="RuleSelect_Click"
+                          ToolTip="只勾选正式规则判定为安全、证据达到签名级、且通过保护检查的缓存/临时/转储项；会先给你看清单"/>
                   <Button x:Name="ClearSelectionBtn" Content="清空选择" Style="{StaticResource GhostButton}"
                           Padding="12,6" FontSize="12" Margin="0,0,8,0" Click="ClearSelection_Click"/>
                   <!-- 唯一的主要执行入口。点它进入「清理前检查」页，**不是直接删**。 -->
@@ -1904,12 +1966,84 @@
                             <!-- 进入文件明细：同样复用矢量箭头 -->
                             <Button Grid.Column="5" Style="{StaticResource ChevronButton}"
                                     VerticalAlignment="Center" Click="LocationViewFiles_Click"
-                                    ToolTip="查看文件" AutomationProperties.Name="{Binding DisplayName}">
-                              <Path Data="{StaticResource IconChevronRight}" Width="11" Height="11"
+                                    ToolTip="{Binding FilesToggleText}"
+                                    AutomationProperties.Name="{Binding FilesToggleText}">
+                              <Path Data="{Binding FilesGlyphKey, Converter={StaticResource IconKey}}"
+                                    Width="11" Height="11"
                                     Stretch="Uniform"
                                     Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                             </Button>
                           </Grid>
+                          <!-- ===== 行内展开：这一处的候选文件，**不需要 AI** =====
+                               点位置行或右侧箭头就地展开；列表用真正的 CleanItem 实例，
+                               勾选直接写回同一份状态；只在这里看与勾，不能删。 -->
+                          <StackPanel Margin="32,6,0,2"
+                                      Visibility="{Binding IsFilesOpen, Converter={StaticResource BoolToVisible}}">
+                            <TextBlock Text="{Binding FilesNote}" FontSize="11"
+                                       Foreground="{DynamicResource TextDim}" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding FilesToggleText}" Visibility="Collapsed"/>
+                            <!-- 头部：名称 / 修改时间 / 大小 / 勾选，四列对齐 -->
+                            <Grid Margin="0,6,10,2">
+                              <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="26"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                              </Grid.ColumnDefinitions>
+                              <TextBlock Grid.Column="1" Text="{Binding NameHeaderText}" FontSize="10.5"
+                                         Foreground="{DynamicResource TextMuted}"/>
+                              <TextBlock Grid.Column="2" Text="{Binding ModifiedHeaderText}" FontSize="10.5"
+                                         Margin="0,0,12,0" MinWidth="104" TextAlignment="Right"
+                                         Foreground="{DynamicResource TextMuted}"/>
+                              <TextBlock Grid.Column="3" Text="{Binding SizeHeaderText}" FontSize="10.5" MinWidth="80"
+                                         TextAlignment="Right" Foreground="{DynamicResource TextMuted}"/>
+                            </Grid>
+                            <!-- 列表本身**不做嵌套滚动**：最多 30 行，多出来的如实计数并
+                                 由下面的「完整列表」按钮承接 —— 行内嵌套滚动条会和外层
+                                 虚拟化列表抢滚轮，这个坑以前踩过。 -->
+                            <ItemsControl ItemsSource="{Binding VisibleFiles}" Margin="0,2,10,0">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                  <Grid Height="26">
+                                    <Grid.ColumnDefinitions>
+                                      <ColumnDefinition Width="26"/>
+                                      <ColumnDefinition Width="*"/>
+                                      <ColumnDefinition Width="Auto"/>
+                                      <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <!-- 勾选直接写回 CleanItem.Selected；不可删的项禁用并标「保留」 -->
+                                    <CheckBox Grid.Column="0" VerticalAlignment="Center"
+                                              IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              IsEnabled="{Binding CanDelete}"
+                                              Click="InlineFileCheck_Click"
+                                              ToolTip="{Binding KeptBadge}"
+                                              AutomationProperties.Name="{Binding Name}"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="11.5"
+                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding FullPath}"
+                                               Foreground="{DynamicResource Text}"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding ModifiedText}" FontSize="10.5"
+                                               Margin="0,0,12,0" MinWidth="104" TextAlignment="Right"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextMuted}"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding SizeText}" FontSize="11"
+                                               MinWidth="80" TextAlignment="Right" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource Accent}"/>
+                                  </Grid>
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="{Binding FilesScopeText}" FontSize="10.5" Margin="0,4,10,0"
+                                       TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                              <!-- 需要搜索/分页时才进右侧明细面板；这是唯一的「更多」入口 -->
+                              <Button Style="{StaticResource ChipButton}" Padding="10,3" FontSize="11"
+                                      Content="{Binding FullListButtonText}"
+                                      Click="LocationOpenFull_Click"
+                                      ToolTip="{Binding FullListTipText}"
+                                      AutomationProperties.Name="{Binding FullListButtonText}"/>
+                            </StackPanel>
+                          </StackPanel>
                           <!-- AI 结果展开区（按钮在上一行的右侧，这里只放结果） -->
                           <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ItemAiResultOnly}"
                                           Margin="32,0,0,0"/>
@@ -2240,13 +2374,15 @@
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
                 <DataGridTextColumn x:Name="ColAppPub" Header="发布者" Binding="{Binding Publisher}" Width="0" MinWidth="0" MaxWidth="0" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn x:Name="ColAppSize" Header="扫描占用" Binding="{Binding ActualSizeText}" SortMemberPath="ActualSizeBytes" Width="84" MinWidth="84" MaxWidth="92" IsReadOnly="True">
+                <DataGridTextColumn x:Name="ColAppSize" Header="占用" Binding="{Binding ActualSizeText}" SortMemberPath="ActualSizeBytes" Width="104" MinWidth="104" MaxWidth="118" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="HorizontalAlignment" Value="Right"/>
                       <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
-                      <!-- 悬停看占用拆分：安装目录 / 用户数据 / 缓存（不卸载就能清掉的那块） -->
-                      <Setter Property="ToolTip" Value="{Binding FootprintText}"/>
+                      <!-- 悬停说清这个数从哪来：扫描实测 / 安装记录估计 / 未知；
+                           没测到还要说清为什么（共享目录、系统目录、不在扫描范围…）。
+                           磁盘占用不等于卸载可释放量。 -->
+                      <Setter Property="ToolTip" Value="{Binding FootprintHint}"/>
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
@@ -2254,7 +2390,7 @@
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-                      <Setter Property="ToolTip" Value="{Binding RecommendationText}"/>
+                      <Setter Property="ToolTip" Value="{Binding RecommendationHint}"/>
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
@@ -2551,6 +2687,79 @@
                   </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
               </DataGridTemplateColumn>
+            </DataGrid.Columns>
+          </DataGrid>
+        </Grid>
+
+        <!-- ===== 规则明确的批量勾选：预览 + 逐类排除 =====
+             它只决定「勾哪些」，不执行任何删除；确认后仍然走清理前检查。 -->
+        <Grid x:Name="RuleSelectBody" Visibility="Collapsed">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+          <TextBlock x:Name="RuleSelectSummary" Grid.Row="0" Foreground="{DynamicResource Text}"
+                     FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap"/>
+          <TextBlock x:Name="RuleSelectExcluded" Grid.Row="1" Margin="0,4,0,0"
+                     Foreground="{DynamicResource AccentDim}" FontSize="11" TextWrapping="Wrap"
+                     Visibility="Collapsed"/>
+          <DataGrid x:Name="RuleSelectGrid" Grid.Row="2" Margin="0,10,0,0" MinHeight="180" MaxHeight="320"
+                    AutoGenerateColumns="False" HeadersVisibility="Column" GridLinesVisibility="None"
+                    BorderThickness="0" RowHeight="46" Background="Transparent" RowBackground="Transparent"
+                    AlternatingRowBackground="{DynamicResource RowAlt}"
+                    EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                    VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                    SelectionMode="Single" SelectionUnit="FullRow"
+                    HorizontalScrollBarVisibility="Disabled" VerticalContentAlignment="Center">
+            <DataGrid.Columns>
+              <DataGridTemplateColumn Header="排除" Width="52" CanUserSort="False" IsReadOnly="False">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <CheckBox HorizontalAlignment="Center" VerticalAlignment="Center"
+                              IsChecked="{Binding Excluded, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                              ToolTip="勾上表示这一类不参与本次批量选择"
+                              AutomationProperties.Name="{Binding Name}"/>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+              <DataGridTextColumn Header="类别" Binding="{Binding Name}" Width="110" IsReadOnly="True"/>
+              <DataGridTextColumn Header="清掉会怎样" Binding="{Binding Impact}" Width="*" MinWidth="120" IsReadOnly="True">
+                <DataGridTextColumn.ElementStyle>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="TextWrapping" Value="Wrap"/>
+                    <Setter Property="FontSize" Value="11"/>
+                    <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
+                  </Style>
+                </DataGridTextColumn.ElementStyle>
+              </DataGridTextColumn>
+              <DataGridTextColumn Header="项数" Binding="{Binding CountText}" Width="60" IsReadOnly="True">
+                <DataGridTextColumn.ElementStyle>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="HorizontalAlignment" Value="Right"/>
+                    <Setter Property="Margin" Value="0,0,8,0"/>
+                  </Style>
+                </DataGridTextColumn.ElementStyle>
+              </DataGridTextColumn>
+              <DataGridTextColumn Header="约占用" Binding="{Binding SizeText}" Width="80" IsReadOnly="True">
+                <DataGridTextColumn.ElementStyle>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="HorizontalAlignment" Value="Right"/>
+                    <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                    <Setter Property="Margin" Value="0,0,4,0"/>
+                  </Style>
+                </DataGridTextColumn.ElementStyle>
+              </DataGridTextColumn>
+              <DataGridTextColumn Header="例子" Binding="{Binding SampleText}" Width="150" IsReadOnly="True">
+                <DataGridTextColumn.ElementStyle>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                    <Setter Property="ToolTip" Value="{Binding SampleText}"/>
+                    <Setter Property="FontSize" Value="11"/>
+                    <Setter Property="Foreground" Value="{DynamicResource TextMuted}"/>
+                  </Style>
+                </DataGridTextColumn.ElementStyle>
+              </DataGridTextColumn>
             </DataGrid.Columns>
           </DataGrid>
         </Grid>

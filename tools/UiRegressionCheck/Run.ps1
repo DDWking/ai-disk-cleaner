@@ -727,19 +727,40 @@ Assert-True 'viewing files uses exact item filtering' `
 Assert-True 'local verdict is available even without AI configured' `
     ($cs -match 'AiNeedConfigLocalStillWorks' -and $cs -match 'AiVerdict\.Build\(items')
 
-# 发布产物：取 dist 下最新的 DashaoHuo-*-win-x64
-$publish = Get-ChildItem -LiteralPath (Join-Path $repo 'dist') -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like 'DashaoHuo-*-win-x64' } |
-    Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+# 发布产物：取 dist 下最新的 DashaoHuo-*-win-x64。
+# 这是**打包门禁**，不是行为检查：dist 是 gitignore 的生成物，开发机 / CI 没有它很正常。
+# 所以「dist 缺失」明确标 SKIP（exit 0），绝不因 Test-Path 对 null 路径抛错而误报成行为失败；
+# 只有「dist 存在但缺包/版本不对」才算真失败 —— 那是发布时该抓的。
+$distDir = Join-Path $repo 'dist'
+if (Test-Path -LiteralPath $distDir) {
+    # 注意：必须按**版本号**取最新，不能按名字排序。
+    # 字符串比较下 'DashaoHuo-2.9.2' > 'DashaoHuo-2.10.0'（'9' > '1'），
+    # 于是 2.10.0 一发布这个门禁反而去检查旧包 —— 之前没暴露只是因为没跨过 2.9 -> 2.10。
+    $publish = Get-ChildItem -LiteralPath $distDir -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like 'DashaoHuo-*-win-x64' } |
+        ForEach-Object {
+            $m = [regex]::Match($_.Name, '^DashaoHuo-(\d+(?:\.\d+)*)-')
+            [pscustomobject]@{
+                Dir = $_
+                Ver = if ($m.Success) { [version]$m.Groups[1].Value } else { [version]'0.0.0' }
+            }
+        } |
+        Sort-Object Ver, @{ Expression = { $_.Dir.Name } } -Descending |
+        Select-Object -First 1 -ExpandProperty Dir |
+        Select-Object -ExpandProperty FullName
 
-if (Test-Path $publish) {
-    $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
-    Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
-    $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
-    Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.9.0*')
+    if ($publish -and (Test-Path -LiteralPath $publish)) {
+        $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
+        Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
+        $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
+        Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.10.0*')
+    }
+    else {
+        Assert-True 'publish package exists (dist/ present but no DashaoHuo-*-win-x64 package)' $false
+    }
 }
 else {
-    Assert-True 'publish package exists' $false
+    Write-Output 'SKIP publish package check (dist/ not present — packaging is validated at release time)'
 }
 
 Write-Output ''
