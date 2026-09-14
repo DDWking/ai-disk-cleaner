@@ -56,6 +56,7 @@ public static class Loc
     public static string AiItemSummaryScope(int shown, int total) => $"summary {shown} of {total}";
     public static string ItemAiAnalyze => "AI";
     public static string ItemAiTip => "tip";
+    public static string ItemAiStopHint => "stop";
     public static string ItemAiQueued => "queued";
     public static string ItemAiRunning => "running";
     public static string ItemAiViewResult => "view result";

@@ -333,12 +333,14 @@ public partial class MainWindow : Window, IAnalystHost
         JunkSafeBtn.Content = Loc.JunkSafe;
         JunkDeleteBtn.Content = Loc.JunkDelete;
         ColAppName.Header = Loc.ColName;
-        ColAppPub.Header = Loc.Publisher;
-        ColAppVersion.Header = Loc.ColVersion;
+        // 发布者 / 版本 / 状态三列已从可见表格里移除（Collapsed）。这里逐个判空：
+        // 将来真的把列元素删掉时，ApplyUi 不会因为少了某个 x:Name 字段而 NRE。
+        if (ColAppPub != null) ColAppPub.Header = Loc.Publisher;
+        if (ColAppVersion != null) ColAppVersion.Header = Loc.ColVersion;
         ColAppInstallDate.Header = Loc.ColInstallDate;
         ColAppPurpose.Header = Loc.AppPurposeHeader;
         ColAppSize.Header = Loc.AppSizeColumnHeader;
-        ColAppStatus.Header = Loc.Status;
+        if (ColAppStatus != null) ColAppStatus.Header = Loc.Status;
         ColAppAction.Header = Loc.UninstallRowActions;
         UninstallSortNote.Text = Loc.UninstallSortNote;
         ColJunkApp.Header = Loc.ColName;
@@ -420,6 +422,7 @@ public partial class MainWindow : Window, IAnalystHost
         if (AiPickModelLabel != null) AiPickModelLabel.Text = Loc.AiPickModel;
         FillAiProtoBox();
         FillRunModels();
+        RefreshAiLamp();   // 顶栏胶囊的模型名 / 可访问名称随语言与配置一起刷新
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_root == null)
@@ -1583,6 +1586,7 @@ public partial class MainWindow : Window, IAnalystHost
         if (_aiBusy) return;
         SaveAiFields();
         _aiBusy = true;
+        RefreshAiLamp();
         AiFetchBtn.IsEnabled = false;
         AiModelHint.Text = Loc.AiWorking;
         using var op = StartOperation(ref _aiConfigCts, "AiConfig");
@@ -1619,6 +1623,7 @@ public partial class MainWindow : Window, IAnalystHost
         {
             _aiBusy = false;
             AiFetchBtn.IsEnabled = true;
+            RefreshAiLamp();
         }
     }
 
@@ -1627,6 +1632,7 @@ public partial class MainWindow : Window, IAnalystHost
         if (_aiBusy) return;
         SaveAiFields();
         _aiBusy = true;
+        RefreshAiLamp();
         AiTestBtn.IsEnabled = false;
         AiTestHint.Text = Loc.AiWorking;
         using var op = StartOperation(ref _aiConfigCts, "AiConfig");
@@ -1653,6 +1659,7 @@ public partial class MainWindow : Window, IAnalystHost
         {
             _aiBusy = false;
             AiTestBtn.IsEnabled = true;
+            RefreshAiLamp();
         }
     }
 
@@ -1725,23 +1732,79 @@ public partial class MainWindow : Window, IAnalystHost
     }
 
     /// <summary>
-    /// AI 状态不再常驻顶栏（§八：常驻「AI 已配置」要移除）。
-    /// 只在真的在跑 / 出结果时，写进那次性的次级状态行。
+    /// 现在是否有 AI 在跑。三个来源任一为真就算忙：
+    ///  · <c>_aiBusy</c>：设置里的取模型 / 测试连接；
+    ///  · <c>_aiAppsBusy</c>：卸载页的软件分析（历史入口，保留兼容）；
+    ///  · <c>_itemAiRunning</c>：逐项分析的在飞登记表 —— **按条目计数**，
+    ///    所以并发多项时只有最后一项结束才会停下来。
+    /// </summary>
+    bool AiBusyNow => _aiBusy || _aiAppsBusy || _itemAiRunning.Count > 0;
+
+    /// <summary>
+    /// 顶栏右侧的 AI 胶囊是**主指示器**：
+    ///  · 已配置：模型 ID + 7px 绿点；
+    ///  · 正在分析：模型名保留，绿点换成旋转指示器（由 AiSpinner 模板触发）；
+    ///  · 未配置：整块 Collapsed（不显示灰色「未配置」标记）。
+    /// 清理页那次性状态行仍然保留，但不再是唯一指示。
     /// </summary>
     void RefreshAiLamp()
     {
+        bool busy = AiBusyNow;
+        bool configured = AiConfigured();
+
+        if (AiChip != null)
+        {
+            AiChip.Visibility = configured ? Visibility.Visible : Visibility.Collapsed;
+            if (AiChipSpin != null)
+            {
+                // IsIndeterminate 的模板触发器负责启停旋转时钟；未配置时一定停掉，
+                // 免得收起来的控件上还挂着一个 Forever 动画。
+                AiChipSpin.IsIndeterminate = configured && busy;
+                AiChipSpin.Visibility = configured && busy ? Visibility.Visible : Visibility.Collapsed;
+            }
+            if (configured)
+            {
+                string model = (App.Settings.AiModel ?? "").Trim();
+                if (AiChipModel != null) AiChipModel.Text = model;
+                if (AiChipDot != null)
+                    AiChipDot.Visibility = busy ? Visibility.Collapsed : Visibility.Visible;
+                // 可访问名称必须同时说清「哪个模型」和「空闲 / 分析中」
+                string name = Loc.AiChipName(model, busy);
+                System.Windows.Automation.AutomationProperties.SetName(AiChip, name);
+                AiChip.ToolTip = name;
+            }
+        }
+
         if (CleanSummarySub == null) return;
-        if (_aiBusy)
+        if (busy)
         {
             _aiTransientStatus = Loc.AiLampBusy;
             CleanSummarySub.Text = _aiTransientStatus;
         }
-        else if (_aiTransientStatus.Length > 0)
+        else if (_aiTransientStatus == Loc.AiLampBusy)
         {
-            // 空闲时把一次性状态收回去，恢复正常的候选统计
+            // 只收回**这一条** AI 忙状态；别的动作提示（例如「已加入选择」）不动
             _aiTransientStatus = "";
             UpdateCandidateSummary();
         }
+    }
+
+    /// <summary>
+    /// 顶栏 AI 胶囊的点击入口：进设置里的 AI 区，并把已有的模型弹层打开。
+    /// 模型清单仍然只有 FillRunModels 那一套 —— 这里不新建任何第二份列表。
+    /// </summary>
+    private void AiChip_Click(object sender, RoutedEventArgs e)
+    {
+        OpenOverlay(Loc.SettingsTitle, settings: true);
+        // 弹层刚可见时按钮还没完成布局，PlacementTarget 要等这一帧过去。
+        // 若此时仍未加载（或设置区不可见），就安静地停在设置页，不抛异常。
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (SettingsBody.Visibility != Visibility.Visible) return;
+            if (AiModelBtn == null || !AiModelBtn.IsLoaded) return;
+            FillRunModels();
+            AiModelPopup.IsOpen = true;
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     /// <summary>临时 AI 状态（跑完就清掉，不做常驻指示）。</summary>
@@ -1975,6 +2038,7 @@ public partial class MainWindow : Window, IAnalystHost
         _itemAiRunning.Add(view.IsolationKey, cts);
         int myReq = ++view.RequestId;
         view.Status = ItemAiStatus.Queued;
+        RefreshAiLamp();   // 顶栏胶囊开始转（并发多项时按登记表计数，最后一项结束才停）
 
         try
         {
@@ -2032,6 +2096,8 @@ public partial class MainWindow : Window, IAnalystHost
             // 只有登记的仍是自己这一条时才移除：晚到的旧请求不能删掉新请求的取消源
             _itemAiRunning.RemoveIfCurrent(view.IsolationKey, cts);
             try { cts.Dispose(); } catch { }
+            // 登记表清空后胶囊才停：并发多项时中途不会闪回绿点
+            RefreshAiLamp();
         }
     }
 

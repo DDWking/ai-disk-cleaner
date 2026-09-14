@@ -245,6 +245,13 @@ public static class Loc
     public static string AiInside(string note) => IsEn ? "inside: " + note : "内有 · " + note;
     public static string AiLampOn => IsEn ? "AI connected" : "AI 已连接";
     public static string AiLampBusy => IsEn ? "AI reading…" : "AI 正在分析…";
+    /// <summary>顶栏 AI 胶囊的空闲 / 分析中状态（可访问名称里要说清是哪一种）。</summary>
+    public static string AiChipIdle => IsEn ? "idle" : "空闲";
+    public static string AiChipAnalyzing => IsEn ? "analysing" : "分析中";
+    public static string AiChipName(string model, bool busy)
+        => IsEn
+            ? $"AI model {model} — {(busy ? AiChipAnalyzing : AiChipIdle)}"
+            : $"AI 模型 {model}（{(busy ? AiChipAnalyzing : AiChipIdle)}）";
     public static string AiLampFail => IsEn ? "AI failed" : "AI 失败";
     public static string AiExtraPrompt => IsEn ? "Extra instructions (optional)" : "额外提示词（可选）";
     public static string AiExtraHint => IsEn

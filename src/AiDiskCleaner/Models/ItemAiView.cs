@@ -95,6 +95,7 @@ public sealed class ItemAiView : INotifyPropertyChanged
             Raise(nameof(IsExpanded));
             Raise(nameof(ProgressText));
             Raise(nameof(IsAnalyzing));
+            Raise(nameof(TipText));
         }
     }
 
@@ -166,9 +167,13 @@ public sealed class ItemAiView : INotifyPropertyChanged
     };
 
     /// <summary>悬停提示：说清这一项现在点下去会发生什么（只影响这一项）。</summary>
-    public string TipText => _status == ItemAiStatus.Idle
-        ? Services.Loc.ItemAiTip
-        : StatusText.Length > 0 ? StatusText : Services.Loc.ItemAiTip;
+    public string TipText => _status switch
+    {
+        // 跑着时按钮变成旋转指示器、但仍然可点：提示必须说清「点一下＝停这一项」
+        ItemAiStatus.Queued or ItemAiStatus.Running => Services.Loc.ItemAiStopHint,
+        ItemAiStatus.Idle => Services.Loc.ItemAiTip,
+        _ => StatusText.Length > 0 ? StatusText : Services.Loc.ItemAiTip,
+    };
 
     public string SuggestionText => _result == null
         ? ""
