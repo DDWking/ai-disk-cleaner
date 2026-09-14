@@ -1267,7 +1267,7 @@ public static class Program
     static string ReadSource(string relativePath)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "PROGRESS.md"))) dir = dir.Parent;
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.targets"))) dir = dir.Parent;
         if (dir == null) return "";
         string full = Path.Combine(dir.FullName, relativePath.Replace('/', Path.DirectorySeparatorChar));
         return File.Exists(full) ? File.ReadAllText(full) : "";

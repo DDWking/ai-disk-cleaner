@@ -310,11 +310,11 @@ public static class Program
             !cs.Contains("AnalyzeCurrentCategory", StringComparison.Ordinal));
     }
 
-    /// <summary>从 bin 往上找到仓库根（PROGRESS.md 所在），读源文件。</summary>
+    /// <summary>从 bin 往上找到仓库根（Directory.Build.targets 所在），读源文件。</summary>
     static string ReadSource(string relativePath)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "PROGRESS.md"))) dir = dir.Parent;
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.targets"))) dir = dir.Parent;
         if (dir == null) return "";
         string full = Path.Combine(dir.FullName, relativePath.Replace('/', Path.DirectorySeparatorChar));
         return File.Exists(full) ? File.ReadAllText(full) : "";

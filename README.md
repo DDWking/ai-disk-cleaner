@@ -25,6 +25,14 @@ Windows 下的磁盘占用分析工具。直接读 NTFS 的 `$MFT`，秒级扫�
 
 环境：Windows 10/11 + [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 
+需要卸载引擎 submodule：
+
+```powershell
+git clone --recurse-submodules https://github.com/DDWking/ai-disk-cleaner.git
+# 已经 clone 过的：
+git submodule update --init --recursive
+```
+
 ```powershell
 cd src\AiDiskCleaner
 dotnet build
@@ -41,32 +49,6 @@ src/AiDiskCleaner/     WPF 主程序
   Models/              FileEntry
   Native/              NTFS P/Invoke
   Services/            MFT / 递归 / 模拟扫描
-```
-
-## 一起开发
-
-进度和开发日志在 [PROGRESS.md](PROGRESS.md)，开工前先看谁在做什么。协作方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-简单说（朋友被加成协作者之后，在 `ddw-develop` 上开发，不要动 `main`）：
-
-```powershell
-git clone https://github.com/DDWking/ai-disk-cleaner.git
-cd ai-disk-cleaner
-git checkout ddw-develop
-git pull origin ddw-develop
-# 改代码
-git add .
-git commit -m "feat: 一句话说清楚改了什么"
-git pull origin ddw-develop
-git push origin ddw-develop
-```
-
-克隆后要拉 submodule（卸载引擎）：
-
-```powershell
-git clone --recurse-submodules https://github.com/DDWking/ai-disk-cleaner.git
-# 已经 clone 过的：
-git submodule update --init --recursive
 ```
 
 ## 协议
