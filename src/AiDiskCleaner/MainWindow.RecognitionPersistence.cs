@@ -113,8 +113,14 @@ public partial class MainWindow
     private FolderPurposeResult? TryRestorePurpose(FileEntry dir)
     {
         if (_recognitionStore == null || dir == null) return null;
-        var id = CurrentFolderId(dir);
-        var sum = FolderPurposeRules.Summarize(dir, id, DepthOf(dir), RelativeOf(dir));
+        // 2.11 起没有侧栏，也不再有 CurrentFolderId / DepthOf；
+        // 标识与整理页同一口径：路径 + 扫描代次，深度由相对路径层数得出。
+        var id = new FolderId(dir.FullPath, _aiDataGeneration);
+        string rel = RelativeOf(dir);
+        int depth = 0;
+        if (rel.Length > 0)
+            depth = rel.Split('\\', StringSplitOptions.RemoveEmptyEntries).Length;
+        var sum = FolderPurposeRules.Summarize(dir, id, depth, rel);
         return _folderPurpose.TryGetCached(id, sum, AiConfigSignature()) is { HasConclusion: true } hit
             ? hit
             : null;

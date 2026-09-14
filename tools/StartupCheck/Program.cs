@@ -123,7 +123,8 @@ public static class Program
             foreach (var n in new[]
                      {
                          "AlertText", "Overlay", "OrganizeGrid", "OrganizeCounts",
-                         "OrganizeSelectAllBtn", "ColOrgAction", "TabCleanBtn", "TabOrganizeBtn",
+                         "OrganizeSelectAllBtn", "CleanSelectAllBtn", "AiChip",
+                         "ColOrgAction", "ColAppInstallDate", "TabCleanBtn", "TabOrganizeBtn",
                      })
                 Check($"x:Name={n} 已赋值", NamedField(win, n) != null);
 
@@ -134,6 +135,21 @@ public static class Program
                 NamedField(win, "OrganizeFilterPendingBtn") == null);
             Check("页头不再重复页面标题（统计成为第一行）",
                 NamedField(win, "OrganizeTitle") == null);
+            Check("清理栏不再有规则批选按钮", NamedField(win, "RuleSelectBtn") == null);
+            Check("清理栏不再有「清空选择」按钮", NamedField(win, "ClearSelectionBtn") == null);
+
+            var orgGrid = NamedField(win, "OrganizeGrid") as DataGrid;
+            Check("整理表不允许点表头打散树序（容量排序在数据层）",
+                orgGrid != null && !orgGrid.CanUserSortColumns);
+
+            var pubCol = NamedField(win, "ColAppPub") as DataGridTextColumn;
+            var verCol = NamedField(win, "ColAppVersion") as DataGridTextColumn;
+            var statusCol = NamedField(win, "ColAppStatus") as DataGridTextColumn;
+            var dateCol = NamedField(win, "ColAppInstallDate") as DataGridTextColumn;
+            Check("卸载页发布者列已隐藏", pubCol != null && pubCol.Visibility == Visibility.Collapsed);
+            Check("卸载页版本列已隐藏", verCol != null && verCol.Visibility == Visibility.Collapsed);
+            Check("卸载页状态列已隐藏", statusCol != null && statusCol.Visibility == Visibility.Collapsed);
+            Check("卸载页保留安装日期列", dateCol != null && dateCol.Visibility == Visibility.Visible);
 
             Console.WriteLine("== 4. 行高：自动增高但仍然有下限（详情展开不被裁切） ==");
             var grid = NamedField(win, "OrganizeGrid") as DataGrid;

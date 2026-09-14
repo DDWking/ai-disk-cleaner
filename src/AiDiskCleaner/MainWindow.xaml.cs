@@ -245,6 +245,9 @@ public partial class MainWindow : Window, IAnalystHost
         _systemPathSnapshot = SystemPathSnapshot.Capture();
         _localEvidence = new LocalEvidenceService(InstalledLocationSnapshot.Empty, _systemPathSnapshot);
         _folderPurpose = new FolderPurposeService(_localEvidence);
+        // 跨重启识别缓存：必须在第一次 RebuildOrganize / LocalRecognize 之前接上，
+        // 这样整理树第一次本地识别就能命中落盘结论，不再发请求。
+        InitRecognitionPersistence();
         // 停止按钮的可见性由阶段登记簿驱动，不再由某个流程的 finally 决定
         _work.Changed += Work_Changed;
         var drives = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.Name).ToList();

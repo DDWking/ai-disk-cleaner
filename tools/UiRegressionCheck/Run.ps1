@@ -1,12 +1,13 @@
 ﻿# UI / behaviour regression check (ASCII only on purpose).
 #
-# Guards the interface behaviour that was finished on 2026-09-10 so a later
-# refactor cannot quietly roll it back:
+# Guards the interface behaviour so a later refactor cannot quietly roll it back:
 #   - the cleanable panel is the default right-hand tab
-#   - the file browser / directory tree starts hidden
+#   - the file-browser sidebar is gone (2.11); there is no tree to hide
 #   - the clean pane still fills the right column (Grid, not the old DockPanel bug)
+#   - categories expand locations in place (no LocationPage swap)
 #   - AI can only write notes; it never touches risk / selection / deletability
 #   - no long-running operation is left with CancellationToken.None
+#   - 2.12: single 全选 toggles, size-sorted organize roots, AI chip, factual uninstall columns
 #
 # Run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/UiRegressionCheck/Run.ps1
 
@@ -46,59 +47,38 @@ function Assert-True([string]$name, [bool]$ok) {
     else { Write-Output "FAIL $name"; $script:fail++ }
 }
 
-# --- 1. directory tree hidden by default -------------------------------------
-Assert-True 'tree visibility defaults to false' ($cs -match 'private\s+bool\s+_treeVisible\s*;')
-Assert-True 'tree visibility is never defaulted to true' ($cs -notmatch 'private\s+bool\s+_treeVisible\s*=\s*true')
-Assert-True 'ApplySidebarLayout is called while building the window' ($cs -match 'ApplySidebarLayout\(\);')
-Assert-True 'collapsed tree really hides the left panel' `
-    ($cs -match 'LeftPanel\.Visibility = Visibility\.Collapsed')
-Assert-True 'collapsed tree removes the splitter' `
-    ($cs -match 'SplitterCol\.Width = new GridLength\(0\)')
-
-# --- 1b. sidebar is a compact toggle with a vector icon ----------------------
-Assert-True 'sidebar toggle sits before the app name (top-left)' `
-    ($xaml -match '(?s)x:Name="TreeToggleBtn".*?x:Name="TitleText"')
-Assert-True 'sidebar toggle no longer uses the big word button' `
-    ($xaml -notmatch '(?s)x:Name="TreeToggleBtn"[^>]{0,400}Content="文件夹"')
-Assert-True 'sidebar icon is vector geometry, not a Unicode glyph' `
-    ($xaml -match '(?s)x:Name="TreeToggleBtn".*?<Viewbox[^>]*>.*?<Canvas')
-Assert-True 'sidebar toggle has an accessible name' `
-    ($xaml -match '(?s)x:Name="TreeToggleBtn".*?AutomationProperties\.Name=')
-Assert-True 'sidebar toggle tooltip reflects the action' `
-    ($cs -match 'Loc\.HideSidebar' -and $cs -match 'Loc\.ShowSidebar')
-Assert-True 'collapsing the sidebar leaves no empty column' `
-    ($cs -match 'LeftCol\.Width\s*=\s*new\s+GridLength\(0\)' -and
-     $cs -match 'Splitter\.Visibility\s*=\s*Visibility\.Collapsed')
-Assert-True 'sidebar width is bounded 240-360' `
-    ($cs -match 'SidebarMinWidth = 240' -and $cs -match 'SidebarMaxWidth = 360')
-Assert-True 'main content column has NO MaxWidth (that caused the black block)' `
-    ($xaml -notmatch '(?s)x:Name="RightCol"[^>]*MaxWidth')
-Assert-True 'splitter drag is clamped into the allowed range' `
-    ($cs -match 'Math\.Clamp\(w, SidebarMinWidth, SidebarMaxWidth\)')
-Assert-True 'narrow windows switch the sidebar to an overlay drawer' `
-    ($cs -match 'SidebarDockMinWindow' -and $cs -match 'Grid\.SetColumnSpan\(LeftPanel, 3\)')
-Assert-True 'overlay drawer has a scrim that collapses it' `
-    ($xaml -match 'x:Name="SidebarScrim"' -and $cs -match 'SidebarScrim_Click')
-Assert-True 'returning to docked mode resets the overlay-only properties' `
-    ($cs -match 'LeftPanel\.Width = double\.NaN' -and $cs -match 'Panel\.SetZIndex\(LeftPanel, 0\)')
-
-# --- 1c. file search lives in the sidebar and is decoupled from cleanup -----
-Assert-True 'file search box now lives inside the sidebar' `
-    ($xaml -match '(?s)x:Name="LeftPanel".*?x:Name="SearchBox"')
+# --- 1. directory sidebar is gone (2.11) -------------------------------------
+# 2.11 removed the file-browser sidebar. These asserts lock that in so a later
+# refactor cannot quietly bring back the tree, the toggle, or a search box that
+# used to live inside the sidebar.
+Assert-True 'no directory-tree visibility flag remains' ($cs -notmatch '_treeVisible')
+Assert-True 'ApplySidebarLayout is gone' ($cs -notmatch 'ApplySidebarLayout')
+Assert-True 'left panel / splitter / tree toggle / overlay scrim are gone from XAML' `
+    ($xaml -notmatch 'x:Name="LeftPanel"' -and
+     $xaml -notmatch 'x:Name="TreeToggleBtn"' -and
+     $xaml -notmatch 'x:Name="SidebarScrim"' -and
+     $xaml -notmatch 'x:Name="SplitterCol"')
+Assert-True 'sidebar overlay / docked-mode helpers are gone from code' `
+    ($cs -notmatch 'SidebarDockMinWindow' -and
+     $cs -notmatch 'SidebarMinWidth' -and
+     $cs -notmatch 'SidebarScrim_Click')
+Assert-True 'file search box is gone (no browse tree to search)' `
+    ($xaml -notmatch 'x:Name="SearchBox"' -and $xaml -notmatch 'x:Name="DirGrid"')
 Assert-True 'file search is gone from the top toolbar' `
     ($xaml -notmatch '(?s)x:Name="StopButton".*?x:Name="SearchBox".*?x:Name="VolumeText"')
-Assert-True 'browsing a folder never changes the cleanup range' `
-    ($cs -match '(?s)private void ShowDirectory\(FileEntry dir\).*?UpdateScopeButton\(\);' -and
-     $cs -notmatch '(?s)private void ShowDirectory\(FileEntry dir\)[\s\S]{0,1200}_cleanScopeRoot\s*=')
-Assert-True 'cleanup range is a separate variable from the browse directory' `
+Assert-True 'main content column has NO MaxWidth (that caused the black block)' `
+    ($xaml -notmatch '(?s)x:Name="RightCol"[^>]*MaxWidth')
+Assert-True 'there is no tree action that sets the cleanup range' `
+    ($cs -notmatch 'private void ScopeToFolder_Click' -and
+     $cs -notmatch 'private void ShowDirectory\(')
+Assert-True 'cleanup range is a leftover in-memory filter, not a browse directory' `
     ($cs -match 'private FileEntry\? _cleanScopeRoot;')
-Assert-True 'range is only applied by an explicit action' `
-    ($cs -match 'private void ScopeToFolder_Click' -and $cs -match 'private void ClearScope_Click')
-Assert-True 'applied range is visible on the cleanup page with a clear action' `
-    ($xaml -match 'x:Name="CleanScopeBar"' -and $xaml -match 'x:Name="ClearScopeBtn"')
+Assert-True 'applied range still has a visible chip with a clear action' `
+    ($xaml -match 'x:Name="CleanScopeBar"' -and $xaml -match 'x:Name="ClearScopeBtn"' -and
+     $cs -match 'private void ClearScope_Click')
 Assert-True 'range chip warns about selected items outside the range' `
     ($cs -match 'Loc\.ScopeChip\(path, outside\)')
-Assert-True 'setting the range never clears or widens the selection' `
+Assert-True 'clearing the range never clears or widens the selection' `
     ($cs -match '(?s)private void ApplyCleanScope\(\)[\s\S]{0,700}RebuildLayersAsync')
 
 # --- 2. folder tidy-up is the default workspace ------------------------------
@@ -390,8 +370,8 @@ Assert-True 'the model path is gated by config and only reachable per item' `
     ($cs -match 'bool AiConfigured\(\)' -and $cs -match 'case OrganizeNode node:' -and
      $org -notmatch 'RecognizeWithAsync')
 Assert-True 'user corrections are persisted and win over later results' `
-    ($cs -match 'SetUserCorrection\(' -and
-     $cs -match 'TryGetUserCorrection\(' -and
+    ($csvc -match 'SetUserCorrection\(' -and
+     $org -match 'TryGetUserCorrection\(' -and
      $csvc -match 'UserKey\(id\.Path\)' -and $csvc -match 'public void LoadCorrections\(\)')
 Assert-True 'two levels by default, containers keep going, concrete objects stop' `
     ($forg -match 'public const int AutoLevels = 2' -and
@@ -447,8 +427,9 @@ Assert-True 'clean grid scrolls by pixel' `
     ($xaml -match 'VirtualizingPanel\.ScrollUnit="Pixel"')
 Assert-True 'clean grid keeps content scrolling on' `
     ($xaml -match 'ScrollViewer\.CanContentScroll="True"')
-Assert-True 'uninstall grid also virtualises when grouping' `
-    (([regex]::Matches($xaml, 'IsVirtualizingWhenGrouping="True"')).Count -ge 2)
+Assert-True 'uninstall grid virtualises rows (flat list, no grouping)' `
+    ($xaml -match '(?s)x:Name="UninstallGrid".{0,800}EnableRowVirtualization="True"' -and
+     $xaml -match '(?s)x:Name="UninstallGrid".{0,800}VirtualizingPanel\.IsVirtualizing="True"')
 Assert-True 'row container count is audited at runtime' `
     ($cs -match 'CountRowContainers' -and $cs -match 'rows created=')
 
@@ -499,22 +480,26 @@ Assert-True 'analyze skips duplicates so the list shows first' `
 Assert-True 'progress callbacks are generation-guarded' `
     (([regex]::Matches($cs, 'myGeneration != _\w+Generation')).Count -ge 3)
 
-# --- 11. single-layer navigation (no stacked tables) ------------------------
+# --- 11. single-layer navigation: in-place expand (2.11) --------------------
 Assert-True 'purpose home exists as the default view' ($xaml -match 'x:Name="PurposePage"')
-Assert-True 'location page exists and starts hidden' `
-    ($xaml -match 'x:Name="LocationPage" Grid\.Column="0" Visibility="Collapsed"')
+Assert-True 'the old location page is gone (categories expand in place)' `
+    ($xaml -notmatch 'x:Name="LocationPage"')
 Assert-True 'detail panel starts hidden' `
     ($xaml -match 'x:Name="DetailPanel" Grid\.Column="1" Visibility="Collapsed"')
-# 关键：主内容区里只有一列用于页面，两层页面是互斥可见，不再各占一行
+# 关键：主内容区里只有一列用于页面，不再各占一行
 $staleStack = @('PurposeRow', 'LocationRow', 'DetailRow', 'CleanLayers') |
     Where-Object { $xaml -match ('x:Name="' + $_ + '"') }
 Assert-True 'main area has no per-layer rows (old 3-row stack is gone)' ($staleStack.Count -eq 0)
-Assert-True 'purpose and location pages share the same grid column' `
-    (([regex]::Matches($xaml, 'Grid\.Column="0"')).Count -ge 2)
-Assert-True 'entering a purpose hides the home page' `
-    ($cs -match 'PurposePage\.Visibility = Visibility\.Collapsed' -and $cs -match 'LocationPage\.Visibility = Visibility\.Visible')
-Assert-True 'returning restores the home page' `
-    ($cs -match 'PurposePage\.Visibility = Visibility\.Visible' -and $cs -match 'LocationPage\.Visibility = Visibility\.Collapsed')
+Assert-True 'purpose home and preflight share the same grid column' `
+    ($xaml -match '(?s)x:Name="PurposePage" Grid\.Column="0"' -and
+     $xaml -match '(?s)x:Name="PreflightPage" Grid\.Column="0"')
+Assert-True 'clicking a category expands locations inline (does not hide the home page)' `
+    ($cs -match 'private void PurposeExpand_Click' -and
+     $cs -match 'private void TogglePurposeInline' -and
+     $cs -notmatch 'LocationPage\.Visibility' -and
+     $nodes -match 'VisibleLocations')
+Assert-True 'in-place expand keeps the same location node instances (selection is not rebuilt)' `
+    ($nodes -match 'IsExpanded \? Locations : Array\.Empty<CleanLocationNode>')
 Assert-True 'home binds purpose sections, not the file list' `
     ($cs -match 'PurposeSections\.ItemsSource\s*=\s*_sections' -and $cs -match 'CleanPurposeSection\.Build')
 Assert-True 'home has one risk section per tier with safe expanded' `
@@ -686,10 +671,6 @@ Assert-True 'the view-selected chip shows a count and disables when empty' `
 Assert-True 'AI never writes Risk / Selected / CanDelete' `
     ($parser -notmatch '\.Risk\s*=' -and
      ([regex]::Match($cs, '(?s)private void UpdateAiPanel\(\).*?\n    \}').Value) -notmatch '\.(Risk|Selected|CanDelete)\s*=')
-# 唯一会动勾选的 AI 入口是「按 AI 建议选择」，下一条单独锁它的范围
-    ($cs -match '(?s)AiSelectAdvice_Click.*?p\.RiskTier != 0\) continue;' -and
-     $cs -match 'if \(!item\.CanDelete \|\| item\.Risk == CleanRisk\.Keep\) continue;')
-    ($cs -match 'Loc\.AiSelectByAdvice' -and $cs -match 'Loc\.AiAdviceHint')
 Assert-True 'no misleading AI wording anywhere' `
     ($cs -notmatch 'AI 自动清理' -and $cs -notmatch 'AI 安全清理' -and
      $cs -notmatch 'AI 决定清理' -and $cs -notmatch 'AI 已替你选择')
@@ -727,6 +708,43 @@ Assert-True 'viewing files uses exact item filtering' `
 Assert-True 'local verdict is available even without AI configured' `
     ($cs -match 'AiNeedConfigLocalStillWorks' -and $cs -match 'AiVerdict\.Build\(items')
 
+# --- 2.12 UX contract -------------------------------------------------------
+Assert-True 'clean action bar has a single 全选 toggle, not a separate clear or rule-select button' `
+    ($xaml -match 'x:Name="CleanSelectAllBtn"' -and
+     $xaml -notmatch 'x:Name="ClearSelectionBtn"' -and
+     $xaml -notmatch 'x:Name="RuleSelectBtn"' -and
+     $cs -match 'private void CleanSelectAll_Click' -and
+     $cs -match 'CleanSelectAllBtn\.Content = Loc\.SelectAll')
+Assert-True 'clean 全选 never retitles itself to 取消全选' `
+    ($cs -notmatch 'CleanSelectAllBtn\.Content = Loc\.ClearSelection' -and
+     $cs -match 'allSelected \? Loc\.SelectAllClearTip : Loc\.SelectAllActionTip')
+Assert-True 'organize page has a single 全选 toggle on listed rows' `
+    ($xaml -match 'x:Name="OrganizeSelectAllBtn"' -and
+     $org -match 'OrganizeSelectAllToggle_Click' -and
+     $org -match 'OrganizeSelectAllBtn\.Content = Loc\.SelectAll')
+Assert-True 'organize pending-filter chip and duplicate title are gone' `
+    ($xaml -notmatch 'x:Name="OrganizeFilterPendingBtn"' -and
+     $xaml -notmatch 'x:Name="OrganizeTitle"')
+Assert-True 'organize grid cannot be resorted from the header (tree order is data-layer size sort)' `
+    ($xaml -match '(?s)x:Name="OrganizeGrid"[^>]*CanUserSortColumns="False"')
+Assert-True 'organize roots mix entry points with other top-level dirs and sort by size' `
+    ($forg -match '入口与普通子目录混在一起按容量降序' -and
+     $forg -match 'int bySize = b\.Size\.CompareTo\(a\.Size\)')
+Assert-True 'AI chip sits between volume text and settings' `
+    ($xaml -match '(?s)x:Name="VolumeText".*?x:Name="AiChip".*?x:Name="SettingsButton"')
+Assert-True 'AI chip is collapsed when unconfigured and spins while busy' `
+    ($cs -match 'AiChip\.Visibility = configured \? Visibility\.Visible : Visibility\.Collapsed' -and
+     $xaml -match 'x:Name="AiChipDot"' -and $xaml -match 'Fill="#3ECF6A"' -and
+     $xaml -match 'x:Name="AiChipSpin"')
+Assert-True 'uninstall keeps name / install date / purpose / size / actions' `
+    ($xaml -match 'x:Name="ColAppName"' -and $xaml -match 'x:Name="ColAppInstallDate"' -and
+     $xaml -match 'x:Name="ColAppPurpose"' -and $xaml -match 'x:Name="ColAppSize"' -and
+     $xaml -match 'x:Name="ColAppAction"')
+Assert-True 'uninstall publisher / version / status columns stay in the tree but are collapsed' `
+    ($xaml -match '(?s)x:Name="ColAppPub".{0,220}Visibility="Collapsed"' -and
+     $xaml -match '(?s)x:Name="ColAppVersion".{0,220}Visibility="Collapsed"' -and
+     $xaml -match '(?s)x:Name="ColAppStatus".{0,220}Visibility="Collapsed"')
+
 # 发布产物：取 dist 下最新的 DashaoHuo-*-win-x64。
 # 这是**打包门禁**，不是行为检查：dist 是 gitignore 的生成物，开发机 / CI 没有它很正常。
 # 所以「dist 缺失」明确标 SKIP（exit 0），绝不因 Test-Path 对 null 路径抛错而误报成行为失败；
@@ -753,7 +771,7 @@ if (Test-Path -LiteralPath $distDir) {
         $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
         Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
         $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
-        Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.10.0*')
+        Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.12.0*')
     }
     else {
         Assert-True 'publish package exists (dist/ present but no DashaoHuo-*-win-x64 package)' $false

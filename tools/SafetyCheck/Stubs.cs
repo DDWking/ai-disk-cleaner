@@ -80,6 +80,8 @@ namespace AiDiskCleaner.Services
         // ---- 位置行内展开（清理页）----
         public static string ViewFilesAction => "view files";
         public static string CollapseFilesAction => "hide files";
+        public static string ExpandLocations => "show cleanup locations";
+        public static string CollapseLocations => "hide cleanup locations";
         public static string InlineFilesCount(int shown, int total) => $"{shown}/{total} items";
         public static string InlineFilesHidden(int hidden) => $"{hidden} more";
         public static string InlineFilesScope => "candidates only";

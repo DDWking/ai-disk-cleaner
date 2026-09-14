@@ -16,9 +16,10 @@ public partial class MainWindow
     private readonly ItemAiService _itemAi = new();
     private readonly FolderPurposeService _folderPurpose = new();
     private readonly List<OrganizeNode> _organizeAll = new();
+    // 与主窗口同一口径：FolderId 用路径 + 扫描代次。2.11 起没有侧栏
+    // CurrentFolderId / DepthOf，接线文件改读这个字段。
+    private int _aiDataGeneration = 1;
 
     private string AiConfigSignature() => "cfg";
-    private FolderId CurrentFolderId(FileEntry d) => new(d.FullPath, 1);
-    private static int DepthOf(FileEntry d) => 0;
     private string RelativeOf(FileEntry d) => d.FullPath;
 }

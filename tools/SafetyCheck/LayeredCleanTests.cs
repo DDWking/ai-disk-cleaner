@@ -643,6 +643,11 @@ public static class LayeredCleanTests
         check("盘符下其它直接子目录仍然在（Windows）",
             sysPaths.Any(p => p.Equals(@"C:\Windows", StringComparison.OrdinalIgnoreCase)),
             string.Join(" | ", sysPaths));
+        check("顶层对象按容量降序（入口不钉在最前）",
+            sysRoots.Roots.Count >= 2
+            && sysRoots.Roots[0].Size >= sysRoots.Roots[1].Size
+            && sysRoots.Roots[0].FullPath.Equals(@"C:\Users", StringComparison.OrdinalIgnoreCase),
+            string.Join(" | ", sysRoots.Roots.Select(r => $"{r.FullPath}:{r.Size}")));
         check("用户目录本身也在顶层（入口不会互相吞掉）",
             sysPaths.Any(p => p.Equals(@"C:\Users", StringComparison.OrdinalIgnoreCase)),
             string.Join(" | ", sysPaths));
