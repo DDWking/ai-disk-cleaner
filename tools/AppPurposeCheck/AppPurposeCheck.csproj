@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 卸载页「事实用途」独立回归检查：只编译需要的源文件 + 存根，
+       不依赖 BCU 子模块、不联网、不调模型、不碰注册表/磁盘。
+       验证：数值排序（记录 10GB 排在实测 1GB 之前、未知最后）、占用来源仍如实区分、
+       系统根/系统目录的误导性归属仍被拒绝、未知条目不做任何用途声明。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Stubs.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\AppRecommendation.cs" Link="AppRecommendation.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\AppUninstallItem.cs" Link="AppUninstallItem.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" Link="FileEntry.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppFactualInfoService.cs" Link="AppFactualInfoService.cs" />
+    <!-- 占用归属（系统根/系统目录拒绝）仍由原服务负责，这里一并在独立工程里回归。 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppRecommendationService.cs" Link="AppRecommendationService.cs" />
+  </ItemGroup>
+</Project>

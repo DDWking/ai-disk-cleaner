@@ -10,8 +10,13 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
 {
     private bool _selected;
     private string _status = "";
+    private long _sizeBytes;
     private long _actualSizeBytes;
     private bool _hasMeasuredSize;
+    private string _purposeSummary = "";
+    private string _purposeDetail = "";
+    private AppInfoConfidence _purposeConfidence = AppInfoConfidence.Unknown;
+    private AppSourceKind _purposeKind = AppSourceKind.Unknown;
     private AppRunningState _runningState = AppRunningState.Unknown;
     private AppRecommendationDecision _recommendation = AppRecommendationDecision.Neutral;
     private string _recommendationReason = "";
@@ -36,7 +41,25 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
     public string Name { get; set; } = "";
     public string Publisher { get; set; } = "";
     public string Version { get; set; } = "";
-    public long SizeBytes { get; set; }
+    /// <summary>安装记录里软件自己写的估计值（EstimatedSize）。改了要同步排序键。</summary>
+    public long SizeBytes
+    {
+        get => _sizeBytes;
+        set
+        {
+            if (_sizeBytes == value) return;
+            _sizeBytes = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SizeText));
+            OnPropertyChanged(nameof(ActualSizeText));
+            OnPropertyChanged(nameof(FootprintSource));
+            OnPropertyChanged(nameof(SizeConfidenceRank));
+            OnPropertyChanged(nameof(EffectiveFootprintBytes));
+            OnPropertyChanged(nameof(HasKnownFootprint));
+            OnPropertyChanged(nameof(FootprintHint));
+        }
+    }
+
     public long ActualSizeBytes
     {
         get => _actualSizeBytes;
@@ -47,6 +70,8 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(ActualSizeText));
             OnPropertyChanged(nameof(SizeConfidenceRank));
+            OnPropertyChanged(nameof(EffectiveFootprintBytes));
+            OnPropertyChanged(nameof(HasKnownFootprint));
             OnPropertyChanged(nameof(FootprintHint));
         }
     }
@@ -61,6 +86,8 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
             OnPropertyChanged(nameof(ActualSizeText));
             OnPropertyChanged(nameof(FootprintSource));
             OnPropertyChanged(nameof(SizeConfidenceRank));
+            OnPropertyChanged(nameof(EffectiveFootprintBytes));
+            OnPropertyChanged(nameof(HasKnownFootprint));
             OnPropertyChanged(nameof(FootprintHint));
         }
     }
@@ -96,6 +123,27 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
     /// 实测优先，估的排后面，没有的排最后 —— 不让假数字混在真数字里。
     /// </summary>
     public int SizeConfidenceRank => (int)FootprintSource;
+
+    /// <summary>
+    /// 占用未知时用的排序哨兵：降序排序时，没有数字的条目永远排在最后。
+    /// 用 <see cref="long.MinValue"/> 而不是 0 —— 0 是一个真实数字，会让「未知」混进小体积里。
+    /// </summary>
+    public const long UnknownFootprintSortValue = long.MinValue;
+
+    /// <summary>
+    /// 数值排序键（不是新的占用口径）：
+    /// 扫描实测 → 用实测值；否则退回安装记录里的估计值；两样都没有 → <see cref="UnknownFootprintSortValue"/>。
+    ///
+    /// 数字从哪来仍然由 <see cref="FootprintSource"/> / <see cref="ActualSizeText"/> 如实区分，
+    /// 这个属性只负责「按数字大小排」。
+    /// </summary>
+    public long EffectiveFootprintBytes => HasMeasuredSize
+        ? ActualSizeBytes
+        : _sizeBytes > 0 ? _sizeBytes : UnknownFootprintSortValue;
+
+    /// <summary>有没有可排序的数字（实测或安装记录）。未知 = false。</summary>
+    public bool HasKnownFootprint => HasMeasuredSize || _sizeBytes > 0;
+
     public DateTime InstallDate { get; set; }
     public string InstallLocation { get; set; } = "";
     public bool CanUninstall { get; set; }
@@ -321,7 +369,97 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
         }
     }
 
+    // ---- 事实用途（本地元数据 / 结构证据；**不涉及该不该卸载**）----
+
+    /// <summary>
+    /// 按本机证据能确认的条目性质。由本地的 <c>AppFactualInfoService</c> 只按结构判定，
+    /// 绝不拿软件名字做子串猜测。
+    /// </summary>
+    public AppSourceKind PurposeKind
+    {
+        get => _purposeKind;
+        set { if (_purposeKind == value) return; _purposeKind = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>本地依据强度（结构化证据 / 只有注册表记录 / 未知）。**不是**卸载建议。</summary>
+    public AppInfoConfidence PurposeConfidence
+    {
+        get => _purposeConfidence;
+        set
+        {
+            if (_purposeConfidence == value) return;
+            _purposeConfidence = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasPurposeInfo));
+        }
+    }
+
+    /// <summary>一句话事实摘要（服务填入；没有可靠依据时填如实的「未知」文案）。</summary>
+    public string PurposeSummary
+    {
+        get => _purposeSummary;
+        set
+        {
+            if (_purposeSummary == value) return;
+            _purposeSummary = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PurposeText));
+        }
+    }
+
+    /// <summary>逐条可核对的事实依据 + 明确声明「不构成卸载建议」。</summary>
+    public string PurposeDetail
+    {
+        get => _purposeDetail;
+        set
+        {
+            if (_purposeDetail == value) return;
+            _purposeDetail = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PurposeHint));
+        }
+    }
+
+    /// <summary>有没有拿到可靠本地依据（只有名字 = false，界面如实显示未知）。</summary>
+    public bool HasPurposeInfo => _purposeConfidence != AppInfoConfidence.Unknown;
+
+    /// <summary>列表「用途」列显示的文本。未知时由服务写成本机记录不足，不编造。</summary>
+    public string PurposeText => _purposeSummary;
+
+    /// <summary>「用途」列悬停：逐条事实依据 + 声明这不是卸载建议。</summary>
+    public string PurposeHint => _purposeDetail;
+
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+/// <summary>
+/// 事实信息的本地依据强度。**不是**卸载建议：
+/// <see cref="LocalEvidence"/> = 结构化 / 系统证据；<see cref="RecordOnly"/> = 只有注册表记录；
+/// <see cref="Unknown"/> = 只有名字，什么都不编。
+/// </summary>
+public enum AppInfoConfidence
+{
+    Unknown = 0,
+    RecordOnly = 1,
+    LocalEvidence = 2,
+}
+
+/// <summary>按本地证据能确认的条目性质。判定只看结构化字段，不看名字子串。</summary>
+public enum AppSourceKind
+{
+    Unknown = 0,
+    /// <summary>卸载清单里有可用卸载程序的普通软件。</summary>
+    InstalledApplication,
+    /// <summary>卸载清单里没有可用卸载程序。</summary>
+    NoUninstaller,
+    /// <summary>Steam 清单里的条目。</summary>
+    SteamItem,
+    /// <summary>Windows 可选功能（BCU 的 WindowsFeature）。</summary>
+    WindowsFeature,
+    /// <summary>卸载程序或安装位置位于 Windows 系统目录内（结构化判定）。</summary>
+    WindowsInboxComponent,
+    /// <summary>卸载清单标记为受保护 / 系统组件。</summary>
+    ProtectedSystemEntry,
 }
