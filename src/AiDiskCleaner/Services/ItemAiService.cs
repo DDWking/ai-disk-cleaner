@@ -1,6 +1,69 @@
+using System.Globalization;
 using AiDiskCleaner.Models;
 
 namespace AiDiskCleaner.Services;
+
+/// <summary>
+/// 逐项识别结果的**跨重启**落盘接口。
+///
+/// 只承载描述性内容（用途 / 影响 / 依据 / 缺少的信息）与稳定身份；
+/// **刻意不承载**模型原始回复、判定（verdict）、勾选状态、删除授权 ——
+/// 恢复出来的东西永远不能变成「可删除 / 已选中」的能力。
+/// 实现方负责原子写、条数上限与损坏容忍；读写都不得触发任何出站请求。
+/// </summary>
+public interface IItemAiRecognitionStore
+{
+    /// <summary>只读落盘结果；命中不会产生任何副作用（不写盘、不发请求）。</summary>
+    bool TryGetItem(string key, out ItemAiResult result);
+
+    /// <summary>写入一条结果。空内容会被实现方丢弃；写入失败不得影响调用方。</summary>
+    void PutItem(string key, long version, ItemAiResult result);
+}
+
+/// <summary>
+/// 识别缓存的**确定性键**与**跨进程稳定哈希**。
+///
+/// 为什么不用 <see cref="object.GetHashCode"/>：字符串哈希在每个进程都会随机化，
+/// 落盘的键换个进程就对不上。这里用 FNV-1a，纯函数、跨进程/跨机器一致。
+/// 键里**不含扫描代次**：用户关心的是「这个路径是什么」，重扫一代它还是同一个目录；
+/// 但**含内容指纹、提示词/语义版本与配置签名** —— 内容、版本、配置任一变化都会让旧结论失效。
+/// </summary>
+public static class RecognitionKey
+{
+    /// <summary>确定性 64 位哈希（FNV-1a，逐段加分隔符，避免拼接歧义）。</summary>
+    public static long Stable(params string[] parts)
+    {
+        unchecked
+        {
+            ulong h = 14695981039346656037UL;
+            foreach (string part in parts)
+            {
+                string s = part ?? "";
+                foreach (char c in s)
+                {
+                    h ^= (byte)c;
+                    h *= 1099511628211UL;
+                    h ^= (byte)(c >> 8);
+                    h *= 1099511628211UL;
+                }
+                h ^= 0x1F;              // 段分隔符：("a","bc") 与 ("ab","c") 不会撞
+                h *= 1099511628211UL;
+            }
+            return (long)h;
+        }
+    }
+
+    /// <summary>哈希的固定 16 位十六进制写法（跨进程稳定，不受区域设置影响）。</summary>
+    public static string Hex(long value) => value.ToString("x16", CultureInfo.InvariantCulture);
+
+    /// <summary>规范化路径（大小写不敏感，去除末尾反斜杠与正斜杠差异）。</summary>
+    public static string PathKey(string? path)
+        => CleanListSnapshot.NormPath(path).ToLowerInvariant();
+
+    /// <summary>逐项 AI 的落盘键：稳定身份 + 内容/提示词/配置版本（版本里已含来源隔离）。</summary>
+    public static string Item(string? scopeKey, long version)
+        => Hex(Stable("item", PathKey(scopeKey), version.ToString(CultureInfo.InvariantCulture)));
+}
 
 /// <summary>
 /// 逐项 AI 分析的编排：缓存 → 排队（有限并发）→ 请求 → 解析 → 回填缓存。
@@ -27,18 +90,55 @@ public sealed class ItemAiService
     private readonly Dictionary<ItemAiCacheKey, ItemAiResult> _cache = new();
     private readonly object _lock = new();
 
+    /// <summary>
+    /// 跨重启落盘缓存（可选，可注入）。为 null 时就是纯内存缓存 ——
+    /// 既有调用方与离线检查工程不受影响，也绝不碰用户配置目录。
+    /// </summary>
+    private IItemAiRecognitionStore? _store;
+
+    public ItemAiService(IItemAiRecognitionStore? store = null) => _store = store;
+
+    /// <summary>
+    /// 运行期接入落盘缓存（构造后才拿得到 store 时用，例如主窗口先建服务、再统一建库）。
+    /// 传 null 表示断开（用于测试/退出）。
+    /// </summary>
+    public void AttachRecognitionStore(IItemAiRecognitionStore? store)
+    {
+        lock (_lock) _store = store;
+    }
+
     public int CacheCount { get { lock (_lock) return _cache.Count; } }
 
-    /// <summary>只看缓存，不发请求。</summary>
+    /// <summary>只看缓存，不发请求；内存没有就查一次落盘缓存。</summary>
     public ItemAiResult? TryGetCached(ItemAiCacheKey key)
     {
         lock (_lock)
-            return _cache.TryGetValue(key, out var hit) ? hit with { FromCache = true } : null;
+            if (_cache.TryGetValue(key, out var hit)) return hit with { FromCache = true };
+
+        var store = _store;
+        if (store != null
+            && store.TryGetItem(RecognitionKey.Item(key.ScopeKey, key.Version), out var restored))
+        {
+            // 只暖内存，**不写盘**：读缓存不应该产生任何副作用。
+            lock (_lock) _cache[key] = restored;
+            return restored with { FromCache = true };
+        }
+        return null;
     }
+
+    /// <summary>
+    /// 只看落盘结果：命中就直接返回，绝不发请求，也绝不写盘。
+    /// 界面打开某一项时用它把上次的结论先贴出来（<c>FromCache=true</c>，文案会如实标「缓存」）。
+    /// </summary>
+    public ItemAiResult? TryGetRestored(ItemAiRequest request, string configSignature)
+        => TryGetCached(new ItemAiCacheKey(request.ScopeKey, ItemAiPrompt.VersionOf(request, configSignature)));
 
     public void Store(ItemAiCacheKey key, ItemAiResult result)
     {
         lock (_lock) _cache[key] = result;
+        var store = _store;
+        // 落盘只影响下次启动时的可见性；写失败由实现方吞掉，绝不影响本次识别。
+        store?.PutItem(RecognitionKey.Item(key.ScopeKey, key.Version), key.Version, result);
     }
 
     /// <summary>换了扫描根/设置后清掉缓存，避免拿旧盘的结果。</summary>

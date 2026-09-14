@@ -1,6 +1,26 @@
+using System.Globalization;
 using AiDiskCleaner.Models;
 
 namespace AiDiskCleaner.Services;
+
+/// <summary>
+/// 目录用途识别结果的**跨重启**落盘接口。
+///
+/// 与逐项 AI 侧同一条原则：只承载稳定身份 + 描述性结论（用途 / 类别 / 依据 / 目录性质 /
+/// 来源 / 是否待确认），**不承载**任何判定、勾选或删除授权。
+/// 读写都不得触发任何出站请求；命中即命中，未命中就交给上层按既有策略处理。
+/// </summary>
+public interface IPurposeRecognitionStore
+{
+    /// <summary>
+    /// 只读落盘结论。<paramref name="currentId"/> 是本次会话的稳定标识 ——
+    /// 落盘键里**没有扫描代次**，所以命中的结论要用当前代次重新挂载。
+    /// </summary>
+    bool TryGetPurpose(string key, FolderId currentId, out FolderPurposeResult result);
+
+    /// <summary>写入一条**有结论**的识别结果；失败由实现方吞掉，不影响本次识别。</summary>
+    void PutPurpose(string key, FolderPurposeResult result);
+}
 
 /// <summary>
 /// 目录用途识别的编排：本地摘要 → 本地规则 → （必要时）AI → 缓存。
@@ -34,6 +54,7 @@ public sealed class FolderPurposeService
     private readonly Dictionary<string, FolderPurposeResult> _userCorrections = new(StringComparer.Ordinal);
     private readonly object _lock = new();
     private ILocalPurposeEvidence? _evidence;
+    private IPurposeRecognitionStore? _store;
     private int _aiUsed;
     private DateTime _lastRequestAt = DateTime.MinValue;
 
@@ -41,7 +62,21 @@ public sealed class FolderPurposeService
     /// 本地证据（可选，**一次注入**）：已安装清单的真实安装位置快照 + 扩展系统语义表。
     /// 不传就只用内置规则；传了也只是**查内存**，不会逐行扫注册表 / 磁盘。
     /// </summary>
-    public FolderPurposeService(ILocalPurposeEvidence? evidence = null) => _evidence = evidence;
+    /// <param name="store">
+    /// 跨重启落盘缓存（可选）。为 null 时行为与以前完全一致（纯内存）——
+    /// 既有调用方与离线检查工程不会因此碰用户配置目录。
+    /// </param>
+    public FolderPurposeService(ILocalPurposeEvidence? evidence = null, IPurposeRecognitionStore? store = null)
+    {
+        _evidence = evidence;
+        _store = store;
+    }
+
+    /// <summary>运行期接入落盘缓存（构造后才拿得到 store 时用）；传 null 断开。</summary>
+    public void AttachRecognitionStore(IPurposeRecognitionStore? store)
+    {
+        lock (_lock) _store = store;
+    }
 
     /// <summary>当前使用的本地证据（重新清点软件后可以整体替换）。</summary>
     public ILocalPurposeEvidence? Evidence
@@ -68,10 +103,46 @@ public sealed class FolderPurposeService
         => $"{id}\u0001{sum.Size}\u0001{sum.FileCount}\u0001{sum.DirectFolderCount}"
            + $"\u0001{sum.Modified.Ticks}\u0001{sum.KindSignature}\u0001{configSignature}";
 
+    /// <summary>
+    /// 用途语义 / 落盘结构的版本。改了识别语义或持久化字段就 +1，旧落盘结论自动失效。
+    /// </summary>
+    public const int PurposeSignatureVersion = 1;
+
+    /// <summary>
+    /// **落盘键**：规范化路径 + 内容指纹（大小 / 文件数 / 直接子目录数 / 最后修改时间 /
+    /// 结构签名）+ 配置签名 + 语义版本。
+    ///
+    /// 与内存键的关键区别：**不含扫描代次** —— 重扫一代，同一个目录仍然是同一个目录，
+    /// 上次的结论应该能直接复用。反过来，内容、配置或语义版本任一变化都会改变键，
+    /// 旧结论自然失效（而不是被错误地贴到已经变了的目录上）。
+    /// </summary>
+    public static string PurposeKey(FolderSummary sum, string configSignature)
+        => RecognitionKey.Hex(RecognitionKey.Stable(
+            "purpose",
+            RecognitionKey.PathKey(sum.Id.Path),
+            sum.Size.ToString(CultureInfo.InvariantCulture),
+            sum.FileCount.ToString(CultureInfo.InvariantCulture),
+            sum.DirectFolderCount.ToString(CultureInfo.InvariantCulture),
+            sum.Modified.Ticks.ToString(CultureInfo.InvariantCulture),
+            sum.KindSignature,
+            configSignature,
+            PurposeSignatureVersion.ToString(CultureInfo.InvariantCulture)));
+
     public FolderPurposeResult? TryGetCached(FolderId id, FolderSummary sum, string configSignature)
     {
         lock (_lock)
-            return _cache.TryGetValue(CacheKey(id, sum, configSignature), out var v) ? v : null;
+            if (_cache.TryGetValue(CacheKey(id, sum, configSignature), out var v)) return v;
+
+        // 内存没有：查一次落盘缓存（只读，绝不发请求）。命中的结论按当前代次重新挂载。
+        var store = _store;
+        if (store != null
+            && store.TryGetPurpose(PurposeKey(sum, configSignature), id, out var restored)
+            && restored.HasConclusion)
+        {
+            lock (_lock) _cache[CacheKey(id, sum, configSignature)] = restored;
+            return restored;
+        }
+        return null;
     }
 
     /// <summary>
@@ -257,6 +328,10 @@ public sealed class FolderPurposeService
     void Store(FolderSummary sum, string configSignature, FolderPurposeResult r)
     {
         lock (_lock) _cache[CacheKey(sum.Id, sum, configSignature)] = r;
+        // 只有**有结论**的结果才落盘：失败 / 空结论 / 待确认不写，
+        // 否则下次启动会把「没结论」当成旧结论，重试永远修不回来。
+        if (r.HasConclusion)
+            _store?.PutPurpose(PurposeKey(sum, configSignature), r);
     }
 
     /// <summary>
