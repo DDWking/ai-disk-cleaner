@@ -555,11 +555,36 @@ public static class Loc
     }
 
 
-    public static string TabOrganize => IsEn ? "Folder tidy-up" : "文件夹整理";
+    /// <summary>2.11：这一页的语义是「按文件夹删除」，不再是「整理」。</summary>
+    public static string TabOrganize => IsEn ? "Delete by folder" : "按文件夹删除";
     public static string TabClean => IsEn ? "Clean center" : "清理中心";
     public static string TabUninstall => IsEn ? "Uninstall" : "卸载";
     public static string UninstallRefresh => IsEn ? "Refresh" : "刷新";
     public static string UninstallRun => IsEn ? "Uninstall selected" : "卸载勾选项";
+    // ---- 2.11 卸载页：只讲事实的单一表格 ----
+    /// <summary>页头唯一一句事实说明：这里只列「装了什么」。</summary>
+    public static string UninstallFactsOnly => IsEn
+        ? "Installed software and its footprint. No recommendations, no scoring."
+        : "这里只列已安装的软件与磁盘占用，不给建议、不做评分。";
+    public static string ColVersion => IsEn ? "Version" : "版本";
+    public static string ColInstallDate => IsEn ? "Installed" : "安装日期";
+    /// <summary>用途列：只说「这是什么软件」，不带建议。</summary>
+    public static string AppPurposeHeader => IsEn ? "What it is" : "用途";
+    public static string UninstallEmpty => IsEn ? "No installed software was found." : "没有列出任何已安装软件。";
+    public static string UninstallSortNote => IsEn
+        ? "Sorted by footprint: measured scan first, install record next, unknown last."
+        : "按占用降序：扫描实测优先，其次安装记录，未知的排在最后。";
+    public static string UninstallRowActions => IsEn ? "Actions" : "操作";
+    public static string UninstallReveal => IsEn ? "Open install folder" : "打开安装目录";
+    public static string UninstallRevealTip => IsEn
+        ? "Open the install folder in Explorer (does not run anything)"
+        : "在资源管理器中打开安装目录（不会执行里面的程序）";
+    public static string UninstallProtectedNote => IsEn
+        ? "This item cannot be uninstalled from here."
+        : "这一项无法从这里卸载。";
+    // ---- 2.11 清理首页：分类就地展开 ----
+    public static string ExpandLocations => IsEn ? "Show cleanup locations" : "展开这一类的清理位置";
+    public static string CollapseLocations => IsEn ? "Hide cleanup locations" : "收起这一类的清理位置";
     public static string UninstallListing => IsEn ? "Listing installed apps…" : "正在列出已装软件…";
     public static string UninstallHint => IsEn
         ? "Suggestions are analysis only. Review and check apps yourself; uninstall runs each app's own uninstaller."
@@ -571,6 +596,18 @@ public static class Loc
     public static string UninstallConfirm(int n) =>
         IsEn ? $"Run the official uninstaller for {n:N0} apps? Each may show its own window."
              : $"对 {n:N0} 个软件运行官方卸载程序？每个都可能弹出自己的窗口。";
+    /// <summary>
+    /// 2.11 确认框：**只讲事实** —— 要跑几个软件的官方卸载程序、它们合计占用多少。
+    /// 不再出现任何「有提醒 / 建议核对」这类基于建议档位的说法。
+    /// </summary>
+    public static string UninstallConfirmDetails(IEnumerable<string> names, int n, string size) =>
+        IsEn
+            ? $"You are about to run the official uninstaller for {n:N0} apps.\n"
+              + $"Combined disk footprint: {size} — the best available number (measured scan or the "
+              + "installer's own record), not a promise of freed space.\n\n" + string.Join("\n", names)
+            : $"即将对 {n:N0} 个软件运行官方卸载程序。\n"
+              + $"所选项目的磁盘占用合计 {size} —— 这是目前最可信的一个数（扫描实测或安装记录写的），"
+              + "不等于卸载后一定能释放这么多。\n\n" + string.Join("\n", names);
     public static string UninstallConfirmDetails(IEnumerable<string> names, int n, string size, bool warning) =>
         IsEn
             ? $"You are about to run official uninstallers for {n:N0} apps.\n"

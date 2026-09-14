@@ -144,8 +144,20 @@ public abstract class CleanGroupNodeBase : INotifyPropertyChanged
     public bool IsExpanded
     {
         get => _isExpanded;
-        set { if (_isExpanded == value) return; _isExpanded = value; OnPropertyChanged(); }
+        set
+        {
+            if (_isExpanded == value) return;
+            _isExpanded = value;
+            OnPropertyChanged();
+            OnExpandedChanged();
+        }
     }
+
+    /// <summary>
+    /// 展开状态变化后的派生通知。默认什么都不做；
+    /// 分类行用它把「就地展开的位置集合」通知给绑定（见 <see cref="CleanPurposeNode.VisibleLocations"/>）。
+    /// </summary>
+    protected virtual void OnExpandedChanged() { }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string? name = null)
@@ -545,6 +557,32 @@ public sealed class CleanPurposeNode : CleanGroupNodeBase
 
     /// <summary>位置数量未知（还没展开算过）时不要谎报 0。</summary>
     public bool LocationsCounted { get; internal set; }
+
+    // ==================== 就地展开：分类 → 位置（不换视图） ====================
+    //
+    // 需求背景（2.11 实拍反馈）：以前点分类会**换掉整个主内容**进入「位置页」，
+    // 位置页再点一次才看文件 —— 滚动位置和上下文都丢了。现在分类行就地展开，
+    // 位置行继续就地展开文件，整条链路都在同一屏里完成。
+    //
+    // 硬约束：
+    //   1) 收起时 <see cref="VisibleLocations"/> 返回空 —— 折叠的分类不会提前把
+    //      几百个位置行实例化出来（首屏只建真正可见的东西）；
+    //   2) 渲染的还是同一批 <see cref="CleanLocationNode"/> 实例，
+    //      勾选状态挂在实例上，反复展开/收起来回切换一项都不会丢。
+
+    /// <summary>展开时这一类的清理位置；**收起时为空**（惰性渲染的关键）。</summary>
+    public IReadOnlyList<CleanLocationNode> VisibleLocations =>
+        IsExpanded ? Locations : Array.Empty<CleanLocationNode>();
+
+    /// <summary>展开箭头的悬停 / 可访问文案：说清点下去是展开还是收起。</summary>
+    public string ExpandTip => IsExpanded ? Loc.CollapseLocations : Loc.ExpandLocations;
+
+    protected override void OnExpandedChanged()
+    {
+        base.OnExpandedChanged();
+        OnPropertyChanged(nameof(VisibleLocations));
+        OnPropertyChanged(nameof(ExpandTip));
+    }
 }
 
 /// <summary>

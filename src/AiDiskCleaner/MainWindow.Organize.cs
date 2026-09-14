@@ -82,12 +82,14 @@ public partial class MainWindow
         OrganizeFilterPendingBtn.ToolTip = Loc.OrganizeFilterPendingTip;
         System.Windows.Automation.AutomationProperties.SetName(
             OrganizeFilterPendingBtn, Loc.OrganizeFilterPendingTip);
+        // 右键菜单只剩两个只读动作：打开目录 / 复制路径。
+        // 「纠正用途」与「展开子文件夹」已移除 —— 展开箭头就在行里，纠正不再是这一页的能力。
         OrgCtxOpen.Header = Loc.OrganizeOpen;
         OrgCtxCopy.Header = Loc.OrganizeCopyPath;
-        OrgCtxCorrect.Header = Loc.PurposeCorrect;
-        OrgCtxExpand.Header = Loc.OrganizeExpand;
         ApplyOrganizeColumnPriority(OrganizeContentWidth());
         UpdateOrganizeHeader();
+        // 后端 FolderDelete 合同（MainWindow.FolderDelete.cs）在这里刷新底部执行栏
+        RefreshFolderDeleteBar();
     }
 
     /// <summary>主内容区可用宽度（窄窗口下按列让位，不让文字被裁成残缺）。</summary>
@@ -368,6 +370,8 @@ public partial class MainWindow
             if (FolderOrganize.RowBudgetReached(n2)) break;
         }
         UpdateOrganizeHeader();
+        // 行集合变了：底部执行栏的「已选 / 可删除 / 状态」跟着重算（后端合同提供）
+        RefreshFolderDeleteBar();
     }
 
     private void AddVisibleRows(OrganizeNode node, ref int count)
@@ -506,6 +510,11 @@ public partial class MainWindow
         if ((sender as FrameworkElement)?.DataContext is OrganizeNode n) ToggleOrganize(n);
     }
 
+    // 说明：按文件夹删除的 5 个入口（OrganizeSelect_Click / OrganizeSelectAll_Click /
+    // OrganizeClearSelection_Click / FolderDeletePreview_Click / FolderDeleteCancel_Click）
+    // 与底部执行栏的 FolderDelete / RefreshFolderDeleteBar() 由后端合同
+    // MainWindow.FolderDelete.cs 提供；这一页只负责在合适的位置调用与绑定。
+
     /// <summary>
     /// 「只有文件」那一行的文件按钮：就地列出这个文件夹自己的文件。
     /// **纯只读展示** —— 不改展开状态、不触发识别、不碰任何清理字段。
@@ -569,12 +578,7 @@ public partial class MainWindow
         e.Handled = true;
     }
 
-    private void OrganizeExpandMenu_Click(object sender, RoutedEventArgs e)
-    {
-        if (_organizeMenuNode != null) ToggleOrganize(_organizeMenuNode);
-    }
-
-    /// <summary>双击一行 = 进入这个文件夹（展开它，并把「识别当前文件夹」指向它）。</summary>
+    /// <summary>双击一行 = 就地展开/收起这个文件夹（不换视图、不触发识别）。</summary>
     private void OrganizeGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if ((sender as DataGrid)?.SelectedItem is OrganizeNode n)
@@ -597,7 +601,9 @@ public partial class MainWindow
             : OrganizeStateKind.None);
     }
 
-    // ==================== 右键菜单 / 打开 / 纠正 ====================
+    // ==================== 右键菜单 / 打开 ====================
+    // 2.11：右键只剩「在资源管理器中打开」「复制完整路径」两个只读动作。
+    // 「展开子文件夹」由行里的展开箭头承担，「纠正用途」不再属于这一页。
 
     private void OrganizeGrid_PreviewRightDown(object sender, MouseButtonEventArgs e)
     {
@@ -613,44 +619,6 @@ public partial class MainWindow
         var n = _organizeMenuNode;
         if (OrgCtxOpen != null) OrgCtxOpen.IsEnabled = n != null;
         if (OrgCtxCopy != null) OrgCtxCopy.IsEnabled = n != null;
-        if (OrgCtxExpand != null)
-        {
-            OrgCtxExpand.IsEnabled = n?.CanExpand == true;
-            OrgCtxExpand.Header = n?.IsExpanded == true ? Loc.OrganizeCollapse : Loc.OrganizeExpand;
-        }
-        FillOrganizeCorrectMenu(n);
-    }
-
-    private void FillOrganizeCorrectMenu(OrganizeNode? node)
-    {
-        if (OrgCtxCorrect == null) return;
-        OrgCtxCorrect.Items.Clear();
-        OrgCtxCorrect.IsEnabled = node != null;
-        if (node == null) return;
-        foreach (var name in Loc.PurposeCorrections)
-        {
-            var mi = new MenuItem { Header = name, Tag = node };
-            mi.Click += OrganizeCorrect_Click;
-            OrgCtxCorrect.Items.Add(mi);
-        }
-    }
-
-    /// <summary>
-    /// 用户纠正：**优先保留**，重扫不丢，并且落盘，下次启动仍然有效。
-    /// 只改用途展示，不碰任何清理字段。
-    /// </summary>
-    private void OrganizeCorrect_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.Tag is not OrganizeNode node) return;
-        string picked = (sender as MenuItem)?.Header?.ToString() ?? "";
-        if (picked.Length == 0) return;
-        _folderPurpose.SetUserCorrection(node.Id, picked, picked);
-        _folderPurpose.SaveCorrections();
-        var res = _folderPurpose.TryGetUserCorrection(node.Id);
-        if (res != null) node.Apply(res);
-        SetOrganizeNote(Loc.PurposeCorrected(picked));
-        RefreshOrganizeRows();
-        AppLog.Info("Organize", $"op=correct dir={node.Name} level={node.Level} value={picked}");
     }
 
     private void OrganizeOpen_Click(object sender, RoutedEventArgs e)

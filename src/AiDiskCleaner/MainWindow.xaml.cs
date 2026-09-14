@@ -184,7 +184,6 @@ public partial class MainWindow : Window, IAnalystHost
     private readonly DeletionCoordinator _deleteCoordinator = new();
     private readonly AiCoordinator _aiCoordinator = new();
     private FileEntry _root = null!;
-    private FileEntry _current = null!;
     private List<FileEntry> _allFiles = new(); // 缓存：根目录下所有文件（避免重复递归收集）
     private CancellationTokenSource? _scanCts;
     private CancellationTokenSource? _analyzeCts;
@@ -212,14 +211,7 @@ public partial class MainWindow : Window, IAnalystHost
     private bool _scanUsedFallback;
     private string _scanFallbackReason = "";
     private DateTime _scanStart;
-    private string _search = "";
-    private SortKey _sort = SortKey.Size;
-    private TreeViewItem? _liveRoot;
-    private int _liveShown;
     private CleanReport? _report;
-    private bool _treeVisible; // 左树默认收起，需要时展开
-    /// <summary>用户拖出来的侧栏宽度（停靠模式用，卡在 240–360 之间）。</summary>
-    private double _sidebarWidth = SidebarDefaultWidth;
     private Action? _confirmYes;
     private List<AppUninstallItem> _apps = new();
     /// <summary>卸载页有没有被打开过。没打开过就不去扫软件清单。</summary>
@@ -228,7 +220,6 @@ public partial class MainWindow : Window, IAnalystHost
     private BulkUninstallTask? _uninstallTask;
     private bool _aiAppsBusy;
     private CancellationTokenSource? _aiAppsStop;
-    private string _uninstallAnalysisNote = "";
     private string _uninstallResultNote = "";
     private BulkUninstallTask? _handledUninstallTask;
     private int _appInventoryVersion;
@@ -244,10 +235,6 @@ public partial class MainWindow : Window, IAnalystHost
     CleanReport? IAnalystHost.Report => _report;
     private static readonly AiProtocol[] AiProtos =
         { AiProtocol.Completions, AiProtocol.Responses, AiProtocol.Anthropic };
-
-    private enum SortKey { Size, Name }
-
-    private static readonly object Placeholder = new();
 
     public MainWindow()
     {
@@ -265,30 +252,19 @@ public partial class MainWindow : Window, IAnalystHost
         if (drives.Count > 0) DriveBox.SelectedIndex = 0;
         UpdateVolumeInfo();
         DriveBox.SelectionChanged += (_, _) => UpdateVolumeInfo();
-        SearchBox.GotFocus += (_, _) =>
-        {
-            if (string.IsNullOrEmpty(SearchBox.Text))
-                SearchBox.CaretIndex = 0;
-        };
         StateChanged += (_, _) =>
         {
             MaxButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
             BorderThickness = WindowState == WindowState.Maximized ? new Thickness(8) : new Thickness(1);
         };
-        // 窗口尺寸变化时重算侧栏模式（宽屏停靠 / 窄屏覆盖），
-        // 并把文件明细在窄窗口下切成独立整页。
-        SizeChanged += (_, _) =>
-        {
-            ApplySidebarLayout();
-            UpdateDetailLayout();
-        };
+        // 窗口尺寸变化时重算文件明细的停靠/整页模式（2.11 起已没有侧栏布局要重算）。
+        SizeChanged += (_, _) => UpdateDetailLayout();
         BorderBrush = ThemeService.Brush("Border");
         BorderThickness = new Thickness(1);
         // 把代码里的实例接到 XAML：组头统计与折叠状态都在这两个对象上
         Resources["DetailGroupHeader"] = _detailGroups;
         Resources["DetailGroupExpanded"] = _detailGroupsExpanded;
         ApplyUi();
-        ApplySidebarLayout();
         // 默认进「清理中心」：主工作区是清理，文件夹整理退到辅助入口
         ShowRightTab(RightTab.Clean);
         // 用户之前手动纠正过的用途：跨重启仍然有效，且优先于本地/AI 结论
@@ -315,137 +291,9 @@ public partial class MainWindow : Window, IAnalystHost
     /// </summary>
     public bool IsUiReady { get; private set; }
 
-    /// <summary>
-    /// 侧栏宽度约束。拖动时用 Min/Max 卡住上下限，避免拖出负宽度或挤死主内容。
-    /// </summary>
-    const double SidebarDefaultWidth = 280;
-    const double SidebarMinWidth = 240;
-    const double SidebarMaxWidth = 360;
-    /// <summary>低于这个宽度就切成覆盖式抽屉，不再挤压主内容。</summary>
-    const double SidebarDockMinWindow = 1040;
-    /// <summary>覆盖模式下的抽屉宽度（固定，不允许拖动改布局）。</summary>
-    const double SidebarOverlayWidth = 300;
-
-    /// <summary>当前是否应该用覆盖式抽屉（窄窗口）。</summary>
-    bool SidebarShouldOverlay()
-    {
-        double w = ActualWidth > 0 ? ActualWidth : Width;
-        return w < SidebarDockMinWindow;
-    }
-
-    /// <summary>
-    /// 侧栏布局。两种模式：
-    /// - **宽屏停靠**：左列占宽（280，可拖 240–360），主内容拿剩下的星号宽；
-    /// - **窄屏覆盖**：左列宽 0，侧栏变成浮在主内容上的抽屉 + 遮罩，主内容宽度不受影响。
-    ///
-    /// 关键：**永远不给主内容列设 MaxWidth**。star 列一旦有上限，窗口比上限宽时
-    /// 右侧就会空出一条没人绘制的暗色区域（就是之前的「黑块」）。
-    /// </summary>
-    void ApplySidebarLayout()
-    {
-        if (LeftCol == null || LeftPanel == null) return;
-
-        bool overlay = SidebarShouldOverlay();
-
-        if (!_treeVisible)
-        {
-            // 收起：左列与分隔条都归零并隐藏面板，不残留空列/空白/分隔条
-            LeftCol.Width = new GridLength(0);
-            LeftCol.MinWidth = 0;
-            LeftCol.MaxWidth = double.PositiveInfinity;
-            SplitterCol.Width = new GridLength(0);
-            Splitter.Visibility = Visibility.Collapsed;
-            LeftPanel.Visibility = Visibility.Collapsed;
-            SidebarScrim.Visibility = Visibility.Collapsed;
-
-            // 抽屉态残留的属性全部复位，否则下次停靠会带着覆盖模式的约束
-            Grid.SetColumn(LeftPanel, 0);
-            Grid.SetColumnSpan(LeftPanel, 1);
-            LeftPanel.HorizontalAlignment = HorizontalAlignment.Stretch;
-            LeftPanel.Width = double.NaN;
-            Panel.SetZIndex(LeftPanel, 0);
-        }
-        else if (overlay)
-        {
-            // 覆盖式抽屉：不占列，浮在主内容之上；固定宽度，禁用拖动
-            double w = Math.Min(SidebarOverlayWidth, Math.Max(SidebarMinWidth, (ActualWidth > 0 ? ActualWidth : 900) - 80));
-            LeftCol.Width = new GridLength(0);
-            LeftCol.MinWidth = 0;
-            SplitterCol.Width = new GridLength(0);
-            Splitter.Visibility = Visibility.Collapsed;
-            LeftPanel.Visibility = Visibility.Visible;
-            Grid.SetColumn(LeftPanel, 0);
-            Grid.SetColumnSpan(LeftPanel, 3);
-            LeftPanel.HorizontalAlignment = HorizontalAlignment.Left;
-            LeftPanel.Width = w;
-            Panel.SetZIndex(LeftPanel, 50);
-            SidebarScrim.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            // 宽屏停靠：左列占宽并可拖，主内容吃剩下的全部宽度
-            double desired = Math.Clamp(_sidebarWidth, SidebarMinWidth, SidebarMaxWidth);
-            // 主内容至少要留 520 DIP，否则退成覆盖模式
-            double maxByWindow = Math.Max(SidebarMinWidth, (ActualWidth > 0 ? ActualWidth : 1200) - 520 - 6);
-            LeftCol.Width = new GridLength(Math.Min(desired, maxByWindow));
-            LeftCol.MinWidth = SidebarMinWidth;
-            LeftCol.MaxWidth = SidebarMaxWidth;
-            SplitterCol.Width = new GridLength(6);
-            Splitter.Visibility = Visibility.Visible;
-            LeftPanel.Visibility = Visibility.Visible;
-            Grid.SetColumn(LeftPanel, 0);
-            Grid.SetColumnSpan(LeftPanel, 1);
-            LeftPanel.HorizontalAlignment = HorizontalAlignment.Stretch;
-            LeftPanel.Width = double.NaN;
-            Panel.SetZIndex(LeftPanel, 0);
-            SidebarScrim.Visibility = Visibility.Collapsed;
-        }
-
-        // 整理页的列宽跟着真实可用宽度走（窄窗口收窄次要列，主列绝不被挤坏）
-        ApplyOrganizeColumnPriority(OrganizeContentWidth());
-
-        RightCol.MinWidth = overlay ? 320 : 420;
-        UpdateTreeToggleTip();
-    }
-
-    /// <summary>向左拖到极限也不能出现黑块：把宽度卡在上下限内。</summary>
-    private void Splitter_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
-    {
-        if (LeftCol == null) return;
-        double w = LeftCol.ActualWidth;
-        _sidebarWidth = Math.Clamp(w, SidebarMinWidth, SidebarMaxWidth);
-        ApplySidebarLayout();
-    }
-
-    /// <summary>点遮罩收起抽屉（覆盖模式）。</summary>
-    private void SidebarScrim_Click(object sender, MouseButtonEventArgs e)
-    {
-        if (!_treeVisible) return;
-        _treeVisible = false;
-        ApplySidebarLayout();
-        e.Handled = true;
-    }
-
-    /// <summary>侧栏开关的悬停提示与可访问名称：说清点了会发生什么。</summary>
-    void UpdateTreeToggleTip()
-    {
-        if (TreeToggleBtn == null) return;
-        string tip = _treeVisible ? Loc.HideSidebar : Loc.ShowSidebar;
-        TreeToggleBtn.ToolTip = tip;
-        System.Windows.Automation.AutomationProperties.SetName(TreeToggleBtn, tip);
-        System.Windows.Automation.AutomationProperties.SetHelpText(TreeToggleBtn, tip);
-    }
-
-    private void ToggleTree_Click(object sender, RoutedEventArgs e)
-    {
-        _treeVisible = !_treeVisible;
-        ApplySidebarLayout();
-    }
 
     void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        // 构造函数里窗口还没有真实尺寸，这里用最终尺寸重算一次侧栏模式。
-        ApplySidebarLayout();
         if (!_scanning && _root == null)
             RunScan();
     }
@@ -473,45 +321,31 @@ public partial class MainWindow : Window, IAnalystHost
         }
         if (AboutLinkBtn != null) AboutLinkBtn.Content = Loc.AboutDashaoHuo;
         if (HeaderStats.Text is "就绪" or "Ready") HeaderStats.Text = Loc.Ready;
-        PathCrumb.Text = _current == null || string.IsNullOrEmpty(_current.FullPath) ? "" : _current.FullPath;
-        NameHeader.Text = Loc.Path;
-        PctHeader.Text = Loc.Pct;
-        SizeHeader.Text = Loc.Size;
-        CtxOpen.Header = Loc.OpenInExplorer;
         if (CleanOpenItem != null) CleanOpenItem.Header = Loc.OpenInExplorer;
-        CtxCopyPath.Header = Loc.CopyPath;
-        CtxCopyName.Header = Loc.CopyName;
-        CtxDelete.Header = Loc.DeleteToRecycle;
-        CtxAskAi.Header = Loc.AskAiFolder;
-        CtxProps.Header = Loc.Properties;
-        // 主导航：文件夹整理 / 清理中心 / 卸载
+        // 主导航：按文件夹删除 / 清理中心 / 卸载
         TabOrganizeBtn.Content = Loc.TabOrganize;
         TabCleanBtn.Content = Loc.TabClean;
         TabUninstallBtn.Content = Loc.TabUninstall;
-        ScopeToFolderBtn.Content = _cleanScopeRoot != null ? Loc.ClearScope : Loc.ScopeToFolder;
         ClearScopeBtn.Content = Loc.ClearScopeAction;
-        UninstallRefreshBtn.Content = Loc.Refresh;
-        UninstallAllBtn.Content = Loc.SelectAll;
         UninstallRunBtn.Content = Loc.UninstallRun;
-        UninstallAiAnalyzeBtn.Content = Loc.AiAppsAnalyze;
-        UninstallAiSelectBtn.Content = Loc.AiAppsSelect;
-        ColAppRecommendation.Header = Loc.AppRecommendationHeader;
         UninstallRetryItem.Header = Loc.UninstallRetry;
         UninstallOpenOfficialItem.Header = Loc.UninstallOpenOfficial;
-        UninstallSearchHint.Text = Loc.UninstallSearchHint;
         JunkSafeBtn.Content = Loc.JunkSafe;
         JunkDeleteBtn.Content = Loc.JunkDelete;
         ColAppName.Header = Loc.ColName;
         ColAppPub.Header = Loc.Publisher;
-        ColAppSize.Header = Loc.AppScannedSize;
+        ColAppVersion.Header = Loc.ColVersion;
+        ColAppInstallDate.Header = Loc.ColInstallDate;
+        ColAppPurpose.Header = Loc.AppPurposeHeader;
+        ColAppSize.Header = Loc.AppSizeColumnHeader;
         ColAppStatus.Header = Loc.Status;
+        ColAppAction.Header = Loc.UninstallRowActions;
+        UninstallSortNote.Text = Loc.UninstallSortNote;
         ColJunkApp.Header = Loc.ColName;
         ColJunkKind.Header = Loc.ColCategory;
         ColJunkConf.Header = Loc.ColConfidence;
         ColJunkPath.Header = Loc.Path;
         RefreshUninstallPaneText();
-        // 侧栏开关用矢量图标，文案只进悬停/可访问名称（别覆盖 XAML 里的图标）
-        UpdateTreeToggleTip();
         if (ColPick.Header is CheckBox pickAll)
         {
             pickAll.ToolTip = Loc.SelectAllTip;
@@ -587,18 +421,13 @@ public partial class MainWindow : Window, IAnalystHost
         FillRunModels();
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
-        if (_current == null)
+        if (_root == null)
         {
             CleanSummarySub.Text = Loc.AnalyzeAfterScan;
             ScanProgressText.Text = Loc.ScanningEllipsis;
         }
         BorderBrush = ThemeService.Brush("Border");
         HighlightThemeButtons();
-        if (_current != null)
-        {
-            PopulateTree();
-            ShowDirectory(_current);
-        }
         UpdateVolumeInfo();
     }
 
@@ -774,7 +603,7 @@ public partial class MainWindow : Window, IAnalystHost
         // 不在这里切页：扫描开始/结束/重建都不许把用户从自己选的页面拽走
         ShowOrganizeState(OrganizeStateKind.Scanning);
         SetCleanProgress(0, Loc.CleanScan, determinate: false);
-        BeginLiveScan(DriveBox.SelectedItem.ToString()!);
+        // 2.11：目录侧栏已移除，扫描进度不再往树上铺占位行。
 
         var progress = new Progress<ScanProgress>(p =>
         {
@@ -801,7 +630,6 @@ public partial class MainWindow : Window, IAnalystHost
                 SetStatus(_scanUsedFallback ? stage : Loc.ScanCount(p.FileCount));
                 SetCleanProgress(0, stage, determinate: false);
             }
-            GrowLiveScan(p.Percent >= 0 ? p.Percent : Math.Min(90, p.FileCount / 8000));
         });
 
         try
@@ -831,7 +659,6 @@ public partial class MainWindow : Window, IAnalystHost
         catch (OperationCanceledException)
         {
             // 取消是正常路径，不是故障：只清理状态。
-            ClearLiveScan();
             HideCleanProgress();
             SetStatus(Loc.Aborted);
             // 整理页也退回可重试的状态，不留一个假的「正在扫描」
@@ -872,18 +699,11 @@ public partial class MainWindow : Window, IAnalystHost
         // 让出一拍再干重活：进度条 / 阶段切换先画出来，避免看起来像卡死
         await Task.Yield();
         _root = root;
-        _current = root;
         // 新一次扫描 = 新的占用口径，软件占用缓存必须丢
         AppRecommendationService.InvalidateUsageCache();
 
         UpdateVolumeInfo();
-        ClearLiveScan();
-        // 树只在根层展开，子层点开才建 —— 这步本来就不重，但必须留在 UI 线程
-        perf.Measure("tree", () =>
-        {
-            PopulateTree();
-            ShowDirectory(root);
-        });
+        // 2.11：目录树已移除，扫描完不再需要重建树/切换浏览目录。
 
         // 扫描耗时不再单独占一条底栏：进「扫描详情」。
         _scanElapsed = (DateTime.Now - _scanStart).TotalSeconds;
@@ -1162,7 +982,8 @@ public partial class MainWindow : Window, IAnalystHost
             var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(apps, files));
             if (!ReferenceEquals(_root, root) || !ReferenceEquals(_apps, apps)) return;
             AppRecommendationService.ApplyUsage(usage);
-            AppRecommendationService.ApplyLocalRules(apps, clearSelection: false);
+            // 占用口径变了，重算一次「这是什么软件」的事实信息（只讲事实，不做建议）
+            AppFactualInfoService.Apply(apps);
             if (!_showingJunk) BindAppList();
         }
         catch (Exception ex)
@@ -1222,428 +1043,7 @@ public partial class MainWindow : Window, IAnalystHost
         return list;
     }
 
-    private void PopulateTree()
-    {
-        ResetPurposeRows();
-        DirTree.Items.Clear();
-        if (_root == null) return;
-        UpdateFilterHint();
-        var root = new TreeViewItem { Header = MakeFolderHeader(_root, isRoot: true), Tag = _root, IsExpanded = true };
-        DirTree.Items.Add(root);
-        PopulateDirChildren(root);
-        root.IsSelected = true;
-    }
 
-    private void UpdateFilterHint()
-    {
-        // 只剩文件浏览器的搜索（扩展名筛选已随扩展名页移除）
-        if (!string.IsNullOrWhiteSpace(_search))
-        {
-            FilterHint.Text = _search + "   (Esc / " + Loc.FilterOff + ")";
-            FilterHint.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            FilterHint.Text = "";
-            FilterHint.Visibility = Visibility.Collapsed;
-        }
-    }
-
-    private FrameworkElement MakeFolderHeader(FileEntry d, bool isRoot = false)
-    {
-        var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
-        var name = new TextBlock
-        {
-            Text = d.Name,
-            Foreground = ThemeService.Brush(d.IsDimmed ? "TextMuted" : "Text"),
-            VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
-        double pct = isRoot && _volumeTotal > 0
-            ? 100.0 * _volumeUsed / _volumeTotal
-            : d.PercentValue;
-        double share = isRoot && _volumeTotal > 0
-            ? Math.Clamp(_volumeUsed / (double)_volumeTotal, 0, 1)
-            : d.PercentShare;
-        var pctCell = MakePctBar(share, pct, d.IsDimmed);
-        var size = ColText(FileEntry.FormatSize(d.Size), d.IsDimmed ? "TextMuted" : "AccentDim");
-        Grid.SetColumn(pctCell, 1);
-        Grid.SetColumn(size, 2);
-
-        // ---- 文件夹用途：名称下面一行，**纯展示**，不参与选择 ----
-        var purposeLine = new TextBlock
-        {
-            FontSize = 10.5,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            Foreground = ThemeService.Brush("Placeholder"),
-        };
-        // 侧栏只是导航：这里**不再有**「识别用途」按钮。
-        // 模型请求只能由用户在清理页 / 整理页对**某一个具体对象**主动发起，
-        // 不在导航树的每一行再放一套 AI 主入口（也就没有"顺手分析一批子目录"的路径）。
-        var line2 = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 0) };
-        line2.Children.Add(purposeLine);
-
-        var nameCol = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        nameCol.Children.Add(name);
-        nameCol.Children.Add(line2);
-        Grid.SetColumn(nameCol, 0);
-
-        var row = new PurposeUi { Dir = d, Text = purposeLine };
-        _purposeRows[d] = row;
-        RenderPurpose(row, _folderPurpose.TryGetUserCorrection(CurrentFolderId(d))
-            ?? (_purposeCache.TryGetValue(d, out var cached) ? cached : null));
-
-        grid.Children.Add(nameCol);
-        grid.Children.Add(pctCell);
-        grid.Children.Add(size);
-        return grid;
-    }
-
-    // ==================== 文件夹用途识别（界面接入） ====================
-
-    /// <summary>一行用途 UI 的引用。树重建时整体丢弃，不做全局累积。</summary>
-    sealed class PurposeUi
-    {
-        public required FileEntry Dir { get; init; }
-        public required TextBlock Text { get; init; }
-        /// <summary>这一行**没有** AI 按钮（侧栏只是导航）。</summary>
-        public Button? Action { get; init; }
-    }
-
-    readonly Dictionary<FileEntry, PurposeUi> _purposeRows = new();
-    /// <summary>本次会话已识别过的结果（键是条目本身，树重建后仍在）。</summary>
-    readonly Dictionary<FileEntry, FolderPurposeResult> _purposeCache = new();
-
-    /// <summary>深入识别时最多处理几个子目录（有预算，不铺开整棵树）。</summary>
-    // 侧栏不再做"深入识别"：没有子项预算这回事
-
-    FolderId CurrentFolderId(FileEntry d) => new(d.FullPath, _aiDataGeneration);
-
-    static int DepthOf(FileEntry d)
-    {
-        int n = 0;
-        for (var p = d.Parent; p != null && n < 32; p = p.Parent) n++;
-        return n;
-    }
-
-    /// <summary>把结果画到那一行。**状态与来源都如实表达**；没有结论就不显示成功。</summary>
-    void RenderPurpose(PurposeUi? ui, FolderPurposeResult? r)
-    {
-        if (ui == null) return;
-        if (r == null || !r.HasConclusion)
-        {
-            ui.Text.Text = Loc.PurposeUnrecognized;
-            ui.Text.Foreground = ThemeService.Brush("Placeholder");
-            ui.Text.ToolTip = Loc.PurposeIdentify;
-            SetAction(ui, Loc.PurposeIdentify);
-            return;
-        }
-        string line = r.PurposeName;
-        if (r.Basis.Length > 0) line += " · " + r.Basis;
-        line += "（" + r.SourceText + "）";
-        ui.Text.Text = line;
-        ui.Text.ToolTip = line + (r.NeedsConfirm ? "\n" + Loc.PurposeNeedsConfirm : "");
-        ui.Text.Foreground = ThemeService.Brush(r.NeedsConfirm ? "AccentDim" : "TextDim");
-        SetAction(ui, Loc.PurposeDeepen);
-    }
-
-    void SetAction(PurposeUi ui, string tip)
-    {
-        if (ui.Action == null) return;
-        ui.Action.ToolTip = tip;
-        System.Windows.Automation.AutomationProperties.SetName(ui.Action, tip);
-    }
-
-    void SetPurposeBusy(PurposeUi? ui, string text)
-    {
-        if (ui == null) return;
-        ui.Text.Text = text;
-        ui.Text.Foreground = ThemeService.Brush("AccentDim");
-        if (ui.Action != null) ui.Action.IsEnabled = false;
-    }
-
-    void SetPurposeText(PurposeUi? ui, string text)
-    {
-        if (ui == null) return;
-        ui.Text.Text = text;
-        ui.Text.Foreground = ThemeService.Brush("Placeholder");
-    }
-
-    /// <summary>
-    async Task<FolderPurposeResult> RecognizeOneAsync(FileEntry dir, CancellationToken ct)
-        => await RecognizeWithAsync(dir, AiConfigured(), ct);
-
-    /// <summary>
-    /// 认一个目录。**同一个入口**给侧栏树与文件夹整理页用：
-    /// 用户纠正 → 缓存 → 本地规则 →（有预算且授权时）AI，全部在服务里。
-    /// <paramref name="allowAi"/> = false 时只走本地，绝不发请求。
-    /// </summary>
-    async Task<FolderPurposeResult> RecognizeWithAsync(FileEntry dir, bool allowAi, CancellationToken ct)
-    {
-        var id = CurrentFolderId(dir);
-        string rel = _root != null && dir.FullPath.StartsWith(_root.FullPath, StringComparison.OrdinalIgnoreCase)
-            ? dir.FullPath[_root.FullPath.Length..].TrimStart('\\')
-            : dir.FullPath;
-        return await _folderPurpose.RecognizeAsync(dir, id, DepthOf(dir), rel, allowAi,
-            App.Settings.CurrentProvider(), App.Settings.AiModel, App.Settings.AiSendFullPaths,
-            AiConfigSignature(), ct);
-    }
-
-
-    /// <summary>右键时的目标目录（TreeMenu_Opened 里写入）。</summary>
-    FileEntry? _purposeMenuDir;
-
-    /// <summary>右键菜单打开时：记住目标目录，并把「纠正用途」的类别填进去。</summary>
-    void FillPurposeMenu()
-    {
-        if (CtxPurposeCorrect == null) return;
-        CtxPurposeCorrect.Items.Clear();
-        foreach (var name in Loc.PurposeCorrections)
-        {
-            var mi = new MenuItem { Header = name, Tag = _purposeMenuDir };
-            mi.Click += PurposeCorrect_Click;
-            CtxPurposeCorrect.Items.Add(mi);
-        }
-    }
-
-    /// <summary>用户纠正：从菜单选一个类别，**优先保留**，不被后续识别覆盖。</summary>
-    public void PurposeCorrect_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.Tag is not FileEntry d) return;
-        string picked = (sender as MenuItem)?.Header?.ToString() ?? "";
-        if (picked.Length == 0) return;
-        _folderPurpose.SetUserCorrection(CurrentFolderId(d), picked, picked);
-        var res = _folderPurpose.TryGetUserCorrection(CurrentFolderId(d));
-        if (res != null) _purposeCache[d] = res;
-        RenderPurpose(_purposeRows.TryGetValue(d, out var ui) ? ui : null, res);
-        SetAiStatus(Loc.PurposeCorrected(picked));
-    }
-
-    /// <summary>树重建时丢弃旧的 UI 引用（结果仍由 _purposeCache 保留）。</summary>
-    void ResetPurposeRows()
-    {
-        _purposeRows.Clear();
-    }
-
-    private static TextBlock ColText(string text, string brush)
-        => new()
-        {
-            Text = text,
-            Foreground = ThemeService.Brush(brush),
-            FontSize = 11,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 4, 0),
-            TextAlignment = TextAlignment.Right,
-        };
-
-    private static Grid MakePctBar(double share, double pct, bool dim)
-    {
-        var pctCell = new Grid { Margin = new Thickness(6, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center, Height = 22 };
-        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        pctCell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
-        var track = new Grid { Height = 6, VerticalAlignment = VerticalAlignment.Center };
-        double rest = Math.Max(0, 1 - share);
-        track.ColumnDefinitions.Add(new ColumnDefinition { Width = share <= 0 ? new GridLength(0) : new GridLength(share, GridUnitType.Star) });
-        track.ColumnDefinitions.Add(new ColumnDefinition { Width = rest <= 0 ? new GridLength(0) : new GridLength(rest, GridUnitType.Star) });
-        var fill = new Border { Background = ThemeService.Brush(dim ? "TextMuted" : "Accent") };
-        var bg = new Border { Background = ThemeService.Brush("Border") };
-        Grid.SetColumn(bg, 1);
-        track.Children.Add(fill);
-        track.Children.Add(bg);
-        var pctText = new TextBlock
-        {
-            Text = pct.ToString("0.0") + " %",
-            Foreground = ThemeService.Brush(dim ? "Placeholder" : "TextMuted"),
-            FontSize = 11,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(pctText, 1);
-        pctCell.Children.Add(track);
-        pctCell.Children.Add(pctText);
-        return pctCell;
-    }
-
-    private IEnumerable<FileEntry> VisibleChildren(FileEntry entry)
-    {
-        IEnumerable<FileEntry> kids = entry.ChildList;
-        if (!string.IsNullOrWhiteSpace(_search))
-            kids = kids.Where(MatchesFilter);
-        return _sort switch
-        {
-            SortKey.Name => kids.OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase),
-            _ => kids.OrderByDescending(c => c.Size),
-        };
-    }
-
-    private bool MatchesFilter(FileEntry e)
-    {
-        if (!string.IsNullOrWhiteSpace(_search))
-        {
-            if (e.Name.Contains(_search, StringComparison.CurrentCultureIgnoreCase)
-                || (e.FullPath?.Contains(_search, StringComparison.CurrentCultureIgnoreCase) ?? false))
-                return true;
-            return e.IsDirectory && SubtreeHasName(e, _search);
-        }
-        return true;
-    }
-
-    private static bool SubtreeHasName(FileEntry dir, string q)
-    {
-        var stack = new Stack<FileEntry>();
-        stack.Push(dir);
-        int n = 0;
-        while (stack.Count > 0 && n++ < 20000)
-        {
-            var x = stack.Pop();
-            foreach (var c in x.ChildList)
-            {
-                if (c.Name.Contains(q, StringComparison.CurrentCultureIgnoreCase)
-                    || (c.FullPath?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false))
-                    return true;
-                if (c.IsDirectory) stack.Push(c);
-            }
-        }
-        return false;
-    }
-
-    private void PopulateDirChildren(TreeViewItem parent)
-    {
-        parent.Items.Clear();
-        var entry = (FileEntry)parent.Tag;
-        const int maxFiles = 400;
-        var visible = VisibleChildren(entry).ToList();
-        var dirs = visible.Where(c => c.IsDirectory);
-        var files = visible.Where(c => !c.IsDirectory).ToList();
-        foreach (var d in dirs)
-        {
-            var item = new TreeViewItem { Header = MakeFolderHeader(d), Tag = d };
-            bool hasKids = d.HasChildren && (string.IsNullOrWhiteSpace(_search)
-                ? true
-                : d.ChildList.Any(MatchesFilter));
-            if (hasKids)
-            {
-                item.Items.Add(new TreeViewItem { Header = "…", Tag = Placeholder });
-                item.Expanded += DirItem_Expanded;
-            }
-            parent.Items.Add(item);
-        }
-        int shown = 0;
-        foreach (var f in files)
-        {
-            if (shown++ >= maxFiles) break;
-            parent.Items.Add(new TreeViewItem { Header = MakeFolderHeader(f), Tag = f });
-        }
-        if (files.Count > maxFiles)
-        {
-            var more = new FileEntry
-            {
-                Name = Loc.MoreFiles(files.Count - maxFiles),
-                Size = files.Skip(maxFiles).Sum(x => x.Size),
-                Allocated = files.Skip(maxFiles).Sum(x => x.Allocated),
-                Kind = EntryKind.File,
-                IsHidden = true,
-            };
-            more.Parent = entry;
-            parent.Items.Add(new TreeViewItem { Header = MakeFolderHeader(more), Tag = more });
-        }
-    }
-
-    private void DirItem_Expanded(object sender, RoutedEventArgs e)
-    {
-        var item = (TreeViewItem)sender;
-        if (item.Items.Count == 1 && item.Items[0] is TreeViewItem ph && ReferenceEquals(ph.Tag, Placeholder))
-            PopulateDirChildren(item);
-    }
-
-    private void ShowDirectory(FileEntry dir)
-    {
-        _current = dir;
-        PathCrumb.Text = dir.FullPath ?? "";
-        // 浏览目录的统计回到侧栏（原先在全局底栏，底栏已移除）
-        BrowserSummary.Text = Loc.FileDirCount(dir.FileCount, dir.FolderCount) + "  ·  "
-            + FileEntry.FormatSize(dir.Size) + "  /  " + FileEntry.FormatSize(dir.Allocated);
-        UpdateScopeButton();
-        // 浏览目录**不**改动清理范围与勾选：范围只能靠「只看此文件夹的清理项」显式设置。
-        if (_report != null && _rightTab == RightTab.Clean)
-            RefreshLayersAfterExternalChange();
-    }
-
-    /// <summary>侧栏「只看此文件夹的清理项」按钮的状态与提示。</summary>
-    private void UpdateScopeButton()
-    {
-        if (ScopeToFolderBtn == null) return;
-        bool hasFolder = _current != null && !string.IsNullOrEmpty(_current.FullPath)
-                         && !ReferenceEquals(_current, _root);
-        ScopeToFolderBtn.IsEnabled = hasFolder || _cleanScopeRoot != null;
-        ScopeToFolderBtn.Content = _cleanScopeRoot != null ? Loc.ClearScope : Loc.ScopeToFolder;
-        ScopeToFolderBtn.ToolTip = hasFolder
-            ? Loc.ScopeToFolderHint(_current!.FullPath ?? "")
-            : Loc.ScopeNeedFolder;
-    }
-
-    /// <summary>
-    /// 外部改了勾选（AI 建议、目录切换、删除后）时刷新各层显示。
-    /// 只重绑视图，不重建分组 —— 分组索引和候选集都没变。
-    /// </summary>
-    private void RefreshLayersAfterExternalChange()
-    {
-        foreach (var p in _layered.Purposes) p.SyncFromItems();
-        RefreshAfterSelectionChange();
-    }
-
-
-    private static readonly string[] LiveFolders =
-    {
-        "Users", "Program Files", "Windows", "Program Files (x86)", "ProgramData",
-        "SteamLibrary", "Recovery", "System Volume Information", "$Recycle.Bin",
-        "$Extend", "pagefile.sys", "hiberfil.sys", "swapfile.sys", "Documents and Settings",
-        "PerfLogs", "inetpub", "AppData", "Downloads", "Temp",
-    };
-
-    private void BeginLiveScan(string drive)
-    {
-        ClearLiveScan();
-        var root = new FileEntry { Name = drive, Kind = EntryKind.Directory };
-        _liveRoot = new TreeViewItem { Header = MakeFolderHeader(root, isRoot: true), Tag = root, IsExpanded = true };
-        ResetPurposeRows();
-        DirTree.Items.Clear();
-        DirTree.Items.Add(_liveRoot);
-        _liveShown = 0;
-        GrowLiveScan(1);
-    }
-
-    private void GrowLiveScan(int percent)
-    {
-        if (_liveRoot == null) return;
-        percent = Math.Clamp(percent, 0, 100);
-        int wantLeft = Math.Max(1, percent * LiveFolders.Length / 90);
-        while (_liveShown < wantLeft && _liveShown < LiveFolders.Length)
-        {
-            string name = LiveFolders[_liveShown++];
-            bool file = name.Contains('.');
-            var fake = new FileEntry
-            {
-                Name = name,
-                Kind = file ? EntryKind.File : EntryKind.Directory,
-                IsHidden = name.StartsWith('$') || name is "pagefile.sys" or "hiberfil.sys" or "swapfile.sys",
-                IsSystem = name.StartsWith('$') || name is "Windows" or "System Volume Information",
-            };
-            var item = new TreeViewItem { Header = MakeFolderHeader(fake), Tag = fake };
-            if (!file) item.Items.Add(new TreeViewItem { Header = "…", Tag = Placeholder });
-            _liveRoot.Items.Add(item);
-        }
-    }
-
-    private void ClearLiveScan()
-    {
-        _liveRoot = null;
-        _liveShown = 0;
-    }
 
     private void UpdateVolumeInfo()
     {
@@ -1681,112 +1081,7 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void StopButton_Click(object sender, RoutedEventArgs e) => StopEverything();
 
-    private void DirTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
-    {
-        if (DirTree.SelectedItem is TreeViewItem { Tag: FileEntry entry })
-            ShowDirectory(entry.IsDirectory ? entry : entry.Parent ?? entry);
-    }
 
-    private void DirTree_PreviewRightDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.OriginalSource is not DependencyObject src) return;
-        while (src != null && src is not TreeViewItem)
-            src = VisualTreeHelper.GetParent(src);
-        if (src is TreeViewItem item)
-            item.IsSelected = true;
-    }
-
-    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        _search = SearchBox.Text?.Trim() ?? "";
-        if (_root == null) return;
-        PopulateTree();
-        if (!string.IsNullOrWhiteSpace(_search) && DirTree.Items.Count > 0 && DirTree.Items[0] is TreeViewItem root)
-            ExpandMatches(root, 0);
-    }
-
-    private void ExpandMatches(TreeViewItem item, int depth)
-    {
-        if (depth > 4 || item.Tag is not FileEntry e) return;
-        if (e.IsDirectory && e.ChildList.Any(MatchesFilter))
-        {
-            item.IsExpanded = true;
-            if (item.Items.Count == 1 && item.Items[0] is TreeViewItem ph && ReferenceEquals(ph.Tag, Placeholder))
-                PopulateDirChildren(item);
-            foreach (var obj in item.Items)
-            {
-                if (obj is TreeViewItem child)
-                    ExpandMatches(child, depth + 1);
-            }
-        }
-    }
-
-    private FileEntry? ContextEntry()
-        => (DirTree.SelectedItem as TreeViewItem)?.Tag as FileEntry;
-
-    private void TreeMenu_Opened(object sender, RoutedEventArgs e)
-    {
-        var entry = ContextEntry();
-        bool ok = entry != null && !RecycleService.IsProtected(entry);
-        CtxDelete.IsEnabled = ok;
-        CtxDelete.Header = ok ? Loc.DeleteToRecycle : Loc.DeleteBlocked;
-        CtxAskAi.IsEnabled = entry is { IsDirectory: true } && !entry.IsFilesGroup;
-        // 用途识别只对文件夹可用；这三个操作都不改选择、不改风险
-        bool dir = entry is { IsDirectory: true } && !entry.IsFilesGroup;
-        _purposeMenuDir = dir ? entry : null;
-        if (CtxPurposeCorrect != null) CtxPurposeCorrect.IsEnabled = dir;
-        FillPurposeMenu();
-    }
-
-    private void CtxDelete_Click(object sender, RoutedEventArgs e)
-    {
-        var item = DirTree.SelectedItem as TreeViewItem;
-        if (item?.Tag is not FileEntry entry) return;
-        if (RecycleService.IsProtected(entry))
-        {
-            ShowAlert(Loc.DeleteToRecycle, Loc.DeleteBlocked);
-            return;
-        }
-        string path = entry.FullPath;
-        if (string.IsNullOrWhiteSpace(path) || (!File.Exists(path) && !Directory.Exists(path)))
-        {
-            ShowAlert(Loc.DeleteToRecycle, Loc.DeleteFailed(path));
-            return;
-        }
-        var target = new DeletionTarget
-        {
-            Path = path,
-            Label = entry.Name,
-            IsDirectory = entry.IsDirectory,
-            ExpectedSize = entry.IsDirectory ? -1 : entry.Size,
-            ExpectedModified = entry.Modified,
-            SnapshotIsExact = _scanQuality?.Source == ScanSource.Recursive,
-        };
-        var plan = _deleteCoordinator.Plan(new[] { target });
-        AskConfirm(
-            Loc.DeleteToRecycle,
-            Loc.DeleteConfirm(entry.Name, FileEntry.FormatSize(entry.Allocated > 0 ? entry.Allocated : entry.Size))
-                + DeletionCoordinator.PlanNote(plan),
-            () =>
-            {
-                var batch = _deleteCoordinator.Execute(plan, allowSensitive: true);
-                if (batch.Recycled > 0)
-                {
-                    var parent = entry.Parent;
-                    parent?.Children.Remove(entry);
-                    if (item.Parent is TreeViewItem treeParent)
-                        treeParent.Items.Remove(item);
-                    else
-                        DirTree.Items.Remove(item);
-                    if (parent != null)
-                    {
-                        RecalcUp(parent);
-                        ShowDirectory(parent);
-                    }
-                }
-                ReportDeletion(batch, single: true);
-            });
-    }
 
     private static void RecalcUp(FileEntry node)
     {
@@ -1815,12 +1110,6 @@ public partial class MainWindow : Window, IAnalystHost
         }
     }
 
-    private void CtxOpen_Click(object sender, RoutedEventArgs e)
-    {
-        var entry = ContextEntry();
-        if (entry == null) return;
-        OpenExplorer(entry.FullPath, entry.IsDirectory);
-    }
 
     private void CleanOpen_Click(object sender, RoutedEventArgs e)
     {
@@ -1915,53 +1204,12 @@ public partial class MainWindow : Window, IAnalystHost
         ShellReveal.Reveal(path);
     }
 
-    private void CtxCopyPath_Click(object sender, RoutedEventArgs e)
-    {
-        var entry = ContextEntry();
-        if (entry == null) return;
-        try { Clipboard.SetText(entry.FullPath ?? entry.Name); }
-        catch (Exception ex)
-        {
-            // 剪贴板被别的进程占住是常见情况，重试也没意义，记一笔就好。
-            AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "UI", "", "clipboard",
-                ex.GetType().Name));
-        }
-    }
-
-    private void CtxCopyName_Click(object sender, RoutedEventArgs e)
-    {
-        var entry = ContextEntry();
-        if (entry == null) return;
-        try { Clipboard.SetText(entry.Name); }
-        catch (Exception ex)
-        {
-            AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "UI", "", "clipboard",
-                ex.GetType().Name));
-        }
-    }
-
-    private void CtxProps_Click(object sender, RoutedEventArgs e)
-    {
-        var entry = ContextEntry();
-        if (entry == null) return;
-        ShowAlert(Loc.Properties, Loc.PropBody(entry));
-    }
-
-    private void SortName_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Name);
-    private void SortSize_Click(object sender, MouseButtonEventArgs e) => SetSort(SortKey.Size);
-
-    private void SetSort(SortKey key)
-    {
-        _sort = key;
-        if (_root != null) PopulateTree();
-    }
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
         {
-            // Esc 逐层返回：清理前检查页 → 位置页 → 首页。
-            // 顺序在「清搜索」之前，因为返回是更主要的动作。
+            // Esc 逐层返回：清理前检查页 → 文件明细。
             if (_onPreflightPage)
             {
                 PreflightBack_Click(this, new RoutedEventArgs());
@@ -1975,20 +1223,6 @@ public partial class MainWindow : Window, IAnalystHost
                 e.Handled = true;
                 base.OnKeyDown(e);
                 return;
-            }
-            if (_onLocationPage)
-            {
-                CleanBack_Click(this, new RoutedEventArgs());
-                e.Handled = true;
-                base.OnKeyDown(e);
-                return;
-            }
-            // 其次清文件浏览器的搜索（扩展名筛选已随扩展名页移除）
-            if (!string.IsNullOrWhiteSpace(_search))
-            {
-                _search = "";
-                SearchBox.Text = "";
-                if (_root != null) PopulateTree();
             }
             e.Handled = true;
         }
@@ -2815,7 +2049,6 @@ public partial class MainWindow : Window, IAnalystHost
         // 而用途缓存/计数属于**整理页那一遍**的生命周期：在这里清会导致
         // ①已识别的结果被丢掉重问、②请求计数被归零（60 次的预算形同失效）。
         // 现在只有真正换扫描时（RebuildOrganize）才 ResetForScan。
-        _purposeCache.Clear();           // 侧栏那份结果也随扫描作废（新树会是新的对象）
         foreach (var loc in _layered.Purposes.SelectMany(p => p.Locations))
         {
             var v = loc.ExistingAi;
@@ -2836,9 +2069,7 @@ public partial class MainWindow : Window, IAnalystHost
         if (_openLocation != null
             && string.Equals(scopeKey, _openLocation.Key, StringComparison.OrdinalIgnoreCase))
             return _openLocation;
-        return _openPurpose?.Locations.FirstOrDefault(
-                   l => string.Equals(l.Key, scopeKey, StringComparison.OrdinalIgnoreCase))
-               ?? _layered.Purposes.SelectMany(p => p.Locations)
+        return _layered.Purposes.SelectMany(p => p.Locations)
                    .FirstOrDefault(l => string.Equals(l.Key, scopeKey, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -2981,7 +2212,7 @@ public partial class MainWindow : Window, IAnalystHost
             return;
         }
 
-        _locationScrollOffset = FindScrollViewer(LocationList)?.VerticalOffset ?? _locationScrollOffset;
+        _locationScrollOffset = PurposePage?.VerticalOffset ?? _locationScrollOffset;
         if (!_detailIsOverlay || !ReferenceEquals(_openLocation, node)) OpenDetail(node);
 
         _pager?.SetItemFilter(subset);
@@ -2998,54 +2229,9 @@ public partial class MainWindow : Window, IAnalystHost
     }
 
     /// <summary>
-    /// 右键「问 AI 这是什么」：单轮问答，答案用弹窗显示。
-    /// 不走旧的分析页：那条路会按 DELETABLE/KEEP 自动勾选。
+    /// 2.11：目录侧栏（及其右键菜单「问 AI 这是什么」）已整体移除。
+    /// 逐项 AI 仍然只从清理列表 / 按文件夹删除列表上那一项显式发起。
     /// </summary>
-    private async void CtxAskAi_Click(object sender, RoutedEventArgs e)
-    {
-        if (_aiBusy) return;
-        if (ContextEntry() is not { IsDirectory: true } dir || dir.IsFilesGroup) return;
-        if (!AiConfigured())
-        {
-            ShowAlert(Loc.AiColNote, Loc.AiScanSkip);
-            return;
-        }
-
-        _aiBusy = true;
-        RefreshAiLamp();
-        SetAiStatus(Loc.AiWorking);
-        using var op = StartOperation(ref _aiStop, "Ai");
-        var ct = op.Token;
-        try
-        {
-            var turns = new List<AiMsg> { new() { Role = "user", Text = DiskAnalyst.FolderAsk(dir) } };
-            var reply = await AiClient.StreamAsync(
-                App.Settings.CurrentProvider(), App.Settings.AiModel,
-                Loc.AiFolderAskSystem, turns, _ => { }, ct);
-
-            string text = StripToolMarkup(reply.Text ?? "").Trim();
-            SetAiLamp(true);
-            SetAiStatus(text.Length > 0 ? Loc.AiOk : Loc.AiNoItems);
-            ShowAlert(dir.Name + " · " + Loc.AiColNote, text.Length > 0 ? text : Loc.AiNoItems);
-            op.Done("folder ask");
-        }
-        catch (OperationCanceledException)
-        {
-            SetAiStatus(Loc.AiCatStopped);
-            op.Canceled("folder ask canceled");
-        }
-        catch (Exception ex)
-        {
-            SetAiLamp(false);
-            SetAiStatus(Loc.AiPartial(AppError.From(ex, "folder ask").UserMessage));
-            op.Fail(ex, "folder ask");
-        }
-        finally
-        {
-            _aiBusy = false;
-            RefreshAiLamp();
-        }
-    }
 
     private void RepoLink_Click(object sender, MouseButtonEventArgs e)
     {
@@ -3107,17 +2293,15 @@ public partial class MainWindow : Window, IAnalystHost
     private CleanLayeredResult _layered = CleanLayeredResult.Empty;
     /// <summary>首页的两个风险分区（建议清理默认展开 / 需要你确认默认折叠）。</summary>
     private List<CleanPurposeSection> _sections = new();
-    /// <summary>当前进入的用途（位置页显示它的位置）。</summary>
-    private CleanPurposeNode? _openPurpose;
-    /// <summary>当前打开明细的位置。</summary>
+    /// <summary>当前打开明细的位置（右侧明细面板 / 窄窗口整页）。</summary>
     private CleanLocationNode? _openLocation;
     /// <summary>明细分页器（搜索覆盖完整候选集，不只是已加载页）。</summary>
     private CleanItemPager? _pager;
     /// <summary>分层重建的代次，旧结果不能覆盖新状态。</summary>
     private int _layerGeneration;
-    /// <summary>首页滚动位置：返回时恢复。</summary>
+    /// <summary>首页滚动位置：就地展开/收起后恢复，视口不跳走。</summary>
     private double _purposeScrollOffset;
-    /// <summary>位置页滚动位置：打开/关闭明细后恢复。</summary>
+    /// <summary>就地展开/收起之前记下的滚动位置（打开明细后恢复）。</summary>
     private double _locationScrollOffset;
     /// <summary>明细当前是覆盖整页（窄窗口）还是侧面板。</summary>
     private bool _detailIsOverlay;
@@ -3153,13 +2337,11 @@ public partial class MainWindow : Window, IAnalystHost
     {
         _layered = CleanLayeredResult.Empty;
         _sections = new List<CleanPurposeSection>();
-        _openPurpose = null;
         _openLocation = null;
         _pager = null;
         _purposeScrollOffset = 0;
         _locationScrollOffset = 0;
         PurposeSections.ItemsSource = null;
-        LocationList.ItemsSource = null;
         CloseDetail();
     }
 
@@ -3230,43 +2412,25 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void BuildSections() => _sections = CleanPurposeSection.Build(_layered.Purposes);
 
-    /// <summary>重建后按稳定键回到原页面，并恢复明细。</summary>
+    /// <summary>重建后重新绑回首页，并恢复滚动位置。</summary>
     private void RestoreOpenLayers()
     {
-        if (_openPurpose != null)
-        {
-            var again = _layered.Purposes.FirstOrDefault(p =>
-                p.Purpose == _openPurpose.Purpose && p.RiskTier == _openPurpose.RiskTier);
-            if (again != null) { _openPurpose = again; ShowLocationPage(again, restoreScroll: true); return; }
-            _openPurpose = null;
-        }
+        // 2.11：不再有「位置页」这个第二视图。展开状态挂在分类/位置实例上，
+        // 重建会换实例，所以这里只负责把首页重新绑上并恢复滚动位置。
         ShowPurposePage(restoreScroll: true);
     }
 
-    // ---------------- 清理范围（与文件浏览器状态完全分离） ----------------
+    // ---------------- 清理范围 ----------------
 
     /// <summary>
     /// 用户显式设置的清理范围根目录。null = 全盘。
-    /// **刻意与 <see cref="_current"/>（浏览目录）分开两个变量**：
-    /// 以前共用同一个，导致点一下目录就偷偷改了清理范围。
+    /// 2.11 起目录侧栏已移除，不再有「浏览目录」这第二个状态。
     /// </summary>
     private FileEntry? _cleanScopeRoot;
 
     /// <summary>扫描耗时（秒），只进「扫描详情」。</summary>
     private double _scanElapsed;
 
-    /// <summary>侧栏「只看此文件夹的清理项」：把当前浏览目录设为清理范围。</summary>
-    private void ScopeToFolder_Click(object sender, RoutedEventArgs e)
-    {
-        if (_cleanScopeRoot != null) { ClearScope_Click(sender, e); return; }
-        if (_current == null || string.IsNullOrEmpty(_current.FullPath) || ReferenceEquals(_current, _root))
-        {
-            SetStatus(Loc.ScopeNeedFolder);
-            return;
-        }
-        _cleanScopeRoot = _current;
-        ApplyCleanScope();
-    }
 
     private void ClearScope_Click(object sender, RoutedEventArgs e)
     {
@@ -3282,7 +2446,6 @@ public partial class MainWindow : Window, IAnalystHost
     private void ApplyCleanScope()
     {
         UpdateScopeChip();
-        UpdateScopeButton();
         if (_report == null) return;
         if (_root != null) _ = RebuildLayersAsync(_root, null, _cleanScopeRoot != null ? "scoped" : "unscoped");
     }
@@ -3301,17 +2464,13 @@ public partial class MainWindow : Window, IAnalystHost
         CleanScopeText.Text = Loc.ScopeChip(path, outside);
     }
 
-    // ---------------- 页面 1：清理首页（只显示用途汇总） ----------------
+    // ---------------- 清理首页：分类 → 位置 → 文件 全部就地展开 ----------------
 
     private void ShowPurposePage(bool restoreScroll)
     {
-        _onLocationPage = false;
         _onPreflightPage = false;
-        _openPurpose = null;
         PurposeSections.ItemsSource = _sections;
-        LocationList.ItemsSource = null;
         PurposePage.Visibility = Visibility.Visible;
-        LocationPage.Visibility = Visibility.Collapsed;
         if (PreflightPage != null) PreflightPage.Visibility = Visibility.Collapsed;
         UpdatePageHeader();
         ScheduleRowContainerAudit(PurposeSections, _sections.Sum(s => s.RowCount), "purpose-home");
@@ -3331,61 +2490,45 @@ public partial class MainWindow : Window, IAnalystHost
         ScheduleRowContainerAudit(PurposeSections, _sections.Sum(s => s.RowCount), "purpose-home");
     }
 
-    /// <summary>「查看位置 ›」：进入位置页（替换主内容，不在下面叠加第二张表）。</summary>
-    private void PurposeOpen_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 展开/收起这一类的清理位置 —— **就地展开，不换视图**。
+    /// 勾选挂在 CleanLocationNode / CleanItem 实例上，来回展开一项都不会丢。
+    /// </summary>
+    private void PurposeExpand_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not CleanPurposeNode node) return;
-        _purposeScrollOffset = PurposePage.VerticalOffset;   // 记住首页滚动位置
-        ShowLocationPage(node, restoreScroll: false);
+        TogglePurposeInline(node);
     }
 
-    /// <summary>点用途名称那一块也进详情；复选框仍然只管选择。</summary>
-    private void PurposeOpenRow_Click(object sender, MouseButtonEventArgs e)
+    /// <summary>点用途名称那一块也就地展开；复选框仍然只管选择。</summary>
+    private void PurposeExpandRow_Click(object sender, MouseButtonEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not CleanPurposeNode node) return;
-        _purposeScrollOffset = PurposePage.VerticalOffset;
-        ShowLocationPage(node, restoreScroll: false);
+        TogglePurposeInline(node);
     }
 
-    // ---------------- 页面 2：清理位置（替换主内容） ----------------
-
-    private void ShowLocationPage(CleanPurposeNode purpose, bool restoreScroll)
+    /// <summary>
+    /// 分类行就地展开/收起。展开会改变内容高度，所以先记下滚动位置，
+    /// 等布局跑完再把视口落回合理值 —— 用户不会因为展开而被甩到别处。
+    /// </summary>
+    private void TogglePurposeInline(CleanPurposeNode node)
     {
-        _openPurpose = purpose;
-        _onLocationPage = true;
-        _onPreflightPage = false;
-        CloseDetail();
-        PurposePage.Visibility = Visibility.Collapsed;
-        LocationPage.Visibility = Visibility.Visible;
-        if (PreflightPage != null) PreflightPage.Visibility = Visibility.Collapsed;
-        LocationList.ItemsSource = purpose.Locations;
-
-        string extra = purpose.HasHiddenLocations ? purpose.LocationsNotShownText : "";
-        // 页头已经写了「N 个位置 · 候选空间 X」，这里**不再重复**同一句（§二：标题只显示一次）。
-        // 只补页头没有的信息：被截断没显示出来的位置数。
-        LocationPageSub.Text = extra.Trim();
-        LocationPageSub.Visibility = extra.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        UpdatePageHeader();
-        ScheduleRowContainerAudit(LocationList, purpose.LocationCount, "location-page");
-        if (restoreScroll)
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                if (LocationList == null) return;
-                var sv = FindScrollViewer(LocationList);
-                sv?.ScrollToVerticalOffset(_locationScrollOffset);
-            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        _purposeScrollOffset = PurposePage?.VerticalOffset ?? 0;
+        bool opening = !node.IsExpanded;
+        node.IsExpanded = opening;
+        AppLog.Info("Clean", $"op=inline-locations purpose={node.PurposeName} open={opening} "
+            + $"locations={node.LocationCount}");
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (PurposePage == null) return;
+            double target = Math.Min(_purposeScrollOffset, Math.Max(0, PurposePage.ScrollableHeight));
+            PurposePage.ScrollToVerticalOffset(target);
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
-    /// <summary>返回首页：保留筛选与勾选状态（勾选挂在条目实例上，本来就不丢）。</summary>
+    /// <summary>返回：只负责关掉文件明细（首页已经没有第二层页面可回）。</summary>
     private void CleanBack_Click(object sender, RoutedEventArgs e)
     {
-        if (_detailIsOverlay && _openLocation != null) { CloseDetail(); return; }
-        if (_onLocationPage)
-        {
-            _locationScrollOffset = FindScrollViewer(LocationList)?.VerticalOffset ?? 0;
-            ShowPurposePage(restoreScroll: true);
-            return;
-        }
         if (_openLocation != null) CloseDetail();
     }
 
@@ -3474,11 +2617,11 @@ public partial class MainWindow : Window, IAnalystHost
     /// 展开是**惰性**的（第一次展开才建列表，且只取前 N 条）；
     /// 收起时把外层列表的滚动位置记下来再恢复，避免内容变矮之后视口跳走。
     /// 选择状态挂在 <see cref="CleanItem"/> 实例上，收起再展开**一项都不会丢**。
+    /// 2.11：外层滚动容器就是首页本身（不再有位置页的第二层列表）。
     /// </summary>
     private void ToggleLocationFiles(CleanLocationNode node)
     {
-        var sv = FindScrollViewer(LocationList);
-        double before = sv?.VerticalOffset ?? 0;
+        double before = PurposePage?.VerticalOffset ?? 0;
         bool opening = !node.IsFilesOpen;
         node.ToggleFiles();
         if (opening)
@@ -3492,10 +2635,9 @@ public partial class MainWindow : Window, IAnalystHost
             // 收起后内容变矮：等布局跑完再把滚动位置落回合理值
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                var view = FindScrollViewer(LocationList);
-                if (view == null) return;
-                double target = Math.Min(before, Math.Max(0, view.ScrollableHeight));
-                view.ScrollToVerticalOffset(target);
+                if (PurposePage == null) return;
+                double target = Math.Min(before, Math.Max(0, PurposePage.ScrollableHeight));
+                PurposePage.ScrollToVerticalOffset(target);
             }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
     }
@@ -3512,7 +2654,7 @@ public partial class MainWindow : Window, IAnalystHost
     private void LocationOpenFull_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not CleanLocationNode node) return;
-        _locationScrollOffset = FindScrollViewer(LocationList)?.VerticalOffset ?? 0;
+        _locationScrollOffset = PurposePage?.VerticalOffset ?? 0;
         OpenDetail(node);
     }
 
@@ -3554,19 +2696,18 @@ public partial class MainWindow : Window, IAnalystHost
             DetailPanel.Visibility = Visibility.Collapsed;
             DetailCol.Width = new GridLength(0);
             MainCol.Width = new GridLength(1, GridUnitType.Star);
-            CleanBackBtn.Visibility = _onLocationPage ? Visibility.Visible : Visibility.Collapsed;
+            CleanBackBtn.Visibility = Visibility.Collapsed;
             return;
         }
 
-        // 用**主内容区的真实宽度**判断，而不是窗口宽度：
-        // 侧栏停靠时会吃掉 280，DPI 也会影响实际可用像素。
+        // 用**主内容区的真实宽度**判断，而不是窗口宽度：DPI 会影响实际可用像素。
         double avail = CleanMain.ActualWidth;
         if (avail <= 0)
         {
-            // 还没排过版（ActualWidth=0）：按窗口宽度减去侧栏估算，避免误判成宽屏而把详情压窄
+            // 还没排过版（ActualWidth=0）：按窗口宽度估算，避免误判成宽屏而把详情压窄
             double win = ActualWidth > 0 ? ActualWidth : Width;
             if (double.IsNaN(win) || win <= 0) win = 1000;
-            avail = win - (_treeVisible && !SidebarShouldOverlay() ? 280 + 6 : 0);
+            avail = win;
         }
 
         // 分栏要求**两侧都够用**：列表至少 ~520，详情至少 ~560。
@@ -3833,12 +2974,13 @@ public partial class MainWindow : Window, IAnalystHost
     /// <summary>勾选变化后刷新：明细、各层三态、底部总计。不做全量遍历。</summary>
     private void RefreshAfterSelectionChange()
     {
-        if (_openPurpose != null)
+        // 就地展开的分类/位置也同步三态（实例本来就同一个，这里只保证显示一致）
+        foreach (var p in _layered.Purposes)
         {
-            _openPurpose.SyncFromItems();
-            foreach (var l in _openPurpose.Locations) l.SyncFromItems();
+            p.SyncFromItems();
+            if (!p.IsExpanded) continue;
+            foreach (var l in p.Locations) l.SyncFromItems();
         }
-        foreach (var p in _layered.Purposes) p.SyncFromItems();
         foreach (var s in _sections) s.RaiseHeaderChanged();
         if (_pager != null) CleanGrid.Items.Refresh();
         UpdateSelectionUi();
@@ -3885,10 +3027,8 @@ public partial class MainWindow : Window, IAnalystHost
             foreach (var x in picked) bytes += Math.Max(0, x.Size);
             int locations = CountSelectedLocations(picked);
             CleanSelectionSummary.Text = Loc.SelectionSummary(locations, picked.Count, FileEntry.FormatSize(bytes));
-            // 跨分类/跨页面保留选择时，明确说明这是全局选择
-            CleanSelectionNote.Text = _onLocationPage || _openLocation != null
-                ? Loc.GlobalSelectionNote
-                : "";
+            // 跨分类/跨位置保留选择时，明确说明这是全局选择
+            CleanSelectionNote.Text = _openLocation != null ? Loc.GlobalSelectionNote : "";
             ViewSelectedBtn.Visibility = Visibility.Visible;
             CheckAndCleanBtn.Content = Loc.CleanSelectedItems;
             CheckAndCleanBtn.IsEnabled = true;
@@ -3979,7 +3119,6 @@ public partial class MainWindow : Window, IAnalystHost
 
         // 主区域切到检查页；清理列表与明细都让位，避免同屏多套操作入口
         PurposePage.Visibility = Visibility.Collapsed;
-        LocationPage.Visibility = Visibility.Collapsed;
         PreflightPage.Visibility = Visibility.Visible;
         CloseDetail();
         UpdatePageHeader();
@@ -4003,9 +3142,8 @@ public partial class MainWindow : Window, IAnalystHost
         _pendingClean = null;
         _onPreflightPage = false;
         PreflightPage.Visibility = Visibility.Collapsed;
-        // 回到来源层：原来在位置页就回位置页，否则回首页。选择、滚动、筛选都不动。
-        if (_openPurpose != null) ShowLocationPage(_openPurpose, restoreScroll: true);
-        else ShowPurposePage(restoreScroll: true);
+        // 回到首页：选择、就地展开状态、滚动位置都不动。
+        ShowPurposePage(restoreScroll: true);
     }
 
     /// <summary>确认清理：回到**既有**的删除预检 → 确认 → 执行链路。</summary>
@@ -4020,8 +3158,7 @@ public partial class MainWindow : Window, IAnalystHost
         _pendingClean = null;
         _onPreflightPage = false;
         PreflightPage.Visibility = Visibility.Collapsed;
-        if (_openPurpose != null) ShowLocationPage(_openPurpose, restoreScroll: true);
-        else ShowPurposePage(restoreScroll: true);
+        ShowPurposePage(restoreScroll: true);
 
         // 复用原有链路：DeletionCoordinator.Plan → 确认框 → Execute → 逐项结果
         RunCleanFor(picked);
@@ -4239,18 +3376,9 @@ public partial class MainWindow : Window, IAnalystHost
 
         if (_openLocation != null && _detailIsOverlay)
         {
-            // 文件明细：标题是位置名，返回回到它所在的位置页
+            // 文件明细（窄窗口整页）：标题是位置名，返回回到首页
             CleanPageTitle.Text = _openLocation.DisplayName;
             CleanPageSub.Text = Loc.DetailScopeCount(_openLocation.FileCount, _openLocation.SizeText);
-            CleanBackBtn.ToolTip = Loc.BackToLocations;
-            CleanBackBtn.Visibility = Visibility.Visible;
-            return;
-        }
-        if (_onLocationPage && _openPurpose != null)
-        {
-            // 位置页：标题是用途名；第二行同样是**候选空间**（用户还没选，别说「预计处理」）
-            CleanPageTitle.Text = _openPurpose.PurposeName;
-            CleanPageSub.Text = Loc.CandidateScopeLine(_openPurpose.LocationCount, _openPurpose.SizeText);
             CleanBackBtn.ToolTip = Loc.BackToCleanCenter;
             CleanBackBtn.Visibility = Visibility.Visible;
             return;
@@ -4284,7 +3412,6 @@ public partial class MainWindow : Window, IAnalystHost
 
     /// <summary>重复检测没跑完的候选数（0 表示跑完了）。</summary>
     private int _dupIncomplete;
-    private bool _onLocationPage;
     /// <summary>正在显示清理前检查页。</summary>
     private bool _onPreflightPage;
     /// <summary>清理前检查页待确认的集合（进入执行后清空）。</summary>
@@ -4413,7 +3540,6 @@ public partial class MainWindow : Window, IAnalystHost
         BindDetailPage();
     }
 
-    private async void UninstallRefresh_Click(object sender, RoutedEventArgs e) => await LoadApps();
 
     /// <summary>
     /// 用刚清点出来的已安装软件清单，**建立一次** <see cref="InstalledLocationSnapshot"/>，
@@ -4445,17 +3571,11 @@ public partial class MainWindow : Window, IAnalystHost
         var ct = op.Token;
         int myGeneration = ++_uninstallGeneration;
         _listingApps = true;
-        UninstallRefreshBtn.IsEnabled = false;
-        UninstallRunBtn.IsEnabled = false;
-        UninstallAllBtn.IsEnabled = false;
-        UninstallAiAnalyzeBtn.IsEnabled = false;
-        UninstallAiSelectBtn.IsEnabled = false;
         UninstallProgressPanel.Visibility = Visibility.Visible;
         UninstallProgressBar.IsIndeterminate = true;
         UninstallProgressBar.Value = 0;
         UninstallProgressText.Text = Loc.UninstallListing;
-        UninstallSummary.Text = Loc.UninstallListing;
-        try
+        UninstallSummary.Text = Loc.UninstallListing;        try
         {
             var progress = new Progress<ScanProgress>(p =>
             {
@@ -4472,7 +3592,8 @@ public partial class MainWindow : Window, IAnalystHost
                 return;
             }
             AppRecommendationService.ApplyUsage(usage);
-            AppRecommendationService.ApplyLocalRules(list);
+            // 只讲事实：这是什么软件 + 有效占用。没有建议、没有评分、没有 AI。
+            AppFactualInfoService.Apply(list);
             InjectInstalledEvidence(list);
             foreach (var app in list)
             {
@@ -4483,7 +3604,6 @@ public partial class MainWindow : Window, IAnalystHost
             _apps = list;
             _appInventoryVersion++;
             _junk.Clear();
-            _uninstallAnalysisNote = Loc.UninstallAiNotConfigured;
             ShowAppList();
             op.Done("apps listed", list.Count);
         }
@@ -4501,117 +3621,9 @@ public partial class MainWindow : Window, IAnalystHost
             if (myGeneration == _uninstallGeneration)
             {
                 _listingApps = false;
-                UninstallRefreshBtn.IsEnabled = true;
-                UninstallRunBtn.IsEnabled = true;
-                UninstallAllBtn.IsEnabled = true;
-                UninstallAiAnalyzeBtn.IsEnabled = true;
-                UninstallAiSelectBtn.IsEnabled = true;
                 UninstallProgressPanel.Visibility = Visibility.Collapsed;
                 UninstallProgressBar.IsIndeterminate = false;
             }
-        }
-    }
-
-    private IEnumerable<AppUninstallItem> VisibleApps()
-        => UninstallGrid.Items.OfType<AppUninstallItem>();
-
-    private void UninstallSelectAll_Click(object sender, RoutedEventArgs e)
-    {
-        var vis = VisibleApps().Where(x => x.CanUninstall).ToList();
-        bool allOn = vis.Count > 0 && vis.All(x => x.Selected);
-        foreach (var a in vis)
-            a.Selected = !allOn;
-        UpdateUninstallSelHint();
-    }
-
-    private void UninstallAiSelect_Click(object sender, RoutedEventArgs e)
-    {
-        var visible = VisibleApps().Where(x => x.CanUninstall).ToList();
-        var suggested = visible.Where(x => x.Recommendation == AppRecommendationDecision.Recommend).ToList();
-        bool allOn = suggested.Count > 0 && suggested.All(x => x.Selected);
-        foreach (var app in visible)
-            app.Selected = !allOn && app.Recommendation == AppRecommendationDecision.Recommend;
-        UpdateUninstallSelHint();
-    }
-
-    private void UninstallAiAnalyze_Click(object sender, RoutedEventArgs e)
-    {
-        if (_listingApps || _uninstallTask is { Finished: false }) return;
-        if (!AiConfigured())
-        {
-            _uninstallAnalysisNote = Loc.UninstallAiNotConfigured;
-            ApplyUninstallFilter();
-            return;
-        }
-        AskConfirm(Loc.AiAppsAnalyze, Loc.AiAppsPrivacy, () => _ = AnalyzeAppsAsync());
-    }
-
-    private async Task AnalyzeAppsAsync()
-    {
-        if (_aiAppsBusy || _listingApps || _uninstallTask is { Finished: false } || _apps.Count == 0) return;
-        if (!AiConfigured())
-        {
-            _uninstallAnalysisNote = Loc.UninstallAiNotConfigured;
-            ApplyUninstallFilter();
-            return;
-        }
-
-        _aiAppsBusy = true;
-        _aiBusy = true;
-        var apps = _apps;
-        int inventoryVersion = _appInventoryVersion;
-        _aiAppsStop = new CancellationTokenSource();
-        RefreshAiLamp();
-        UninstallRefreshBtn.IsEnabled = false;
-        UninstallAllBtn.IsEnabled = false;
-        UninstallRunBtn.IsEnabled = false;
-        UninstallAiAnalyzeBtn.IsEnabled = false;
-        UninstallAiSelectBtn.IsEnabled = false;
-        UninstallProgressPanel.Visibility = Visibility.Visible;
-        UninstallProgressBar.IsIndeterminate = true;
-        UninstallProgressText.Text = Loc.AiAppsAnalyzing;
-        _uninstallAnalysisNote = Loc.AiAppsAnalyzing;
-        ApplyUninstallFilter();
-        try
-        {
-            var results = await AppRecommendationService.AnalyzeRemoteAsync(apps, _aiAppsStop.Token);
-            if (!ReferenceEquals(_apps, apps) || _appInventoryVersion != inventoryVersion)
-            {
-                _uninstallAnalysisNote = Loc.AiAppsStale;
-                ApplyUninstallFilter();
-                return;
-            }
-            AppRecommendationService.ApplyLocalRules(apps, clearSelection: false);
-            int count = AppRecommendationService.ApplyAiResults(apps, results);
-            SetAiLamp(true);
-            _uninstallAnalysisNote = count > 0 ? Loc.AiAppsDone(count) : Loc.AiAppsLocal;
-            BindAppList();
-        }
-        catch (OperationCanceledException)
-        {
-            _uninstallAnalysisNote = Loc.AiAppsLocal;
-            ApplyUninstallFilter();
-        }
-        catch (Exception ex)
-        {
-            SetAiLamp(false);
-            _uninstallAnalysisNote = Loc.AiAppsFailed(AiClient.Pretty(ex));
-            ApplyUninstallFilter();
-        }
-        finally
-        {
-            _aiAppsBusy = false;
-            _aiBusy = false;
-            _aiAppsStop?.Dispose();
-            _aiAppsStop = null;
-            RefreshAiLamp();
-            UninstallRefreshBtn.IsEnabled = true;
-            UninstallAllBtn.IsEnabled = true;
-            UninstallRunBtn.IsEnabled = true;
-            UninstallAiAnalyzeBtn.IsEnabled = true;
-            UninstallAiSelectBtn.IsEnabled = true;
-            UninstallProgressPanel.Visibility = Visibility.Collapsed;
-            UninstallProgressBar.IsIndeterminate = false;
         }
     }
 
@@ -4627,9 +3639,21 @@ public partial class MainWindow : Window, IAnalystHost
 
     private void UninstallOpenOfficial_Click(object sender, RoutedEventArgs e)
     {
-        if (SelectedApp() is not { Entry: not null } app) return;
+        // 行内按钮通过 DataContext 给出这一项；右键菜单走当前选中项。
+        var app = (sender as FrameworkElement)?.DataContext as AppUninstallItem ?? SelectedApp();
+        if (app is not { Entry: not null }) return;
         try { UninstallManager.RunUninstaller(app.Entry); }
         catch (Exception ex) { ShowAlert(Loc.TabUninstall, ex.Message); }
+    }
+
+    /// <summary>打开这一项的安装目录（只打开目录，不执行里面的程序）。</summary>
+    private void UninstallReveal_Click(object sender, RoutedEventArgs e)
+    {
+        var app = (sender as FrameworkElement)?.DataContext as AppUninstallItem ?? SelectedApp();
+        if (app == null) return;
+        if (!string.IsNullOrWhiteSpace(app.InstallLocation)) { OpenFolder(app.InstallLocation); return; }
+        if (app.Entry?.InstallLocation != null) { OpenFolder(app.Entry.InstallLocation); return; }
+        SetStatus(Loc.UninstallProtectedNote);
     }
 
     private void UninstallRetry_Click(object sender, RoutedEventArgs e)
@@ -4654,10 +3678,6 @@ public partial class MainWindow : Window, IAnalystHost
     {
         var picked = _apps.Where(x => x.Selected && x.CanUninstall).ToList();
         UninstallSelHint.Text = picked.Count == 0 ? "" : Loc.UninstallCount(picked.Count);
-        var vis = VisibleApps().Where(x => x.CanUninstall).ToList();
-        bool allOn = vis.Count > 0 && vis.All(x => x.Selected);
-        UninstallAllBtn.BorderBrush = ThemeService.Brush(allOn ? "Accent" : "Border");
-        UninstallAllBtn.Foreground = ThemeService.Brush(allOn ? "Accent" : "TextDim");
     }
 
     private void UninstallRun_Click(object sender, RoutedEventArgs e)
@@ -4668,11 +3688,12 @@ public partial class MainWindow : Window, IAnalystHost
             ShowAlert(Loc.TabUninstall, Loc.NothingSelected);
             return;
         }
-        long bytes = picked.Sum(x => x.ActualSizeBytes > 0 ? x.ActualSizeBytes : x.SizeBytes);
-        bool warning = picked.Any(x => !string.IsNullOrWhiteSpace(x.RecommendationWarning)
-            || x.Recommendation != AppRecommendationDecision.Recommend);
+        // 有效占用（实测优先，其次安装记录）——只说数字，不带任何建议口径。
+        long bytes = picked.Sum(x => x.EffectiveFootprintBytes > 0
+            ? x.EffectiveFootprintBytes
+            : x.ActualSizeBytes > 0 ? x.ActualSizeBytes : x.SizeBytes);
         var names = picked.Select(x => "- " + x.Name).Take(20);
-        string msg = Loc.UninstallConfirmDetails(names, picked.Count, FileEntry.FormatSize(bytes), warning);
+        string msg = Loc.UninstallConfirmDetails(names, picked.Count, FileEntry.FormatSize(bytes));
         AskConfirm(Loc.TabUninstall, msg, () => RunUninstall(picked));
     }
 
@@ -4840,7 +3861,7 @@ public partial class MainWindow : Window, IAnalystHost
                 return;
             }
             AppRecommendationService.ApplyUsage(usage);
-            AppRecommendationService.ApplyLocalRules(list);
+            AppFactualInfoService.Apply(list);
             InjectInstalledEvidence(list);
             foreach (var app in list)
             {
@@ -4850,9 +3871,8 @@ public partial class MainWindow : Window, IAnalystHost
             }
             _apps = list;
             _appInventoryVersion++;
-            _uninstallAnalysisNote = Loc.UninstallAiNotConfigured;
             if (!_showingJunk) ShowAppList();
-            // 卸载后：立即刷新顶部可用空间，再后台重扫整盘，让目录树和清理面板跟着变。
+            // 卸载后：立即刷新顶部可用空间，再后台重扫整盘，让清理面板跟着变。
             UpdateVolumeInfo();
             op.Done("apps refreshed after uninstall", list.Count);
             _ = ReScanAfterUninstallAsync();
@@ -4930,6 +3950,11 @@ public partial class MainWindow : Window, IAnalystHost
         BindAppList();
     }
 
+    /// <summary>
+    /// 绑定软件清单。**不分组**：这一页只讲事实，没有「建议卸载 / 建议保留」这类分类。
+    /// 默认排序 = 有效占用降序（后端给的 <c>EffectiveFootprintBytes</c>，
+    /// 未知是 <see cref="long.MinValue"/>，自然排到最后），再按名称升序。
+    /// </summary>
     private void BindAppList()
     {
         var view = CollectionViewSource.GetDefaultView(_apps);
@@ -4937,81 +3962,34 @@ public partial class MainWindow : Window, IAnalystHost
         {
             view.GroupDescriptions.Clear();
             view.SortDescriptions.Clear();
-            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(AppUninstallItem.RecommendationGroupKey)));
-            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.RecommendationGroupKey), ListSortDirection.Ascending));
-            // 「可信占用排序」：扫描实测的先排，其次安装记录估计，最后是未知。
-            // 不让假数字和真数字混在一起排。
-            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.SizeConfidenceRank), ListSortDirection.Ascending));
-            view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.ActualSizeBytes), ListSortDirection.Descending));
+            view.SortDescriptions.Add(new SortDescription(
+                nameof(AppUninstallItem.EffectiveFootprintBytes), ListSortDirection.Descending));
             view.SortDescriptions.Add(new SortDescription(nameof(AppUninstallItem.Name), ListSortDirection.Ascending));
-            view.Filter = FilterApp;
+            view.Filter = null;
         }
         UninstallGrid.ItemsSource = view;
-        ApplyUninstallFilter();
+        RefreshUninstallPaneText();
     }
 
-    private bool FilterApp(object obj)
+    /// <summary>页头两句：只讲事实的一句话 + 排序口径说明 + 一次性结果提示。</summary>
+    private void RefreshUninstallPaneText()
     {
-        if (obj is not AppUninstallItem a) return false;
-        string q = UninstallSearchBox.Text?.Trim() ?? "";
-        if (q.Length == 0) return true;
-        return a.Name.Contains(q, StringComparison.CurrentCultureIgnoreCase)
-            || (a.Publisher?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false)
-            || (a.InstallLocation?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false)
-            || (a.Status?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false);
-    }
-
-    private bool FilterJunk(object obj)
-    {
-        if (obj is not JunkItem j) return false;
-        string q = UninstallSearchBox.Text?.Trim() ?? "";
-        if (q.Length == 0) return true;
-        return j.AppName.Contains(q, StringComparison.CurrentCultureIgnoreCase)
-            || (j.Path?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false)
-            || (j.Category?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false);
-    }
-
-    private void UninstallSearch_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        UninstallSearchHint.Visibility = string.IsNullOrEmpty(UninstallSearchBox.Text)
-            ? Visibility.Visible : Visibility.Collapsed;
-        ApplyUninstallFilter();
-    }
-
-    private void ApplyUninstallFilter()
-    {
+        if (UninstallSummary == null) return;
         if (_showingJunk)
         {
-            if (JunkGrid.ItemsSource is ICollectionView jv)
-            {
-                jv.Filter = FilterJunk;
-                jv.Refresh();
-            }
-            int shown = JunkGrid.Items.Count;
             UninstallSummary.Text = _junk.Count == 0
                 ? Loc.JunkNone
-                : Loc.JunkHint(_junk.Count, _junk.Count(x => x.Safe))
-                  + (string.IsNullOrWhiteSpace(UninstallSearchBox.Text) ? "" : "  ·  " + Loc.UninstallFiltered(shown, _junk.Count));
+                : Loc.JunkHint(_junk.Count, _junk.Count(x => x.Safe));
             UpdateJunkSelHint();
             return;
         }
-        if (UninstallGrid.ItemsSource is ICollectionView av)
-        {
-            av.Filter = FilterApp;
-            av.Refresh();
-        }
-        int n = UninstallGrid.Items.Count;
-        if (_apps.Count == 0) UninstallSummary.Text = Loc.UninstallHint;
-        else if (string.IsNullOrWhiteSpace(UninstallSearchBox.Text)) UninstallSummary.Text = Loc.UninstallCount(_apps.Count);
-        else UninstallSummary.Text = Loc.UninstallFiltered(n, _apps.Count);
-        if (_apps.Count > 0 && !string.IsNullOrWhiteSpace(_uninstallAnalysisNote))
-            UninstallSummary.Text += "  ·  " + _uninstallAnalysisNote;
+        UninstallSummary.Text = _apps.Count == 0
+            ? Loc.UninstallFactsOnly + "  ·  " + Loc.UninstallEmpty
+            : Loc.UninstallFactsOnly;
         if (!string.IsNullOrWhiteSpace(_uninstallResultNote))
             UninstallSummary.Text += "\n" + _uninstallResultNote;
         UpdateUninstallSelHint();
     }
-
-    private void RefreshUninstallPaneText() => ApplyUninstallFilter();
 
     private async Task ScanLeftovers(List<ApplicationUninstallerEntry> finished)
     {
@@ -5066,10 +4044,10 @@ public partial class MainWindow : Window, IAnalystHost
             view.SortDescriptions.Clear();
             view.SortDescriptions.Add(new SortDescription(nameof(JunkItem.ConfidenceScore), ListSortDirection.Descending));
             view.SortDescriptions.Add(new SortDescription(nameof(JunkItem.AppName), ListSortDirection.Ascending));
-            view.Filter = FilterJunk;
+            view.Filter = null;
         }
         JunkGrid.ItemsSource = view;
-        ApplyUninstallFilter();
+        RefreshUninstallPaneText();
     }
 
     private void JunkSafe_Click(object sender, RoutedEventArgs e)
@@ -5105,9 +4083,7 @@ public partial class MainWindow : Window, IAnalystHost
             foreach (var item in picked) _junk.Remove(item);
             JunkGrid.ItemsSource = null;
             JunkGrid.ItemsSource = _junk;
-            int safe = _junk.Count(x => x.Safe);
-            UninstallSummary.Text = _junk.Count == 0 ? Loc.JunkNone : Loc.JunkHint(_junk.Count, safe);
-            UpdateJunkSelHint();
+            RefreshUninstallPaneText();
             SetStatus(Loc.JunkDeleted(ok, fail));
         });
     }
@@ -5247,7 +4223,7 @@ public partial class MainWindow : Window, IAnalystHost
             _report.CleanableBytes = _report.Cleanable.Sum(x => x.Size);
         }
 
-        // 同步扫描树，保证目录大小/扩展名统计跟着变
+        // 同步扫描树，保证目录大小统计跟着变（2.11 起没有目录树要重建）
         if (_root != null && gone.Count > 0)
         {
             var byPath = new Dictionary<string, FileEntry>(StringComparer.OrdinalIgnoreCase);
@@ -5259,8 +4235,6 @@ public partial class MainWindow : Window, IAnalystHost
                 if (entry.Parent != null) RecalcUp(entry.Parent);
             }
             _allFiles = CollectFiles(_root);
-            PopulateTree();
-            ShowDirectory(_current ?? _root);
         }
 
         // 重建分层（后台）——计数与总计随之更新
