@@ -90,14 +90,37 @@ public static class Program
         cleanView.Verdict = verdict;
         Check("清理树视图：结论与「选择这些文件」照常可用", cleanView.CanSelect);
         Check("清理树视图：可定位清理明细", cleanView.CanViewFiles);
+        Check("清理树：未展开时不出结果卡", !cleanView.ShowResultPanel);
+        cleanView.IsExpanded = true;
+        Check("清理树：可勾选且展开时才出结果卡", cleanView.ShowResultPanel);
 
         var orgView = new ItemAiView { ScopeKey = @"C:\Same", Source = ItemAiSource.Organize };
         orgView.Verdict = verdict;   // 硬塞同一个可勾选结论：能力也必须被来源挡住
+        orgView.IsExpanded = true;
         Check("整理树视图：即使拿到同一个可勾选结论，也绝不暴露勾选能力", !orgView.CanSelect);
         Check("整理树视图：不提供清理明细定位", !orgView.CanViewFiles);
+        Check("整理树：即使展开也不出清理结果卡", !orgView.ShowResultPanel);
         Check("整理树视图：结论/用途展示仍然可用（隔离的是动作，不是信息）",
             orgView.HasVerdict && orgView.Headline.Length > 0 && orgView.Note.Length > 0,
             $"has={orgView.HasVerdict} headline={orgView.Headline}");
+
+        var reviewOnly = AiVerdict.Build(
+            new List<CleanItem>
+            {
+                new()
+                {
+                    Name = "a.tmp", FullPath = @"C:\Same\a.tmp", Size = 10,
+                    Reason = "unknown", CanDelete = true, Risk = CleanRisk.Confirm,
+                    Purpose = CleanPurpose.Other,
+                },
+            },
+            "Same", null);
+        var reviewView = new ItemAiView { ScopeKey = @"C:\Same\review", Source = ItemAiSource.Clean };
+        reviewView.Verdict = reviewOnly;
+        reviewView.IsExpanded = true;
+        Check("全是待确认：不给一键选择，也不出结果卡",
+            !reviewOnly.CanSelect && !reviewView.CanSelect && !reviewView.ShowResultPanel,
+            $"verdict={reviewOnly.CanSelect} view={reviewView.ShowResultPanel}");
 
         var flip = new ItemAiView { ScopeKey = "k" };
         flip.Verdict = verdict;

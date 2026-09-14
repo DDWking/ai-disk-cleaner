@@ -65,6 +65,7 @@ public sealed class ItemAiView : INotifyPropertyChanged
             Raise(nameof(IsCleanSource));
             Raise(nameof(IsolationKey));
             Raise(nameof(CanSelect));
+            Raise(nameof(ShowResultPanel));
             Raise(nameof(CanViewFiles));
         }
     }
@@ -125,6 +126,7 @@ public sealed class ItemAiView : INotifyPropertyChanged
             if (_expanded == value) return;
             _expanded = value;
             Raise();
+            Raise(nameof(ShowResultPanel));
         }
     }
 
@@ -242,6 +244,7 @@ public sealed class ItemAiView : INotifyPropertyChanged
             Raise(nameof(Headline));
             Raise(nameof(Note));
             Raise(nameof(CanSelect));
+            Raise(nameof(ShowResultPanel));
             Raise(nameof(ShowBuckets));
             Raise(nameof(Buckets));
             Raise(nameof(Why));
@@ -257,6 +260,12 @@ public sealed class ItemAiView : INotifyPropertyChanged
     /// 整理树的结果哪怕模型给了正面结论，也永远不提供勾选能力。
     /// </summary>
     public bool CanSelect => IsCleanSource && _verdict?.CanSelect == true && !IsStale;
+
+    /// <summary>
+    /// 清理行下方那张结果卡：只在「有可勾选的清理项」时出现。
+    /// 全是待确认/保留时不宣布「暂时不能确定」—— 文件表已经在上面。
+    /// </summary>
+    public bool ShowResultPanel => CanSelect && IsExpanded;
 
     /// <summary>
     /// 「查看文件」是否可用。定位不到所属位置时置 false ——
@@ -289,6 +298,7 @@ public sealed class ItemAiView : INotifyPropertyChanged
             Raise();
             Raise(nameof(IsStale));
             Raise(nameof(CanSelect));
+            Raise(nameof(ShowResultPanel));
             Raise(nameof(CanViewFiles));
             Raise(nameof(HasVerdict));
             Raise(nameof(Headline));

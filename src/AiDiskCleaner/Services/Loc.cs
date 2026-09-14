@@ -571,8 +571,8 @@ public static class Loc
     // ---- 2.11 卸载页：只讲事实的单一表格 ----
     /// <summary>页头唯一一句事实说明：这里只列「装了什么」。</summary>
     public static string UninstallFactsOnly => IsEn
-        ? "Installed software and its footprint. No recommendations, no scoring."
-        : "这里只列已安装的软件与磁盘占用，不给建议、不做评分。";
+        ? "Installed software, largest footprint first."
+        : "已安装软件，按占用从大到小。";
     public static string ColVersion => IsEn ? "Version" : "版本";
     public static string ColInstallDate => IsEn ? "Installed" : "安装日期";
     /// <summary>用途列：只说「这是什么软件」，不带建议。</summary>
@@ -675,8 +675,10 @@ public static class Loc
         IsEn ? $"~{size} (install record)" : $"约 {size}（安装记录）";
     /// <summary>没有实测、也没有可信记录时照实说未知。</summary>
     public static string AppSizeUnknown => IsEn ? "unknown" : "未知";
-    /// <summary>实测到 0 字节：这是「这次扫描里没找到内容」，不是「卸载能释放 0」。</summary>
-    public static string AppSizeMeasuredEmpty => IsEn ? "0 KB (found nothing)" : "0 KB（扫描未找到内容）";
+    /// <summary>实测到 0 字节：格子里只写 0 KB，原因进悬停。</summary>
+    public static string AppSizeMeasuredEmpty => IsEn ? "0 KB" : "0 KB";
+    public static string AppSizeSourceMeasured => IsEn ? "Source: measured by scan" : "来源：扫描实测";
+    public static string AppSizeSourceRecord => IsEn ? "Source: install record" : "来源：安装记录";
     /// <summary>占用为什么没测到 —— 悬停里说清，不让用户以为是软件真的只有这么大。</summary>
     public static string AppFootprintNotMeasured(string why) =>
         IsEn ? $"Footprint not attributable to this app: {why}" : $"占用未归属到这个软件：{why}";
@@ -701,8 +703,8 @@ public static class Loc
              : "上面这个数是目前最可信的一个（扫描实测或安装记录），不是承诺";
     public static string AppSizeColumnHeader => IsEn ? "Footprint" : "占用";
     public static string AppSizeColumnTip => IsEn
-        ? "Measured from the scan when possible; otherwise the installer's own record (marked). Unknown stays unknown."
-        : "能实测就用扫描结果；否则用安装记录写的数（会标出来）。两者都没有就写「未知」。";
+        ? "Measured from the scan when possible; otherwise the installer's own record. Unknown stays unknown."
+        : "能实测就用扫描结果；否则用安装记录。两者都没有就写「未知」。";
     /// <summary>建议列不是证据就不要往上写东西。</summary>
     public static string AppNeutralHint => IsEn
         ? "No uninstall signal was found. Search, sort by footprint, or uninstall it manually."
@@ -1566,11 +1568,11 @@ public static class Loc
         ? "One copy of each duplicate group is kept; the rest are removed."
         : "每组重复文件里留一份，其余删掉。";
     public static string ImpactLarge => IsEn
-        ? "Large does not mean useless. Check each one yourself."
-        : "大不等于没用，需要你自己一个个看。";
+        ? "Large, not necessarily unused."
+        : "体积大，不代表没用";
     public static string ImpactOld => IsEn
-        ? "Untouched for a long time, but that does not mean unused."
-        : "很久没动过，但很久没动不等于没用。";
+        ? "Not modified in a long time."
+        : "很久没改过";
     public static string ImpactEmpty => IsEn
         ? "These folders hold nothing at all."
         : "这些文件夹里面什么都没有。";
@@ -1635,8 +1637,8 @@ public static class Loc
         ? $"{shown:N0} of {total:N0} candidate item(s), largest first"
         : $"共 {total:N0} 项候选，按占用从大到小列出 {shown:N0} 项";
     public static string InlineFilesHidden(int hidden) => IsEn
-        ? $"{hidden:N0} more not listed here"
-        : $"另有 {hidden:N0} 项未在这里列出";
+        ? $"{hidden:N0} more"
+        : $"另有 {hidden:N0} 项";
     /// <summary>行内列表与「在资源管理器中打开」是两件事，必须说清。</summary>
     public static string InlineFilesScope => IsEn
         ? "These are this app's cleanup candidates only — not every file in the folder. "
@@ -1703,11 +1705,11 @@ public static class Loc
     public static string LayerSafe => IsEn ? "Cleanup candidates" : "清理候选";
     public static string LayerConfirm => IsEn ? "Needs your review" : "需要你确认";
     public static string PurposeHeader => IsEn
-        ? "Pick a purpose to see where it lives. Files are listed only when you ask."
-        : "先选用途，再选具体位置。要看具体文件时再点「查看文件」。";
+        ? "Pick a purpose to see where it lives."
+        : "先选用途，再看具体位置。";
     public static string LocationHeaderFormat(string purpose, int locations) => IsEn
-        ? $"{purpose} · {locations:N0} location(s) — tick a location, or open it to see files"
-        : $"{purpose} · {locations:N0} 处位置 —— 可以勾选整处，也可以打开看具体文件";
+        ? $"{purpose} · {locations:N0} location(s)"
+        : $"{purpose} · {locations:N0} 处位置";
     public static string DetailHeaderFormat(string name, int files) => IsEn
         ? $"Files · {name} · {files:N0} in this selection"
         : $"文件明细 · {name} · 本次范围共 {files:N0} 个";
@@ -2063,8 +2065,8 @@ public static class Loc
     /// 异常时再说一遍只是噪音；这里只讲真正有问题的那半句。
     /// </summary>
     public static string ScanPartialShort => IsEn
-        ? "Some content was not checked — click for details"
-        : "部分内容未检测 · 点这里看原因";
+        ? "Some content was not checked"
+        : "部分内容未检测";
     public static string ScanStoppedShort => IsEn ? "Scan stopped early" : "扫描中途停止";
     public static string ScanDone => IsEn ? "Scan finished" : "扫描完成";
     /// <summary>兼容模式（没走 MFT）：不重复「扫描完成」，因为状态行里还有覆盖度那句。</summary>

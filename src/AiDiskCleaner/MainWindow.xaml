@@ -919,109 +919,25 @@
       </Button>
     </DataTemplate>
 
-    <!-- 逐项 AI 的**结果部分**：只在有结果并展开时出现在行下方 -->
-    <!-- 逐项 AI 的**结果部分**：默认只给「结论 + 说明 + 下一步」。
-         技术细节（匹配项、耗时、通道）不进这里，需要时点「为什么这样建议？」。
-         整块有高度上限并在**内部滚动**，不会撑高页面、也压不到底部操作栏。 -->
+    <!-- 逐项 AI 结果卡：只在「有可勾选的清理项」时出现。
+         全是待确认时不宣布「暂时不能确定」—— 行内文件表已经够用。
+         不放「查看文件」（和右上角箭头重复）、不放依据折叠、不放重新分析。 -->
     <DataTemplate x:Key="ItemAiResultOnly">
-      <StackPanel>
-        <Border Margin="0,6,0,0" Padding="10,8" CornerRadius="3"
-                Background="{DynamicResource PanelLeft}"
-                BorderBrush="{DynamicResource GridLine}" BorderThickness="1"
-                Visibility="{Binding Ai.IsExpanded, Converter={StaticResource BoolToVisible}}">
-          <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto"
-                        HorizontalScrollBarVisibility="Disabled">
-            <StackPanel>
-              <!-- 1) 一句结论 -->
-              <TextBlock Text="{Binding Ai.Headline}" FontSize="13" FontWeight="SemiBold"
-                         Foreground="{DynamicResource Accent}" TextWrapping="Wrap"/>
-
-              <!-- 2) 一句说明 -->
-              <TextBlock Text="{Binding Ai.Note}" Margin="0,4,0,0" FontSize="11"
-                         Foreground="{DynamicResource Text}" TextWrapping="Wrap"/>
-
-              <!-- 分析中的简单状态（不显示计时/阶段/通道等技术信息） -->
-              <TextBlock Text="{Binding Ai.ProgressText}" Margin="0,4,0,0" FontSize="11"
-                         Foreground="{DynamicResource TextDim}"
-                         Visibility="{Binding Ai.IsAnalyzing, Converter={StaticResource BoolToVisible}}"/>
-
-              <!-- AI 不可用等提示：与结论、依据分开表达 -->
-              <Border Margin="0,6,0,0" Padding="8,5" CornerRadius="3"
-                      Background="{DynamicResource PanelRight}"
-                      Visibility="{Binding Ai.HasNotice, Converter={StaticResource BoolToVisible}}">
-                <TextBlock Text="{Binding Ai.Notice}" FontSize="10.5" TextWrapping="Wrap"
-                           Foreground="{DynamicResource TextDim}"/>
-              </Border>
-
-              <!-- 3) 下一步：只有两个动作，文案固定 -->
-              <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
-                <Button Style="{StaticResource ChipButton}" Padding="10,3" FontSize="11.5"
-                        Content="查看文件" Click="AiViewBucket_Click"
-                        ToolTip="在文件列表里只看这些文件"
-                        AutomationProperties.Name="查看文件"/>
-                <Button Style="{StaticResource ChipButton}" Padding="10,3" FontSize="11.5" Margin="6,0,0,0"
-                        Content="选择这些文件" Click="AiSelectBucket_Click"
-                        ToolTip="只勾选符合本地清理资格的项，之后仍会走清理确认"
-                        AutomationProperties.Name="选择这些文件"
-                        Visibility="{Binding Ai.CanSelect, Converter={StaticResource BoolToVisible}}"/>
-              </StackPanel>
-
-              <!-- 4) 详细依据：默认折叠，需要时才看 -->
-              <Expander Header="为什么这样建议？" Margin="0,8,0,0" FontSize="11"
-                        Foreground="{DynamicResource TextDim}">
-                <ItemsControl ItemsSource="{Binding Ai.Why}" Margin="4,4,0,0">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <TextBlock Text="{Binding}" FontSize="10.5" TextWrapping="Wrap"
-                                 Margin="0,1,0,1" Foreground="{DynamicResource TextMuted}"/>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </Expander>
-
-              <!-- 5) 分组：**只有内容确实混合时才出现**，且只给用户能懂的三种名称 -->
-              <StackPanel Margin="0,9,0,0"
-                          Visibility="{Binding Ai.ShowBuckets, Converter={StaticResource BoolToVisible}}">
-                <ItemsControl ItemsSource="{Binding Ai.Buckets}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Border Margin="0,0,0,5" Padding="8,6" CornerRadius="3"
-                              Background="{DynamicResource PanelRight}"
-                              BorderBrush="{DynamicResource GridLine}" BorderThickness="1">
-                        <StackPanel>
-                          <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
-                                     Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis"/>
-                          <TextBlock Text="{Binding StatText}" Margin="0,2,0,0" FontSize="11"
-                                     Foreground="{DynamicResource Accent}"/>
-                          <TextBlock Text="{Binding Reason}" Margin="0,2,0,0" FontSize="10.5"
-                                     TextWrapping="Wrap" Foreground="{DynamicResource TextDim}"/>
-                          <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
-                            <Button Style="{StaticResource GhostButton}" Padding="8,2" FontSize="11"
-                                    Content="查看文件" Click="AiViewBucket_Click"
-                                    Tag="{Binding}"
-                                    AutomationProperties.Name="查看文件"/>
-                            <Button Style="{StaticResource ChipButton}" Padding="8,2" FontSize="11"
-                                    Margin="6,0,0,0" Content="选择这些文件"
-                                    Click="AiSelectBucket_Click" Tag="{Binding}"
-                                    AutomationProperties.Name="选择这些文件"
-                                    Visibility="{Binding CanSelect, Converter={StaticResource BoolToVisible}}"/>
-                          </StackPanel>
-                        </StackPanel>
-                      </Border>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </StackPanel>
-            </StackPanel>
-          </ScrollViewer>
-        </Border>
-              <!-- 已有结果时提供重新分析；不每次展开都请求模型 -->
-              <Button Style="{StaticResource LinkButton}" HorizontalAlignment="Left"
-                      Margin="0,8,0,0" FontSize="11" Content="重新分析"
-                      Click="ItemAiRetry_Click"
-                      AutomationProperties.Name="重新分析这一项"
-                      Visibility="{Binding Ai.HasResult, Converter={StaticResource BoolToVisible}}"/>
-      </StackPanel>
+      <Border Margin="0,6,0,0" Padding="10,8" CornerRadius="3"
+              Background="{DynamicResource PanelLeft}"
+              BorderBrush="{DynamicResource GridLine}" BorderThickness="1"
+              Visibility="{Binding Ai.ShowResultPanel, Converter={StaticResource BoolToVisible}}">
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Text="{Binding Ai.Headline}" FontSize="12.5" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Accent}" TextWrapping="Wrap"
+                     VerticalAlignment="Center" MaxWidth="420"/>
+          <Button Style="{StaticResource ChipButton}" Padding="10,3" FontSize="11.5" Margin="10,0,0,0"
+                  Content="选择这些文件" Click="AiSelectBucket_Click"
+                  ToolTip="只勾选符合本地清理资格的项，之后仍会走清理确认"
+                  AutomationProperties.Name="选择这些文件"
+                  Visibility="{Binding Ai.CanSelect, Converter={StaticResource BoolToVisible}}"/>
+        </StackPanel>
+      </Border>
     </DataTemplate>
 
     <!-- 一个清理位置的整行（含就地展开的候选文件）。
@@ -1068,7 +984,7 @@
                              Foreground="{DynamicResource Accent}"/>
                 </Border>
               </StackPanel>
-              <!-- 第二行：精简父路径 · 文件数 ·（必要时）用途待确认 -->
+              <!-- 第二行：精简父路径 · 文件数 ·（点过 AI 时）用途 -->
               <TextBlock Text="{Binding RowSubText}" Margin="0,3,0,0" FontSize="11"
                          Foreground="{DynamicResource TextDim}" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
@@ -1125,8 +1041,8 @@
               <TextBlock Grid.Column="3" Text="{Binding SizeHeaderText}" FontSize="10.5" MinWidth="80"
                          TextAlignment="Right" Foreground="{DynamicResource TextMuted}"/>
             </Grid>
-            <!-- 列表本身**不做嵌套滚动**：最多 30 行，多出来的如实计数并
-                 由下面的「完整列表」按钮承接 —— 行内嵌套滚动条会和外层
+            <!-- 列表本身**不做嵌套滚动**：最多 30 行，多出来的只报「另有 N 项」。
+                 要看真实目录用上面的文件夹图标。行内嵌套滚动条会和外层
                  虚拟化列表抢滚轮，这个坑以前踩过。 -->
             <ItemsControl ItemsSource="{Binding VisibleFiles}" Margin="0,2,10,0">
               <ItemsControl.ItemTemplate>
@@ -1160,16 +1076,6 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="{Binding FilesScopeText}" FontSize="10.5" Margin="0,4,10,0"
-                       TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"/>
-            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-              <!-- 需要搜索/分页时才进右侧明细面板；这是唯一的「更多」入口 -->
-              <Button Style="{StaticResource ChipButton}" Padding="10,3" FontSize="11"
-                      Content="{Binding FullListButtonText}"
-                      Click="LocationOpenFull_Click"
-                      ToolTip="{Binding FullListTipText}"
-                      AutomationProperties.Name="{Binding FullListButtonText}"/>
-            </StackPanel>
           </StackPanel>
           <!-- AI 结果展开区（按钮在上一行的右侧，这里只放结果） -->
           <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ItemAiResultOnly}"
@@ -1477,7 +1383,8 @@
                   <TextBlock Text="{Binding SelectedText}" Foreground="{DynamicResource Text}"
                              FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap"/>
                   <TextBlock Text="{Binding StateText}" Margin="0,3,0,0" Foreground="{DynamicResource TextDim}"
-                             FontSize="11" TextWrapping="Wrap"/>
+                             FontSize="11" TextWrapping="Wrap"
+                             Visibility="{Binding StateText, Converter={StaticResource EmptyToCollapsed}}"/>
                   <TextBlock Text="{Binding NoteText}" Margin="0,3,0,0" Foreground="{DynamicResource AccentDim}"
                              FontSize="10.5" TextWrapping="Wrap"
                              Visibility="{Binding HasNote, Converter={StaticResource BoolToVisible}}"/>
@@ -1660,29 +1567,6 @@
                           <TextBlock Text="{Binding DetailText}" FontSize="10.5" TextWrapping="Wrap"
                                      Foreground="{DynamicResource TextDim}"/>
                         </Border>
-                        <!-- 单项 AI 结果（用户点行里那个按钮才有）。先短结论，依据默认收起；
-                             未知/失败如实说明。它只是提示，不会勾选、不会删除、不改保护规则。 -->
-                        <StackPanel Margin="0,3,0,1"
-                                    Visibility="{Binding Ai.IsExpanded, Converter={StaticResource BoolToVisible}}">
-                          <TextBlock FontSize="10.5" TextWrapping="Wrap"
-                                     Foreground="{DynamicResource AccentDim}"
-                                     Text="{Binding Ai.SuggestionText}"/>
-                          <TextBlock FontSize="10.5" TextWrapping="Wrap" Margin="0,2,0,0"
-                                     Foreground="{DynamicResource TextDim}"
-                                     Text="{Binding Ai.PurposeText}"/>
-                          <TextBlock FontSize="10.5" TextWrapping="Wrap" Margin="0,2,0,0"
-                                     Foreground="{DynamicResource TextDim}"
-                                     Text="{Binding Ai.ImpactText}"/>
-                          <TextBlock FontSize="10.5" TextWrapping="Wrap" Margin="0,2,0,0"
-                                     Foreground="{DynamicResource TextMuted}"
-                                     Text="{Binding Ai.MissingText}"/>
-                          <TextBlock FontSize="10.5" TextWrapping="Wrap" Margin="0,2,0,0"
-                                     Foreground="{DynamicResource TextMuted}"
-                                     Text="{Binding Ai.BasisText}"/>
-                          <TextBlock FontSize="10.5" Margin="0,2,0,0"
-                                     Foreground="{DynamicResource Placeholder}"
-                                     Text="{Binding Ai.ProgressText}"/>
-                        </StackPanel>
                         <!-- 「只有文件」的目录：就地列出它自己的文件（**只读、有界、不嵌套滚动**）。
                              整理页没有任何删除能力，这里也不会给。 -->
                         <Border Margin="0,4,0,1" Padding="8,6" CornerRadius="4"
@@ -1715,8 +1599,6 @@
                                 </DataTemplate>
                               </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <TextBlock Text="{Binding FilesScopeText}" FontSize="10" Margin="0,4,0,0"
-                                       TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"/>
                           </StackPanel>
                         </Border>
                       </StackPanel>
@@ -2361,11 +2243,10 @@
             </StackPanel>
             <!-- 只讲事实：这里列的是什么软件、装在哪、占多少。
                  没有计数器、没有建议分组、没有 AI 说明，也没有刷新/分析/全选/搜索这些入口。 -->
-            <TextBlock x:Name="UninstallSummary" DockPanel.Dock="Top" Margin="16,0,16,4"
+            <TextBlock x:Name="UninstallSummary" DockPanel.Dock="Top" Margin="16,0,16,8"
                        Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"
-                       Text="这里只列已安装的软件与磁盘占用，不给建议、不做评分。"/>
-            <TextBlock x:Name="UninstallSortNote" DockPanel.Dock="Top" Margin="16,0,16,8"
-                       Foreground="{DynamicResource TextMuted}" FontSize="10.5" TextWrapping="Wrap"/>
+                       Text="已安装软件，按占用从大到小。"/>
+            <TextBlock x:Name="UninstallSortNote" Visibility="Collapsed"/>
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
               <Button x:Name="UninstallRunBtn" Content="卸载勾选项" Style="{StaticResource PrimaryButton}" Click="UninstallRun_Click"/>
               <!-- 残留：只作为卸载之后的可选收尾动作，勾选「安全残留」仍走同一条确认链路 -->
@@ -2483,7 +2364,7 @@
                      这里不显示任何建议/评分，只显示数字与它的来源提示。 -->
                 <DataGridTextColumn x:Name="ColAppSize" Header="占用" Binding="{Binding ActualSizeText}"
                                     SortMemberPath="EffectiveFootprintBytes"
-                                    Width="112" MinWidth="104" MaxWidth="128" IsReadOnly="True">
+                                    Width="92" MinWidth="80" IsReadOnly="True">
                   <DataGridTextColumn.ElementStyle>
                     <Style TargetType="TextBlock">
                       <Setter Property="HorizontalAlignment" Value="Right"/>

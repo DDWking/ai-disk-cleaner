@@ -221,7 +221,7 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
 
     /// <summary>
     /// 第二行统计：`C:\Windows\Logs · 385 个文件`。
-    /// 「用途待确认」只在认不出用途时出现，不再每行都挂一句「看不出用途」。
+    /// 不再挂「用途待确认」。点过 AI 且给出了用途时，改显示该用途。
     /// </summary>
     public string RowSubText
     {
@@ -231,9 +231,18 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
             string parent = ParentHint;
             if (parent.Length > 0) bits.Add(parent);
             bits.Add(Loc.LocationFiles(FileCount));
-            if (IsUnidentified) bits.Add(Loc.PurposeUnclear);
+            string aiPurpose = ItemAiPurposeText();
+            if (aiPurpose.Length > 0) bits.Add(aiPurpose);
             return string.Join(" · ", bits);
         }
+    }
+
+    /// <summary>用户点过这一项的 AI 且给出了用途时的短文本；没点过或过期则为空。</summary>
+    string ItemAiPurposeText()
+    {
+        var v = _ai;
+        if (v == null || v.IsStale || v.Status != ItemAiStatus.Done) return "";
+        return v.Result?.Purpose?.Trim() ?? "";
     }
 
     /// <summary>技术细节（命中了哪条签名、风险词等）。术语留在悬停里，不进标题。</summary>
@@ -256,6 +265,7 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
                     // 本地规则给出的是**本地判断**，必须标注，不能冒充 AI 结论
                     LocalNote = Services.Loc.ItemAiLocalOnly + Reason,
                 };
+                _ai.PropertyChanged += OnItemAiChanged;
                 OnPropertyChanged(nameof(Ai));
             }
             return _ai;
@@ -267,7 +277,17 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
     /// <summary>已经建出来的 AI 视图；没建过就是 null（不会顺手创建）。</summary>
     public ItemAiView? ExistingAi => _ai;
 
-    /// <summary>悬停：软件名 + 实际路径 + 技术细节。</summary>
+    void OnItemAiChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not (nameof(ItemAiView.Result)
+            or nameof(ItemAiView.Status)
+            or nameof(ItemAiView.IsStale)
+            or nameof(ItemAiView.HasResult)
+            or null))
+            return;
+        OnPropertyChanged(nameof(RowSubText));
+    }
+
     /// <summary>悬停：软件名 + 实际路径 + 技术细节。</summary>
     public string HintText
     {
@@ -300,7 +320,8 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
     /// <summary>
     /// 行内一次最多列出多少条候选。
     /// **刻意不设成几百条**：行内的这一块不做嵌套滚动（那会和外层虚拟化列表抢滚轮），
-    /// 所以它只负责「一眼看清这一处主要是些什么」，剩下的交给「完整列表」按钮。
+    /// 所以它只负责「一眼看清这一处主要是些什么」；多出来的只报「另有 N 项」，
+    /// 要看真实目录用行上的文件夹图标。
     /// </summary>
     public const int InlineFileLimit = 30;
 
@@ -337,7 +358,7 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
 
     public bool HasHiddenFiles => _filesLoaded && HiddenFileCount > 0;
 
-    /// <summary>列表说明：「共 385 项候选 · 按占用列出前 200 项」。</summary>
+    /// <summary>列表说明：共几项、列了几项；超出上限时追加「另有 N 项」。</summary>
     public string FilesNote
     {
         get

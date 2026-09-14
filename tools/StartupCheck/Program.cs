@@ -1249,10 +1249,10 @@ public static class Program
         CheckD("实测：直接写数字，不带「估算」",
             measured.ActualSizeText == AppUninstallItem.FormatFootprint(1_500_000),
             measured.ActualSizeText);
-        CheckD("只有安装记录：显式标注来源",
-            recordOnly.ActualSizeText.StartsWith("约", StringComparison.Ordinal)
-            && recordOnly.ActualSizeText.Contains("安装记录", StringComparison.Ordinal),
-            recordOnly.ActualSizeText);
+        CheckD("只有安装记录：格子只写数字，来源进悬停",
+            recordOnly.ActualSizeText == AppUninstallItem.FormatFootprint(900_000)
+            && recordOnly.FootprintHint.Contains(Loc.AppSizeSourceRecord, StringComparison.Ordinal),
+            recordOnly.ActualSizeText + " | " + recordOnly.FootprintHint);
         CheckD("两样都没有：写「未知」而不是 0",
             noNumber.ActualSizeText == Loc.AppSizeUnknown, noNumber.ActualSizeText);
         Check("三种来源的排序权重是 实测 < 记录 < 未知",

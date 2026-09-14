@@ -65,7 +65,9 @@ namespace AiDiskCleaner.Services
         public static string AppKeepInboxComponent => "inbox";
         public static string AppSizeFromRecord(string size) => "~" + size + " (record)";
         public static string AppSizeUnknown => "unknown";
-        public static string AppSizeMeasuredEmpty => "0 KB (found nothing)";
+        public static string AppSizeMeasuredEmpty => "0 KB";
+        public static string AppSizeSourceMeasured => "Source: measured by scan";
+        public static string AppSizeSourceRecord => "Source: install record";
         public static string AppFootprintNotMeasured(string why) => "not measured: " + why;
         public static string AppFootprintWhyShared => "shared";
         public static string AppFootprintWhySystemDir => "system dir";

@@ -255,7 +255,7 @@ public sealed class FolderDeleteBar : INotifyPropertyChanged
             _progressText = "";
             // 有新选择就清掉上一次的结果状态；没有选择且刚跑完，则保留结果标题（别把结果盖成「先勾选」）。
             if (_kept > 0) { _hasResult = false; _stateText = ""; }
-            else if (!_hasResult) _stateText = FolderDeleteText.NothingSelected;
+            else if (!_hasResult) _stateText = "";
         }
         RaiseAll();
     }

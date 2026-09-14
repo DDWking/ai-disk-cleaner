@@ -181,9 +181,8 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
     public string SizeText => SizeBytes <= 0 ? "—" : FileEntry.FormatSize(SizeBytes);
 
     /// <summary>
-    /// 占用那一格。**三种来源的文案必须一眼分得开**：
-    /// 扫描实测 = 直接写数；安装记录 = 「约 X（安装记录）」；两样都没有 = 「未知」。
-    /// 「0 G（估算）」这种既没有信息量、又让人以为软件只有 0 的写法已经取消。
+    /// 占用那一格：只写数字（或「未知」）。来源进悬停，不占格子 ——
+    /// 「约 34.0 G（安装记录）」会把数字挤掉。
     /// </summary>
     public string ActualSizeText
     {
@@ -193,7 +192,7 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
                 return ActualSizeBytes > 0
                     ? FormatFootprint(ActualSizeBytes)
                     : Loc.AppSizeMeasuredEmpty;
-            if (SizeBytes > 0) return Loc.AppSizeFromRecord(FormatFootprint(SizeBytes));
+            if (SizeBytes > 0) return FormatFootprint(SizeBytes);
             return Loc.AppSizeUnknown;
         }
     }
@@ -204,6 +203,12 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
         get
         {
             var bits = new List<string>();
+            bits.Add(FootprintSource switch
+            {
+                AppFootprintSource.Measured => Loc.AppSizeSourceMeasured,
+                AppFootprintSource.InstallRecord => Loc.AppSizeSourceRecord,
+                _ => Loc.AppSizeUnknown,
+            });
             bits.Add(Loc.AppSizeColumnTip);
             if (!HasMeasuredSize && FootprintNote.Length > 0)
                 bits.Add(Loc.AppFootprintNotMeasured(FootprintNote));

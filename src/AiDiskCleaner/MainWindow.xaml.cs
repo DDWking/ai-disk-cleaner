@@ -345,7 +345,7 @@ public partial class MainWindow : Window, IAnalystHost
         ColAppSize.Header = Loc.AppSizeColumnHeader;
         if (ColAppStatus != null) ColAppStatus.Header = Loc.Status;
         ColAppAction.Header = Loc.UninstallRowActions;
-        UninstallSortNote.Text = Loc.UninstallSortNote;
+        if (UninstallSortNote != null) UninstallSortNote.Text = Loc.UninstallSortNote;
         ColJunkApp.Header = Loc.ColName;
         ColJunkKind.Header = Loc.ColCategory;
         ColJunkConf.Header = Loc.ColConfidence;
@@ -2101,7 +2101,18 @@ public partial class MainWindow : Window, IAnalystHost
             try { cts.Dispose(); } catch { }
             // 登记表清空后胶囊才停：并发多项时中途不会闪回绿点
             RefreshAiLamp();
+            RefreshOrganizeAfterItemAi(view);
         }
+    }
+
+    /// <summary>
+    /// 整理页单项 AI 结束后，用途列 / 页头计数要跟上。
+    /// 只刷新展示，不改 Risk / CanDelete / Selected。
+    /// </summary>
+    void RefreshOrganizeAfterItemAi(ItemAiView view)
+    {
+        if (view.Source != ItemAiSource.Organize) return;
+        RefreshOrganizeRows();
     }
 
     /// <summary>
@@ -3689,7 +3700,8 @@ public partial class MainWindow : Window, IAnalystHost
         UninstallProgressBar.IsIndeterminate = true;
         UninstallProgressBar.Value = 0;
         UninstallProgressText.Text = Loc.UninstallListing;
-        UninstallSummary.Text = Loc.UninstallListing;        try
+        UninstallSummary.Text = Loc.UninstallListing;
+        try
         {
             var progress = new Progress<ScanProgress>(p =>
             {
@@ -4085,7 +4097,7 @@ public partial class MainWindow : Window, IAnalystHost
         RefreshUninstallPaneText();
     }
 
-    /// <summary>页头两句：只讲事实的一句话 + 排序口径说明 + 一次性结果提示。</summary>
+    /// <summary>页头一句事实说明 + 一次性结果提示。排序口径在占用列悬停里。</summary>
     private void RefreshUninstallPaneText()
     {
         if (UninstallSummary == null) return;

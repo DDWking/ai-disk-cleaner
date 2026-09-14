@@ -433,7 +433,8 @@ public static class Program
 
         var bar = new FolderDeleteBar();
         bar.Refresh(0, 0, 0, 0);
-        Check("栏：无选择不可删", !bar.HasSelection && !bar.CanDelete && bar.StateText.Length > 0);
+        Check("栏：无选择不可删，也不占一行教学文案",
+            !bar.HasSelection && !bar.CanDelete && bar.StateText.Length == 0);
 
         bar.Refresh(2, 1, 1, 1024);
         Check("栏：有选择可删", bar.HasSelection && bar.CanDelete);

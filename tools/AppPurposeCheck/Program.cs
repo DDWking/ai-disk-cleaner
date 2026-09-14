@@ -100,9 +100,10 @@ Check("来源仍如实区分：实测 / 安装记录 / 未知",
 Check("可信度分级保留：实测 < 记录 < 未知",
     measured1.SizeConfidenceRank < record10.SizeConfidenceRank
     && record10.SizeConfidenceRank < unknownApp.SizeConfidenceRank);
-CheckD("安装记录来源的文案仍显式标注「安装记录」",
-    record10.ActualSizeText == Loc.AppSizeFromRecord(AppUninstallItem.FormatFootprint(10L << 30)),
-    record10.ActualSizeText);
+CheckD("安装记录占用格只写数字，来源进悬停",
+    record10.ActualSizeText == AppUninstallItem.FormatFootprint(10L << 30)
+    && record10.FootprintHint.Contains(Loc.AppSizeSourceRecord),
+    record10.ActualSizeText + " | " + record10.FootprintHint);
 
 var protectedApp = App("Protected App", @"D:\Vendor\Protected", 0);
 protectedApp.IsProtected = true;
@@ -180,8 +181,10 @@ known.Version = "3.1.4";
 known.InstallDate = new DateTime(2024, 5, 6);
 known.HasStartup = true;
 AppFactualInfoService.Apply(known);
-CheckD("事实摘要包含发布者与版本",
-    known.PurposeText.Contains("Example Corp") && known.PurposeText.Contains("3.1.4"),
+CheckD("事实摘要是类型 + 发布者，不含版本",
+    known.PurposeText.Contains("Example Corp")
+    && !known.PurposeText.Contains("3.1.4")
+    && !known.PurposeText.Contains("版本"),
     known.PurposeText);
 Check("事实摘要短且不含判断词",
     known.PurposeText.Length <= AppFactualInfoService.MaxSummaryLength && !HasClaim(known.PurposeText));
@@ -204,8 +207,9 @@ CheckD("Windows 目录内 ⇒ 自带组件，依据强度 = 本地结构化证�
     mstsc.PurposeKind == AppSourceKind.WindowsInboxComponent
     && mstsc.PurposeConfidence == AppInfoConfidence.LocalEvidence,
     mstsc.PurposeKind + "/" + mstsc.PurposeConfidence);
-CheckD("自带组件摘要如实写「Windows 自带组件」",
-    mstsc.PurposeText.Contains("Windows 自带组件"), mstsc.PurposeText);
+CheckD("自带组件摘要如实写「Windows 组件」",
+    mstsc.PurposeText.Contains("Windows 组件")
+    && !mstsc.PurposeText.Contains("Windows 自带组件"), mstsc.PurposeText);
 Check("自带组件描述里没有「建议保留」这类结论", !HasClaim(mstsc.PurposeText));
 Check("自带组件的依据写清是结构判定（Windows 系统目录）",
     mstsc.PurposeHint.Contains("Windows 系统目录"));
@@ -231,8 +235,9 @@ CheckD("msiexec 只保守表述「通过系统工具卸载」",
     thirdPartyMsi.PurposeHint.Contains("通过系统工具卸载")
     && thirdPartyMsi.PurposeHint.Contains("msiexec.exe"),
     thirdPartyMsi.PurposeHint);
-Check("msiexec 第三方软件描述不含「Windows 自带组件」",
-    !thirdPartyMsi.PurposeText.Contains("Windows 自带组件"));
+Check("msiexec 第三方软件描述不含「Windows 组件」",
+    !thirdPartyMsi.PurposeText.Contains("Windows 组件")
+    && !thirdPartyMsi.PurposeText.Contains("Windows 自带组件"));
 
 // (b) 大小写 / 正反斜杠变体同样识别为系统工具（仍不当自带）
 var msiVariant = App("MSI Variant", @"D:\Apps\Variant", 1L << 30);
@@ -315,7 +320,7 @@ feature.CanUninstall = false;
 AppFactualInfoService.Apply(feature);
 CheckD("Windows 功能条目如实标功能",
     feature.PurposeKind == AppSourceKind.WindowsFeature
-    && feature.PurposeText.Contains("Windows 可选功能"),
+    && feature.PurposeText.Contains("Windows 功能"),
     feature.PurposeText);
 
 var steam = App("Some Game", @"C:\Games\Steam\steamapps\common\SomeGame", 5L << 30);

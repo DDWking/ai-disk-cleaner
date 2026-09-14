@@ -33,6 +33,8 @@ $iap = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Ite
 $forg = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderOrganize.cs') -Raw -Encoding UTF8
 $csvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderPurposeService.cs') -Raw -Encoding UTF8
 $orgnode = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\OrganizeNode.cs') -Raw -Encoding UTF8
+$factual = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AppFactualInfoService.cs') -Raw -Encoding UTF8
+$appitem = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\AppUninstallItem.cs') -Raw -Encoding UTF8
 # v2.7.0: filtered README/config snippets and the automatic two-level pass
 $srcsnip = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\SourceSnippet.cs') -Raw -Encoding UTF8
 $newfp = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderPurpose.cs') -Raw -Encoding UTF8
@@ -677,9 +679,9 @@ Assert-True 'no misleading AI wording anywhere' `
 
 # --- 板块：AI 结论界面（本轮核心：一眼看懂该选哪些） -------------------------
 $verdict = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiVerdict.cs') -Raw -Encoding UTF8
-Assert-True 'the default view is one headline + one note + next step' `
+Assert-True 'the default view is one headline + next step (note stays in the model, not the card)' `
     ($verdict -match 'AiHeadlineClean' -and $verdict -match 'BuildNote' -and
-     $xaml -match 'Ai\.Headline' -and $xaml -match 'Ai\.Note')
+     $xaml -match 'Ai\.Headline')
 Assert-True 'only three user-facing buckets, named in plain words' `
     ($verdict -match 'enum AiBucket' -and $loc -match '可考虑清理' -and
      $loc -match '建议保留' -and $loc -match '需要确认')
@@ -691,15 +693,23 @@ Assert-True 'only the cleanable bucket can be bulk-selected' `
      $verdict -match 'Loc\.AiReasonKeep, false')
 Assert-True 'protected items never become cleanable' `
     ($verdict -match 'x\.CanDelete && x\.Risk != CleanRisk\.Keep && x\.Risk != CleanRisk\.Confirm')
-Assert-True 'the two action buttons use the plain wording' `
-    ($loc -match '查看文件' -and $loc -match '选择这些文件')
+$aiCard = [regex]::Match($xaml, '(?s)x:Key="ItemAiResultOnly".*?</DataTemplate>').Value
+Assert-True 'the select action uses the plain wording' `
+    ($loc -match '选择这些文件' -and $aiCard -match '选择这些文件')
 Assert-True 'technical wording is gone from the panel' `
     ($xaml -notmatch '本地拆分' -and $xaml -notmatch '符合清理资格' -and
      $xaml -notmatch '按组' -and $xaml -notmatch '本地规则')
-Assert-True 'why-it-suggests is collapsed by default' `
-    ($xaml -match '为什么这样建议' -and $xaml -match '<Expander')
-Assert-True 'the panel is height-bounded and scrolls internally' `
-    ($xaml -match '(?s)ItemAiResultOnly.*?ScrollViewer MaxHeight')
+Assert-True 'AI result card is headline + select; no view-files / why / retry chrome' `
+    ($aiCard.Length -gt 0 -and
+     $aiCard -match 'ShowResultPanel' -and
+     $aiCard -match 'Ai\.Headline' -and
+     $aiCard -notmatch '查看文件' -and
+     $aiCard -notmatch '为什么这样建议' -and
+     $aiCard -notmatch '重新分析' -and
+     $aiCard -notmatch '<Expander' -and
+     $aiCard -notmatch 'ScrollViewer')
+Assert-True 'result panel only appears when there is something selectable and the row is expanded' `
+    ($itv -match 'ShowResultPanel => CanSelect && IsExpanded')
 Assert-True 'selecting goes through the existing refresh chain' `
     ($cs -match 'AiSelectBucket_Click' -and $cs -match 'RefreshAfterSelectionChange\(\)')
 Assert-True 'viewing files uses exact item filtering' `
@@ -744,6 +754,24 @@ Assert-True 'uninstall publisher / version / status columns stay in the tree but
     ($xaml -match '(?s)x:Name="ColAppPub".{0,220}Visibility="Collapsed"' -and
      $xaml -match '(?s)x:Name="ColAppVersion".{0,220}Visibility="Collapsed"' -and
      $xaml -match '(?s)x:Name="ColAppStatus".{0,220}Visibility="Collapsed"')
+$colSize = [regex]::Match($xaml, '(?s)x:Name="ColAppSize".*?</DataGridTextColumn>').Value
+Assert-True 'uninstall size cell is number-only; source lives in the tooltip' `
+    ($appitem -match 'AppSizeSourceMeasured' -and $appitem -match 'AppSizeSourceRecord' -and
+     $colSize -match 'FootprintHint' -and $colSize -notmatch 'MaxWidth')
+Assert-True 'uninstall purpose is type + publisher, no version in the cell' `
+    ($factual -match 'DuplicatesLabel' -and
+     $factual -match 'parts\.Count == 1 && location\.Length > 0' -and
+     $factual -notmatch 'parts\.Add\(version\)')
+Assert-True 'inline file list has no 完整列表 button; extra files are counted only' `
+    ($xaml -notmatch 'FullListButtonText' -and
+     $xaml -notmatch '完整列表（可搜索）' -and
+     $loc -match '另有')
+Assert-True 'clean location subtitle no longer appends 用途待确认' `
+    ($nodes -match 'ItemAiPurposeText' -and $nodes -notmatch 'PurposeUnclear')
+Assert-True 'organize purpose column replaces 未识别 after item AI' `
+    ($orgnode -match 'HasItemAiPurpose' -and
+     $orgnode -match 'NeedsConfirm => _needsConfirm && !HasItemAiPurpose' -and
+     $cs -match 'RefreshOrganizeAfterItemAi')
 
 # 发布产物：取 dist 下最新的 DashaoHuo-*-win-x64。
 # 这是**打包门禁**，不是行为检查：dist 是 gitignore 的生成物，开发机 / CI 没有它很正常。

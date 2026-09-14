@@ -324,7 +324,7 @@ public static class ReviewFixesTests
             filesNode.VisibleFiles[0].Name);
         check("每个文件都有大小与修改时间字段", filesNode.VisibleFiles.All(x => x.SizeText.Length > 0));
         check("文件列表说明写清「共几个、列了几个」", filesNode.FilesNote.Length > 0);
-        check("文件列表只读（明说了整理页不删东西）", filesNode.FilesScopeText.Length > 0);
+        check("文件列表范围说明仍在模型上（界面不再占一行）", filesNode.FilesScopeText.Length > 0);
 
         var manyFiles = DirNode("ManyFiles", @"X:\ManyFiles", 100);
         for (int i = 0; i < 50; i++) FileNode($"f{i}.bin", $@"X:\ManyFiles\f{i}.bin", i + 1, manyFiles);
@@ -398,6 +398,21 @@ public static class ReviewFixesTests
             lazyNode.IsExpanded && lazyNode.ChildrenLoaded && lazyNode.Children.Count == 2);
         lazyNode.Collapse();
         check("收起后子对象还在（再展开不重复请求）", lazyNode.ChildrenLoaded && lazyNode.Children.Count == 2);
+
+        // (7) 点过单项 AI 后，用途列替换「未识别」，不再叠「需要确认」
+        var unknownDir = DirNode("VolleyballBall", @"X:\VolleyballBall", 100);
+        var unknownNode = new OrganizeNode(unknownDir, new FolderId(unknownDir.FullPath, 1), 0, "VolleyballBall");
+        check("点 AI 前用途是未识别", unknownNode.PurposeText == Loc.PurposeUnrecognized,
+            unknownNode.PurposeText);
+        unknownNode.Ai.Result = new ItemAiResult(
+            ItemAiSuggestion.Unknown, "排球游戏存档", "删了进度没了",
+            "文件夹名", "", "", false, 0, 0, 0, "", 1);
+        unknownNode.Ai.Status = ItemAiStatus.Done;
+        check("点过 AI 后用途列换成模型给的用途",
+            unknownNode.PurposeText == "排球游戏存档", unknownNode.PurposeText);
+        check("点过 AI 后不再算未识别 / 待确认",
+            unknownNode.HasConclusion && !unknownNode.NeedsConfirm && !unknownNode.IsPending);
+        check("整理树 AI 结果仍然不能勾选清理项", !unknownNode.Ai.CanSelect);
     }
 
     static FileEntry DirNode(string name, string path, long size, FileEntry? parent = null)

@@ -224,10 +224,11 @@ CheckD("实测就写实测数字，不带「估算」",
     measuredApp.ActualSizeText);
 
 var recordApp = App("record-only", @"D:\Elsewhere", 1_000_000);
-CheckD("只有安装记录时显式标注来源",
-    recordApp.ActualSizeText == Loc.AppSizeFromRecord(AppUninstallItem.FormatFootprint(1_000_000))
-    && recordApp.FootprintSource == AppFootprintSource.InstallRecord,
-    recordApp.ActualSizeText);
+CheckD("只有安装记录时格子只写数字，来源进悬停",
+    recordApp.ActualSizeText == AppUninstallItem.FormatFootprint(1_000_000)
+    && recordApp.FootprintSource == AppFootprintSource.InstallRecord
+    && recordApp.FootprintHint.Contains(Loc.AppSizeSourceRecord),
+    recordApp.ActualSizeText + " | " + recordApp.FootprintHint);
 
 var unknownApp = App("no-number", @"D:\Nowhere", 0);
 CheckD("两样都没有 ⇒ 未知，不臆造",

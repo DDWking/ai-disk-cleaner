@@ -1931,8 +1931,8 @@ public static class LayeredCleanTests
         check("第二行统计含父路径与文件数",
             loc0.RowSubText.Contains(loc0.ParentHint)
             && loc0.RowSubText.Any(char.IsDigit), loc0.RowSubText);
-        check("认不出用途时第二行标「用途待确认」",
-            !loc0.IsUnidentified || loc0.RowSubText.Contains(Loc.PurposeUnclear), loc0.RowSubText);
+        check("第二行不再挂「用途待确认」",
+            !loc0.RowSubText.Contains(Loc.PurposeUnclear), loc0.RowSubText);
 
         foreach (var x in loc0.Items) x.Selected = true;
         loc0.SyncFromItems();

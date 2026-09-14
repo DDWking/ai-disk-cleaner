@@ -167,19 +167,26 @@ public static class AppFactualInfoService
     static string BuildSummary(AppUninstallItem app, AppSourceKind kind,
         string publisher, string version, string location)
     {
-        var parts = new List<string>(3);
+        var parts = new List<string>(2);
         string label = KindLabel(app, kind);
         if (label.Length > 0) parts.Add(label);
-        if (publisher.Length > 0) parts.Add(AppPurposeText.SummaryPublisher(publisher));
-        if (version.Length > 0) parts.Add(AppPurposeText.SummaryVersion(version));
-        // 没有发布者/版本时，用安装位置把「装在哪」这件事实补上；有发布者就不重复占位。
-        if (publisher.Length == 0 && version.Length == 0 && location.Length > 0)
+        // 列表只留「类型 + 发布者」。版本有自己的列（已隐藏），进悬停，不占用途格。
+        if (publisher.Length > 0 && !DuplicatesLabel(label, publisher))
+            parts.Add(publisher);
+        if (parts.Count == 1 && location.Length > 0)
             parts.Add(AppPurposeText.SummaryLocation(location));
 
         string text = string.Join(" · ", parts);
         if (text.Length > MaxSummaryLength) text = text[..(MaxSummaryLength - 1)] + "…";
         return text;
     }
+
+    /// <summary>发布者已经写在类型里时不再重复（「Steam · Steam」）。</summary>
+    static bool DuplicatesLabel(string label, string publisher)
+        => label.Length > 0 && publisher.Length > 0
+           && (label.Equals(publisher, StringComparison.OrdinalIgnoreCase)
+               || label.Contains(publisher, StringComparison.OrdinalIgnoreCase)
+               || publisher.Contains(label, StringComparison.OrdinalIgnoreCase));
 
     static string KindLabel(AppUninstallItem app, AppSourceKind kind) => kind switch
     {
@@ -307,9 +314,9 @@ internal static class AppPurposeText
     // ---- 性质标签（列表摘要用）----
     public static string KindInstalled => En ? "Installed application" : "已安装软件";
     public static string KindNoUninstaller => En ? "No usable uninstaller" : "未找到可用的卸载程序";
-    public static string KindSteam => En ? "Steam entry" : "Steam 清单条目";
-    public static string KindWindowsFeature => En ? "Windows optional feature" : "Windows 可选功能";
-    public static string KindInbox => En ? "Windows inbox component" : "Windows 自带组件";
+    public static string KindSteam => En ? "Steam" : "Steam";
+    public static string KindWindowsFeature => En ? "Windows feature" : "Windows 功能";
+    public static string KindInbox => En ? "Windows component" : "Windows 组件";
     public static string KindProtectedSystem => En ? "Protected system component" : "受保护的系统组件";
     public static string KindSystemComponent => En ? "System component" : "系统组件";
     public static string KindProtected => En ? "Protected entry" : "受保护的条目";
