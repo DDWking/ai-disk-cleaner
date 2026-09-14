@@ -123,9 +123,17 @@ public static class Program
             foreach (var n in new[]
                      {
                          "AlertText", "Overlay", "OrganizeGrid", "OrganizeCounts",
-                         "OrganizeFilterPendingBtn", "ColOrgAction", "TabCleanBtn", "TabOrganizeBtn",
+                         "OrganizeSelectAllBtn", "ColOrgAction", "TabCleanBtn", "TabOrganizeBtn",
                      })
                 Check($"x:Name={n} 已赋值", NamedField(win, n) != null);
+
+            // 页头清理过的东西必须真的不在控件树里（"看不见"要靠不存在来保证，不是靠隐藏）：
+            // 「未识别」筛选胶囊被移除；页面标题也被删掉（Tab 上写的就是「按文件夹删除」，
+            // 标题重复出现一次是多余的），所以统计行才是页头第一行可见文字。
+            Check("页头不再有「未识别」筛选胶囊",
+                NamedField(win, "OrganizeFilterPendingBtn") == null);
+            Check("页头不再重复页面标题（统计成为第一行）",
+                NamedField(win, "OrganizeTitle") == null);
 
             Console.WriteLine("== 4. 行高：自动增高但仍然有下限（详情展开不被裁切） ==");
             var grid = NamedField(win, "OrganizeGrid") as DataGrid;

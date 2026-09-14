@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -20,8 +21,11 @@ namespace AiDiskCleaner;
 /// <item>平台游戏库这类容器保留往里找游戏的入口，但同样只铺到二级。</item>
 /// </list>
 ///
-/// 安全边界：这里**没有**任何删除/选择代码。识别不改 Risk / CanDelete / Selected，
-/// 不自动选择、不移动、不归档真实文件；「在资源管理器中打开」只打开目录，不执行任何程序。
+/// 安全边界：这里**没有**任何删除代码 —— 删除一律走底部执行栏与后端
+/// MainWindow.FolderDelete.cs 合同（预览 → 明确确认 → 回收站）。页面唯一的「选择」写入是
+/// 底部那个「全选」按钮，它只勾上 / 清空**当前列出来的行**（<see cref="_organizeRows"/>），
+/// 不替用户勾上他没看到的东西。识别不改 Risk / CanDelete / Selected，也不自动选择、
+/// 不移动、不归档真实文件；「在资源管理器中打开」只打开目录，不执行任何程序。
 /// 送给模型的内容有硬上限并强制脱敏（见 <see cref="SourceSnippetReader"/>）。
 /// </summary>
 public partial class MainWindow
@@ -41,7 +45,13 @@ public partial class MainWindow
     /// <summary>系统解析出来的识别入口（一次解析，批量识别复用，不再逐行碰磁盘）。</summary>
     private IReadOnlyList<string> _organizeEntryPoints = Array.Empty<string>();
 
-    /// <summary>「待确认」筛选：只看还没认出来的（避免满屏重复的「未识别」）。</summary>
+    /// <summary>
+    /// 「待确认筛选」：只看还没认出来的（避免满屏重复的「未识别」）。
+    ///
+    /// **页面上已经没有这个入口了**（「未识别」胶囊按钮已移除），所以它永远保持 false；
+    /// 视图筛选本身（<see cref="RefreshOrganizeRows"/> 里的祖先+命中集合）留着，
+    /// 既不影响任何展开状态，也是这套「筛选只是视图」逻辑的回归检查对象。
+    /// </summary>
     private bool _organizePendingOnly;
 
     /// <summary>正在识别（自动批量或当前文件夹，同一时刻只允许一个，避免重复请求）。</summary>
@@ -78,10 +88,9 @@ public partial class MainWindow
         ColOrgPurpose.Header = Loc.OrganizeColPurpose;
         ColOrgSize.Header = Loc.OrganizeColSize;
         ColOrgAction.Header = Loc.OrganizeColAction;
-        OrganizeTitle.Text = Loc.TabOrganize;
-        OrganizeFilterPendingBtn.ToolTip = Loc.OrganizeFilterPendingTip;
-        System.Windows.Automation.AutomationProperties.SetName(
-            OrganizeFilterPendingBtn, Loc.OrganizeFilterPendingTip);
+        // 页头**没有标题**：Tab 上写的就是「按文件夹删除」，这里不再重复一遍。
+        // 「全选 / 清空」是一个按钮，文案与两个视觉状态由 UpdateOrganizeSelectAllState 维护。
+        UpdateOrganizeSelectAllState();
         // 右键菜单只剩两个只读动作：打开目录 / 复制路径。
         // 「纠正用途」与「展开子文件夹」已移除 —— 展开箭头就在行里，纠正不再是这一页的能力。
         OrgCtxOpen.Header = Loc.OrganizeOpen;
@@ -137,7 +146,8 @@ public partial class MainWindow
         _organizeNote = "";
         _organizePendingOnly = false;
         _organizeUnlistedTotal = 0;
-        UpdateOrganizeFilterLabel();
+        // 行清空了：「全选」按钮立刻回到普通态（下面有早退分支，不一定走 RefreshOrganizeRows）
+        UpdateOrganizeSelectAllState();
 
         if (_root == null)
         {
@@ -193,6 +203,10 @@ public partial class MainWindow
         };
         node.SetLevel(policy.Level);
         node.SetChildDirCount(FolderOrganize.DirectChildDirs(dir, 0).Total);
+        // 勾选状态的唯一真相在节点上（复选框、全选、删除完成后回收站的清勾都写这里）。
+        // 订阅它，是为了让底部那个「全选」按钮的两个视觉状态跟着真实的勾选走 ——
+        // 不需要后端在每次写勾选之后记得回头叫一次界面。
+        node.PropertyChanged += OrganizeNodeSelectionChanged;
         _organizeByDir[dir] = node;
         _organizeAll.Add(node);
         LocalRecognize(node);
@@ -372,6 +386,8 @@ public partial class MainWindow
         UpdateOrganizeHeader();
         // 行集合变了：底部执行栏的「已选 / 可删除 / 状态」跟着重算（后端合同提供）
         RefreshFolderDeleteBar();
+        // 列表换了，可勾选行的集合也换了：「全选」按钮要重新算两个状态之一
+        UpdateOrganizeSelectAllState();
     }
 
     private void AddVisibleRows(OrganizeNode node, ref int count)
@@ -392,20 +408,10 @@ public partial class MainWindow
         foreach (var c in node.Children) AddVisibleRows(c, ref count);
     }
 
-    private void UpdateOrganizeFilterLabel()
-    {
-        if (OrganizeFilterPendingBtn == null) return;
-        int pending = _organizeAll.Count(x => x.IsPending);
-        OrganizeFilterPendingBtn.Content = _organizePendingOnly
-            ? Loc.OrganizeFilterPending + " · " + pending
-            : Loc.OrganizeFilterPending;
-    }
-
     /// <summary>页头统计：对象数 / 容量 / 已认出 / 待确认 / 失败，外加一次性短提示。</summary>
     private void UpdateOrganizeHeader()
     {
         if (OrganizeSub == null) return;
-        UpdateOrganizeFilterLabel();
 
         if (_root == null)
         {
@@ -510,10 +516,103 @@ public partial class MainWindow
         if ((sender as FrameworkElement)?.DataContext is OrganizeNode n) ToggleOrganize(n);
     }
 
-    // 说明：按文件夹删除的 5 个入口（OrganizeSelect_Click / OrganizeSelectAll_Click /
-    // OrganizeClearSelection_Click / FolderDeletePreview_Click / FolderDeleteCancel_Click）
-    // 与底部执行栏的 FolderDelete / RefreshFolderDeleteBar() 由后端合同
-    // MainWindow.FolderDelete.cs 提供；这一页只负责在合适的位置调用与绑定。
+    // 说明：按文件夹删除的删除入口（OrganizeSelect_Click / FolderDeletePreview_Click /
+    // FolderDeleteCancel_Click）与底部执行栏的 FolderDelete / RefreshFolderDeleteBar()
+    // 由后端合同 MainWindow.FolderDelete.cs 提供；这一页只负责在合适的位置调用与绑定。
+    //
+    // 「全选当前列表」与「清空选择」已经合成**一个**按钮：只有一个 Click 入口
+    // （OrganizeSelectAllToggle_Click），文案永远是「全选」，第二个状态靠 Tag 表达。
+
+    // ==================== 全选 / 清空当前列表 ====================
+
+    /// <summary>
+    /// 「全选」按钮高亮态的 Tag 值。**必须与 MainWindow.xaml 里那个 DataTrigger 的
+    /// Value 一致**（XAML 那边写的是 "All"）。
+    /// </summary>
+    private const string OrganizeSelectAllTag = "All";
+
+    /// <summary>批量写勾选期间挂起按钮状态刷新（否则每写一行都要把整个可见列表重扫一遍）。</summary>
+    private bool _organizeSelectAllSyncing;
+
+    /// <summary>某个节点的勾选状态变了：底部「全选」按钮的两个视觉状态跟着重算。</summary>
+    private void OrganizeNodeSelectionChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_organizeSelectAllSyncing) return;
+        if (e.PropertyName == nameof(OrganizeNode.IsChecked)) UpdateOrganizeSelectAllState();
+    }
+
+    /// <summary>
+    /// 当前列表里**可勾选**的行是不是已经全部勾上（部分勾选算「没全选」）。
+    /// 受保护的行（Windows / 程序目录这类）根本没有勾选能力，不参与判定；
+    /// 一行可勾选的都没有时也算「没全选」—— 那种情况下点按钮什么都不会发生。
+    /// </summary>
+    private bool OrganizeListedAllSelected()
+    {
+        bool any = false;
+        foreach (var n in _organizeRows)
+        {
+            if (n.IsSelectionProtected) continue;
+            any = true;
+            if (!n.IsChecked) return false;
+        }
+        return any;
+    }
+
+    /// <summary>
+    /// 「全选」按钮的两个状态：
+    /// <list type="bullet">
+    /// <item>还有没勾的可勾选行（含只勾了一部分）⇒ 普通 GhostButton；</item>
+    /// <item>当前列表里可勾选的行已全部勾上 ⇒ 高亮（Tag = All）。</item>
+    /// </list>
+    /// **文案永远是「全选」**（<see cref="Loc.SelectAll"/>），绝不改成「取消全选」——
+    /// 点下去会发生什么由当前状态决定，而不是由按钮改名来决定。
+    /// </summary>
+    private void UpdateOrganizeSelectAllState()
+    {
+        if (OrganizeSelectAllBtn == null) return;
+        bool all = OrganizeListedAllSelected();
+        OrganizeSelectAllBtn.Content = Loc.SelectAll;
+        OrganizeSelectAllBtn.ToolTip = Loc.OrganizeSelectAllTip;
+        // 可访问名称 = 可见文案（「全选」）：作用范围写在 ToolTip 里，不改按钮的名字。
+        System.Windows.Automation.AutomationProperties.SetName(OrganizeSelectAllBtn, Loc.SelectAll);
+        OrganizeSelectAllBtn.Tag = all ? OrganizeSelectAllTag : "";
+    }
+
+    /// <summary>
+    /// 一个按钮干两件事：没全勾 ⇒ 勾上**当前列出来的**可勾选行；已全勾 ⇒ 清掉这些行的勾选。
+    ///
+    /// **只动当前可见列表**（<see cref="_organizeRows"/>），不碰已经材料化但没显示的对象 ——
+    /// 旧的「清空选择」扫的是全部材料化对象，那等于替用户清掉他看不见的勾选。
+    /// 删除进行中不接受选择变化（与行内复选框、其它入口一致）。
+    /// </summary>
+    private void OrganizeSelectAllToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (FolderDelete.IsBusy) return;
+
+        bool clear = OrganizeListedAllSelected();
+        bool target = !clear;                    // 没全勾 ⇒ 全勾；已全勾 ⇒ 清空
+        int changed = 0;
+        _organizeSelectAllSyncing = true;
+        try
+        {
+            foreach (var n in _organizeRows)
+            {
+                if (n.IsSelectionProtected) continue;
+                if (n.IsChecked == target) continue;
+                n.IsChecked = target;
+                changed++;
+            }
+        }
+        finally
+        {
+            _organizeSelectAllSyncing = false;
+        }
+
+        RefreshFolderDeleteBar();
+        UpdateOrganizeSelectAllState();
+        AppLog.Info("Organize", $"op=select-all listed={_organizeRows.Count} "
+            + $"clear={clear} changed={changed}");
+    }
 
     /// <summary>
     /// 「只有文件」那一行的文件按钮：就地列出这个文件夹自己的文件。
@@ -587,7 +686,10 @@ public partial class MainWindow
         }
     }
 
-    // ==================== 待确认筛选 ====================
+    // ==================== 待确认筛选（页面上已无入口） ====================
+    // 「未识别」胶囊按钮已从页头移除：用户看不到、也点不到这个筛选。
+    // 视图筛选本身留在 RefreshOrganizeRows 里（祖先 + 命中集合），它只是视图、不改任何展开状态，
+    // 也是「筛选不会篡改展开状态 / 不留孤儿行」那一组回归检查的对象。
 
     private void OrganizeFilter_Click(object sender, RoutedEventArgs e)
     {

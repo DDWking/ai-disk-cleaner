@@ -181,6 +181,18 @@
         </Trigger>
       </Style.Triggers>
     </Style>
+    <!-- 整理页「容量」列：表头右对齐，与右对齐的数字齐平。
+         表头右边距 6 = 单元格里 StackPanel 的右边距 6；单元格自身的左右 8 在这一列只保留左边，
+         否则数字会比表头多缩进 8。两个都 BasedOn 隐式样式，不重抄一套外观。 -->
+    <Style x:Key="OrganizeSizeHeader" TargetType="DataGridColumnHeader"
+           BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+      <Setter Property="HorizontalContentAlignment" Value="Right"/>
+      <Setter Property="Padding" Value="8,8,6,8"/>
+    </Style>
+    <Style x:Key="OrganizeSizeCell" TargetType="DataGridCell"
+           BasedOn="{StaticResource {x:Type DataGridCell}}">
+      <Setter Property="Padding" Value="8,0,0,0"/>
+    </Style>
     <Style TargetType="DataGridRow">
       <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
@@ -1347,32 +1359,18 @@
                扫描后自动识别一、二级；三级及更深只由「识别当前文件夹」显式分析当前这一层。
                这一页**不复制**清理页的候选空间与执行按钮，也不碰 Risk / CanDelete / Selected。-->
           <DockPanel x:Name="OrganizePane" Grid.Row="1" Visibility="Collapsed">
-            <!-- 页头：只有一个标题；统计与操作同一行，顶部空白压到最小 -->
+            <!-- 页头：**没有标题**（Tab 上写的就是「按文件夹删除」，这里不再重复一遍），
+                 第一行可见文字就是统计 —— 「文件夹数 · 容量」，第二行是本地/AI/未知/失败分档。
+                 这里**没有**筛选胶囊（「未识别」入口已移除），也**没有**批量识别入口：
+                 模型请求只能由用户对**某一个**文件/文件夹单独发起（行内那个按钮）。 -->
             <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
                     Padding="16,10,16,10">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
-                  <TextBlock x:Name="OrganizeTitle" Foreground="{DynamicResource Text}"
-                             FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock x:Name="OrganizeSub" Margin="0,2,0,0" Foreground="{DynamicResource TextDim}"
-                             FontSize="11.5" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
-                             FontSize="11" TextTrimming="CharacterEllipsis"/>
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                  <!-- 待确认筛选：把满屏「未识别」收成一处看，避免每行重复说明 -->
-                  <Button x:Name="OrganizeFilterPendingBtn" Style="{StaticResource ChipButton}"
-                          Margin="0,0,8,0" Click="OrganizeFilter_Click"
-                          ToolTip="只看还没认出来的文件夹"
-                          AutomationProperties.Name="只看待确认的文件夹"/>
-                  <!-- 这里**没有**批量识别入口：扫描后只做本地识别，
-                       模型请求只能由用户对**某一个**文件/文件夹单独发起（行内那个按钮）。 -->
-                </StackPanel>
-              </Grid>
+              <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
+                           FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
+                           FontSize="11" TextTrimming="CharacterEllipsis"/>
+              </StackPanel>
             </Border>
 
             <!-- 批量进度条已移除：扫描后只做本地识别，没有"批量请求"这回事 -->
@@ -1391,7 +1389,7 @@
             </Border>
 
             <!-- ===== 底部唯一执行栏：按文件夹删除 =====
-                 选择挂在 OrganizeNode.IsSelected 上；这里的按钮只表达「预览 → 确认」的意图，
+                 选择挂在 OrganizeNode.IsChecked 上；这里的按钮只表达「全选 → 预览 → 确认」的意图，
                  真正的删除动作、回收站要求与保护判定全部在后端 FolderDelete 合同里。 -->
             <Border DockPanel.Dock="Bottom" Background="{DynamicResource Bg}"
                     BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="16,10"
@@ -1415,12 +1413,28 @@
                              FontSize="10.5" TextWrapping="Wrap"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                  <Button Style="{StaticResource GhostButton}" Padding="12,6" FontSize="12" Margin="0,0,8,0"
-                          Content="{Binding SelectAllText}" Click="OrganizeSelectAll_Click"
-                          AutomationProperties.Name="{Binding SelectAllText}"/>
-                  <Button Style="{StaticResource GhostButton}" Padding="12,6" FontSize="12" Margin="0,0,8,0"
-                          Content="{Binding ClearText}" Click="OrganizeClearSelection_Click"
-                          AutomationProperties.Name="{Binding ClearText}"/>
+                  <!-- 「全选当前列表」与「清空选择」合成**一个**按钮：
+                       文案永远是「全选」（Loc.SelectAll，代码里设，绝不改成「取消全选」），
+                       两个视觉状态由 Tag 决定（代码按当前列表算出 All / 空）：
+                         · 当前列表里还有没勾的可勾选行 ⇒ 普通 GhostButton，点 = 全选当前列出来的行；
+                         · 当前列表里可勾选行已全部勾上 ⇒ 高亮，点 = 清空这些行的勾选。
+                       **只作用于当前列出来的行**（_organizeRows），不扩展到没显示的材料化对象。 -->
+                  <Button x:Name="OrganizeSelectAllBtn" Padding="12,6" FontSize="12" Margin="0,0,8,0"
+                          Content="全选" AutomationProperties.Name="全选"
+                          Click="OrganizeSelectAllToggle_Click"
+                          IsEnabled="{Binding IsBusy, Converter={StaticResource InvertBool}}">
+                    <Button.Style>
+                      <Style TargetType="Button" BasedOn="{StaticResource GhostButton}">
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="All">
+                            <Setter Property="Background" Value="{DynamicResource SelectBg}"/>
+                            <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </Button.Style>
+                  </Button>
                   <Button Style="{StaticResource GhostButton}" Padding="12,6" FontSize="12" Margin="0,0,8,0"
                           Content="{Binding CancelText}" IsEnabled="{Binding CanCancel}"
                           Click="FolderDeleteCancel_Click"
@@ -1636,9 +1650,13 @@
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <!-- 容量：未知/空/只有文件各有明确说法，**不拿 0 KB 暗示空目录** -->
+                <!-- 容量：未知/空/只有文件各有明确说法，**不拿 0 KB 暗示空目录**。
+                     数字右对齐，表头（OrganizeSizeHeader）也右对齐并与数字的右边缘齐平。
+                     列宽固定 96：不被名称/用途这两条星号列拉伸。 -->
                 <DataGridTemplateColumn x:Name="ColOrgSize" Header="容量" SortMemberPath="Size"
-                                        Width="96" MinWidth="96" CanUserResize="False" IsReadOnly="True">
+                                        Width="96" MinWidth="96" CanUserResize="False" IsReadOnly="True"
+                                        HeaderStyle="{StaticResource OrganizeSizeHeader}"
+                                        CellStyle="{StaticResource OrganizeSizeCell}">
                   <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                       <StackPanel VerticalAlignment="Center" Margin="0,3,6,3">
@@ -1658,7 +1676,9 @@
                 </DataGridTemplateColumn>
 
                 <!-- 操作：**没有逐项「识别」按钮**，也**没有第二套展开按钮** ——
-                     左边那个箭头是唯一的展开/收起入口；这里只留「在资源管理器中打开」。 -->
+                     左边那个箭头是唯一的展开/收起入口；这里只留「在资源管理器中打开」。
+                     表头「操作」与图标本来就都是左边距 8（单元格 Padding + 表头 Padding 同值），
+                     不再另加 HeaderStyle。 -->
                 <DataGridTemplateColumn x:Name="ColOrgAction" Header="操作" Width="92" MinWidth="92"
                                         CanUserResize="False" CanUserSort="False" IsReadOnly="True">
                   <DataGridTemplateColumn.CellTemplate>

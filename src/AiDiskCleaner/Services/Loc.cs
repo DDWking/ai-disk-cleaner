@@ -1052,14 +1052,17 @@ public static class Loc
         : "处理中，还没有结论";
 
     public static string OrganizeFilterAll => IsEn ? "All" : "全部";
-    // 「未识别」不是「待确认任务」：没有结论就是没有结论，不给人一个待办的压力。
-    public static string OrganizeFilterPending => IsEn ? "unidentified" : "未识别";
-    public static string OrganizeFilterPendingTip => IsEn
-        ? "Show only folders with no conclusion yet (a filter over the view; it changes nothing else)"
-        : "只看还没有结论的文件夹（只是换个看法，不改任何识别状态）";
+    // 「未识别」筛选胶囊已从页头移除：用户看不到这个入口，所以这两个文案不再需要。
+    // 视图筛选本身还在（只是没有可见入口），它的统计行文案仍由 OrganizeFilterActive 提供。
     public static string OrganizeFilterActive(int shown, int total) => IsEn
         ? $"showing {shown:N0} of {total:N0}"
         : $"只显示 {shown:N0} / {total:N0} 个";
+
+    // 「全选」按钮的悬停说明：说清作用范围（当前列出来的行）与再点一次会发生什么。
+    // **不写进按钮文案** —— 按钮永远只叫「全选」，不改名成「取消全选」。
+    public static string OrganizeSelectAllTip => IsEn
+        ? "Tick every folder currently listed (click again to clear those ticks)"
+        : "勾选当前列出来的全部文件夹（再点一次清空这些勾选）";
 
     public static string OrganizeNoScan => IsEn ? "Not scanned yet" : "还没有扫描结果";
     public static string OrganizeNoScanBody => IsEn

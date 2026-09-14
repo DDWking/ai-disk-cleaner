@@ -291,6 +291,9 @@ public static class FolderOrganize
     ///
     /// 入口不一定贴着盘符（<c>…\AppData\Local</c> 就在好几层下面）——
     /// 这里**不按距盘符的固定层数截断**，只要解析得到就用；解析不到就跳过，**不自动提权**。
+    ///
+    /// 顺序只有一条规则：**全部按容量降序**（入口与普通子目录同一套排序，入口不特殊对待）。
+    /// 这样最大的目录一定排在最前面，而不是「路径最短的系统入口」压着一个几百 G 的用户目录。
     /// </summary>
     public static OrganizeRootSet BuildRoots(
         FileEntry? root, int budget = MaxRoots, IReadOnlyList<string>? entryPoints = null)
@@ -311,8 +314,7 @@ public static class FolderOrganize
             resolved.Add(e);
         }
 
-        // 1) 入口：短的路径先入列（外层入口优先），已经收过的同路径不再重复
-        resolved.Sort(static (a, b) => Norm(a.FullPath).Length.CompareTo(Norm(b.FullPath).Length));
+        // 1) 入口入列：只按**完全相同**的路径去重（同一个目录不会出现两次）
         foreach (var e in resolved)
         {
             string n = Norm(e.FullPath);
@@ -320,23 +322,29 @@ public static class FolderOrganize
             roots.Add(e);
         }
 
-        // 2) 盘符下的其它直接子目录：**只跳完全相同的路径**，不做祖先覆盖
+        // 2) 盘符下的其它直接子目录：同样只跳完全相同的路径，不做祖先覆盖
         var top = new List<FileEntry>();
         foreach (var c in root.ChildList)
         {
             if (!c.IsDirectory) continue;
             if (c.IsReparsePoint || c.IsFilesGroup) { skipped++; continue; }   // 链接不跟随，避免成环
-            string n = Norm(c.FullPath);
-            if (included.Contains(n)) continue;                 // 已经是入口了
             top.Add(c);
         }
-        top.Sort(static (a, b) => b.Size.CompareTo(a.Size));
         foreach (var c in top)
         {
             string n = Norm(c.FullPath);
-            if (!included.Add(n)) continue;
+            if (!included.Add(n)) continue;                 // 已经是入口了
             roots.Add(c);
         }
+
+        // 3) **入口与普通子目录混在一起按容量降序**：Windows / Program Files 不再钉在顶上。
+        //    平手时按路径排，保证顺序稳定可复现（List.Sort 本身不稳定）。
+        roots.Sort(static (a, b) =>
+        {
+            int bySize = b.Size.CompareTo(a.Size);
+            if (bySize != 0) return bySize;
+            return string.Compare(Norm(a.FullPath), Norm(b.FullPath), StringComparison.OrdinalIgnoreCase);
+        });
 
         bool truncated = roots.Count > budget;
         if (truncated) roots = roots.Take(budget).ToList();
