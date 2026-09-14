@@ -1989,6 +1989,17 @@ public static class Loc
         : $"已选 {locations:N0} 个位置，包含 {items:N0} 个候选项 · 预计处理 {size}";
     public static string ClearSelection => IsEn ? "Clear selection" : "清空选择";
     /// <summary>
+    /// 底部「全选」切换按钮的提示（未全选时）：点一下把**全局**所有可清理项都勾上。
+    /// 文字恒为 <see cref="SelectAll"/>，不随状态改名。
+    /// </summary>
+    public static string SelectAllActionTip => IsEn
+        ? "Select every cleanable item (the whole result, not just this page)"
+        : "全选所有可清理项（整个结果，不只是当前页）";
+    /// <summary>底部「全选」切换按钮的提示（已全选时）：文字不变，再点一下是取消全部勾选。</summary>
+    public static string SelectAllClearTip => IsEn
+        ? "All cleanable items are selected — click again to clear"
+        : "已全选，再点一次取消全选";
+    /// <summary>
     /// 底部唯一主按钮。**不再叫「检查并清理」** —— 那个词说不清点了会发生什么。
     /// 点它进入清理前检查页，不是直接删。
     /// </summary>

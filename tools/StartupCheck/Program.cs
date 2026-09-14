@@ -873,11 +873,14 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine("== 10. 本轮改动（卸载可信度 / 行内看文件 / 整理展开态 / 规则批选） ==");
 
-        // ---------- 10.1 「选择规则明确的清理项」：真按钮 + 真弹层 + 真两段式 ----------
-        var ruleBtn = NamedField(win, "RuleSelectBtn") as System.Windows.Controls.Button;
-        Check("清理首页有「选择规则明确的清理项」按钮",
-            ruleBtn != null && !string.IsNullOrWhiteSpace(ruleBtn.Content?.ToString()),
-            ruleBtn?.Content?.ToString() ?? "null");
+        // ---------- 10.1 「选择规则明确的清理项」：行为保留，但按钮已从操作栏移除 ----------
+        // 需求：用户不该再看到这个按钮；RuleSelect_Click 方法本身仍保留给既有行为测试。
+        var ruleBtn = NamedField(win, "RuleSelectBtn");
+        Check("清理首页操作栏已移除「选择规则明确的清理项」按钮（用户不可见）",
+            ruleBtn == null,
+            ruleBtn == null ? "gone" : "still present");
+        // 方法没被删：用独立 sender 驱动（该方法不使用 sender）。
+        var ruleSender = new System.Windows.Controls.Button();
 
         // 造一份真实分层结果：2 条规则明确 + 1 条启发式 + 1 条大文件
         var clearA = new CleanItem
@@ -922,7 +925,7 @@ public static class Program
             SetFld(win, "_report", report);
             SetFld(win, "_layered", layered);
 
-            Call(win, "RuleSelect_Click", ruleBtn!, ClickArgs());
+            Call(win, "RuleSelect_Click", ruleSender, ClickArgs());
             var preview = NamedField(win, "_ruleSelectPreview");
             Check("点按钮只出预览，**一个都不勾**",
                 preview != null && !clearA.Selected && !clearB.Selected
@@ -944,7 +947,7 @@ public static class Program
                 !clearA.Selected && !clearB.Selected && !heuristicOnly.Selected && !bigFile.Selected);
 
             // 「确认」：只有规则明确的那 2 条被勾上
-            Call(win, "RuleSelect_Click", ruleBtn!, ClickArgs());
+            Call(win, "RuleSelect_Click", ruleSender, ClickArgs());
             Call(win, "ConfirmYes_Click", win, ClickArgs());
             Check("确认后只勾规则明确的两项",
                 clearA.Selected && clearB.Selected && !heuristicOnly.Selected && !bigFile.Selected,
@@ -969,6 +972,80 @@ public static class Program
         var onlyHeuristic = CleanGroupingService.Build(new[] { heuristicOnly, bigFile });
         Check("没有规则明确的项时不弹预览（CleanRuleSelectPreview.Build 返回 null）",
             CleanRuleSelectPreview.Build(onlyHeuristic) == null);
+
+        // ---------- 10.1b 底部「全选」切换：文字恒定，两种外观 ----------------------
+        // 需求：清空选择换成单个「全选」切换按钮 —— 未全选时点=全局全选，
+        // 已全选时点=取消全部勾选；文字**永远**是「全选」，不改名。
+        var toggleBtn = NamedField(win, "CleanSelectAllBtn") as System.Windows.Controls.Button;
+        Check("底部操作栏有「全选」切换按钮，且旧的「清空选择」已移除",
+            toggleBtn != null
+            && NamedField(win, "ClearSelectionBtn") == null
+            && toggleBtn.Content?.ToString() == Loc.SelectAll,
+            toggleBtn?.Content?.ToString() ?? "null");
+
+        var toggleA = new CleanItem
+        {
+            Name = "t1.bin", FullPath = @"C:\Users\x\AppData\Local\Temp\toggle\a.bin", Size = 10,
+            Reason = "cache", Purpose = CleanPurpose.AppCache, Risk = CleanRisk.Safe, CanDelete = true,
+            Evidence = EvidenceLevel.Signature,
+        };
+        var toggleB = new CleanItem
+        {
+            Name = "t2.dmp", FullPath = @"C:\Windows\Temp\toggle-b.dmp", Size = 20,
+            Reason = "dump", Purpose = CleanPurpose.Dump, Risk = CleanRisk.Safe, CanDelete = true,
+            Evidence = EvidenceLevel.Signature,
+        };
+        var toggleKeep = new CleanItem
+        {
+            Name = "keep.bin", FullPath = @"C:\media\keep.bin", Size = 30,
+            Reason = "large", Purpose = CleanPurpose.Large, Risk = CleanRisk.Confirm, CanDelete = false,
+        };
+        var savedReport2 = NamedField(win, "_report");
+        var savedLayered2 = NamedField(win, "_layered");
+        try
+        {
+            SetFld(win, "_report", new CleanReport());
+            SetFld(win, "_layered", CleanGroupingService.Build(new[] { toggleA, toggleB, toggleKeep }));
+
+            // 一个都没勾：可用、幽灵态、文字「全选」、可访问名称也是「全选」
+            Call(win, "UpdateSelectionUi");
+            CheckD("一个都没勾时「全选」可用且是幽灵态",
+                toggleBtn != null && toggleBtn.IsEnabled
+                && ReferenceEquals(toggleBtn.Style, win.FindResource("GhostButton"))
+                && System.Windows.Automation.AutomationProperties.GetName(toggleBtn) == Loc.SelectAll
+                && (toggleBtn.ToolTip as string) == Loc.SelectAllActionTip,
+                toggleBtn == null ? "null"
+                    : $"enabled={toggleBtn.IsEnabled} style={toggleBtn.Style?.ToString()?.Length}");
+
+            // 点一下：全局所有可清理项被勾上，受保护 / 不可删的项不动
+            Call(win, "CleanSelectAll_Click", toggleBtn!, ClickArgs());
+            Check("点「全选」一次性勾上全局所有可清理项",
+                toggleA.Selected && toggleB.Selected && !toggleKeep.Selected,
+                $"{toggleA.Selected}/{toggleB.Selected}/{toggleKeep.Selected}");
+            CheckD("已全选时按钮换成主按钮态，但文字仍是「全选」、提示改为取消",
+                ReferenceEquals(toggleBtn!.Style, win.FindResource("PrimaryButton"))
+                && toggleBtn.Content?.ToString() == Loc.SelectAll
+                && (toggleBtn.ToolTip as string) == Loc.SelectAllClearTip,
+                toggleBtn?.Content?.ToString() ?? "null");
+
+            // 再点一下：取消全部勾选，回到幽灵态
+            Call(win, "CleanSelectAll_Click", toggleBtn!, ClickArgs());
+            Check("已全选时再点「全选」= 取消全部勾选",
+                !toggleA.Selected && !toggleB.Selected && !toggleKeep.Selected);
+            Check("取消后回到幽灵态且文字不变",
+                ReferenceEquals(toggleBtn!.Style, win.FindResource("GhostButton"))
+                && toggleBtn.Content?.ToString() == Loc.SelectAll);
+
+            // 没有可清理项时禁用
+            SetFld(win, "_layered", CleanGroupingService.Build(new[] { toggleKeep }));
+            Call(win, "UpdateSelectionUi");
+            Check("没有任何可清理项时「全选」禁用", toggleBtn != null && !toggleBtn.IsEnabled);
+        }
+        finally
+        {
+            SetFld(win, "_report", savedReport2);
+            SetFld(win, "_layered", savedLayered2);
+        }
 
         // ---------- 10.2 行内看文件：点位置行就地展开，不绕 AI、不进明细面板 ----------
         var locItem = new CleanItem

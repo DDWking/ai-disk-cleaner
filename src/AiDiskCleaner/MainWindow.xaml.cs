@@ -367,12 +367,13 @@ public partial class MainWindow : Window, IAnalystHost
             CleanMoreBtn.ToolTip = Loc.MoreMenu;
             System.Windows.Automation.AutomationProperties.SetName(CleanMoreBtn, "更多操作");
         }
-        if (ClearSelectionBtn != null) ClearSelectionBtn.Content = Loc.ClearSelection;
-        if (RuleSelectBtn != null)
+        // 底部「全选」是单个切换按钮：文字恒为 Loc.SelectAll，状态（幽灵 / 主按钮、
+        // 提示、可访问名称、可用性）统一由 ApplySelectAllButton 维护，ApplyUi 之后
+        // 会走 RefreshCleanUi → UpdateSelectionUi 把当前状态刷新一次。
+        if (CleanSelectAllBtn != null)
         {
-            RuleSelectBtn.Content = Loc.RuleSelectAction;
-            RuleSelectBtn.ToolTip = Loc.RuleSelectActionTip;
-            System.Windows.Automation.AutomationProperties.SetName(RuleSelectBtn, Loc.RuleSelectAction);
+            CleanSelectAllBtn.Content = Loc.SelectAll;
+            System.Windows.Automation.AutomationProperties.SetName(CleanSelectAllBtn, Loc.SelectAll);
         }
         if (CheckAndCleanBtn != null) CheckAndCleanBtn.Content = Loc.CleanSelectedItems;
         // ViewSelectedBtn 是「清单图标 + 数量」，文字与数量由 UpdateSelectionUi 统一维护，
@@ -2999,6 +3000,10 @@ public partial class MainWindow : Window, IAnalystHost
         if (CleanSelectionSummary == null) return;
         bool hasReport = _report != null;
         var picked = hasReport ? _layered.SelectedItems.ToList() : new List<CleanItem>();
+        // 「全选」的作用域是**全局可清理候选**（和旧「清空选择」一致，不是当前页），
+        // 所以按钮状态也按全局判断：只要有可清理项就有意义，一个没勾时也能点。
+        int selectableTotal = hasReport ? _layered.AllItems.Count(x => x.CanDelete) : 0;
+        bool allSelected = selectableTotal > 0 && picked.Count >= selectableTotal;
 
         // 执行中 / 刚完成时，主按钮由执行状态驱动，不让选择刷新把它改回去
         if (_cleanAction != CleanActionState.Idle)
@@ -3007,7 +3012,7 @@ public partial class MainWindow : Window, IAnalystHost
             {
                 CleanSelectionSummary.Text = Loc.DoneItems(_lastDoneOk, _lastDoneFailed);
                 CleanSelectionNote.Text = "";
-                ClearSelectionBtn.IsEnabled = false;
+                ApplySelectAllButton(allSelected: false, enabled: false);
                 CheckAndCleanBtn.IsEnabled = true;
             }
             return;
@@ -3019,7 +3024,8 @@ public partial class MainWindow : Window, IAnalystHost
             CleanSelectionNote.Text = "";
             ViewSelectedBtn.Visibility = Visibility.Collapsed;
             CheckAndCleanBtn.IsEnabled = false;
-            ClearSelectionBtn.IsEnabled = false;
+            // 没有可清理项才禁用；有候选但一个没勾时，「全选」正是用户要点的。
+            ApplySelectAllButton(allSelected: false, enabled: selectableTotal > 0);
         }
         else
         {
@@ -3032,13 +3038,31 @@ public partial class MainWindow : Window, IAnalystHost
             ViewSelectedBtn.Visibility = Visibility.Visible;
             CheckAndCleanBtn.Content = Loc.CleanSelectedItems;
             CheckAndCleanBtn.IsEnabled = true;
-            ClearSelectionBtn.IsEnabled = true;
+            ApplySelectAllButton(allSelected, enabled: true);
             // 估算口径改成悬停提示，不再单独占一整行
             CleanSelectionSummary.ToolTip = Loc.EstimateTip;
             CheckAndCleanBtn.ToolTip = Loc.NeedsConfirmTip;
         }
         UpdateViewSelectedLabel();
         UpdateDetailScopeButton();
+    }
+
+    /// <summary>
+    /// 底部「全选」切换按钮的外观与状态。
+    ///
+    /// 文字**恒为** <see cref="Loc.SelectAll"/>（全选 / Select all），绝不改成「取消全选」；
+    /// 是否已全选只体现在样式（幽灵 / 主按钮）和提示文案上。
+    /// 可访问名称也保持为同一个「全选」，这样屏幕阅读器读到的是稳定的按钮名。
+    /// </summary>
+    private void ApplySelectAllButton(bool allSelected, bool enabled)
+    {
+        if (CleanSelectAllBtn == null) return;
+        CleanSelectAllBtn.Content = Loc.SelectAll;
+        CleanSelectAllBtn.IsEnabled = enabled;
+        CleanSelectAllBtn.ToolTip = allSelected ? Loc.SelectAllClearTip : Loc.SelectAllActionTip;
+        System.Windows.Automation.AutomationProperties.SetName(CleanSelectAllBtn, Loc.SelectAll);
+        var style = (Style)FindResource(allSelected ? "PrimaryButton" : "GhostButton");
+        if (!ReferenceEquals(CleanSelectAllBtn.Style, style)) CleanSelectAllBtn.Style = style;
     }
 
     private void UpdateDetailScopeButton()
@@ -3057,15 +3081,36 @@ public partial class MainWindow : Window, IAnalystHost
     private int CountSelectedLocations(List<CleanItem> picked)
         => CleanPreflight.Build(picked, _layered).Locations;
 
-    /// <summary>「清空选择」清的是全局选择，文案与实际行为一致。</summary>
-    private void ClearSelection_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 底部「全选」切换：范围是**全局可清理候选**（和旧「清空选择」同一口径，不是当前页）。
+    /// <list type="bullet">
+    /// <item>还没全选（一个没勾 / 部分勾选）：一次性勾上所有 <c>CanDelete</c> 项；</item>
+    /// <item>已全选：再点一次取消全部勾选。</item>
+    /// </list>
+    /// 按钮文字恒为「全选」，只靠外观与提示区分当前处在哪一态。
+    /// </summary>
+    private void CleanSelectAll_Click(object sender, RoutedEventArgs e)
     {
+        bool allSelected = IsAllSelectableSelected();
         foreach (var item in _layered.AllItems)
         {
             if (!item.CanDelete) continue;
-            item.Selected = false;
+            item.Selected = !allSelected;
         }
         RefreshAfterSelectionChange();
+    }
+
+    /// <summary>全局可清理项是否已经全部勾上（一个可清理项都没有时返回 false）。</summary>
+    private bool IsAllSelectableSelected()
+    {
+        bool any = false;
+        foreach (var item in _layered.AllItems)
+        {
+            if (!item.CanDelete) continue;
+            any = true;
+            if (!item.Selected) return false;
+        }
+        return any;
     }
 
     // ---------------- 清理前检查页 ----------------
@@ -4169,7 +4214,7 @@ public partial class MainWindow : Window, IAnalystHost
             CheckAndCleanBtn.IsEnabled = false;
             ViewSelectedBtn.Visibility = Visibility.Collapsed;
             CleanSelectionNote.Text = "";
-            ClearSelectionBtn.IsEnabled = false;
+            ApplySelectAllButton(allSelected: false, enabled: false);
             return;
         }
         if (state == CleanActionState.Done)
@@ -4179,7 +4224,7 @@ public partial class MainWindow : Window, IAnalystHost
             CheckAndCleanBtn.Content = Loc.ViewResults;
             CheckAndCleanBtn.IsEnabled = true;
             ViewSelectedBtn.Visibility = Visibility.Collapsed;
-            ClearSelectionBtn.IsEnabled = false;
+            ApplySelectAllButton(allSelected: false, enabled: false);
             return;
         }
         CheckAndCleanBtn.Content = Loc.CleanSelectedItems;

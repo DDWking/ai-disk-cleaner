@@ -1808,14 +1808,15 @@
                   </StackPanel>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                  <!-- 规则明确的批量勾选：只在用户主动点的时候跑，而且先给预览。
-                       它是「少点几下」，不是「替你决定」——执行仍然要走清理前检查。 -->
-                  <Button x:Name="RuleSelectBtn" Content="选择规则明确的清理项"
+                  <!-- 「全选」是**单个切换按钮**，文字恒为「全选」，两种状态只换外观：
+                       - 未全选（含部分选中 / 一个没勾）：幽灵按钮，点一下把**全局**所有
+                         可清理项勾上（和旧「清空选择」同一范围，不是当前页）；
+                       - 已全选：改用主按钮外观表示「再点一下 = 取消全部勾选」。
+                       XAML 里默认是幽灵态；主按钮态由代码在运行时切换（见 ApplySelectAllButton）。 -->
+                  <Button x:Name="CleanSelectAllBtn" Content="全选"
                           Style="{StaticResource GhostButton}" Padding="12,6" FontSize="12"
-                          Margin="0,0,8,0" Click="RuleSelect_Click"
-                          ToolTip="只勾选正式规则判定为安全、证据达到签名级、且通过保护检查的缓存/临时/转储项；会先给你看清单"/>
-                  <Button x:Name="ClearSelectionBtn" Content="清空选择" Style="{StaticResource GhostButton}"
-                          Padding="12,6" FontSize="12" Margin="0,0,8,0" Click="ClearSelection_Click"/>
+                          Margin="0,0,8,0" Click="CleanSelectAll_Click"
+                          ToolTip="全选所有可清理项（再点一次取消全选）"/>
                   <!-- 唯一的主要执行入口。点它进入「清理前检查」页，**不是直接删**。 -->
                   <Button x:Name="CheckAndCleanBtn" Content="清理已选项目" Style="{StaticResource PrimaryButton}"
                           Padding="16,7" FontSize="12.5" Click="CheckAndClean_Click"
