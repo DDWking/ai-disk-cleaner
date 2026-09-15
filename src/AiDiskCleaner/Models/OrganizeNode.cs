@@ -450,13 +450,15 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     };
 
     /// <summary>
-    /// 这个文件夹是不是受保护的（系统容器 / Windows / 用户配置根等）。
-    /// 只是**选择期提示**：链接、重解析祖先这类需要读磁盘的判定在删除预览里做。
+    /// 复选框是否禁用。只对硬拦（Windows / Program Files / Users / ProgramData 等根容器）。
+    /// 需确认项（如用户配置根）仍可勾，额外确认留在删除预览/对话框。
     /// </summary>
-    public bool IsSelectionProtected => SelectionGuard.Guard != PathGuard.Allowed;
+    public bool IsSelectionProtected => SelectionGuard.Guard == PathGuard.Blocked;
 
-    /// <summary>受保护时的一句原因（否则空串）。</summary>
-    public string SelectionNote => IsSelectionProtected ? SelectionGuard.Reason : "";
+    /// <summary>
+    /// 硬拦时解释为何灰掉；需确认时说明删除还会再问一次。允许勾选的普通目录为空。
+    /// </summary>
+    public string SelectionNote => SelectionGuard.Guard == PathGuard.Allowed ? "" : SelectionGuard.Reason;
 
     // ---------------- 真实摘要证据（行内详情只显示这些，不编造） ----------------
 

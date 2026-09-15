@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Windows;
-using System.Windows.Controls.Primitives;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 
@@ -30,34 +29,13 @@ public partial class MainWindow
 
     // ==================== 勾选 ====================
 
-    /// <summary>行内复选框：按 CheckBox 的新状态写入节点；点文字之类则切换。</summary>
+    /// <summary>
+    /// 行内复选框：TwoWay 已经把 <see cref="OrganizeNode.IsChecked"/> 写好了，
+    /// 这里只刷新底部栏，不再 Toggle，避免点一下勾上又立刻取消。
+    /// </summary>
     private void OrganizeSelect_Click(object sender, RoutedEventArgs e)
     {
         if (_folderDeleteService.IsBusy) return;
-        var node = (sender as FrameworkElement)?.DataContext as OrganizeNode
-            ?? (sender as FrameworkElement)?.Tag as OrganizeNode;
-        if (node == null) return;
-
-        if (sender is ToggleButton toggle && toggle.IsChecked.HasValue)
-            node.IsChecked = toggle.IsChecked.Value;
-        else
-            node.ToggleSelect();
-
-        RefreshFolderDeleteBar();
-    }
-
-    /// <summary>全选**当前可见**的行（展开的层级与筛选后的列表），不偷偷扩展到没显示的对象。</summary>
-    private void OrganizeSelectAll_Click(object sender, RoutedEventArgs e)
-    {
-        if (_folderDeleteService.IsBusy) return;
-        foreach (var node in _organizeRows) node.IsChecked = true;
-        RefreshFolderDeleteBar();
-    }
-
-    private void OrganizeClearSelection_Click(object sender, RoutedEventArgs e)
-    {
-        if (_folderDeleteService.IsBusy) return;
-        foreach (var node in _organizeAll) node.IsChecked = false;
         RefreshFolderDeleteBar();
     }
 

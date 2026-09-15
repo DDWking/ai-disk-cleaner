@@ -123,7 +123,7 @@ public static class Program
             foreach (var n in new[]
                      {
                          "AlertText", "Overlay", "OrganizeGrid", "OrganizeCounts",
-                         "OrganizeSelectAllBtn", "CleanSelectAllBtn", "AiChip",
+                         "CleanSelectAllBtn", "AiChip",
                          "ColOrgAction", "ColAppInstallDate", "TabCleanBtn", "TabOrganizeBtn",
                      })
                 Check($"x:Name={n} 已赋值", NamedField(win, n) != null);
@@ -131,10 +131,13 @@ public static class Program
             // 页头清理过的东西必须真的不在控件树里（"看不见"要靠不存在来保证，不是靠隐藏）：
             // 「未识别」筛选胶囊被移除；页面标题也被删掉（Tab 上写的就是「按文件夹删除」，
             // 标题重复出现一次是多余的），所以统计行才是页头第一行可见文字。
+            // 整理页也不再有「全选」—— 勾选只走行内复选框。
             Check("页头不再有「未识别」筛选胶囊",
                 NamedField(win, "OrganizeFilterPendingBtn") == null);
             Check("页头不再重复页面标题（统计成为第一行）",
                 NamedField(win, "OrganizeTitle") == null);
+            Check("整理页底部不再有「全选」按钮",
+                NamedField(win, "OrganizeSelectAllBtn") == null);
             Check("清理栏不再有规则批选按钮", NamedField(win, "RuleSelectBtn") == null);
             Check("清理栏不再有「清空选择」按钮", NamedField(win, "ClearSelectionBtn") == null);
 
@@ -178,6 +181,23 @@ public static class Program
                 && node.DetailText.Contains(Loc.OrganizeDetailWhat, StringComparison.Ordinal)
                 && node.DetailText.Contains(Loc.OrganizeDetailWhy, StringComparison.Ordinal));
             Check("详情标题与来源都能取到", node.PurposeText.Length > 0 && node.SourceText.Length > 0);
+
+            var blocked = new OrganizeNode(
+                new FileEntry { Name = "Windows", FullPath = @"C:\Windows", Kind = EntryKind.Directory },
+                new FolderId(@"C:\Windows", 1), 0, "Windows");
+            Check("系统容器复选框禁用", blocked.IsSelectionProtected);
+            Check("系统容器仍有禁用原因", blocked.SelectionNote.Length > 0);
+
+            var profile = new OrganizeNode(
+                new FileEntry { Name = "Alice", FullPath = @"C:\Users\Alice", Kind = EntryKind.Directory },
+                new FolderId(@"C:\Users\Alice", 1), 0, "Users\\Alice");
+            Check("用户配置根可勾（需确认不禁用复选框）", !profile.IsSelectionProtected);
+            Check("用户配置根仍有确认说明", profile.SelectionNote.Length > 0);
+
+            var plain = new OrganizeNode(
+                new FileEntry { Name = "projects", FullPath = @"C:\Data\projects", Kind = EntryKind.Directory },
+                new FolderId(@"C:\Data\projects", 1), 0, "projects");
+            Check("普通目录可勾且无选择提示", !plain.IsSelectionProtected && plain.SelectionNote.Length == 0);
         }
 
         Console.WriteLine("== 6. 崩溃处理器：重入闸、半初始化、第一现场、日志失败 ==");

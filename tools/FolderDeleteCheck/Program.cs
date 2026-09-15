@@ -160,6 +160,30 @@ public static class Program
         Check("防护：硬拦优先", FolderDeleteGuard.Strictest(
             PathGuardResult.Confirm("x", "y"),
             PathGuardResult.Blocked("z", "w")).Guard == PathGuard.Blocked);
+
+        // 复选框禁用只对硬拦；需确认项仍可勾，额外确认留在预览/对话框。
+        Check("勾选：Windows / Program Files / Users / ProgramData 容器不可勾",
+            Blocked(@"C:\Windows") && Blocked(@"C:\Program Files")
+            && Blocked(@"C:\Users") && Blocked(@"C:\ProgramData"));
+        Check("勾选：用户配置根需确认、不是硬拦（仍可勾）",
+            Confirm(@"C:\Users\Alice") && !Blocked(@"C:\Users\Alice"));
+        var vendorPath = ProtectedPaths.Classify(@"C:\Program Files\Vendor");
+        Check("勾选：软件目录一级需确认、不是硬拦（仍可勾）",
+            vendorPath.Guard == PathGuard.NeedsConfirm && !Blocked(@"C:\Program Files\Vendor"));
+        Check("勾选：普通目录可勾", !Blocked(@"C:\Data\projects") && !Confirm(@"C:\Data\projects"));
+
+        var confirmPick = FolderSelectionService.Build(new[]
+        {
+            new FolderPick(true, @"C:\Users\Alice", "Alice", 200),
+        });
+        Check("勾选：需确认项勾上后仍进选择（确认在预览里）",
+            confirmPick.KeptCount == 1 && confirmPick.Targets[0].Path == @"C:\Users\Alice");
+        var blockedPick = FolderSelectionService.Build(new[]
+        {
+            new FolderPick(true, @"C:\Windows", "Windows", 1),
+        });
+        Check("勾选：硬拦路径若被勾上，选择层仍照收（禁用发生在复选框，删除预览再硬拦）",
+            blockedPick.KeptCount == 1);
     }
 
     // ---------------------------------------------------------------- 预览
@@ -435,6 +459,9 @@ public static class Program
         bar.Refresh(0, 0, 0, 0);
         Check("栏：无选择不可删，也不占一行教学文案",
             !bar.HasSelection && !bar.CanDelete && bar.StateText.Length == 0);
+        Check("栏：空闲态没有全选，只提示先勾选",
+            bar.SelectedText == FolderDeleteText.NothingSelected
+            && !bar.SelectedText.Contains("全选"));
 
         bar.Refresh(2, 1, 1, 1024);
         Check("栏：有选择可删", bar.HasSelection && bar.CanDelete);
@@ -461,8 +488,10 @@ public static class Program
         Check("栏：删除后清空选择不覆盖结果标题", bar.StateText == headline);
         bar.Refresh(1, 1, 0, 10);
         Check("栏：重新勾选回到可删且清掉旧结果", bar.CanDelete && bar.StateText.Length == 0);
-        Check("栏：文案齐全", bar.DeleteText.Length > 0 && bar.CancelText.Length > 0
-            && bar.SelectAllText.Length > 0 && bar.ClearText.Length > 0);
+        Check("栏：文案齐全（删除 / 停止，没有全选）",
+            bar.DeleteText.Length > 0 && bar.CancelText.Length > 0
+            && bar.DeleteText == FolderDeleteText.DeleteAction
+            && !bar.SelectedText.Contains("全选") && !bar.StateText.Contains("全选"));
     }
 
     // ---------------------------------------------------------------- 真实 shell 冒烟（显式开关）

@@ -728,10 +728,12 @@ Assert-True 'clean action bar has a single 全选 toggle, not a separate clear o
 Assert-True 'clean 全选 never retitles itself to 取消全选' `
     ($cs -notmatch 'CleanSelectAllBtn\.Content = Loc\.ClearSelection' -and
      $cs -match 'allSelected \? Loc\.SelectAllClearTip : Loc\.SelectAllActionTip')
-Assert-True 'organize page has a single 全选 toggle on listed rows' `
-    ($xaml -match 'x:Name="OrganizeSelectAllBtn"' -and
-     $org -match 'OrganizeSelectAllToggle_Click' -and
-     $org -match 'OrganizeSelectAllBtn\.Content = Loc\.SelectAll')
+Assert-True 'organize page has no 全选 button; rows tick via IsChecked' `
+    ($xaml -notmatch 'x:Name="OrganizeSelectAllBtn"' -and
+     $org -notmatch 'OrganizeSelectAllToggle_Click' -and
+     $org -notmatch 'UpdateOrganizeSelectAllState' -and
+     $xaml -match 'IsChecked="\{Binding IsChecked, Mode=TwoWay' -and
+     $orgnode -match 'IsSelectionProtected => SelectionGuard.Guard == PathGuard.Blocked')
 Assert-True 'organize pending-filter chip and duplicate title are gone' `
     ($xaml -notmatch 'x:Name="OrganizeFilterPendingBtn"' -and
      $xaml -notmatch 'x:Name="OrganizeTitle"')

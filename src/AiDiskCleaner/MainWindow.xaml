@@ -1369,7 +1369,7 @@
             </Border>
 
             <!-- ===== 底部唯一执行栏：按文件夹删除 =====
-                 选择挂在 OrganizeNode.IsChecked 上；这里的按钮只表达「全选 → 预览 → 确认」的意图，
+                 选择挂在 OrganizeNode.IsChecked 上；这里的按钮只表达「预览 → 确认」的意图，
                  真正的删除动作、回收站要求与保护判定全部在后端 FolderDelete 合同里。 -->
             <Border DockPanel.Dock="Bottom" Background="{DynamicResource Bg}"
                     BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="16,10"
@@ -1394,28 +1394,6 @@
                              FontSize="10.5" TextWrapping="Wrap"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                  <!-- 「全选当前列表」与「清空选择」合成**一个**按钮：
-                       文案永远是「全选」（Loc.SelectAll，代码里设，绝不改成「取消全选」），
-                       两个视觉状态由 Tag 决定（代码按当前列表算出 All / 空）：
-                         · 当前列表里还有没勾的可勾选行 ⇒ 普通 GhostButton，点 = 全选当前列出来的行；
-                         · 当前列表里可勾选行已全部勾上 ⇒ 高亮，点 = 清空这些行的勾选。
-                       **只作用于当前列出来的行**（_organizeRows），不扩展到没显示的材料化对象。 -->
-                  <Button x:Name="OrganizeSelectAllBtn" Padding="12,6" FontSize="12" Margin="0,0,8,0"
-                          Content="全选" AutomationProperties.Name="全选"
-                          Click="OrganizeSelectAllToggle_Click"
-                          IsEnabled="{Binding IsBusy, Converter={StaticResource InvertBool}}">
-                    <Button.Style>
-                      <Style TargetType="Button" BasedOn="{StaticResource GhostButton}">
-                        <Style.Triggers>
-                          <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="All">
-                            <Setter Property="Background" Value="{DynamicResource SelectBg}"/>
-                            <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
-                            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
-                          </DataTrigger>
-                        </Style.Triggers>
-                      </Style>
-                    </Button.Style>
-                  </Button>
                   <Button Style="{StaticResource GhostButton}" Padding="12,6" FontSize="12" Margin="0,0,8,0"
                           Content="{Binding CancelText}" IsEnabled="{Binding CanCancel}"
                           Click="FolderDeleteCancel_Click"
@@ -1453,9 +1431,9 @@
                 </ContextMenu>
               </DataGrid.ContextMenu>
               <DataGrid.Columns>
-                <!-- 选择：**手动勾选**，与 AI 结论完全分离（AI 不改 IsSelected）。
+                <!-- 选择：**手动勾选**，与 AI 结论完全分离（AI 不改 IsChecked）。
                      展开箭头仍然只在名称列里，行内展开/收起不换页面。
-                     受保护的项禁用勾选，只给纯路径提示。 -->
+                     只有硬拦（Blocked）禁用勾选；需确认项仍可勾，删除预览里再问。 -->
                 <DataGridTemplateColumn Width="34" MinWidth="34" CanUserResize="False" CanUserSort="False"
                                         IsReadOnly="True">
                   <DataGridTemplateColumn.Header>
@@ -1464,7 +1442,7 @@
                   <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                       <CheckBox VerticalAlignment="Center" HorizontalAlignment="Center"
-                                IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                 IsEnabled="{Binding IsSelectionProtected, Converter={StaticResource InvertBool}}"
                                 Click="OrganizeSelect_Click"
                                 ToolTip="{Binding SelectionNote}"
