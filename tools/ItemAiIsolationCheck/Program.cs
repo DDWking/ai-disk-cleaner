@@ -88,18 +88,26 @@ public static class Program
 
         var cleanView = new ItemAiView { ScopeKey = @"C:\Same", Source = ItemAiSource.Clean };
         cleanView.Verdict = verdict;
-        Check("清理树视图：结论与「选择这些文件」照常可用", cleanView.CanSelect);
+        Check("清理树视图：本地可勾选集合仍可用", cleanView.CanSelect);
         Check("清理树视图：可定位清理明细", cleanView.CanViewFiles);
-        Check("清理树：未展开时不出结果卡", !cleanView.ShowResultPanel);
+        Check("仅本地结论、没有模型结果：不出 AI 结果卡", !cleanView.ShowResultPanel);
         cleanView.IsExpanded = true;
-        Check("清理树：可勾选且展开时才出结果卡", cleanView.ShowResultPanel);
+        Check("仅本地结论展开后仍不出 AI 结果卡", !cleanView.ShowResultPanel);
+
+        cleanView.Result = new ItemAiResult(ItemAiSuggestion.CanConsider, "缓存", "删了会重建",
+            "路径", "", "raw", false, 0, 0, 0, "", 1);
+        cleanView.Status = ItemAiStatus.Done;
+        Check("有模型用途/影响且展开：出瘦结果卡", cleanView.ShowResultPanel && cleanView.HasModelNote);
+        Check("瘦结果卡不靠 CanSelect", cleanView.CanSelect && cleanView.ShowResultPanel);
 
         var orgView = new ItemAiView { ScopeKey = @"C:\Same", Source = ItemAiSource.Organize };
         orgView.Verdict = verdict;   // 硬塞同一个可勾选结论：能力也必须被来源挡住
+        orgView.Result = cleanView.Result;
+        orgView.Status = ItemAiStatus.Done;
         orgView.IsExpanded = true;
         Check("整理树视图：即使拿到同一个可勾选结论，也绝不暴露勾选能力", !orgView.CanSelect);
         Check("整理树视图：不提供清理明细定位", !orgView.CanViewFiles);
-        Check("整理树：即使展开也不出清理结果卡", !orgView.ShowResultPanel);
+        Check("整理树：即使有模型结果也不出清理结果卡", !orgView.ShowResultPanel);
         Check("整理树视图：结论/用途展示仍然可用（隔离的是动作，不是信息）",
             orgView.HasVerdict && orgView.Headline.Length > 0 && orgView.Note.Length > 0,
             $"has={orgView.HasVerdict} headline={orgView.Headline}");
@@ -118,9 +126,28 @@ public static class Program
         var reviewView = new ItemAiView { ScopeKey = @"C:\Same\review", Source = ItemAiSource.Clean };
         reviewView.Verdict = reviewOnly;
         reviewView.IsExpanded = true;
-        Check("全是待确认：不给一键选择，也不出结果卡",
+        Check("全是待确认：不给一键选择，本地结论也不出结果卡",
             !reviewOnly.CanSelect && !reviewView.CanSelect && !reviewView.ShowResultPanel,
             $"verdict={reviewOnly.CanSelect} view={reviewView.ShowResultPanel}");
+
+        var loc = new CleanLocationNode { Key = @"C:\Same", DisplayName = "Same", Path = @"C:\Same" };
+        loc.Items = new List<CleanItem> { Cleanable(@"C:\Same\a.tmp") };
+        Check("未展开时本地选择芯片不出现", !loc.ShowLocalSelectChip);
+        loc.SetFilesOpen(true);
+        Check("展开且有规则可清理项时出现本地选择芯片（不等识别）", loc.ShowLocalSelectChip);
+
+        var reviewLoc = new CleanLocationNode { Key = @"C:\Same\review", DisplayName = "review", Path = @"C:\Same\review" };
+        reviewLoc.Items = new List<CleanItem>
+        {
+            new()
+            {
+                Name = "a.tmp", FullPath = @"C:\Same\review\a.tmp", Size = 10,
+                Reason = "unknown", CanDelete = true, Risk = CleanRisk.Confirm,
+                Purpose = CleanPurpose.Other,
+            },
+        };
+        reviewLoc.SetFilesOpen(true);
+        Check("全是待确认：展开后也不出本地选择芯片", !reviewLoc.ShowLocalSelectChip);
 
         var flip = new ItemAiView { ScopeKey = "k" };
         flip.Verdict = verdict;
@@ -303,9 +330,18 @@ public static class Program
             !cs.Contains("_itemAiRunning.Remove(view.ScopeKey)", StringComparison.Ordinal));
         Check("可用性判定走合同函数（不因 Unknown 丢用途/影响）",
             cs.Contains("bool usable = ItemAiPrompt.IsUsable(result);", StringComparison.Ordinal));
-        Check("清理树的本地结论路径仍在（未误伤清理页）",
-            cs.Contains("AiVerdict.Build(items", StringComparison.Ordinal)
+        Check("识别不先用本地项数冒充完成",
+            !cs.Contains("结论来自本地数据，不需要模型", StringComparison.Ordinal)
+            && !cs.Contains("AiVerdict.Build(items, identity, null)", StringComparison.Ordinal));
+        Check("模型回来后仍按清理树重算本地可选项（模型改不了集合）",
+            cs.Contains("AiVerdict.Build(items, identity, result)", StringComparison.Ordinal)
             && cs.Contains("case OrganizeNode node:", StringComparison.Ordinal));
+        Check("未配置 AI 时标失败而不是本地 Done",
+            cs.Contains("view.Status = ItemAiStatus.Failed;", StringComparison.Ordinal)
+            && !cs.Contains("if (items.Count == 0) view.Status = ItemAiStatus.Failed", StringComparison.Ordinal));
+        Check("选择这些文件走位置行本地项，整理树直接返回",
+            cs.Contains("if (ctx is OrganizeNode) return;", StringComparison.Ordinal)
+            && cs.Contains("ctx is CleanLocationNode loc", StringComparison.Ordinal));
         Check("没有新增自动/批量请求入口",
             !cs.Contains("AnalyzeCurrentCategory", StringComparison.Ordinal));
     }

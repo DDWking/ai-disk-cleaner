@@ -221,7 +221,7 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
 
     /// <summary>
     /// 第二行统计：`C:\Windows\Logs · 385 个文件`。
-    /// 不再挂「用途待确认」。点过 AI 且给出了用途时，改显示该用途。
+    /// 不再挂「用途待确认」。模型用途/影响走行下的瘦提示，不在这里复述。
     /// </summary>
     public string RowSubText
     {
@@ -231,8 +231,6 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
             string parent = ParentHint;
             if (parent.Length > 0) bits.Add(parent);
             bits.Add(Loc.LocationFiles(FileCount));
-            string aiPurpose = ItemAiPurposeText();
-            if (aiPurpose.Length > 0) bits.Add(aiPurpose);
             return string.Join(" · ", bits);
         }
     }
@@ -244,6 +242,15 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
         if (v == null || v.IsStale || v.Status != ItemAiStatus.Done) return "";
         return v.Result?.Purpose?.Trim() ?? "";
     }
+
+    /// <summary>这一处有没有规则允许直接清理、且无需额外确认的项。</summary>
+    public bool HasCleanableItems => Items.Any(AiVerdict.IsCleanable);
+
+    /// <summary>
+    /// 展开文件表时显示的本地「选择这些文件」芯片。
+    /// 不依赖识别、不是 AI 意见；整理树没有这个入口。
+    /// </summary>
+    public bool ShowLocalSelectChip => IsFilesOpen && HasCleanableItems;
 
     /// <summary>技术细节（命中了哪条签名、风险词等）。术语留在悬停里，不进标题。</summary>
     public string Tech { get; set; } = "";
@@ -388,6 +395,7 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
         OnPropertyChanged(nameof(FilesNote));
         OnPropertyChanged(nameof(HasHiddenFiles));
         OnPropertyChanged(nameof(VisibleFiles));
+        OnPropertyChanged(nameof(ShowLocalSelectChip));
         RaiseSelectionChanged();
     }
 

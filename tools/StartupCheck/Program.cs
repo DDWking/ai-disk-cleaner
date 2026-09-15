@@ -1135,7 +1135,8 @@ public static class Program
         // 行内列表刻意不做嵌套滚动：外层虚拟化列表不能被内层滚动区抢滚轮
         var xaml = ReadSource("src/AiDiskCleaner/MainWindow.xaml");
         int inlineStart = xaml.IndexOf("行内展开：这一处的候选文件", StringComparison.Ordinal);
-        int inlineEnd = inlineStart < 0 ? -1 : xaml.IndexOf("AI 结果展开区", inlineStart, StringComparison.Ordinal);
+        // 模型瘦提示已挪到文件表上方；这段以位置行模板结束为界。
+        int inlineEnd = inlineStart < 0 ? -1 : xaml.IndexOf("x:Key=\"TermScrollThumb\"", inlineStart, StringComparison.Ordinal);
         string inlineBlock = inlineStart >= 0 && inlineEnd > inlineStart
             ? xaml[inlineStart..inlineEnd] : "";
         Check("行内文件块是有的（定位到了模板片段）", inlineBlock.Length > 0);

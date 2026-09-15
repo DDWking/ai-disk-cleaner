@@ -2006,34 +2006,23 @@ public partial class MainWindow : Window, IAnalystHost
         view.Error = "";
         view.Notice = "";
 
-        // **结论来自本地数据，不需要模型**：先把「建议清理多少项、能腾多少」算好并展开，
-        // 这样未配置 AI 时用户照样一眼看到结论、能查看文件、能手动选择（§九 要求）。
-        //
-        // 但「认领清理条目」这件事**只属于清理树**：整理页的文件夹路径可能和某个
-        // 清理候选完全一样（FindItemByPath 会命中），一旦共用查找，整理结果就会
-        // 带上「可选择清理项」的能力。来源在 DescribeAiTarget 里显式标好。
+        // 「认领清理条目」只属于清理树：整理页路径可能和某个清理候选完全一样
+        //（FindItemByPath 会命中），一旦共用查找就会带上勾选能力。
+        // 来源在 DescribeAiTarget 里显式标好。识别本身不先用本地项数冒充结论。
         bool cleanSource = view.IsCleanSource;
         var node = cleanSource ? ResolveLocationNode(view.ScopeKey) : null;
         IReadOnlyList<CleanItem> items = cleanSource
             ? ItemsForScope(view.ScopeKey)
             : (IReadOnlyList<CleanItem>)Array.Empty<CleanItem>();
         if (items.Count > 0)
-        {
-            string identity = node != null
-                ? IdentityOf(node)
-                : IdentityOfItem(items[0], ResolveLocationForItem(items[0]));
-            view.Verdict = AiVerdict.Build(items, identity, null);
             view.CanViewFiles = ResolveLocationForItem(items[0]) != null;
-            view.Status = ItemAiStatus.Done;
-            view.IsExpanded = true;
-        }
 
         if (!AiConfigured())
         {
-            // 如实说明模型不可用；本地结论、查看与手动选择照常可用
+            // 不造一张本地项数卡。文件表照样能展开、能勾；这里只说模型不可用。
             view.Error = Loc.AiNeedConfigLocalStillWorks;
             view.Notice = Loc.AiNeedConfigLocalStillWorks;
-            if (items.Count == 0) view.Status = ItemAiStatus.Failed;
+            view.Status = ItemAiStatus.Failed;
             return;
         }
 
@@ -2053,8 +2042,7 @@ public partial class MainWindow : Window, IAnalystHost
             if (myReq != view.RequestId) return;
 
             view.Result = result;
-            // 拿到模型结果后**重算结论**：说明里会补上模型给的删除影响，但
-            // 「哪些算可考虑清理」仍然只由本地规则决定，模型改不了。§八
+            // 模型不能改 CanDelete / Risk / Selected。「哪些可清理」仍只由本地规则决定。
             if (items.Count > 0)
             {
                 string identity = node != null
@@ -2067,17 +2055,18 @@ public partial class MainWindow : Window, IAnalystHost
             // 判据与 ItemAiResult.Barren 合同一致：有用途/影响/依据就还算有用，
             // 不因为建议档位没认出来（Unknown）就把有效内容丢掉。
             bool usable = ItemAiPrompt.IsUsable(result);
-            if (items.Count == 0 && !usable)
+            if (!usable)
             {
                 view.Status = ItemAiStatus.NoUseful;
                 view.Error = Loc.AiNoResultRetry;
                 view.Notice = Loc.AiNoResultRetry;
+                view.IsExpanded = false;
             }
             else
             {
                 view.Status = ItemAiStatus.Done;
+                view.IsExpanded = true;
             }
-            view.IsExpanded = true;   // 有新结果就展开给人看
         }
         catch (OperationCanceledException)
         {
@@ -2216,29 +2205,39 @@ public partial class MainWindow : Window, IAnalystHost
     }
 
     /// <summary>
-    /// 「选择这些文件」：**只勾「可直接清理」那部分里符合本地清理资格、且无需额外确认的项**。
+    /// 「选择这些文件」：本地动作，不是 AI 意见。
+    /// 只勾符合本地清理资格、且无需额外确认的项；不依赖识别是否跑过。
     ///
     /// 硬约束：
     /// <list type="bullet">
-    /// <item>只作用于 <see cref="AiVerdictResult.SelectableItems"/> —— 由本地规则算出，
-    ///       「建议保留」「需要确认」的项不在其中，界面上也没有它们的按钮；</item>
-    /// <item>逐个作用于真实 <see cref="CleanItem"/> 引用，不碰别的分组、不扩大范围；</item>
+    /// <item>位置行芯片：该位置 <see cref="AiVerdict.IsCleanable"/> 的项；</item>
+    /// <item>若仍带着旧的分组 Tag，只勾那一组里同样符合资格的项；</item>
+    /// <item>整理树没有这个入口，误点也直接返回；</item>
     /// <item>不新建删除入口，结果照常汇入「查看已选」与既有预检/确认/执行链路。</item>
     /// </list>
     /// </summary>
     public void AiSelectBucket_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not { } ctx) return;
-        var (view, _) = DescribeAiTarget(ctx);
-        var verdict = view?.Verdict;
-        if (verdict == null) return;
+        if (ctx is OrganizeNode) return;
 
-        // 分组卡片上的按钮：只勾那一组；顶部按钮：勾全部「可直接清理」
-        IReadOnlyList<CleanItem> scope = verdict.SelectableItems;
-        if ((sender as FrameworkElement)?.Tag is AiBucketResult bucket)
+        IReadOnlyList<CleanItem> scope;
+        if (ctx is CleanLocationNode loc)
         {
-            if (!bucket.CanSelect) { SetAiStatus(Loc.SelectBlockedByRule); return; }
-            scope = bucket.Items.Where(AiVerdict.IsCleanable).ToList();
+            scope = loc.Items.Where(AiVerdict.IsCleanable).ToList();
+        }
+        else
+        {
+            var (view, _) = DescribeAiTarget(ctx);
+            if (view == null || !view.IsCleanSource) return;
+            var verdict = view.Verdict;
+            if (verdict == null) return;
+            scope = verdict.SelectableItems;
+            if ((sender as FrameworkElement)?.Tag is AiBucketResult bucket)
+            {
+                if (!bucket.CanSelect) { SetAiStatus(Loc.SelectBlockedByRule); return; }
+                scope = bucket.Items.Where(AiVerdict.IsCleanable).ToList();
+            }
         }
 
         int added = 0;

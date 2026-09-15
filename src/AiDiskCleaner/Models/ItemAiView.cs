@@ -65,7 +65,10 @@ public sealed class ItemAiView : INotifyPropertyChanged
             Raise(nameof(IsCleanSource));
             Raise(nameof(IsolationKey));
             Raise(nameof(CanSelect));
+            Raise(nameof(HasModelNote));
             Raise(nameof(ShowResultPanel));
+            Raise(nameof(ShowIdentifyError));
+            Raise(nameof(ShowAiInline));
             Raise(nameof(CanViewFiles));
         }
     }
@@ -97,6 +100,10 @@ public sealed class ItemAiView : INotifyPropertyChanged
             Raise(nameof(ProgressText));
             Raise(nameof(IsAnalyzing));
             Raise(nameof(TipText));
+            Raise(nameof(HasModelNote));
+            Raise(nameof(ShowResultPanel));
+            Raise(nameof(ShowIdentifyError));
+            Raise(nameof(ShowAiInline));
         }
     }
 
@@ -114,6 +121,9 @@ public sealed class ItemAiView : INotifyPropertyChanged
             Raise(nameof(BasisText));
             Raise(nameof(MissingText));
             Raise(nameof(DetailText));
+            Raise(nameof(HasModelNote));
+            Raise(nameof(ShowResultPanel));
+            Raise(nameof(ShowAiInline));
         }
     }
 
@@ -127,6 +137,7 @@ public sealed class ItemAiView : INotifyPropertyChanged
             _expanded = value;
             Raise();
             Raise(nameof(ShowResultPanel));
+            Raise(nameof(ShowAiInline));
         }
     }
 
@@ -245,6 +256,7 @@ public sealed class ItemAiView : INotifyPropertyChanged
             Raise(nameof(Note));
             Raise(nameof(CanSelect));
             Raise(nameof(ShowResultPanel));
+            Raise(nameof(ShowAiInline));
             Raise(nameof(ShowBuckets));
             Raise(nameof(Buckets));
             Raise(nameof(Why));
@@ -262,10 +274,26 @@ public sealed class ItemAiView : INotifyPropertyChanged
     public bool CanSelect => IsCleanSource && _verdict?.CanSelect == true && !IsStale;
 
     /// <summary>
-    /// 清理行下方那张结果卡：只在「有可勾选的清理项」时出现。
-    /// 全是待确认/保留时不宣布「暂时不能确定」—— 文件表已经在上面。
+    /// 模型是否说了用途或删除影响。这两句是模型独有的；项数/空间以文件表为准。
     /// </summary>
-    public bool ShowResultPanel => CanSelect && IsExpanded;
+    public bool HasModelNote => HasResult && !IsStale
+        && (!string.IsNullOrWhiteSpace(_result?.Purpose)
+            || !string.IsNullOrWhiteSpace(_result?.Impact));
+
+    /// <summary>
+    /// 清理行下方的瘦提示：只展示模型用途/删除影响。
+    /// 不再用本地项数当「AI 结论」，也不再和「选择这些文件」绑在一起。
+    /// 整理树只展示信息，不出这块清理提示。
+    /// </summary>
+    public bool ShowResultPanel => IsCleanSource && HasModelNote && IsExpanded;
+
+    /// <summary>识别失败/超时/取消/无可用结论时的一行实话，不冒充建议卡。</summary>
+    public bool ShowIdentifyError => IsCleanSource
+        && _status is ItemAiStatus.Failed or ItemAiStatus.Timeout
+            or ItemAiStatus.Canceled or ItemAiStatus.NoUseful;
+
+    /// <summary>位置行上要不要留出识别结果/错误那一两行。</summary>
+    public bool ShowAiInline => ShowResultPanel || ShowIdentifyError;
 
     /// <summary>
     /// 「查看文件」是否可用。定位不到所属位置时置 false ——
@@ -298,7 +326,10 @@ public sealed class ItemAiView : INotifyPropertyChanged
             Raise();
             Raise(nameof(IsStale));
             Raise(nameof(CanSelect));
+            Raise(nameof(HasModelNote));
             Raise(nameof(ShowResultPanel));
+            Raise(nameof(ShowIdentifyError));
+            Raise(nameof(ShowAiInline));
             Raise(nameof(CanViewFiles));
             Raise(nameof(HasVerdict));
             Raise(nameof(Headline));

@@ -919,25 +919,23 @@
       </Button>
     </DataTemplate>
 
-    <!-- 逐项 AI 结果卡：只在「有可勾选的清理项」时出现。
-         全是待确认时不宣布「暂时不能确定」—— 行内文件表已经够用。
-         不放「查看文件」（和右上角箭头重复）、不放依据折叠、不放重新分析。 -->
+    <!-- 逐项 AI 瘦提示：只写模型独有的用途 / 删除影响。
+         不复述文件表里的项数与空间；本地勾选芯片在位置行上，不进这块。 -->
     <DataTemplate x:Key="ItemAiResultOnly">
-      <Border Margin="0,6,0,0" Padding="10,8" CornerRadius="3"
-              Background="{DynamicResource PanelLeft}"
-              BorderBrush="{DynamicResource GridLine}" BorderThickness="1"
-              Visibility="{Binding Ai.ShowResultPanel, Converter={StaticResource BoolToVisible}}">
-        <StackPanel Orientation="Horizontal">
-          <TextBlock Text="{Binding Ai.Headline}" FontSize="12.5" FontWeight="SemiBold"
-                     Foreground="{DynamicResource Accent}" TextWrapping="Wrap"
-                     VerticalAlignment="Center" MaxWidth="420"/>
-          <Button Style="{StaticResource ChipButton}" Padding="10,3" FontSize="11.5" Margin="10,0,0,0"
-                  Content="选择这些文件" Click="AiSelectBucket_Click"
-                  ToolTip="只勾选符合本地清理资格的项，之后仍会走清理确认"
-                  AutomationProperties.Name="选择这些文件"
-                  Visibility="{Binding Ai.CanSelect, Converter={StaticResource BoolToVisible}}"/>
+      <StackPanel Margin="0,4,0,0"
+                  Visibility="{Binding Ai.ShowAiInline, Converter={StaticResource BoolToVisible}}">
+        <StackPanel Visibility="{Binding Ai.ShowResultPanel, Converter={StaticResource BoolToVisible}}">
+          <TextBlock Text="{Binding Ai.PurposeText}" FontSize="11.5"
+                     Foreground="{DynamicResource TextDim}" TextWrapping="Wrap"
+                     Visibility="{Binding Ai.PurposeText, Converter={StaticResource EmptyToCollapsed}}"/>
+          <TextBlock Text="{Binding Ai.ImpactText}" FontSize="11.5" Margin="0,2,0,0"
+                     Foreground="{DynamicResource TextDim}" TextWrapping="Wrap"
+                     Visibility="{Binding Ai.ImpactText, Converter={StaticResource EmptyToCollapsed}}"/>
         </StackPanel>
-      </Border>
+        <TextBlock Text="{Binding Ai.StatusText}" FontSize="11.5" Margin="0,2,0,0"
+                   Foreground="{DynamicResource TextMuted}" TextWrapping="Wrap"
+                   Visibility="{Binding Ai.ShowIdentifyError, Converter={StaticResource BoolToVisible}}"/>
+      </StackPanel>
     </DataTemplate>
 
     <!-- 一个清理位置的整行（含就地展开的候选文件）。
@@ -984,7 +982,7 @@
                              Foreground="{DynamicResource Accent}"/>
                 </Border>
               </StackPanel>
-              <!-- 第二行：精简父路径 · 文件数 ·（点过 AI 时）用途 -->
+              <!-- 第二行：精简父路径 · 文件数。模型用途/影响在行下瘦提示里，不在这里复述。 -->
               <TextBlock Text="{Binding RowSubText}" Margin="0,3,0,0" FontSize="11"
                          Foreground="{DynamicResource TextDim}" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
@@ -1017,13 +1015,25 @@
                     Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
             </Button>
           </Grid>
+          <!-- 模型用途 / 删除影响 / 识别失败的一行实话。不复述项数。 -->
+          <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ItemAiResultOnly}"
+                          Margin="32,0,0,0"/>
           <!-- ===== 行内展开：这一处的候选文件，**不需要 AI** =====
                点位置行或右侧箭头就地展开；列表用真正的 CleanItem 实例，
                勾选直接写回同一份状态；只在这里看与勾，不能删。 -->
           <StackPanel Margin="32,6,0,2"
                       Visibility="{Binding IsFilesOpen, Converter={StaticResource BoolToVisible}}">
-            <TextBlock Text="{Binding FilesNote}" FontSize="11"
-                       Foreground="{DynamicResource TextDim}" TextWrapping="Wrap"/>
+            <DockPanel Margin="0,0,10,2">
+              <Button DockPanel.Dock="Right" Style="{StaticResource ChipButton}"
+                      Padding="10,3" FontSize="11.5" Margin="10,0,0,0"
+                      Content="选择这些文件" Click="AiSelectBucket_Click"
+                      ToolTip="只勾选符合本地清理资格的项，之后仍会走清理确认"
+                      AutomationProperties.Name="选择这些文件"
+                      Visibility="{Binding ShowLocalSelectChip, Converter={StaticResource BoolToVisible}}"/>
+              <TextBlock Text="{Binding FilesNote}" FontSize="11"
+                         Foreground="{DynamicResource TextDim}" TextWrapping="Wrap"
+                         VerticalAlignment="Center"/>
+            </DockPanel>
             <TextBlock Text="{Binding FilesToggleText}" Visibility="Collapsed"/>
             <!-- 头部：名称 / 修改时间 / 大小 / 勾选，四列对齐 -->
             <Grid Margin="0,6,10,2">
@@ -1077,9 +1087,6 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </StackPanel>
-          <!-- AI 结果展开区（按钮在上一行的右侧，这里只放结果） -->
-          <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ItemAiResultOnly}"
-                          Margin="32,0,0,0"/>
         </StackPanel>
       </Border>
     </DataTemplate>

@@ -677,11 +677,11 @@ Assert-True 'no misleading AI wording anywhere' `
     ($cs -notmatch 'AI 自动清理' -and $cs -notmatch 'AI 安全清理' -and
      $cs -notmatch 'AI 决定清理' -and $cs -notmatch 'AI 已替你选择')
 
-# --- 板块：AI 结论界面（本轮核心：一眼看懂该选哪些） -------------------------
+# --- 板块：AI 结论界面（识别只写模型一句，本地勾选移出 AI 卡） ---------------
 $verdict = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiVerdict.cs') -Raw -Encoding UTF8
-Assert-True 'the default view is one headline + next step (note stays in the model, not the card)' `
+Assert-True 'local verdict still computes a headline, but the AI card does not bind it' `
     ($verdict -match 'AiHeadlineClean' -and $verdict -match 'BuildNote' -and
-     $xaml -match 'Ai\.Headline')
+     $xaml -notmatch 'Ai\.Headline')
 Assert-True 'only three user-facing buckets, named in plain words' `
     ($verdict -match 'enum AiBucket' -and $loc -match '可考虑清理' -and
      $loc -match '建议保留' -and $loc -match '需要确认')
@@ -694,29 +694,45 @@ Assert-True 'only the cleanable bucket can be bulk-selected' `
 Assert-True 'protected items never become cleanable' `
     ($verdict -match 'x\.CanDelete && x\.Risk != CleanRisk\.Keep && x\.Risk != CleanRisk\.Confirm')
 $aiCard = [regex]::Match($xaml, '(?s)x:Key="ItemAiResultOnly".*?</DataTemplate>').Value
-Assert-True 'the select action uses the plain wording' `
-    ($loc -match '选择这些文件' -and $aiCard -match '选择这些文件')
+Assert-True '选择这些文件 is a local location-row chip, not an AI card' `
+    ($loc -match '选择这些文件' -and
+     $aiCard -notmatch '选择这些文件' -and
+     $nodes -match 'ShowLocalSelectChip' -and
+     $xaml -match 'ShowLocalSelectChip' -and
+     $xaml -match 'Click="AiSelectBucket_Click"')
 Assert-True 'technical wording is gone from the panel' `
     ($xaml -notmatch '本地拆分' -and $xaml -notmatch '符合清理资格' -and
      $xaml -notmatch '按组' -and $xaml -notmatch '本地规则')
-Assert-True 'AI result card is headline + select; no view-files / why / retry chrome' `
+Assert-True 'AI result is purpose/impact only; no headline, select, view-files, why, retry chrome' `
     ($aiCard.Length -gt 0 -and
      $aiCard -match 'ShowResultPanel' -and
-     $aiCard -match 'Ai\.Headline' -and
+     $aiCard -match 'PurposeText' -and
+     $aiCard -match 'ImpactText' -and
+     $aiCard -notmatch 'Ai\.Headline' -and
+     $aiCard -notmatch '选择这些文件' -and
      $aiCard -notmatch '查看文件' -and
      $aiCard -notmatch '为什么这样建议' -and
      $aiCard -notmatch '重新分析' -and
      $aiCard -notmatch '<Expander' -and
      $aiCard -notmatch 'ScrollViewer')
-Assert-True 'result panel only appears when there is something selectable and the row is expanded' `
-    ($itv -match 'ShowResultPanel => CanSelect && IsExpanded')
+Assert-True 'result panel is model note on the clean tree, not local selectable headline' `
+    ($itv -match 'HasModelNote' -and
+     $itv -match 'ShowResultPanel => IsCleanSource && HasModelNote && IsExpanded' -and
+     $itv -notmatch 'ShowResultPanel => CanSelect && IsExpanded')
+Assert-True 'identify does not mark local items Done before the model' `
+    ($cs -notmatch '结论来自本地数据，不需要模型' -and
+     $cs -notmatch 'AiVerdict\.Build\(items, identity, null\)' -and
+     $cs -match 'view\.Status = ItemAiStatus\.Queued')
 Assert-True 'selecting goes through the existing refresh chain' `
-    ($cs -match 'AiSelectBucket_Click' -and $cs -match 'RefreshAfterSelectionChange\(\)')
+    ($cs -match 'AiSelectBucket_Click' -and $cs -match 'RefreshAfterSelectionChange\(\)' -and
+     $cs -match 'ctx is CleanLocationNode loc')
 Assert-True 'viewing files uses exact item filtering' `
     ($cs -match 'AiViewBucket_Click' -and $cs -match 'SetItemFilter' -and
      $pager -match 'public void SetItemFilter')
-Assert-True 'local verdict is available even without AI configured' `
-    ($cs -match 'AiNeedConfigLocalStillWorks' -and $cs -match 'AiVerdict\.Build\(items')
+Assert-True 'unconfigured AI is a one-line error, not a fake local card' `
+    ($cs -match 'AiNeedConfigLocalStillWorks' -and
+     $cs -match 'view\.Status = ItemAiStatus\.Failed;' -and
+     $itv -match 'ShowIdentifyError')
 
 # --- 2.12 UX contract -------------------------------------------------------
 Assert-True 'clean action bar has a single 全选 toggle, not a separate clear or rule-select button' `
@@ -769,7 +785,8 @@ Assert-True 'inline file list has no 完整列表 button; extra files are counte
      $xaml -notmatch '完整列表（可搜索）' -and
      $loc -match '另有')
 Assert-True 'clean location subtitle no longer appends 用途待确认' `
-    ($nodes -match 'ItemAiPurposeText' -and $nodes -notmatch 'PurposeUnclear')
+    ($nodes -match 'ItemAiPurposeText' -and $nodes -notmatch 'PurposeUnclear' -and
+     $nodes -notmatch 'bits\.Add\(aiPurpose\)')
 Assert-True 'organize purpose column replaces 未识别 after item AI' `
     ($orgnode -match 'HasItemAiPurpose' -and
      $orgnode -match 'NeedsConfirm => _needsConfirm && !HasItemAiPurpose' -and
