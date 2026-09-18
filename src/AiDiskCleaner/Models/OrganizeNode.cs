@@ -272,18 +272,31 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     private bool _needsConfirm;
     private FolderKind _kind = FolderKind.Unknown;
     private PurposeState? _override;
+    private string _batchPurpose = "";
 
     public string PurposeName => _purposeName;
     public string PurposeCategory => _purposeCategory;
     public string Basis => _basis;
+
     /// <summary>
-    /// 展示用来源。本地/用户结论优先；用户点过单项 AI 且给出了用途时，
+    /// 批量归类（结构化判定通道）给出的用途名。
+    ///
+    /// **刻意和逐项 AI 结果分开存**：逐项 AI 的结果还带「删除影响 / 依据 / 缺什么 / 建议档位」，
+    /// 而批量只有一个用途。混进 <see cref="Ai"/> 那个槽位会让界面**假装逐项分析跑过**
+    /// （行内「查看结果」按钮、状态行、建议档位都会被点亮）。
+    ///
+    /// 和逐项 AI 一样：**只影响展示** —— 不 Store、不改 Risk / CanDelete / Selected。
+    /// </summary>
+    public string BatchPurpose => _batchPurpose;
+
+    /// <summary>
+    /// 展示用来源。本地/用户结论优先；用户点过单项 AI（或跑过批量归类）且给出了用途时，
     /// 按 AI 推测展示 —— **不写进用途缓存、不改任何清理字段**。
     /// </summary>
     public PurposeSource Source => _purposeName.Length > 0
         ? _source
-        : HasItemAiPurpose ? PurposeSource.Ai : _source;
-    public bool NeedsConfirm => _needsConfirm && !HasItemAiPurpose;
+        : HasItemAiPurpose || HasBatchPurpose ? PurposeSource.Ai : _source;
+    public bool NeedsConfirm => _needsConfirm && !HasItemAiPurpose && !HasBatchPurpose;
     public FolderKind Kind => _kind;
 
     /// <summary>
@@ -295,8 +308,37 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         && Ai.Status == ItemAiStatus.Done
         && Ai.Result is { Purpose.Length: > 0 };
 
+    /// <summary>批量归类给过用途。同样只影响展示。</summary>
+    bool HasBatchPurpose => _batchPurpose.Length > 0;
+
+    /// <summary>
+    /// 这一项还等着被归类：没有任何结论（本地 / 逐项 AI / 批量都算）、不是失败态、路径非空。
+    ///
+    /// 这是批量归类的**唯一入选判据**，刻意放在节点自己身上 ——
+    /// 这样离线回归只要连 <see cref="OrganizeNode"/> 就能断言它，
+    /// 不必把整个批量服务（连带 AI 网关 / 设置 / 网络）拖进测试工程。
+    /// </summary>
+    public bool NeedsPurposeClassification =>
+        !HasConclusion && State != PurposeState.Failed && !string.IsNullOrWhiteSpace(FullPath);
+
     /// <summary>有结论才算「已识别」—— 没有结论时状态不允许是成功。</summary>
-    public bool HasConclusion => _purposeName.Length > 0 || HasItemAiPurpose;
+    public bool HasConclusion => _purposeName.Length > 0 || HasItemAiPurpose || HasBatchPurpose;
+
+    /// <summary>
+    /// 批量归类写入用途。**唯一的写入口**，只改 <c>_batchPurpose</c> 并刷新展示属性；
+    /// 不碰 <c>_source</c> / <c>_needsConfirm</c> / <c>_kind</c>，也不碰任何清理字段。
+    /// </summary>
+    public void SetBatchPurpose(string? purpose)
+    {
+        string next = purpose ?? "";
+        if (_batchPurpose == next) return;
+        _batchPurpose = next;
+        // 沿用 Apply 的口径：有结论就落回结论状态；没有结论才是「未识别」。
+        // 不清 _override 的话，之前 Apply 写下的 Unrecognized 会一直盖住新结论。
+        _override = null;
+        if (!HasConclusion) _override = PurposeState.Unrecognized;
+        RaiseConclusionDisplay();
+    }
 
     /// <summary>
     /// 界面状态。排队/处理中只由流程写入（<see cref="SetState"/>），
@@ -327,7 +369,10 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (State is PurposeState.Running) return Loc.PurposeRunning;
             if (State is PurposeState.Failed) return Loc.PurposeFailed;
             if (_purposeName.Length > 0) return _purposeName;
+            // 逐项 AI 的结论更具体（它读过这一项的摘要），批量归类只有一个用途名；
+            // 两者都有时优先展示逐项的那句。
             if (HasItemAiPurpose) return Ai.Result!.Purpose;
+            if (HasBatchPurpose) return _batchPurpose;
             if (_needsConfirm) return Loc.PurposeUnclear;
             return Loc.PurposeUnrecognized;
         }
@@ -703,6 +748,12 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             or nameof(ItemAiView.HasResult)
             or null))
             return;
+        RaiseConclusionDisplay();
+    }
+
+    /// <summary>「结论相关的展示属性」这一组。逐项 AI 变了、批量归类写了，都刷这一组。</summary>
+    void RaiseConclusionDisplay()
+    {
         Raise(nameof(HasConclusion));
         Raise(nameof(PurposeText));
         Raise(nameof(PurposeDetail));

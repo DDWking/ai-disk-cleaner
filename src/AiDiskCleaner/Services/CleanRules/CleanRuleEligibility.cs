@@ -42,27 +42,11 @@ public static class CleanRuleEligibility
     };
 
     /// <summary>这条候选够不够格被「选择规则明确的清理项」带走。</summary>
-    public static bool IsRuleClear(CleanItem item) => IsRuleClearWith(item, item.Purpose);
-
-    /// <summary>「如果用途是 <paramref name="purpose"/>，够不够格」。纯函数，不改候选。</summary>
-    public static bool IsRuleClearWith(CleanItem item, CleanPurpose purpose)
+    public static bool IsRuleClear(CleanItem item)
         => item.CanDelete
            && item.Risk == CleanRisk.Safe
            && item.Evidence >= EvidenceLevel.Signature
-           && IsBatchEligiblePurpose(purpose);
-
-    /// <summary>
-    /// AI 想把用途改成 <paramref name="newPurpose"/> 时，会不会**凭空造出批选资格**？
-    ///
-    /// 批量勾选的判据是 <c>Evidence &gt;= Signature &amp;&amp; 用途属于缓存类</c>。
-    /// 如果这条候选本来就有签名级证据、只是用途没认出来（<see cref="CleanPurpose.Other"/>），
-    /// 那么写回用途就会让它从「不可批选」变成「可批选」—— 等于 AI 绕道拿到了
-    /// 「界面替用户打勾」的能力。
-    ///
-    /// 返回 true 时必须撤销这次写回。**这是 AI 与勾选之间唯一的一道闸，别绕过。**
-    /// </summary>
-    public static bool GainsBatchEligibility(CleanItem item, CleanPurpose newPurpose)
-        => !IsRuleClear(item) && IsRuleClearWith(item, newPurpose);
+           && IsBatchEligiblePurpose(item.Purpose);
 
     /// <summary>
     /// 应用批量选择前的**最后一次**核对：重新走一遍清理资格与保护路径判定。

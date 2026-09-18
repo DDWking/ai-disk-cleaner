@@ -796,12 +796,14 @@ public static class Program
         Check("导航把「清理中心」放在「文件夹整理」前面", iClean > 0 && iOrg > 0 && iClean < iOrg,
             $"clean@{iClean} organize@{iOrg}");
 
-        // ---------- 9.3 批量入口：只准清理页那一个，而且只能用户主动发起 ----------
-        // 4c65dfb 冻结的是「所有批量入口一个都不许有」。后来松开了其中一半 ——
-        // 「一次只能一个」放开了，但另外两条一条都没松：
+        // ---------- 9.3 批量入口：只有一个，只能用户主动发起，而且只准写在展示字段上 ----------
+        // 4c65dfb 冻结的是「所有批量入口一个都不许有，模型只允许对某一个文件/文件夹主动发起」。
+        // 后来松开了其中一半 ——「一次只能一个」放开了，但另外两条一条都没松：
         //   ① 必须由用户主动发起（行为证据在 9.4 的真实出站计数）
-        //   ② 不得改 Risk / CanDelete / Selected，也不得制造批选资格（证据在 SafetyCheck）
-        // 整理页保持原样：仍然只有单项 AI，批量归类只挂在清理页。
+        //   ② 不得改 Risk / CanDelete / Selected / 不得改判定（结构证据在 SafetyCheck）
+        //
+        // 入口落在「按文件夹删除」页：清理中心的候选项由 8 条规则产出、每条都声明了用途，
+        // 不会有「认不出来」的堆积；未知堆积在文件夹树里（页头那行分档计数就是它在数）。
         string org = ReadSource("src/AiDiskCleaner/MainWindow.Organize.cs");
         foreach (var bad in new[]
                  {
@@ -810,7 +812,7 @@ public static class Program
                      "ProbeUnknownLocally", "OrganizeProgressPanel", "OrganizeScopeBar", "OrganizeStopBtn",
                  })
         {
-            Check($"整理页没有批量/本层识别入口：{bad}",
+            Check($"整理页没有旧的批量/本层识别入口：{bad}",
                 !org.Contains(bad, StringComparison.Ordinal) && !xaml.Contains(bad, StringComparison.Ordinal));
         }
         Check("侧栏不再有「识别用途」按钮（只剩导航）",
@@ -818,18 +820,24 @@ public static class Program
             && !scan.Contains("RunPurposeAsync", StringComparison.Ordinal)
             && !xaml.Contains("CtxPurposeIdentify", StringComparison.Ordinal));
 
-        // 清理页的批量归类入口：存在，而且**全仓只有一处调用**。
-        // 「只有一处 + 那一处是个 _Click 处理器」就排除了它长在扫描/分析/重建路径上的可能；
+        // 唯一的批量入口：确认页那个按钮 → 一次点击 → 一处调用。
+        // 「只有一处 + 那一处挂在 _Click 上」就排除了它长在扫描/分析/重建路径上的可能；
         // 再叠加 9.4 的真实出站计数，就同时钉住了「必须用户发起」。
-        Check("清理页有批量归类入口（用户点击处理器）",
-            scan.Contains("private async void CleanClassifyPurposes_Click", StringComparison.Ordinal));
-        Check("批量归类不在整理页（整理页仍然只有单项 AI）",
-            !org.Contains("AiPurposeBatchService", StringComparison.Ordinal)
-            && !org.Contains("CleanClassifyPurposes", StringComparison.Ordinal));
-        int batchCalls = scan.Split(new[] { "AiPurposeBatchService.RunAsync" }, StringSplitOptions.None).Length - 1;
+        Check("按文件夹删除页有批量归类入口（用户点击处理器）",
+            org.Contains("private void OrganizeClassify_Click", StringComparison.Ordinal)
+            && xaml.Contains("x:Name=\"OrganizeClassifyBtn\"", StringComparison.Ordinal));
+        Check("批量归类不在清理中心（那里没有认不出的堆积）",
+            !scan.Contains("AiPurposeBatchService", StringComparison.Ordinal)
+            && !scan.Contains("CleanClassifyPurposes", StringComparison.Ordinal));
+        int batchCalls = org.Split(new[] { "AiPurposeBatchService.RunAsync" }, StringSplitOptions.None).Length - 1;
         Check("批量归类全仓只被一处调用", batchCalls == 1, "调用点=" + batchCalls);
         Check("批量归类发请求前先确认通道已配置（不会往错地址发）",
-            scan.Contains("DecisionConfigured()", StringComparison.Ordinal));
+            org.Contains("DecisionConfigured()", StringComparison.Ordinal));
+        Check("批量归类带扫描代次守卫（换代即停止写入）",
+            org.Contains("scanGen == _scanGeneration", StringComparison.Ordinal));
+        Check("批量归类复用现有 AI 通道，不新造进度面板/停止按钮",
+            !org.Contains("OrganizeProgressPanel", StringComparison.Ordinal)
+            && !org.Contains("OrganizeStopBtn", StringComparison.Ordinal));
 
         // ---------- 9.4 扫描 / 切页 / 展开 / 筛选 = 0 次模型请求 ----------
         // 让「有模型配置」这件事成立，否则零请求没有说服力（没配模型本来就不会发）。

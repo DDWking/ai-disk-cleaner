@@ -1,5 +1,8 @@
 using AiDiskCleaner.Models;
 using UninstallTools.Junk.Confidence;
+// 别名是必须的：Loc 自己有一个叫 CleanRules 的**字符串属性**（分析步骤文案），
+// 在类内部写 CleanRules.AiPurposeKind 会解析到那个属性上。
+using AiPurposeKind = AiDiskCleaner.Services.CleanRules.AiPurposeKind;
 
 namespace AiDiskCleaner.Services;
 
@@ -1089,6 +1092,23 @@ public static class Loc
         => IsEn ? $"{PurposeFromAi}: {name} · {impact}" : $"{PurposeFromAi}：{name} · {impact}";
     public static string AiPurposeFromAi(string text)
         => IsEn ? $"{PurposeFromAi}: {text}" : $"{PurposeFromAi}：{text}";
+    /// <summary>
+    /// 类别短名。整理页的「用途」是自由文本（不是一个枚举），所以判定结果要落成一句能看的名词。
+    /// 返回空串表示这一类不该写进用途（只有 Unknown）。
+    /// </summary>
+    public static string AiPurposeDisplayName(AiPurposeKind kind) => kind switch
+    {
+        AiPurposeKind.Temporary => IsEn ? "Temporary files" : "临时文件",
+        AiPurposeKind.BrowserCache => IsEn ? "Browser cache" : "浏览器缓存",
+        AiPurposeKind.AppCache => IsEn ? "App cache" : "软件缓存",
+        AiPurposeKind.DevCache => IsEn ? "Dev tool cache" : "开发工具缓存",
+        AiPurposeKind.AppLog => IsEn ? "App logs" : "软件日志",
+        AiPurposeKind.Dump => IsEn ? "Crash dumps" : "崩溃转储",
+        AiPurposeKind.Installer => IsEn ? "Installers" : "安装包",
+        AiPurposeKind.Model => IsEn ? "Models / game assets" : "模型 / 游戏素材",
+        AiPurposeKind.Keep => IsEn ? "Your data or Windows files" : "你的数据或系统文件",
+        _ => "",
+    };
     /// <summary>模型认出这是「别删」那一类时给的提示。只是提示，不阻挡用户删。</summary>
     public static string AiPurposeKeepHint => IsEn
         ? "Looks like your own data or a Windows file — check before deleting"
@@ -1100,10 +1120,10 @@ public static class Loc
     public static string AiPurposeBatchRunning => IsEn ? "Classifying…" : "正在归类…";
     public static string AiPurposeBatchProgress(int done, int total)
         => IsEn ? $"Classified {done:N0} / {total:N0}" : $"已归类 {done:N0} / {total:N0}";
-    public static string AiPurposeBatchSummary(int applied, int hinted, int unknown, int calls, double cost)
+    public static string AiPurposeBatchSummary(int applied, int unknown, int calls, double cost)
         => IsEn
-            ? $"Classified {applied:N0} item(s); {hinted:N0} flagged as keep; {unknown:N0} still unclear. {calls} request(s), about ${cost:0.0000}."
-            : $"归好 {applied:N0} 项；{hinted:N0} 项提示先别删；{unknown:N0} 项仍看不出来。共 {calls} 次请求，约 ${cost:0.0000}。";
+            ? $"Classified {applied:N0} folder(s); {unknown:N0} still unclear. {calls} request(s), about ${cost:0.0000}."
+            : $"认出了 {applied:N0} 个文件夹；还有 {unknown:N0} 个看不出来。共 {calls} 次请求，约 ${cost:0.0000}。";
     public static string AiPurposeBatchNotConfigured => IsEn
         ? "Batch classification needs a provider with the “structured decision” protocol. Add one in Settings."
         : "批量归类需要一条「结构化判定」协议的供应商，请先在设置里添加。";

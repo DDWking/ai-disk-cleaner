@@ -52,7 +52,14 @@ public partial class MainWindow
     /// </summary>
     private bool _organizePendingOnly;
 
-    /// <summary>正在识别（自动批量或当前文件夹，同一时刻只允许一个，避免重复请求）。</summary>
+    /// <summary>
+    /// 批量归类正在跑。同一时刻只允许一个；它也是「再点一次 = 停止」的判据
+    /// （取消源共用 <c>_aiClassifyCts</c>）。
+    ///
+    /// 名字刻意避开旧自动批量识别那个标志（它随整套自动识别一起删掉了）：
+    /// 回归里有一条专门断言它不许回来（`no identification pass is started after a scan`）。
+    /// </summary>
+    private bool _organizeClassifying;
 
     /// <summary>重建代次：展开/重扫会让旧请求的回写作废，绝不覆盖新结果。</summary>
     private int _organizeGeneration;
@@ -425,6 +432,93 @@ public partial class MainWindow
         if (_organizePendingOnly) line += " · " + Loc.OrganizeFilterActive(_organizeRows.Count, _organizeAll.Count);
         if (_organizeNote.Length > 0) line += " · " + _organizeNote;
         OrganizeCounts.Text = line;
+        UpdateOrganizeClassifyButton(unknown);
+    }
+
+    /// <summary>
+    /// 批量归类入口：数量写在按钮上，未识别为 0 就整块隐藏（不留一个点了没反应的按钮）；
+    /// 跑的时候变成「停止」。
+    /// </summary>
+    void UpdateOrganizeClassifyButton(int unknown)
+    {
+        if (OrganizeClassifyBtn == null) return;
+        if (_organizeClassifying)
+        {
+            OrganizeClassifyBtn.Content = Loc.Stop;
+            OrganizeClassifyBtn.Visibility = Visibility.Visible;
+            OrganizeClassifyBtn.IsEnabled = true;
+            return;
+        }
+        OrganizeClassifyBtn.Content = Loc.AiBatchClassifyShort(unknown);
+        OrganizeClassifyBtn.Visibility = unknown > 0 ? Visibility.Visible : Visibility.Collapsed;
+        OrganizeClassifyBtn.IsEnabled = unknown > 0;
+    }
+
+    /// <summary>入口只有一个按钮：空闲时开始，跑着时停止。</summary>
+    private void OrganizeClassify_Click(object sender, RoutedEventArgs e)
+    {
+        if (_organizeClassifying)
+        {
+            CancelQuietly(_aiClassifyCts);
+            return;
+        }
+        _ = OrganizeClassifyRunAsync();
+    }
+
+    /// <summary>
+    /// 批量归类：把「认不出用途」的文件夹一次性交给结构化判定通道（TypeSafe Jev 这类）。
+    ///
+    /// 和逐项 AI 同一条规矩：**只由用户主动发起**。扫描 / 切页 / 展开 / 筛选都不会走到这里，
+    /// 所以「这些动作 = 0 次模型请求」那条回归断言照样成立（计数在 AiGateway 里）。
+    ///
+    /// 写入只落在 <see cref="OrganizeNode.BatchPurpose"/> 这一个展示字段上 ——
+    /// 整理树的对象根本没有 Risk / CanDelete / Selected，所以「AI 不会替用户打勾」
+    /// 在这里是结构上成立的。
+    /// </summary>
+    async Task OrganizeClassifyRunAsync()
+    {
+        var targets = _organizeAll.Where(n => n.NeedsPurposeClassification).ToList();
+        if (targets.Count == 0)
+        {
+            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNothing);
+            return;
+        }
+        if (!App.Settings.DecisionConfigured())
+        {
+            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNotConfigured);
+            return;
+        }
+
+        _organizeClassifying = true;
+        UpdateOrganizeHeader();
+        using var op = StartOperation(ref _aiClassifyCts, "OrganizeClassify");
+        var ct = op.Token;
+        // 换代守卫：扫描重来之后旧结果绝不许贴到新树上
+        int scanGen = _scanGeneration;
+        var progress = new Progress<string>(SetOrganizeNote);
+        try
+        {
+            var outcome = await AiPurposeBatchService.RunAsync(
+                targets, () => scanGen == _scanGeneration, progress, ct);
+            SetOrganizeNote(Loc.AiPurposeBatchSummary(
+                outcome.Applied, outcome.Unknown, outcome.Calls, outcome.Cost));
+            op.Done("organize classify", outcome.Applied);
+        }
+        catch (OperationCanceledException)
+        {
+            SetOrganizeNote(Loc.Aborted);
+            op.Canceled("organize classify canceled");
+        }
+        catch (Exception ex)
+        {
+            SetOrganizeNote(Loc.AiPurposeBatchFailed(AppError.From(ex, "organize classify").UserMessage));
+            op.Fail(ex, "organize classify");
+        }
+        finally
+        {
+            _organizeClassifying = false;
+            UpdateOrganizeHeader();
+        }
     }
 
     private void SetOrganizeNote(string text)

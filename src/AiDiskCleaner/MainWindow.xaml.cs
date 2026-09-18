@@ -1809,7 +1809,6 @@ public partial class MainWindow : Window, IAnalystHost
             }
         }
 
-        UpdateClassifyButton();   // AI 忙的时候那个入口要禁用
         if (CleanSummarySub == null) return;
         if (busy)
         {
@@ -2423,7 +2422,6 @@ public partial class MainWindow : Window, IAnalystHost
     private void RefreshCleanUi()
     {
         if (CleanPageTitle == null) return;
-        UpdateClassifyButton();
         if (_report == null)
         {
             ClearCleanLayers();
@@ -2521,7 +2519,6 @@ public partial class MainWindow : Window, IAnalystHost
         RestoreOpenLayers();      // 用稳定键找回原来的页面/位置
         UpdateScopeChip();        // 范围提示里的「范围外已选」要跟着最新选择走
         UpdateSelectionUi();
-        UpdateClassifyButton();   // 认不出用途的条目数变了，页头那个入口要跟着出现/消失
 
         AppLog.Info("Clean", $"layers({label}) files={layered.TotalFiles} selectable={layered.SelectableTotal} "
             + $"purposes={layered.Purposes.Count} locations={layered.TotalLocations} "
@@ -3459,65 +3456,6 @@ public partial class MainWindow : Window, IAnalystHost
         menu.IsOpen = true;
     }
 
-    /// <summary>
-    /// 批量用途归类：把「规则没给出用途」的那批一次性交给结构化判定通道。
-    ///
-    /// 和逐项 AI 同一条规矩：**只由用户主动发起**。扫描、切页、展开、筛选都不会走到这里，
-    /// 所以「这些动作 = 0 次模型请求」那条回归断言照样成立（计数在 AiGateway 里）。
-    /// </summary>
-    private async void CleanClassifyPurposes_Click(object sender, RoutedEventArgs e)
-    {
-        if (_aiBusy || _root == null) return;
-
-        var targets = AllCandidates().Where(AiPurposeBatchService.IsEligible).ToList();
-        if (targets.Count == 0)
-        {
-            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNothing);
-            return;
-        }
-        if (!App.Settings.DecisionConfigured())
-        {
-            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNotConfigured);
-            return;
-        }
-
-        _aiBusy = true;
-        RefreshAiLamp();
-        SetAiStatus(Loc.AiPurposeBatchRunning);
-        using var op = StartOperation(ref _aiClassifyCts, "AiClassify");
-        var ct = op.Token;
-        var progress = new Progress<string>(SetAiStatus);
-        try
-        {
-            var outcome = await AiPurposeBatchService.RunAsync(targets, progress, ct);
-
-            // Purpose 不是 INPC、分层是预计算的：改完用途必须重建，否则界面还按旧用途分组。
-            // invalidateItemAi: false —— 扫描数据没变，不能把用户跑过的逐项分析标成过期。
-            await RebuildLayersAsync(_root, null, "ai-classify", invalidateItemAi: false);
-            ShowPurposePage(restoreScroll: true);
-
-            SetAiStatus(Loc.AiPurposeBatchSummary(
-                outcome.Applied, outcome.Hinted, outcome.Unknown, outcome.Calls, outcome.Cost));
-            op.Done("classify", outcome.Applied);
-        }
-        catch (OperationCanceledException)
-        {
-            SetAiStatus(Loc.Aborted);
-            op.Canceled("classify canceled");
-        }
-        catch (Exception ex)
-        {
-            SetAiStatus(Loc.AiPurposeBatchFailed(AppError.From(ex, "classify").UserMessage));
-            SetAiLamp(false);
-            op.Fail(ex, "classify");
-        }
-        finally
-        {
-            _aiBusy = false;
-            RefreshAiLamp();
-        }
-    }
-
     /// <summary>扫描诊断：默认只在页头留一行，细节进这个对话框。数据一条不少。</summary>
     private void ScanDetails_Click(object sender, RoutedEventArgs e)
         => ShowAlert(Loc.ScanDetailsTitle, BuildScanDetailsText());
@@ -3634,20 +3572,7 @@ public partial class MainWindow : Window, IAnalystHost
         if (_aiTransientStatus.Length == 0) CleanSummarySub.Text = "";
     }
 
-    /// <summary>
-    /// 批量归类入口：只在「确实有认不出用途的条目」时出现，数量写在按钮上。
-    ///
-    /// 它曾经藏在「更多」菜单里 —— 真机反馈是「根本没找到」。**藏起来的入口等于没有**，
-    /// 所以现在是一个看得见的文字按钮；数量写上去，用户一眼知道值不值得点。
-    /// </summary>
-    void UpdateClassifyButton()
-    {
-        if (CleanClassifyBtn == null) return;
-        int pending = _report == null ? 0 : AllCandidates().Count(AiPurposeBatchService.IsEligible);
-        CleanClassifyBtn.Content = pending > 0 ? Loc.AiBatchClassifyShort(pending) : Loc.AiBatchClassify;
-        CleanClassifyBtn.Visibility = pending > 0 ? Visibility.Visible : Visibility.Collapsed;
-        CleanClassifyBtn.IsEnabled = pending > 0 && !_aiBusy;
-    }
+
 
     /// <summary>重复检测没跑完的候选数（0 表示跑完了）。</summary>
     private int _dupIncomplete;

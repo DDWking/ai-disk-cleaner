@@ -893,8 +893,11 @@ public static class LayeredCleanTests
             && !orgText.Contains("File.Move", StringComparison.Ordinal)
             && !orgText.Contains("Directory.CreateDirectory", StringComparison.Ordinal)
             && !orgText.Contains("File.Copy", StringComparison.Ordinal));
+        // 按**词边界**匹配 runas：以前用 Contains 会被任何 ...RunAsync 方法名误伤
+        // （RunAsync 里恰好含 "RunAs"），报一个根本不存在的提权问题。
         check("整理页不自动提权",
-            !orgText.Contains("runas", StringComparison.OrdinalIgnoreCase)
+            !System.Text.RegularExpressions.Regex.IsMatch(
+                orgText, @"\brunas\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
             && !orgText.Contains("IsInRole", StringComparison.Ordinal));
         check("打开目录只走 ShellReveal，不执行程序",
             orgText.Contains("ShellReveal.Reveal(", StringComparison.Ordinal)

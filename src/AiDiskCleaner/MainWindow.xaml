@@ -1348,19 +1348,39 @@
           <DockPanel x:Name="OrganizePane" Grid.Row="1" Visibility="Collapsed">
             <!-- 页头：**没有标题**（Tab 上写的就是「按文件夹删除」，这里不再重复一遍），
                  第一行可见文字就是统计 —— 「文件夹数 · 容量」，第二行是本地/AI/未知/失败分档。
-                 这里**没有**筛选胶囊（「未识别」入口已移除），也**没有**批量识别入口：
-                 模型请求只能由用户对**某一个**文件/文件夹单独发起（行内那个按钮）。 -->
+                 这里**没有**筛选胶囊（「未识别」入口已移除）。
+
+                 批量归类入口**在这里**（曾经在 v2.9 被冻结、连行内按钮都只留单项 AI）。
+                 松开的只是「一次只能一个」；「必须由用户主动发起」没有松 ——
+                 扫描 / 切页 / 展开 / 筛选全程 0 次模型请求，那条断言用的是真实出站计数。
+                 写入只落在 OrganizeNode.BatchPurpose 这一个展示字段上：
+                 整理树的对象根本没有 Risk / CanDelete / Selected，所以「AI 不会替用户打勾」
+                 在这里是结构上成立的，不靠提示词约束。 -->
             <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
                     Padding="16,10,16,10">
-              <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
-                <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
-                           FontSize="11.5" TextTrimming="CharacterEllipsis"/>
-                <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
-                           FontSize="11" TextTrimming="CharacterEllipsis"/>
-              </StackPanel>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
+                  <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
+                             FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
+                             FontSize="11" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <!-- 数量写在按钮上，一眼知道值不值得点；跑的时候它变成「停止」。
+                     未识别为 0 时整块隐藏，不留一个点了没反应的按钮。 -->
+                <Button x:Name="OrganizeClassifyBtn" Grid.Column="1" Style="{StaticResource GhostButton}"
+                        Padding="12,5" FontSize="11.5" VerticalAlignment="Center"
+                        Visibility="Collapsed" Click="OrganizeClassify_Click"
+                        ToolTip="把认不出用途的文件夹一次性交给 AI 判断是什么（只补用途，不改任何删除相关的东西）"
+                        AutomationProperties.Name="批量识别用途"/>
+              </Grid>
             </Border>
 
-            <!-- 批量进度条已移除：扫描后只做本地识别，没有"批量请求"这回事 -->
+            <!-- 这里**没有**常驻进度条：跑批量时进度写在页头那一行统计里，
+                 按钮变成「停止」。扫描后仍只做本地识别，不会自己发请求。 -->
 
             <!-- 状态：未扫描 / 扫描中 / 空结果 / 未配置模型 / 失败 -->
             <Border x:Name="OrganizeStateBox" DockPanel.Dock="Top" Visibility="Collapsed"
@@ -1707,13 +1727,9 @@
                   </StackPanel>
                 </StackPanel>
                 <WrapPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                  <!-- 批量用途归类：**必须是看得见的按钮**。曾经放在「更多」菜单里，
-                       真机反馈是「根本没找到」—— 藏起来的入口等于没有。 -->
-                  <Button x:Name="CleanClassifyBtn" Style="{StaticResource GhostButton}"
-                          Padding="10,5" FontSize="11.5" Margin="0,0,10,0"
-                          Visibility="Collapsed" Click="CleanClassifyPurposes_Click"
-                          ToolTip="把认不出用途的那批一次性交给 AI 判断是什么（只补用途和说明，不改能不能删、也不会替你勾选）"
-                          AutomationProperties.Name="批量识别用途"/>
+                  <!-- 这里**没有**批量归类入口：清理中心的候选项由 8 条规则产出，
+                       每条规则都声明了具体用途，不会有「认不出来」的堆积。
+                       批量归类放在「按文件夹删除」页 —— 未知堆积在那里。 -->
                   <!-- 扫描详情 / 更多：辅助操作用图标按钮，语义靠 ToolTip + 可访问名称 -->
                   <Button x:Name="ScanDetailsBtn" Style="{StaticResource IconButton}" Margin="0,0,4,0"
                           Click="ScanDetails_Click" ToolTip="扫描信息（来源、权限、耗时、跳过项）"

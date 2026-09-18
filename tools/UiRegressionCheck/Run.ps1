@@ -352,8 +352,10 @@ Assert-True 'tidy-up never touches risk / deletability / selection' `
      $org -notmatch 'SendToRecycle|DeletionExecutor|RecycleService')
 Assert-True 'tidy-up never moves or renames real files' `
     ($org -notmatch 'File\.Move|Directory\.Move|\.MoveTo\(|File\.Copy|Directory\.CreateDirectory')
+# runas 按**词边界**匹配：以前直接 notmatch 'runas' 会被任何 ...RunAsync 方法名误伤
+# （RunAsync 里恰好含 "RunAs"），报一个根本不存在的提权问题。
 Assert-True 'tidy-up never asks for elevation on its own' `
-    ($org -notmatch 'runas|Verb\s*=|ProcessStartInfo.*Verb' -and
+    ($org -notmatch '\brunas\b|Verb\s*=|ProcessStartInfo.*Verb' -and
      $org -notmatch 'WindowsPrincipal|IsInRole')
 Assert-True 'opening a folder goes through ShellReveal (never executes a program)' `
     ($org -match 'ShellReveal\.Reveal\(' -and $org -notmatch 'Process\.Start')
