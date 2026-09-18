@@ -162,6 +162,7 @@ public static class Loc
     public static string AiProtoAnthropic => "anthropic-messages";
     /// <summary>结构化判定协议（TypeSafe Jev）。和 chat 那三种不兼容，地址也是单独一条。</summary>
     public static string AiProtoDecisions => "structured-decisions";
+    public static string AiDecisionsModel => IsEn ? "Model for decisions" : "判定用的模型";
     public static string AiDecisionsHint => IsEn
         ? "Structured decisions (TypeSafe Jev and friends) is a separate channel — its URL is not /v1. "
           + "For OpenRouter use https://openrouter.ai/api/alpha and model typesafe/jev-1.13. "

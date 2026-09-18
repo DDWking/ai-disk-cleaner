@@ -2581,6 +2581,12 @@
                  不写清楚用户不知道该填什么。 -->
             <TextBlock x:Name="AiDecisionsHintText" Foreground="{DynamicResource TextMuted}" FontSize="11"
                        TextWrapping="Wrap" Margin="0,0,0,10" Visibility="Collapsed"/>
+            <!-- 判定用的模型必须单独填：全局那个「模型」是聊天用的，而且拉取模型列表会返回
+                 几百个，取第一个绝不是 Jev。 -->
+            <TextBlock x:Name="AiDecisionsModelLabel" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                       Margin="0,0,0,4" Visibility="Collapsed"/>
+            <TextBox x:Name="AiDecisionModelBox" Style="{StaticResource TermTextBox}"
+                     Height="28" Margin="0,0,0,10" Tag="typesafe/jev-1.13" Visibility="Collapsed"/>
             <TextBlock x:Name="AiKeyLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
             <Grid Margin="0,0,0,4">
               <PasswordBox x:Name="AiKeyBox" Height="28" Padding="8,0"

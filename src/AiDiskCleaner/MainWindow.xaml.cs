@@ -1411,8 +1411,12 @@ public partial class MainWindow : Window, IAnalystHost
         if (AiDecisionsHintText == null) return;
         int i = AiProtoBox.SelectedIndex;
         bool on = i >= 0 && i < AiProtos.Length && AiProtos[i] == AiProtocol.Decisions;
+        var vis = on ? Visibility.Visible : Visibility.Collapsed;
         AiDecisionsHintText.Text = Loc.AiDecisionsHint;
-        AiDecisionsHintText.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        AiDecisionsHintText.Visibility = vis;
+        AiDecisionsModelLabel.Text = Loc.AiDecisionsModel;
+        AiDecisionsModelLabel.Visibility = vis;
+        AiDecisionModelBox.Visibility = vis;
     }
 
     void LoadAiFields()
@@ -1452,6 +1456,7 @@ public partial class MainWindow : Window, IAnalystHost
         AiProtoBox.SelectedIndex = i < 0 ? 0 : i;
         UpdateDecisionsHint();
         AiKeyBox.Password = p?.ApiKey ?? "";
+        AiDecisionModelBox.Text = App.Settings.AiDecisionModel ?? "";
         if (AiKeyHint != null)
         {
             AiKeyHint.Text = !SecretProtector.Available
@@ -1542,11 +1547,21 @@ public partial class MainWindow : Window, IAnalystHost
     void WriteProv(AiProviderCfg p)
     {
         int i = AiProtoBox.SelectedIndex;
+        var proto = i >= 0 && i < AiProtos.Length ? AiProtos[i] : AiProtocol.Completions;
         p.Name = AiNameBox.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(p.Name)) p.Name = p.Id;
         p.BaseUrl = AiUrlBox.Text?.Trim() ?? "";
-        p.Protocol = AiClient.ProtocolId(i >= 0 && i < AiProtos.Length ? AiProtos[i] : AiProtocol.Completions);
+        p.Protocol = AiClient.ProtocolId(proto);
         p.ApiKey = AiKeyBox.Password ?? "";
+
+        if (proto == AiProtocol.Decisions)
+        {
+            // 判定通道单独走一个模型字段，而且**不碰全局聊天模型** ——
+            // 它是「结构化判定」用的，跟平时聊天的模型是两回事，互相覆盖只会两边都不对。
+            App.Settings.AiDecisionModel = AiDecisionModelBox.Text?.Trim() ?? "";
+            return;
+        }
+
         p.Models = (AiModelPick.ItemsSource as IEnumerable<string>)?.ToList()
                    ?? AiModelPick.Items.OfType<string>().ToList();
         string model = AiModelBox.Text?.Trim() ?? "";
