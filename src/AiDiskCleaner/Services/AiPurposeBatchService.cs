@@ -115,17 +115,14 @@ public static class AiPurposeBatchService
             return Applied.Hinted;
         }
 
-        bool wasClear = CleanRuleEligibility.IsRuleClear(item);
-        var old = item.Purpose;
-        item.Purpose = purpose;
-
-        if (!wasClear && CleanRuleEligibility.IsRuleClear(item))
+        if (CleanRuleEligibility.GainsBatchEligibility(item, purpose))
         {
-            item.Purpose = old;   // 撤销：不许 AI 造出批选资格
+            // 撤销：不许 AI 造出批选资格。用途不动，只留一句提示。
             item.AiNote = Loc.AiPurposeNote(CleanPurposes.Name(purpose), CleanPurposes.Impact(purpose));
             return Applied.Hinted;
         }
 
+        item.Purpose = purpose;
         item.AiNote = Loc.AiPurposeNote(CleanPurposes.Name(purpose), CleanPurposes.Impact(purpose));
         return Applied.Applied;
     }

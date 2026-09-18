@@ -15,6 +15,7 @@
     <Compile Include="Stubs.cs" />
     <Compile Include="LayeredCleanTests.cs" />
     <Compile Include="ReviewFixesTests.cs" />
+    <Compile Include="AiPurposeTests.cs" />
 
     <Compile Include="..\..\src\AiDiskCleaner\Models\DeletionModels.cs" Link="DeletionModels.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" Link="FileEntry.cs" />
@@ -47,6 +48,8 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleContracts.cs" Link="CleanRuleContracts.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanItemFactory.cs" Link="CleanItemFactory.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleEligibility.cs" Link="CleanRuleEligibility.cs" />
+    <!-- 批量归类的选项表/阈值：闭合性与「AI 不许制造批选资格」都要按真代码断言 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\AiPurposeCriteria.cs" Link="AiPurposeCriteria.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanRuleSelectPreview.cs" Link="CleanRuleSelectPreview.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\DuplicateDetector.cs" Link="DuplicateDetector.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\DuplicateScanService.cs" Link="DuplicateScanService.cs" />

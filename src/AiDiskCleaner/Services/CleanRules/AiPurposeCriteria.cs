@@ -49,6 +49,19 @@ public enum AiPurposeKind
 /// </summary>
 public static class AiPurposeCriteria
 {
+    /// <summary>
+    /// 选项键的**规范列表**（顺序即展示顺序）。
+    ///
+    /// 键是稳定契约：它进请求体、也是以后做结果缓存时的缓存键 —— <b>不要改</b>。
+    /// 文案（双语）在 <c>Loc.AiPurposeOptions</c> 里；键放这里是为了让离线回归
+    /// 不用碰 Loc 就能断言「选项表是闭合的、正好这 10 个」。
+    /// </summary>
+    public static readonly string[] Keys =
+    {
+        "temp", "browsercache", "appcache", "devcache", "applog",
+        "dump", "installer", "model", "keep", "unknown",
+    };
+
     /// <summary>Jev 返回的键 → 大类。认不出的键一律当 <see cref="AiPurposeKind.Unknown"/>。</summary>
     public static AiPurposeKind Parse(string? key) => (key ?? "").Trim().ToLowerInvariant() switch
     {

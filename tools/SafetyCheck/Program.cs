@@ -36,6 +36,7 @@ public static class Program
         CleanListSnapshotTests();
         LayeredCleanTests.Run(Check, Section);
         ReviewFixesTests.Run(Check, Section);
+        AiPurposeTests.Run(Check, Section);
         ErrorClassificationTests();
         DiagnosticsTests();
 
