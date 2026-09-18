@@ -1449,6 +1449,18 @@ public static class Loc
     /// 最后一个标签必须是「**还没识别**」而不是「未知」：它数的是**从没被识别过**的，
     /// 不是「AI 看了但看不出来」。用「未知」会让用户以为 AI 大面积失灵 ——
     /// 真机上就发生过：页头写「未知 2,517」，而实际只是还没轮到它们。
+    /// <summary>分类结果面板：没有结论的那一桶。**没有勾选框** —— 它没有结论，不是一类东西。</summary>
+    public static string OrganizeBucketUnnamed => IsEn ? "Not identified yet" : "还没认出来";
+
+    /// <summary>
+    /// 分类结果面板的抬头。**说是「AI 认出来的」** —— 本地已经认出来的那些不进这个面板
+    /// （它们本来就在列表里有自己的标签），不写清楚会让人以为面板漏了东西。
+    /// 同时说清楚「勾一类就整片处理」，用户才知道这一行能点。
+    /// </summary>
+    public static string OrganizeResultTitle(int classes, int identified) => IsEn
+        ? $"AI identified {identified:N0} item(s) in {classes:N0} group(s) — tick a group to handle it as a whole"
+        : $"AI 认出了 {identified:N0} 项，分成 {classes:N0} 类 · 勾一类就整片处理";
+
     public static string OrganizeCountsLine(int local, int ai, int unknown, int failed) => IsEn
         ? $"local {local:N0} · AI {ai:N0} · not looked at yet {unknown:N0} · failed {failed:N0}"
         : $"本地认出 {local:N0} · AI 认了 {ai:N0} · 还没识别 {unknown:N0} · 失败 {failed:N0}";

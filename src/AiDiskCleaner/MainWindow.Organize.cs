@@ -61,6 +61,12 @@ public partial class MainWindow
     /// </summary>
     private bool _organizeClassifying;
 
+    /// <summary>分类结果面板的数据（一类一行）。</summary>
+    private readonly ObservableCollection<OrganizeBucket> _organizeBuckets = new();
+
+    /// <summary>跑过一次归类、而且用户没把它收起来。收起来之后不再自动弹回来。</summary>
+    private bool _organizeResultShown;
+
     /// <summary>重建代次：展开/重扫会让旧请求的回写作废，绝不覆盖新结果。</summary>
     private int _organizeGeneration;
 
@@ -435,6 +441,8 @@ public partial class MainWindow
         // 按钮上的数字 = **这一屏真正会问的条数**，不是全局还没识别的条数。
         // 写成全局那个数会出现「按钮说 2,517 项、实际只问了 83 条」——标签和动作对不上。
         UpdateOrganizeClassifyButton(_organizeRows.Count(x => x.NeedsPurposeClassification));
+        // 面板跟着当前这一屏走：展开/收起/重扫之后它显示的还是「这一屏分成了哪几类」。
+        RefreshOrganizeResult();
     }
 
     /// <summary>
@@ -455,6 +463,83 @@ public partial class MainWindow
         OrganizeClassifyBtn.Visibility = onScreen > 0 ? Visibility.Visible : Visibility.Collapsed;
         OrganizeClassifyBtn.IsEnabled = onScreen > 0;
     }
+
+    // ==================== 分类结果面板（「合并」） ====================
+
+    /// <summary>
+    /// 按**当前这一屏**的结论重算面板：一类一行，按容量从大到小。
+    /// 没有结论的那些合成最后一行「还没认出来」，**没有勾选框**。
+    /// </summary>
+    void RefreshOrganizeResult()
+    {
+        if (OrganizeResultPanel == null) return;
+        if (!_organizeResultShown)
+        {
+            OrganizeResultPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var buckets = new List<OrganizeBucket>();
+        foreach (var g in _organizeRows.Where(n => n.BatchPurpose.Length > 0)
+                                       .GroupBy(n => n.BatchPurpose, StringComparer.Ordinal))
+        {
+            buckets.Add(new OrganizeBucket { Name = g.Key, Members = g.ToList() });
+        }
+        buckets = buckets.OrderByDescending(b => b.Bytes).ToList();
+
+        // 「还没认出来」的判据是**真的一条结论都没有**（本地也没有），不是「没有 AI 结论」。
+        // 用后者会把本地已经认出来的行也扫进来，贴上一个假的「还没认出来」标签。
+        // 本地认出来的那些本来就在列表里有自己的标签，不进这个面板。
+        var left = _organizeRows.Where(n => !n.HasConclusion).ToList();
+        if (left.Count > 0)
+            buckets.Add(new OrganizeBucket
+            {
+                Name = Loc.OrganizeBucketUnnamed,
+                Members = left,
+                // 没有结论 → **不给整片勾选的能力**：那等于送一个
+                // 「一键删掉所有看不出来的」按钮，是最危险的动作。
+                CanSelect = false,
+            });
+
+        OrganizeResultList.ItemsSource = null;
+        _organizeBuckets.Clear();
+        foreach (var b in buckets)
+        {
+            b.SyncFromMembers();
+            _organizeBuckets.Add(b);
+        }
+        OrganizeResultList.ItemsSource = _organizeBuckets;
+
+        OrganizeResultTitle.Text = Loc.OrganizeResultTitle(
+            buckets.Count(b => b.CanSelect), buckets.Where(b => b.CanSelect).Sum(b => b.Count));
+        OrganizeResultHideBtn.Content = Loc.Collapse;
+        OrganizeResultPanel.Visibility = _organizeBuckets.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OrganizeResultHide_Click(object sender, RoutedEventArgs e)
+    {
+        _organizeResultShown = false;
+        OrganizeResultPanel.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// 面板上勾一行 = 勾上它下面所有节点，然后走**现成的**底部执行栏。
+    /// **这是用户动作**，AI 从不预勾 —— <see cref="OrganizeNode.IsChecked"/> 只由人手写。
+    /// 硬拦（Blocked）的节点跳过去，勾不动，和行内复选框同一个规矩。
+    /// </summary>
+    private void OrganizeBucket_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox cb || cb.DataContext is not OrganizeBucket bucket) return;
+        if (_folderDeleteService.IsBusy) { bucket.SyncFromMembers(); return; }
+        foreach (var m in bucket.Members)
+        {
+            if (m.IsSelectionProtected) continue;
+            m.IsChecked = bucket.IsChecked;
+        }
+        RefreshFolderDeleteBar();
+    }
+
+    // ==================== 批量归类 ====================
 
     /// <summary>入口只有一个按钮：空闲时开始，跑着时停止。</summary>
     private void OrganizeClassify_Click(object sender, RoutedEventArgs e)
@@ -509,6 +594,8 @@ public partial class MainWindow
                     targets, () => scanGen == _scanGeneration, progress, ct);
                 SetOrganizeNote(Loc.AiPurposeBatchSummary(
                     outcome.Applied, outcome.Unsure, outcome.Unknown, outcome.Calls, outcome.Cost));
+                // 跑完才把「合并」面板弹出来：一类一行，勾一行整片处理
+                if (outcome.Applied > 0) _organizeResultShown = true;
                 op.Done("organize classify", outcome.Applied);
             }
             catch (OperationCanceledException)

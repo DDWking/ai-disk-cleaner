@@ -86,6 +86,8 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderPurposeService.cs" Link="FolderPurposeService.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderOrganize.cs" Link="FolderOrganize.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\OrganizeNode.cs" Link="OrganizeNode.cs" />
+    <!-- 「合并」面板的一行：勾一行 = 勾上它下面所有节点。安全不变量必须离线可测 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Models\OrganizeBucket.cs" Link="OrganizeBucket.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\ShellReveal.cs" Link="ShellReveal.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\ItemAiService.cs" Link="ItemAiService.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\ItemAiView.cs" Link="ItemAiView.cs" />

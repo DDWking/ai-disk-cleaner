@@ -839,6 +839,22 @@ public static class Program
             !org.Contains("OrganizeProgressPanel", StringComparison.Ordinal)
             && !org.Contains("OrganizeStopBtn", StringComparison.Ordinal));
 
+        // 「合并」面板（一类一行、勾一行整片处理）：
+        //   - 勾选框必须绑在 CanSelect 上 —— 「还没认出来」那一桶没有结论，
+        //     给它整片勾选等于送一个「一键删掉所有看不出来的」按钮，是最危险的动作；
+        //   - 勾完必须回流到底部那个唯一的执行栏，**不另起删除路径**。
+        Check("分类结果面板存在，且勾选框绑在 CanSelect 上",
+            xaml.Contains("x:Name=\"OrganizeResultPanel\"", StringComparison.Ordinal)
+            && xaml.Contains("OrganizeBucket_Click", StringComparison.Ordinal)
+            && xaml.Contains("Visibility=\"{Binding CanSelect", StringComparison.Ordinal));
+        var delSrc = ReadSource("src/AiDiskCleaner/MainWindow.FolderDelete.cs");
+        Check("面板勾选回流到唯一执行栏（不另起删除路径）",
+            org.Contains("RefreshFolderDeleteBar();", StringComparison.Ordinal)
+            && delSrc.Contains("FolderDelete.Refresh(", StringComparison.Ordinal));
+        Check("整理页仍然没有任何删除实现（删除只在 FolderDelete 合同里）",
+            !org.Contains("SHFileOperation", StringComparison.Ordinal)
+            && !org.Contains("Directory.Delete", StringComparison.Ordinal));
+
         // 组合根必须**显式**接线 AI 通道。
         // 只靠 AiClient 的静态构造函数不行 —— 静态构造只在「有东西碰到 AiClient」时才跑，
         // 而判定通道走 AiProtocols（刻意做成不碰 AiClient），于是从没碰过 AiClient 的进程里

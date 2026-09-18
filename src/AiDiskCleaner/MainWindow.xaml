@@ -1382,6 +1382,56 @@
             <!-- 这里**没有**常驻进度条：跑批量时进度写在页头那一行统计里，
                  按钮变成「停止」。扫描后仍只做本地识别，不会自己发请求。 -->
 
+            <!-- ===== 分类结果面板：「合并」的落点 =====
+                 跑完一次归类才出现。一屏 38 行里如果有 12 行都被认成「软件缓存」，
+                 这里就是一行「软件缓存 · 12 个 · 34 G」，勾这一行 = 勾上那 12 个节点，
+                 然后走**现成的**底部执行栏（预览 → 确认 → 回收站），不另起删除路径。
+                 「还没认出来」那一桶**没有勾选框** —— 它没有结论，把它做成可整片勾选
+                 等于送一个「一键删掉所有看不出来的」按钮，那是最危险的动作。 -->
+            <Border x:Name="OrganizeResultPanel" DockPanel.Dock="Top" Visibility="Collapsed"
+                    Background="{DynamicResource PanelRight}"
+                    BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="16,10">
+              <StackPanel>
+                <Grid>
+                  <TextBlock x:Name="OrganizeResultTitle" Foreground="{DynamicResource TextDim}"
+                             FontSize="11.5" VerticalAlignment="Center"/>
+                  <Button x:Name="OrganizeResultHideBtn" Style="{StaticResource GhostButton}"
+                          Padding="10,3" FontSize="11" HorizontalAlignment="Right"
+                          Click="OrganizeResultHide_Click"
+                          AutomationProperties.Name="收起分类结果"/>
+                </Grid>
+                <ItemsControl x:Name="OrganizeResultList" Margin="0,6,0,0">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="0,2">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="26"/>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="Auto"/>
+                          <ColumnDefinition Width="Auto"/>
+                          <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <CheckBox Grid.Column="0" VerticalAlignment="Center"
+                                  IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                  Visibility="{Binding CanSelect, Converter={StaticResource BoolToVisible}}"
+                                  Click="OrganizeBucket_Click"
+                                  AutomationProperties.Name="{Binding Name}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="12"
+                                   Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Grid.Column="2" Text="{Binding CountText}" FontSize="11.5" Margin="14,0,0,0"
+                                   Foreground="{DynamicResource TextDim}"/>
+                        <TextBlock Grid.Column="3" Text="{Binding SizeText}" FontSize="11.5" Margin="14,0,0,0"
+                                   Foreground="{DynamicResource AccentDim}"/>
+                        <TextBlock Grid.Column="4" Text="{Binding SelectedText}" FontSize="11" Margin="14,0,0,0"
+                                   Foreground="{DynamicResource TextMuted}"
+                                   Visibility="{Binding SelectedText, Converter={StaticResource EmptyToCollapsed}}"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
             <!-- 状态：未扫描 / 扫描中 / 空结果 / 未配置模型 / 失败 -->
             <Border x:Name="OrganizeStateBox" DockPanel.Dock="Top" Visibility="Collapsed"
                     BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="16,12">

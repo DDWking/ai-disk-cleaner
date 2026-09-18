@@ -165,6 +165,9 @@ public partial class MainWindow
         if (OrganizeGrid == null) return;
         var selection = FolderSelectionService.Build(PicksOf(_organizeAll));
         FolderDelete.Refresh(selection.SelectedCount, selection.KeptCount, selection.NestedCount, selection.TotalBytes);
+        // 面板上每一行的勾要跟着成员的真实状态回填：用户可能刚在列表里单独取消了一两个，
+        // 不回填的话那一行会停在旧的满勾上，显示成跟列表不符。
+        foreach (var b in _organizeBuckets) b.SyncFromMembers();
     }
 
     /// <summary>在不阻塞「停止」的前提下让消息队列跑一轮（执行仍在 UI 线程，COM 需要 STA）。</summary>

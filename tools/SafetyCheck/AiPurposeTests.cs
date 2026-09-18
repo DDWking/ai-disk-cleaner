@@ -32,6 +32,7 @@ public static class AiPurposeTests
         ThresholdTests(check);
         EligibilityTests(check);
         OrganizeWritePurityTests(check);
+        BucketTests(check);
         SourceInvariantTests(check);
     }
 
@@ -232,6 +233,65 @@ public static class AiPurposeTests
         clear.SetBatchPurpose("");
         check("清空批量用途后回到未识别",
             !clear.HasConclusion && clear.State == PurposeState.Unrecognized);
+    }
+
+    // ------------------------------------------------ 「合并」面板的一行
+
+    static void BucketTests(CheckFn check)
+    {
+        // 容量必须去掉被别的成员包住的那些：父子同时出现在一屏里是允许的，
+        // 直接相加会把同一块空间算两遍（页头统计也因此不累加顶层对象）。
+        var parent = Node(@"D:\apps");
+        parent.Apply(Local(@"D:\apps", "我的软件"));
+        var child = Node(@"D:\apps\inner");
+        child.Apply(Local(@"D:\apps\inner", "我的软件"));
+        var sibling = Node(@"D:\other");
+        sibling.Apply(Local(@"D:\other", "我的软件"));
+        parent.Dir.Size = 1000;
+        child.Dir.Size = 400;
+        sibling.Dir.Size = 300;
+
+        var bucket = new OrganizeBucket
+        {
+            Name = "我的软件",
+            Members = new[] { parent, child, sibling },
+        };
+        check("同类合并成一行", bucket.Count == 3, bucket.Count.ToString());
+        check("容量去掉嵌套重复（1000+300，不是 1700）", bucket.Bytes == 1300, bucket.Bytes.ToString());
+        check("容量文案非空", bucket.SizeText.Length > 0, bucket.SizeText);
+
+        // 勾选回填：全勾 / 全不勾 / 部分
+        parent.IsChecked = true; child.IsChecked = true; sibling.IsChecked = true;
+        bucket.SyncFromMembers();
+        check("成员全勾 → 这一行也是勾的", bucket.IsChecked);
+        check("全勾时不显示「已选 x / y」", bucket.SelectedText.Length == 0, bucket.SelectedText);
+
+        sibling.IsChecked = false;
+        bucket.SyncFromMembers();
+        check("部分勾选 → 这一行不显示成满勾", !bucket.IsChecked);
+        check("部分勾选时如实说选了几个", bucket.SelectedText.Contains("2"), bucket.SelectedText);
+
+        parent.IsChecked = false; child.IsChecked = false;
+        bucket.SyncFromMembers();
+        check("成员全不勾 → 这一行也不勾", !bucket.IsChecked);
+
+        // 「还没认出来」那一桶没有整片勾选的能力：
+        // 把它做成可整片勾选 = 送一个「一键删掉所有看不出来的」按钮，那是最危险的动作。
+        var unnamed = new OrganizeBucket { Name = "还没认出来", Members = new[] { Node(@"D:\x") }, CanSelect = false };
+        check("「还没认出来」不能整片勾选", !unnamed.CanSelect);
+        check("有结论的桶可以整片勾选", bucket.CanSelect);
+
+        // 桶模型自己绝不碰节点的勾选 —— 勾选只由用户在界面上点
+        string src = ReadSource("src/AiDiskCleaner/Models/OrganizeBucket.cs");
+        check("桶模型不写任何节点的勾选",
+            src.Length > 0 && !src.Contains(".IsChecked =", StringComparison.Ordinal));
+
+        // 只有那个点击处理器写节点勾选，而且写的是「桶的状态」
+        string org = ReadSource("src/AiDiskCleaner/MainWindow.Organize.cs");
+        check("只有点击处理器写节点勾选，且写的就是用户点出来的那个状态",
+            org.Contains("m.IsChecked = bucket.IsChecked", StringComparison.Ordinal));
+        check("硬拦的节点跳过去，勾不动",
+            org.Contains("if (m.IsSelectionProtected) continue;", StringComparison.Ordinal));
     }
 
     // ---------------------------------------------------- 源码级不变量
