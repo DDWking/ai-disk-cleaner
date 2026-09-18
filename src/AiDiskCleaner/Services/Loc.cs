@@ -160,6 +160,15 @@ public static class Loc
     public static string AiProtoCompletions => "openai-completions";
     public static string AiProtoResponses => "openai-responses";
     public static string AiProtoAnthropic => "anthropic-messages";
+    /// <summary>结构化判定协议（TypeSafe Jev）。和 chat 那三种不兼容，地址也是单独一条。</summary>
+    public static string AiProtoDecisions => "structured-decisions";
+    public static string AiDecisionsHint => IsEn
+        ? "Structured decisions (TypeSafe Jev and friends) is a separate channel — its URL is not /v1. "
+          + "For OpenRouter use https://openrouter.ai/api/alpha and model typesafe/jev-1.13. "
+          + "It powers batch classification: the app asks it what the items it cannot recognise actually are."
+        : "「结构化判定」（TypeSafe Jev 这类）是单独一条通道，地址不走 /v1。"
+          + "走 OpenRouter 的话填 https://openrouter.ai/api/alpha，模型填 typesafe/jev-1.13。"
+          + "它只用于批量归类：把本地规则认不出用途的那批一次性问清楚是什么。";
     public static string AiExplain => IsEn ? "AI explain" : "AI 解释勾选项";
     public static string AiNeedConfig => IsEn ? "Set base URL and model first." : "先填接口地址和模型。";
     public static string AiNeedKey => IsEn ? "API key is empty." : "还没填 API 密钥。";
@@ -464,6 +473,7 @@ public static class Loc
     {
         AiProtocol.Responses => AiProtoResponses,
         AiProtocol.Anthropic => AiProtoAnthropic,
+        AiProtocol.Decisions => AiProtoDecisions,
         _ => AiProtoCompletions,
     };
     public static string LangZh => "中文";
@@ -2018,8 +2028,13 @@ public static class Loc
     public static string AiBtnTip => IsEn ? "Analyse this item with AI" : "用 AI 分析这一项";
     /// <summary>「更多」菜单里的说明：AI 入口已经挪到每一项旁边。</summary>
     public static string AiPerItemHint => IsEn
-        ? "AI analysis now lives on each item (the ✦ button on a row)"
-        : "AI 分析已改为按需：点某一行的 AI 按钮";
+        ? "Single-item AI analysis lives on the row itself (the ✦ button)"
+        : "单项 AI 分析在每一行自己的按钮上（✦）";
+    /// <summary>「更多」菜单里的批量归类入口。</summary>
+    public static string AiBatchClassify => IsEn ? "Classify items AI can't name" : "批量识别用途";
+    public static string AiBatchClassifyWithCount(int n) => IsEn
+        ? $"Classify {n:N0} item(s) AI can't name"
+        : $"批量识别用途（还有 {n:N0} 项没认出来）";
 
     /// <summary>进行中的诚实提示：没有真实百分比就不编，只报已等待时间。</summary>
     public static string AiRunningHint(TimeSpan waited) => IsEn

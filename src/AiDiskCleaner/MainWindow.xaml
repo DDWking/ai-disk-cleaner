@@ -2577,6 +2577,10 @@
             <TextBox x:Name="AiUrlBox" Style="{StaticResource TermTextBox}" Margin="0,0,0,10" Height="28" Tag="https://api.example.com/v1"/>
             <TextBlock x:Name="AiProtoLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
             <ComboBox x:Name="AiProtoBox" Margin="0,0,0,10"/>
+            <!-- 结构化判定这条通道的地址约定和 chat 不同（不走 /v1），
+                 不写清楚用户不知道该填什么。 -->
+            <TextBlock x:Name="AiDecisionsHintText" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                       TextWrapping="Wrap" Margin="0,0,0,10" Visibility="Collapsed"/>
             <TextBlock x:Name="AiKeyLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
             <Grid Margin="0,0,0,4">
               <PasswordBox x:Name="AiKeyBox" Height="28" Padding="8,0"

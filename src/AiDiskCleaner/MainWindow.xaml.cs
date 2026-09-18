@@ -191,6 +191,7 @@ public partial class MainWindow : Window, IAnalystHost
     private CancellationTokenSource? _snapshotCts;
     private CancellationTokenSource? _uninstallCts;
     private CancellationTokenSource? _aiConfigCts;
+    private CancellationTokenSource? _aiClassifyCts;
     /// <summary>扫描代次。旧任务跑完时如果代次已经不是自己那一代，结果直接丢弃，不覆盖新结果。</summary>
     private int _scanGeneration;
     private int _analyzeGeneration;
@@ -234,7 +235,7 @@ public partial class MainWindow : Window, IAnalystHost
     FileEntry? IAnalystHost.Root => _root;
     CleanReport? IAnalystHost.Report => _report;
     private static readonly AiProtocol[] AiProtos =
-        { AiProtocol.Completions, AiProtocol.Responses, AiProtocol.Anthropic };
+        { AiProtocol.Completions, AiProtocol.Responses, AiProtocol.Anthropic, AiProtocol.Decisions };
 
     public MainWindow()
     {
@@ -1398,6 +1399,20 @@ public partial class MainWindow : Window, IAnalystHost
     void FillAiProtoBox()
     {
         AiProtoBox.ItemsSource = AiProtos.Select(Loc.AiKindName).ToList();
+        AiProtoBox.SelectionChanged += (_, _) => UpdateDecisionsHint();
+    }
+
+    /// <summary>
+    /// 选中「结构化判定」时才显示地址说明：这条通道不走 /v1，
+    /// 不说清楚用户照着 chat 的习惯填就会拿到 404。
+    /// </summary>
+    void UpdateDecisionsHint()
+    {
+        if (AiDecisionsHintText == null) return;
+        int i = AiProtoBox.SelectedIndex;
+        bool on = i >= 0 && i < AiProtos.Length && AiProtos[i] == AiProtocol.Decisions;
+        AiDecisionsHintText.Text = Loc.AiDecisionsHint;
+        AiDecisionsHintText.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
     }
 
     void LoadAiFields()
@@ -1435,6 +1450,7 @@ public partial class MainWindow : Window, IAnalystHost
         var proto = AiClient.ParseProtocol(p?.Protocol);
         int i = Array.IndexOf(AiProtos, proto);
         AiProtoBox.SelectedIndex = i < 0 ? 0 : i;
+        UpdateDecisionsHint();
         AiKeyBox.Password = p?.ApiKey ?? "";
         if (AiKeyHint != null)
         {
@@ -2437,7 +2453,11 @@ public partial class MainWindow : Window, IAnalystHost
     /// 后台重建分层结果（去重 / 分用途 / 分位置 / 统计），完成后在 UI 线程一次性换掉。
     /// **不在后台碰任何控件或绑定视图** —— 只算数据。
     /// </summary>
-    private async Task RebuildLayersAsync(FileEntry root, PerfTrace? perf, string label)
+    /// <param name="invalidateItemAi">
+    /// 是否顺手把逐项 AI 结果标记过期。**只有真的换了扫描内容才该这么做** ——
+    /// 批量归类只是给候选补了用途，扫描数据一个字没变，标过期等于白扔掉用户已经跑过的逐项分析。
+    /// </param>
+    private async Task RebuildLayersAsync(FileEntry root, PerfTrace? perf, string label, bool invalidateItemAi = true)
     {
         if (_report == null) return;
         int myGeneration = ++_layerGeneration;
@@ -2475,7 +2495,8 @@ public partial class MainWindow : Window, IAnalystHost
         if (!ReferenceEquals(_root, root) || myGeneration != _layerGeneration) return;
 
         _layered = layered;
-        InvalidateItemAiAfterScan();   // 新扫描 ⇒ 旧的逐项 AI 结果过期，不给旧结论也不给操作
+        if (invalidateItemAi)
+            InvalidateItemAiAfterScan();   // 新扫描 ⇒ 旧的逐项 AI 结果过期，不给旧结论也不给操作
         // 文件夹整理：**每次扫描只建一次**，而且建在扫描代次落定之后，
         // 这样对象标识里的代次与本次扫描一致（旧请求就不可能串到新列表里）。
         if (_organizeBuiltForScan != _scanGeneration) RebuildOrganize();
@@ -3409,6 +3430,17 @@ public partial class MainWindow : Window, IAnalystHost
         var details = new MenuItem { Header = Loc.ScanDetails };
         details.Click += (_, _) => ScanDetails_Click(this, new RoutedEventArgs());
         menu.Items.Add(details);
+
+        // 批量归类：只处理「规则没给出用途」的那批。数量写进标题，用户一眼知道值不值得点。
+        int pending = _report == null ? 0 : AllCandidates().Count(AiPurposeBatchService.IsEligible);
+        var classify = new MenuItem
+        {
+            Header = pending > 0 ? Loc.AiBatchClassifyWithCount(pending) : Loc.AiBatchClassify,
+            IsEnabled = pending > 0 && !_aiBusy,
+        };
+        classify.Click += (_, _) => CleanClassifyPurposes_Click(this, new RoutedEventArgs());
+        menu.Items.Add(classify);
+
         var hint = new MenuItem
         {
             Header = Loc.AiPerItemHint,
@@ -3416,6 +3448,65 @@ public partial class MainWindow : Window, IAnalystHost
         };
         menu.Items.Add(hint);
         menu.IsOpen = true;
+    }
+
+    /// <summary>
+    /// 批量用途归类：把「规则没给出用途」的那批一次性交给结构化判定通道。
+    ///
+    /// 和逐项 AI 同一条规矩：**只由用户主动发起**。扫描、切页、展开、筛选都不会走到这里，
+    /// 所以「这些动作 = 0 次模型请求」那条回归断言照样成立（计数在 AiGateway 里）。
+    /// </summary>
+    private async void CleanClassifyPurposes_Click(object sender, RoutedEventArgs e)
+    {
+        if (_aiBusy || _root == null) return;
+
+        var targets = AllCandidates().Where(AiPurposeBatchService.IsEligible).ToList();
+        if (targets.Count == 0)
+        {
+            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNothing);
+            return;
+        }
+        if (!App.Settings.DecisionConfigured())
+        {
+            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNotConfigured);
+            return;
+        }
+
+        _aiBusy = true;
+        RefreshAiLamp();
+        SetAiStatus(Loc.AiPurposeBatchRunning);
+        using var op = StartOperation(ref _aiClassifyCts, "AiClassify");
+        var ct = op.Token;
+        var progress = new Progress<string>(SetAiStatus);
+        try
+        {
+            var outcome = await AiPurposeBatchService.RunAsync(targets, progress, ct);
+
+            // Purpose 不是 INPC、分层是预计算的：改完用途必须重建，否则界面还按旧用途分组。
+            // invalidateItemAi: false —— 扫描数据没变，不能把用户跑过的逐项分析标成过期。
+            await RebuildLayersAsync(_root, null, "ai-classify", invalidateItemAi: false);
+            ShowPurposePage(restoreScroll: true);
+
+            SetAiStatus(Loc.AiPurposeBatchSummary(
+                outcome.Applied, outcome.Hinted, outcome.Unknown, outcome.Calls, outcome.Cost));
+            op.Done("classify", outcome.Applied);
+        }
+        catch (OperationCanceledException)
+        {
+            SetAiStatus(Loc.Aborted);
+            op.Canceled("classify canceled");
+        }
+        catch (Exception ex)
+        {
+            SetAiStatus(Loc.AiPurposeBatchFailed(AppError.From(ex, "classify").UserMessage));
+            SetAiLamp(false);
+            op.Fail(ex, "classify");
+        }
+        finally
+        {
+            _aiBusy = false;
+            RefreshAiLamp();
+        }
     }
 
     /// <summary>扫描诊断：默认只在页头留一行，细节进这个对话框。数据一条不少。</summary>
