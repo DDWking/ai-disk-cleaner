@@ -1707,6 +1707,13 @@
                   </StackPanel>
                 </StackPanel>
                 <WrapPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                  <!-- 批量用途归类：**必须是看得见的按钮**。曾经放在「更多」菜单里，
+                       真机反馈是「根本没找到」—— 藏起来的入口等于没有。 -->
+                  <Button x:Name="CleanClassifyBtn" Style="{StaticResource GhostButton}"
+                          Padding="10,5" FontSize="11.5" Margin="0,0,10,0"
+                          Visibility="Collapsed" Click="CleanClassifyPurposes_Click"
+                          ToolTip="把认不出用途的那批一次性交给 AI 判断是什么（只补用途和说明，不改能不能删、也不会替你勾选）"
+                          AutomationProperties.Name="批量识别用途"/>
                   <!-- 扫描详情 / 更多：辅助操作用图标按钮，语义靠 ToolTip + 可访问名称 -->
                   <Button x:Name="ScanDetailsBtn" Style="{StaticResource IconButton}" Margin="0,0,4,0"
                           Click="ScanDetails_Click" ToolTip="扫描信息（来源、权限、耗时、跳过项）"

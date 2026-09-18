@@ -2036,6 +2036,10 @@ public static class Loc
     public static string AiBatchClassifyWithCount(int n) => IsEn
         ? $"Classify {n:N0} item(s) AI can't name"
         : $"批量识别用途（还有 {n:N0} 项没认出来）";
+    /// <summary>页头按钮上的短文案（长的放 ToolTip 和菜单）。</summary>
+    public static string AiBatchClassifyShort(int n) => IsEn
+        ? $"Classify {n:N0} unnamed"
+        : $"识别用途（{n:N0} 项）";
 
     /// <summary>进行中的诚实提示：没有真实百分比就不编，只报已等待时间。</summary>
     public static string AiRunningHint(TimeSpan waited) => IsEn
