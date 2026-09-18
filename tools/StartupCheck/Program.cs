@@ -839,6 +839,18 @@ public static class Program
             !org.Contains("OrganizeProgressPanel", StringComparison.Ordinal)
             && !org.Contains("OrganizeStopBtn", StringComparison.Ordinal));
 
+        // 组合根必须**显式**接线 AI 通道。
+        // 只靠 AiClient 的静态构造函数不行 —— 静态构造只在「有东西碰到 AiClient」时才跑，
+        // 而判定通道走 AiProtocols（刻意做成不碰 AiClient），于是从没碰过 AiClient 的进程里
+        // DecisionsSender 一直是 null，用户一点「识别用途」就报
+        // "decisions channel is not registered"（真机日志里连报 4 次）。
+        var appSrc = ReadSource("src/AiDiskCleaner/App.xaml.cs");
+        Check("组合根在 OnStartup 里显式接线 AI 通道",
+            appSrc.Contains("AiGateways.Register()", StringComparison.Ordinal));
+        AiGateways.Register();
+        Check("Register() 之后判定通道确实可用（接线幂等）",
+            AiGateway.DecisionsSender != null);
+
         // ---------- 9.4 扫描 / 切页 / 展开 / 筛选 = 0 次模型请求 ----------
         // 让「有模型配置」这件事成立，否则零请求没有说服力（没配模型本来就不会发）。
         var settings = App.Settings;

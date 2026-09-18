@@ -49,6 +49,14 @@ public partial class App : Application
 
         Settings = AppSettings.Load();
         Loc.Lang = Settings.Lang;
+        // 组合根：**在这里**把真实通道接上统一入口。
+        //
+        // 不能只靠 AiClient 的静态构造函数去接（它里面确实也调了一次 Register）——
+        // 静态构造只在「有东西碰到 AiClient」时才跑。判定通道走的是 AiProtocols
+        // （刻意做成不碰 AiClient，好让设置页读协议不触发它的静态构造），
+        // 于是从没碰过 AiClient 的进程里 DecisionsSender 一直是 null，
+        // 用户一点「识别用途」就报 "decisions channel is not registered"。
+        AiGateways.Register();
         ThemeService.Apply();
         Resources["SearchHintText"] = Loc.SearchHint;
         base.OnStartup(e);

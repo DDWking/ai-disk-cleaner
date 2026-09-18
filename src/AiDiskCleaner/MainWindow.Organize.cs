@@ -477,7 +477,9 @@ public partial class MainWindow
     /// </summary>
     async Task OrganizeClassifyRunAsync()
     {
-        var targets = _organizeAll.Where(n => n.NeedsPurposeClassification).ToList();
+        // 范围：**列表里当前真正看得见的那批**（_organizeRows），不是所有材料化出来的对象。
+        // 用户要的是「把眼前这几十行分好」，不是把上千个对象一次性转一遍。
+        var targets = _organizeRows.Where(n => n.NeedsPurposeClassification).ToList();
         if (targets.Count == 0)
         {
             ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNothing);
@@ -491,33 +493,47 @@ public partial class MainWindow
 
         _organizeClassifying = true;
         UpdateOrganizeHeader();
-        using var op = StartOperation(ref _aiClassifyCts, "OrganizeClassify");
-        var ct = op.Token;
-        // 换代守卫：扫描重来之后旧结果绝不许贴到新树上
-        int scanGen = _scanGeneration;
-        var progress = new Progress<string>(SetOrganizeNote);
+        string failMsg = "";
         try
         {
-            var outcome = await AiPurposeBatchService.RunAsync(
-                targets, () => scanGen == _scanGeneration, progress, ct);
-            SetOrganizeNote(Loc.AiPurposeBatchSummary(
-                outcome.Applied, outcome.Unknown, outcome.Calls, outcome.Cost));
-            op.Done("organize classify", outcome.Applied);
-        }
-        catch (OperationCanceledException)
-        {
-            SetOrganizeNote(Loc.Aborted);
-            op.Canceled("organize classify canceled");
+            using var op = StartOperation(ref _aiClassifyCts, "OrganizeClassify");
+            var ct = op.Token;
+            // 换代守卫：扫描重来之后旧结果绝不许贴到新树上
+            int scanGen = _scanGeneration;
+            var progress = new Progress<string>(SetOrganizeNote);
+            try
+            {
+                var outcome = await AiPurposeBatchService.RunAsync(
+                    targets, () => scanGen == _scanGeneration, progress, ct);
+                SetOrganizeNote(Loc.AiPurposeBatchSummary(
+                    outcome.Applied, outcome.Unknown, outcome.Calls, outcome.Cost));
+                op.Done("organize classify", outcome.Applied);
+            }
+            catch (OperationCanceledException)
+            {
+                SetOrganizeNote(Loc.Aborted);
+                op.Canceled("organize classify canceled");
+            }
+            catch (Exception ex)
+            {
+                failMsg = Loc.AiPurposeBatchFailed(AppError.From(ex, "organize classify").UserMessage);
+                op.Fail(ex, "organize classify");
+            }
         }
         catch (Exception ex)
         {
-            SetOrganizeNote(Loc.AiPurposeBatchFailed(AppError.From(ex, "organize classify").UserMessage));
-            op.Fail(ex, "organize classify");
+            // 前置步骤（取取消源 / 记一次操作）抛了也要出声，不能只留给未观察任务异常
+            failMsg = Loc.AiPurposeBatchFailed(AppError.From(ex, "organize classify").UserMessage);
+            AppLog.Error("OrganizeClassify", failMsg, ex);
         }
         finally
         {
             _organizeClassifying = false;
             UpdateOrganizeHeader();
+            // **失败必须出声。** 这是用户主动点的动作；只往页头那行小灰字里塞一句，
+            // 用户看到的就是「点了没反应」—— 真机就是这么反馈的：
+            // 日志里连报 4 次 "decisions channel is not registered"，界面一片安静。
+            if (failMsg.Length > 0) ShowAlert(Loc.AiBatchClassify, failMsg);
         }
     }
 
