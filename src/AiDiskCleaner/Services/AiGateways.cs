@@ -58,6 +58,8 @@ public static class AiGateways
         {
             if (_registered) return;
             AiGateway.ProviderFactory ??= static () => new DefaultAiGatewayProvider();
+            // 判定通道只有内置 HTTP 一条路：sidecar 是 chat 协议的适配器，没有 decisions 原语。
+            AiGateway.DecisionsSender ??= static (req, ct) => AiClient.SendDecisionsAsync(req, ct);
             _registered = true;
         }
     }

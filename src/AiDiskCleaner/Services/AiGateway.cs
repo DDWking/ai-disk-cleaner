@@ -84,6 +84,15 @@ public static class AiGateway
         set => _provider = value;
     }
 
+    /// <summary>
+    /// 结构化判定通道（<see cref="AiDecisionRequest"/>）。
+    ///
+    /// 单独一条而不是塞进 <see cref="IAiGatewayProvider"/>，有两个原因：
+    /// sidecar 是 chat 协议的适配器、根本不支持判定；而加接口成员会强迫所有离线测试桩跟着改。
+    /// 做成和 <see cref="ProviderFactory"/> 一样的注入点，生产在组合根接线、测试塞假的就行。
+    /// </summary>
+    public static Func<AiDecisionRequest, CancellationToken, Task<AiDecisionReply>>? DecisionsSender { get; set; }
+
     public static AiGatewayStatus LastStatus { get; private set; } = AiGatewayStatus.Idle;
 
     private static IAiGatewayProvider Resolve()
@@ -185,6 +194,66 @@ public static class AiGateway
         sw.Stop();
         var err = last ?? new InvalidOperationException("ai request failed");
         Status(new AiGatewayStatus(provider.Direct.Name, false, attempts, sw.Elapsed.TotalMilliseconds,
+            AppError.From(err).UserMessage));
+        throw err is OperationCanceledException
+            ? new TimeoutException(Loc.AiTimeout, err)
+            : err;
+    }
+
+    /// <summary>
+    /// 发一次结构化判定。
+    ///
+    /// 策略和 <see cref="SendAsync"/> 刻意保持一致（同一个出站计数、同一把限流闸、
+    /// 同一套瞬时故障重试与状态记录），差别只在没有 sidecar 降级那一层 ——
+    /// 判定通道只有内置 HTTP 一条路。
+    /// </summary>
+    public static async Task<AiDecisionReply> DecideAsync(AiDecisionRequest request, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _sentCount);
+        var send = DecisionsSender
+                   ?? throw new InvalidOperationException("decisions channel is not registered");
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(request.Timeout);
+
+        int attempts = 0;
+        Exception? last = null;
+
+        for (int attempt = 1; attempt <= MaxAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            attempts++;
+            try
+            {
+                await ThrottleAsync(timeoutCts.Token);
+                var reply = await send(request, timeoutCts.Token);
+                sw.Stop();
+                Status(new AiGatewayStatus("decisions", true, attempts, sw.Elapsed.TotalMilliseconds, "ok"));
+                return reply;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException ex)
+            {
+                last = ex;
+                if (attempt >= MaxAttempts) break;
+                await DelayAsync(attempt, ct);
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                if (!IsTransient(ex) || attempt >= MaxAttempts) break;
+                AppLog.Warn("Ai", $"decisions transient failure (attempt {attempt}/{MaxAttempts}): {AppError.From(ex).Kind}");
+                await DelayAsync(attempt, ct);
+            }
+        }
+
+        sw.Stop();
+        var err = last ?? new InvalidOperationException("decisions request failed");
+        Status(new AiGatewayStatus("decisions", false, attempts, sw.Elapsed.TotalMilliseconds,
             AppError.From(err).UserMessage));
         throw err is OperationCanceledException
             ? new TimeoutException(Loc.AiTimeout, err)

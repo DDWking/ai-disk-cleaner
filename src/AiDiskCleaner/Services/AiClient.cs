@@ -42,6 +42,7 @@ public static class AiClient
     {
         "responses" or "openai-responses" => AiProtocol.Responses,
         "anthropic" or "anthropic-messages" => AiProtocol.Anthropic,
+        "decisions" or "systemone" => AiProtocol.Decisions,
         _ => AiProtocol.Completions,
     };
 
@@ -49,6 +50,7 @@ public static class AiClient
     {
         AiProtocol.Responses => "responses",
         AiProtocol.Anthropic => "anthropic",
+        AiProtocol.Decisions => "decisions",
         _ => "completions",
     };
 
@@ -222,6 +224,106 @@ public static class AiClient
         if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
         return ParseModelIds(body);
     }
+
+    /// <summary>
+    /// 结构化判定通道（TypeSafe Jev 这类）。
+    ///
+    /// <b>URL 约定和 chat 不一样，不要用 <see cref="Join"/>。</b>
+    /// <see cref="RootUrl"/> 会在缺失时补 <c>/v1</c>，可 OpenRouter 的判定端点恰恰是
+    /// <c>https://openrouter.ai/api/alpha/decisions</c>——补成 <c>/api/v1/alpha/decisions</c> 就是 404。
+    /// 所以这里直接把 <c>/decisions</c> 接到配置的 BaseUrl 后面；BaseUrl 已经写了
+    /// <c>/decisions</c> 的话就原样用，方便用户直接粘贴完整地址。
+    /// </summary>
+    internal static async Task<AiDecisionReply> SendDecisionsAsync(AiDecisionRequest request, CancellationToken ct)
+    {
+        var p = request.Provider;
+        string baseUrl = (p?.BaseUrl ?? "").Trim().TrimEnd('/');
+        string model = (request.Model ?? "").Trim();
+        string key = p?.ApiKey ?? "";
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(model))
+            throw new InvalidOperationException(Loc.AiNeedConfig);
+
+        string url = baseUrl.EndsWith("/decisions", StringComparison.OrdinalIgnoreCase)
+            ? baseUrl
+            : baseUrl + "/decisions";
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["model"] = model,
+            ["state"] = request.State,
+            ["questions"] = request.Questions.ToDictionary(kv => kv.Key, kv => (object?)BuildQuestion(kv.Value)),
+        };
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonBody(payload) };
+        // 判定通道一律 Bearer（Auth 只对 Anthropic 特判）
+        Auth(req, AiProtocol.Decisions, key);
+
+        using var res = await Http.SendAsync(req, ct);
+        string body = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode) throw Fail(body, res.StatusCode.ToString());
+        return ParseDecisions(body);
+    }
+
+    static Dictionary<string, object?> BuildQuestion(AiDecisionQuestion q)
+    {
+        var d = new Dictionary<string, object?>
+        {
+            ["type"] = string.IsNullOrWhiteSpace(q.Type) ? "choice" : q.Type,
+            ["instructions"] = q.Instructions,
+        };
+        // 同一个字段名承载两种形状：choice 是对象（键→说明），score 是数组（档位描述）
+        if (q.Criteria is { Count: > 0 }) d["criteria"] = q.Criteria;
+        else if (q.Scale is { Count: > 0 }) d["criteria"] = q.Scale;
+        return d;
+    }
+
+    static AiDecisionReply ParseDecisions(string body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        // 有的中转会把错误塞在 200 的 body 里
+        if (root.TryGetProperty("error", out _)) throw Fail(body, "decisions");
+
+        var reply = new AiDecisionReply { Model = Str(root, "model") };
+
+        if (root.TryGetProperty("answers", out var answers) && answers.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in answers.EnumerateObject())
+            {
+                var v = prop.Value;
+                if (v.ValueKind != JsonValueKind.Object) continue;
+                var a = new AiDecisionAnswer
+                {
+                    Type = Str(v, "type"),
+                    Choice = Str(v, "choice"),
+                    Noul = Num(v, "noul"),
+                    Score = Num(v, "score"),
+                };
+                a.Confidence = Num(v, "confidence") ?? a.Noul ?? 0;
+                if (v.TryGetProperty("probabilities", out var pr) && pr.ValueKind == JsonValueKind.Object)
+                {
+                    var map = new Dictionary<string, double>();
+                    foreach (var e in pr.EnumerateObject())
+                        if (e.Value.ValueKind == JsonValueKind.Number) map[e.Name] = e.Value.GetDouble();
+                    a.Probabilities = map;
+                }
+                if (string.IsNullOrEmpty(a.Choice)) a.Choice = null;
+                reply.Answers[prop.Name] = a;
+            }
+        }
+
+        if (root.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object)
+        {
+            reply.InputTokens = (int)(Num(usage, "input_tokens") ?? 0);
+            reply.OutputTokens = (int)(Num(usage, "output_tokens") ?? 0);
+            reply.Cost = Num(usage, "cost") ?? 0;
+        }
+        return reply;
+    }
+
+    static double? Num(JsonElement e, string name)
+        => e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number ? p.GetDouble() : null;
 
     static async Task<AiReply> StreamCompletions(AiProviderCfg? p, string? modelId, string system, IReadOnlyList<AiMsg> turns, Action<string> onDelta, CancellationToken ct)
     {

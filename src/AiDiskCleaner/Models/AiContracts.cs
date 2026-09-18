@@ -1,7 +1,13 @@
 namespace AiDiskCleaner.Models;
 
-/// <summary>中转协议。决定往哪个 endpoint 发、payload 长什么样。</summary>
-public enum AiProtocol { Completions, Responses, Anthropic }
+/// <summary>
+/// 中转协议。决定往哪个 endpoint 发、payload 长什么样。
+///
+/// <see cref="Decisions"/> 是结构化判定通道（TypeSafe Jev 这类），
+/// 请求体是 <c>state</c> + <c>questions</c>、响应是类型化答案，**和 chat 完全不兼容**，
+/// 所以它既不能走 <c>/chat/completions</c>，也不能套用 <c>/v1</c> 的 URL 约定。
+/// </summary>
+public enum AiProtocol { Completions, Responses, Anthropic, Decisions }
 
 /// <summary>模型要求调用的一次工具。</summary>
 public sealed class AiToolCall
