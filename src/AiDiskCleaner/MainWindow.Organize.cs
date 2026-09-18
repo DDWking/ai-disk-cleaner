@@ -432,14 +432,16 @@ public partial class MainWindow
         if (_organizePendingOnly) line += " · " + Loc.OrganizeFilterActive(_organizeRows.Count, _organizeAll.Count);
         if (_organizeNote.Length > 0) line += " · " + _organizeNote;
         OrganizeCounts.Text = line;
-        UpdateOrganizeClassifyButton(unknown);
+        // 按钮上的数字 = **这一屏真正会问的条数**，不是全局还没识别的条数。
+        // 写成全局那个数会出现「按钮说 2,517 项、实际只问了 83 条」——标签和动作对不上。
+        UpdateOrganizeClassifyButton(_organizeRows.Count(x => x.NeedsPurposeClassification));
     }
 
     /// <summary>
-    /// 批量归类入口：数量写在按钮上，未识别为 0 就整块隐藏（不留一个点了没反应的按钮）；
+    /// 批量归类入口：数量写在按钮上，为 0 就整块隐藏（不留一个点了没反应的按钮）；
     /// 跑的时候变成「停止」。
     /// </summary>
-    void UpdateOrganizeClassifyButton(int unknown)
+    void UpdateOrganizeClassifyButton(int onScreen)
     {
         if (OrganizeClassifyBtn == null) return;
         if (_organizeClassifying)
@@ -449,9 +451,9 @@ public partial class MainWindow
             OrganizeClassifyBtn.IsEnabled = true;
             return;
         }
-        OrganizeClassifyBtn.Content = Loc.AiBatchClassifyShort(unknown);
-        OrganizeClassifyBtn.Visibility = unknown > 0 ? Visibility.Visible : Visibility.Collapsed;
-        OrganizeClassifyBtn.IsEnabled = unknown > 0;
+        OrganizeClassifyBtn.Content = Loc.AiBatchClassifyScreen(onScreen);
+        OrganizeClassifyBtn.Visibility = onScreen > 0 ? Visibility.Visible : Visibility.Collapsed;
+        OrganizeClassifyBtn.IsEnabled = onScreen > 0;
     }
 
     /// <summary>入口只有一个按钮：空闲时开始，跑着时停止。</summary>
@@ -506,7 +508,7 @@ public partial class MainWindow
                 var outcome = await AiPurposeBatchService.RunAsync(
                     targets, () => scanGen == _scanGeneration, progress, ct);
                 SetOrganizeNote(Loc.AiPurposeBatchSummary(
-                    outcome.Applied, outcome.Unknown, outcome.Calls, outcome.Cost));
+                    outcome.Applied, outcome.Unsure, outcome.Unknown, outcome.Calls, outcome.Cost));
                 op.Done("organize classify", outcome.Applied);
             }
             catch (OperationCanceledException)

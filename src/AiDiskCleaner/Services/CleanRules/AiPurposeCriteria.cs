@@ -100,14 +100,25 @@ public static class AiPurposeCriteria
     /// <summary>
     /// 采纳这条判定所需的最低置信度。
     ///
-    /// 实测参考（16 条真实路径）：判对且 0.89~1.00 的集中在「认识」；0.63~0.77 的是
-    /// 「认得但语焉不详」（用户视频、程序本体、IE 缓存）；0.22~0.46 的全部是模糊项。
-    /// 所以清理类卡 0.75 —— **宁可少认几条，也不要给用户一个似是而非的「这是缓存」**。
-    /// keep 卡 0.55：方向保守，说错了只是少清一个东西。
+    /// **两侧刻意不对称 —— 拒绝猜「缓存」是保护，拒绝猜「别删」是危险。**
+    ///
+    /// 清理类卡 0.75：实测判对且 0.89~1.00 的集中在「认识」；0.63~0.77 是「认得但语焉不详」；
+    /// 0.22~0.46 全是模糊项。**宁可少认几条，也不要给用户一个似是而非的「这是缓存」**，
+    /// 那正是会误导人去删的东西。
+    ///
+    /// keep **不设门槛（0）**：把一条拿不准的 `keep` 挡掉，界面就只剩「未识别」——
+    /// 而「未识别」在用户眼里等于「AI 也不知道这是什么」，比一句「像是你的数据」危险得多。
+    /// 实测证据：`AppData\Local\Programs` 猜 keep 0.39 被 0.55 挡掉 → 显示未识别 →
+    /// 那可是**装软件的地方**。同一批里 `LocalLow` 被逼着猜成 temp 0.29、
+    /// `Roaming\Code`（VS Code 的配置）被逼着猜成 devcache 0.27 —— 窄 keep 会把模型往
+    /// 「猜缓存」上逼，方向正好反了。
+    ///
+    /// 代价只是：一条真缓存如果被猜成 keep，用户就少清一个东西。**这是安全的那一侧。**
     /// </summary>
     public static double ThresholdFor(AiPurposeKind kind) => kind switch
     {
-        AiPurposeKind.Keep => 0.55,
+        // 拿不准也照示，靠文案里的「像是」和「AI 推测」前缀把不确定性说清楚
+        AiPurposeKind.Keep => 0.0,
         AiPurposeKind.Temporary or AiPurposeKind.BrowserCache or AiPurposeKind.AppCache
             or AiPurposeKind.DevCache or AiPurposeKind.AppLog or AiPurposeKind.Dump
             or AiPurposeKind.Installer => 0.75,

@@ -1063,8 +1063,12 @@ public static class Loc
             ("dump",        "Crash dumps"),
             ("installer",   "Installer you downloaded"),
             ("model",       "Large asset such as an AI model or game data — deleting means downloading it again"),
-            ("keep",        "Do not delete: the user's own data (documents / photos / saves / chat history), or files belonging to Windows itself"),
-            ("unknown",     "Can't tell"),
+            // keep 是**兜底**，不是「用户数据」这一个窄类。写窄了模型就会往缓存类上猜 ——
+            // 实测：窄 keep 时 LocalLow 被猜成 temp 0.29、VS Code 的 Roaming\Code 被猜成
+            // devcache 0.27（都是错的），而 AppData\Local\Programs 猜 keep 0.39 被阈值挡掉、
+            // 显示成「未识别」——那可是装软件的地方。放宽之后 24 条里采纳数 16 → 22。
+            ("keep",        "别删：你自己的数据（文档/照片/视频/存档/聊天记录/密钥），或者某个软件、系统自己的数据目录（它自己的设置、账号、插件、数据库、模型），再或者你判断不出它是谁的数据、但明显不是临时垃圾"),
+            ("unknown",     "只有在连「这是谁的数据」都判断不出来时才选这个"),
         }
         : new[]
         {
@@ -1076,8 +1080,9 @@ public static class Loc
             ("dump",        "崩溃转储"),
             ("installer",   "安装包"),
             ("model",       "AI 模型或游戏素材这种大文件，删了要重新下载"),
-            ("keep",        "别删：用户自己的数据（文档/照片/存档/聊天记录），或者系统自己的文件"),
-            ("unknown",     "看不出来"),
+            // 同上：keep 必须是兜底，不能只是「用户数据」这一个窄类
+            ("keep",        "别删：你自己的数据（文档/照片/视频/存档/聊天记录/密钥），或者某个软件、系统自己的数据目录（它自己的设置、账号、插件、数据库、模型），再或者你判断不出它是谁的数据、但明显不是临时垃圾"),
+            ("unknown",     "只有在连「这是谁的数据」都判断不出来时才选这个"),
         };
 
     /// <summary>
@@ -1106,7 +1111,9 @@ public static class Loc
         AiPurposeKind.Dump => IsEn ? "Crash dumps" : "崩溃转储",
         AiPurposeKind.Installer => IsEn ? "Installers" : "安装包",
         AiPurposeKind.Model => IsEn ? "Models / game assets" : "模型 / 游戏素材",
-        AiPurposeKind.Keep => IsEn ? "Your data or Windows files" : "你的数据或系统文件",
+        // 「像是」是刻意的：keep 不设置信度门槛（拒绝猜「别删」比拒绝猜「缓存」危险得多），
+        // 所以这一句必须自带不确定性，不能说得像定论。
+        AiPurposeKind.Keep => IsEn ? "Looks like your data or Windows files" : "像是你的数据或系统文件",
         _ => "",
     };
     /// <summary>模型认出这是「别删」那一类时给的提示。只是提示，不阻挡用户删。</summary>
@@ -1120,10 +1127,15 @@ public static class Loc
     public static string AiPurposeBatchRunning => IsEn ? "Classifying…" : "正在归类…";
     public static string AiPurposeBatchProgress(int done, int total)
         => IsEn ? $"Classified {done:N0} / {total:N0}" : $"已归类 {done:N0} / {total:N0}";
-    public static string AiPurposeBatchSummary(int applied, int unknown, int calls, double cost)
+    /// <summary>
+    /// 结果短句。**必须把「模型说不出」和「模型说了但没把握」分开报** ——
+    /// 两者在界面上都显示成「未识别」，混成一句用户根本没法判断问题出在哪：
+    /// 前者要改提示词，后者只要放宽阈值。
+    /// </summary>
+    public static string AiPurposeBatchSummary(int applied, int unsure, int unknown, int calls, double cost)
         => IsEn
-            ? $"Classified {applied:N0} folder(s); {unknown:N0} still unclear. {calls} request(s), about ${cost:0.0000}."
-            : $"认出了 {applied:N0} 个文件夹；还有 {unknown:N0} 个看不出来。共 {calls} 次请求，约 ${cost:0.0000}。";
+            ? $"Classified {applied:N0} folder(s); {unsure:N0} guessed but not confident; {unknown:N0} it couldn't tell. {calls} request(s), about ${cost:0.0000}."
+            : $"认出了 {applied:N0} 个；{unsure:N0} 个有猜测但没把握；{unknown:N0} 个它说不出来。共 {calls} 次请求，约 ${cost:0.0000}。";
     public static string AiPurposeBatchNotConfigured => IsEn
         ? "Batch classification needs a provider with the “structured decision” protocol. Add one in Settings."
         : "批量归类需要一条「结构化判定」协议的供应商，请先在设置里添加。";
@@ -1434,9 +1446,12 @@ public static class Loc
     /// 分档计数：本地认出 / AI 有结论 / 未知 / 失败。
     /// **不把这几类混成一句「待确认」**。
     /// </summary>
+    /// 最后一个标签必须是「**还没识别**」而不是「未知」：它数的是**从没被识别过**的，
+    /// 不是「AI 看了但看不出来」。用「未知」会让用户以为 AI 大面积失灵 ——
+    /// 真机上就发生过：页头写「未知 2,517」，而实际只是还没轮到它们。
     public static string OrganizeCountsLine(int local, int ai, int unknown, int failed) => IsEn
-        ? $"local {local:N0} · AI {ai:N0} · unknown {unknown:N0} · failed {failed:N0}"
-        : $"本地 {local:N0} · AI {ai:N0} · 未知 {unknown:N0} · 失败 {failed:N0}";
+        ? $"local {local:N0} · AI {ai:N0} · not looked at yet {unknown:N0} · failed {failed:N0}"
+        : $"本地认出 {local:N0} · AI 认了 {ai:N0} · 还没识别 {unknown:N0} · 失败 {failed:N0}";
 
     /// <summary>
     /// 终态短句。**只说页头说不出的事**（未发送 / 失败），
@@ -2060,6 +2075,14 @@ public static class Loc
     public static string AiBatchClassifyShort(int n) => IsEn
         ? $"Classify {n:N0} unnamed"
         : $"识别用途（{n:N0} 项）";
+    /// <summary>
+    /// 页头按钮：数字必须是**这一屏真正会问的条数**。
+    /// 曾经写成「全局还没识别的条数」，于是按钮显示 (2,517 项)、实际只问了当前可见的 83 条 ——
+    /// 标签和动作对不上，用户会以为卡住了。
+    /// </summary>
+    public static string AiBatchClassifyScreen(int n) => IsEn
+        ? $"Classify this screen ({n:N0})"
+        : $"识别这一屏（{n:N0} 项）";
 
     /// <summary>进行中的诚实提示：没有真实百分比就不编，只报已等待时间。</summary>
     public static string AiRunningHint(TimeSpan waited) => IsEn

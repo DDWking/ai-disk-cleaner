@@ -105,23 +105,31 @@ public static class AiPurposeTests
         double keep = AiPurposeCriteria.ThresholdFor(AiPurposeKind.Keep);
         check("清理类阈值高于 keep（判错代价不同）", cache > keep, $"cache={cache} keep={keep}");
         check("清理类阈值不低于 0.7", cache >= 0.7, cache.ToString());
-        check("keep 阈值不低于 0.5", keep >= 0.5, keep.ToString());
+        // （旧断言「keep 阈值不低于 0.5」已被下面的「keep 不设门槛」取代 —— 那是旧设计，
+        //   当时的理由是「方向保守」，但实测证明它会把模型往猜缓存上逼，方向正好反了。）
 
         check("清理类低于阈值不采纳", !AiPurposeCriteria.IsAccepted(AiPurposeKind.AppCache, cache - 0.01));
         check("清理类到阈值即采纳", AiPurposeCriteria.IsAccepted(AiPurposeKind.AppCache, cache));
-        check("keep 低于阈值不采纳", !AiPurposeCriteria.IsAccepted(AiPurposeKind.Keep, keep - 0.01));
 
-        // 实测里低置信的那批（0.22~0.46）必须全部被挡掉
+        // **两侧刻意不对称**：拒绝猜「缓存」是保护，拒绝猜「别删」是危险。
+        // 一条拿不准的 keep 被挡掉，界面就只剩「未识别」—— 比一句「像是你的数据」危险得多。
+        // 实测：AppData\Local\Programs 猜 keep 0.39 被 0.55 挡掉 → 显示未识别 → 那是装软件的地方。
+        check("keep 不设门槛（拿不准也照示）",
+            AiPurposeCriteria.ThresholdFor(AiPurposeKind.Keep) == 0
+            && AiPurposeCriteria.IsAccepted(AiPurposeKind.Keep, 0));
+        check("keep 的阈值确实低于清理类", keep < cache);
+
+        // 实测里低置信的那批（0.22~0.46）对**清理类**必须全部被挡掉
         foreach (var c in new[] { 0.22, 0.24, 0.28, 0.36, 0.40, 0.42, 0.43, 0.46 })
         {
             if (AiPurposeCriteria.IsAccepted(AiPurposeKind.AppCache, c)
-                || AiPurposeCriteria.IsAccepted(AiPurposeKind.Keep, c))
+                || AiPurposeCriteria.IsAccepted(AiPurposeKind.Installer, c))
             {
-                check($"实测低置信样本 {c} 必须被挡掉", false);
+                check($"实测低置信样本 {c} 对清理类必须被挡掉", false);
                 return;
             }
         }
-        check("实测低置信样本（0.22~0.46）全部被挡掉", true);
+        check("实测低置信样本（0.22~0.46）对清理类全部被挡掉", true);
 
         check("Unknown 永远不采纳", !AiPurposeCriteria.IsAccepted(AiPurposeKind.Unknown, 1.0));
     }

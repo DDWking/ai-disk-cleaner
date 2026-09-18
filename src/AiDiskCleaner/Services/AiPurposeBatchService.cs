@@ -3,10 +3,17 @@ using AiDiskCleaner.Services.CleanRules;
 
 namespace AiDiskCleaner.Services;
 
-/// <summary>一次批量归类的结果，用来给用户一句实话（而不是「已完成」）。</summary>
+/// <summary>
+/// 一次批量归类的结果，用来给用户一句实话（而不是「已完成」）。
+///
+/// <paramref name="Unsure"/> 和 <paramref name="Unknown"/> **必须分开**：
+/// 前者是「模型给了答案但没把握」（放宽阈值就能救），后者是「模型说不出」（得改提示词）。
+/// 两者在界面上都显示成「未识别」，混成一个数就没法判断问题出在哪。
+/// </summary>
 public sealed record AiPurposeBatchOutcome(
     int Asked,
     int Applied,
+    int Unsure,
     int Unknown,
     int Calls,
     int InputTokens,
@@ -57,16 +64,19 @@ public static class AiPurposeBatchService
         // 入选判据在节点自己身上（OrganizeNode.NeedsPurposeClassification），离线可测
         var targets = nodes.Where(n => n.NeedsPurposeClassification).ToList();
         if (targets.Count == 0)
-            return new AiPurposeBatchOutcome(0, 0, 0, 0, 0, 0);
+            return new AiPurposeBatchOutcome(0, 0, 0, 0, 0, 0, 0);
 
         var provider = App.Settings.DecisionProvider();
         string model = App.Settings.DecisionModelId();
         if (provider == null || string.IsNullOrWhiteSpace(provider.BaseUrl) || string.IsNullOrWhiteSpace(model))
             throw new InvalidOperationException(Loc.AiPurposeBatchNotConfigured);
 
-        int applied = 0, unknown = 0, calls = 0, inTokens = 0;
+        int applied = 0, unsure = 0, unknown = 0, calls = 0, inTokens = 0;
         double cost = 0;
         int done = 0;
+        // 类别分布 + 置信度分布：优化提示词和阈值时**看数据，不靠猜**
+        var dist = new Dictionary<string, int>(StringComparer.Ordinal);
+        var conf = new List<double>();
 
         foreach (var chunk in Chunk(targets, MaxPerRequest))
         {
@@ -86,7 +96,11 @@ public static class AiPurposeBatchService
             {
                 if (!reply.Answers.TryGetValue(KeyOf(i), out var answer)) { unknown++; continue; }
                 var kind = AiPurposeCriteria.Parse(answer.Choice);
-                if (!AiPurposeCriteria.IsAccepted(kind, answer.Confidence)) { unknown++; continue; }
+                dist[kind.ToString()] = dist.TryGetValue(kind.ToString(), out var c) ? c + 1 : 1;
+                conf.Add(answer.Confidence);
+                // 分开记：模型说不出 vs 说了但没把握（阈值挡掉的）
+                if (kind == AiPurposeKind.Unknown) { unknown++; continue; }
+                if (!AiPurposeCriteria.IsAccepted(kind, answer.Confidence)) { unsure++; continue; }
                 string name = Loc.AiPurposeDisplayName(kind);
                 if (name.Length == 0) { unknown++; continue; }
                 chunk[i].SetBatchPurpose(name);
@@ -97,7 +111,14 @@ public static class AiPurposeBatchService
             progress?.Report(Loc.AiPurposeBatchProgress(done, targets.Count));
         }
 
-        return new AiPurposeBatchOutcome(targets.Count, applied, unknown, calls, inTokens, cost);
+        if (conf.Count > 0) conf.Sort();
+        AppLog.Info("AiClassify",
+            $"asked={targets.Count} applied={applied} unsure={unsure} unknown={unknown} calls={calls} "
+            + $"in={inTokens} cost=${cost:0.000000} "
+            + $"medianConf={(conf.Count > 0 ? conf[conf.Count / 2] : 0):0.00} "
+            + $"dist={string.Join(",", dist.OrderByDescending(x => x.Value).Select(x => x.Key + ":" + x.Value))}");
+
+        return new AiPurposeBatchOutcome(targets.Count, applied, unsure, unknown, calls, inTokens, cost);
     }
 
     static string KeyOf(int index) => "p" + (index + 1);
