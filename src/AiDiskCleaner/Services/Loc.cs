@@ -1066,6 +1066,41 @@ public static class Loc
             ("unknown",     "看不出来"),
         };
 
+    /// <summary>
+    /// 每道题都把路径写进问题本身。
+    /// <b>不要改成「第 N 行」</b> —— 实测那会让模型去数行号，48 项时 8/16 自相矛盾，
+    /// 而且后面整片塌成同一个答案。
+    /// </summary>
+    public static string AiPurposeQuestion(string path)
+        => IsEn ? $"What is this path: {path}" : $"这个路径是什么：{path}";
+    /// <summary>批量判定的结果写进「说明」列时，必须一眼看出这是 AI 推测、不是规则结论。</summary>
+    public static string AiPurposeNote(string name, string impact)
+        => IsEn ? $"{PurposeFromAi}: {name} · {impact}" : $"{PurposeFromAi}：{name} · {impact}";
+    public static string AiPurposeFromAi(string text)
+        => IsEn ? $"{PurposeFromAi}: {text}" : $"{PurposeFromAi}：{text}";
+    /// <summary>模型认出这是「别删」那一类时给的提示。只是提示，不阻挡用户删。</summary>
+    public static string AiPurposeKeepHint => IsEn
+        ? "Looks like your own data or a Windows file — check before deleting"
+        : "看着像你自己的数据或系统文件，删之前先看一眼";
+    /// <summary>模型认出这是模型 / 素材这类大件时给的提示。</summary>
+    public static string AiPurposeModelHint => IsEn
+        ? "Looks like a model or game asset — deleting means downloading it again"
+        : "看着像模型或游戏素材这类大件，删了要重新下载";
+    public static string AiPurposeBatchRunning => IsEn ? "Classifying…" : "正在归类…";
+    public static string AiPurposeBatchProgress(int done, int total)
+        => IsEn ? $"Classified {done:N0} / {total:N0}" : $"已归类 {done:N0} / {total:N0}";
+    public static string AiPurposeBatchSummary(int applied, int hinted, int unknown, int calls, double cost)
+        => IsEn
+            ? $"Classified {applied:N0} item(s); {hinted:N0} flagged as keep; {unknown:N0} still unclear. {calls} request(s), about ${cost:0.0000}."
+            : $"归好 {applied:N0} 项；{hinted:N0} 项提示先别删；{unknown:N0} 项仍看不出来。共 {calls} 次请求，约 ${cost:0.0000}。";
+    public static string AiPurposeBatchNotConfigured => IsEn
+        ? "Batch classification needs a provider with the “structured decision” protocol. Add one in Settings."
+        : "批量归类需要一条「结构化判定」协议的供应商，请先在设置里添加。";
+    public static string AiPurposeBatchNothing => IsEn
+        ? "Nothing left to classify."
+        : "没有需要归类的条目了。";
+    public static string AiPurposeBatchFailed(string why)
+        => IsEn ? "Classification failed: " + why : "归类失败：" + why;
     /// <summary>Jev 判定用途时的系统提示词。整批一次问完，不要串行追问。</summary>
     public static string AiPurposeBatchSystem => IsEn
         ? """

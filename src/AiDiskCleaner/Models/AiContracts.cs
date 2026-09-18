@@ -9,6 +9,14 @@ namespace AiDiskCleaner.Models;
 /// </summary>
 public enum AiProtocol { Completions, Responses, Anthropic, Decisions }
 
+/// <summary>协议 id 的判定。放在 Models 里是为了让<b>不带副作用</b>的地方
+/// （比如读设置）也能问一句「这条是不是判定协议」，而不必去碰 <c>AiClient</c> 的静态构造。</summary>
+public static class AiProtocols
+{
+    /// <summary>是不是结构化判定协议（TypeSafe Jev / System One 这类）。</summary>
+    public static bool IsDecision(string? id) => id is "decisions" or "systemone";
+}
+
 /// <summary>模型要求调用的一次工具。</summary>
 public sealed class AiToolCall
 {

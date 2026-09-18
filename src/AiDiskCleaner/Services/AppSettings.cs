@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using AiDiskCleaner.Models;
 
 namespace AiDiskCleaner.Services;
 
@@ -51,6 +52,16 @@ public sealed class AppSettings
     /// <summary>是否允许把完整本地路径发给外部 AI。默认关（只发脱敏路径）。</summary>
     public bool AiSendFullPaths { get; set; }
 
+    /// <summary>
+    /// 批量用途判定（结构化判定通道）用哪个供应商。
+    /// 留空时自动退到**第一个声明了 decisions 协议的供应商** ——
+    /// 用户只要在供应商列表里加一条、协议选「结构化判定」就能用，不用再来这里挑一次。
+    /// </summary>
+    public string AiDecisionProviderId { get; set; } = "";
+
+    /// <summary>判定用的模型 id。留空时退到该供应商模型列表的第一个。</summary>
+    public string AiDecisionModel { get; set; } = "";
+
     public string AiName { get; set; } = "";
     public string AiBaseUrl { get; set; } = "";
     public string AiProtocol { get; set; } = "completions";
@@ -71,6 +82,34 @@ public sealed class AppSettings
         Migrate();
         if (AiProviders.Count == 0) return null;
         return AiProviders.FirstOrDefault(p => p.Id == AiActiveId) ?? AiProviders[0];
+    }
+
+    /// <summary>批量用途判定走哪个供应商。显式指定优先，否则挑第一个声明了 decisions 协议的。</summary>
+    public AiProviderCfg? DecisionProvider()
+    {
+        Migrate();
+        if (AiProviders.Count == 0) return null;
+        if (!string.IsNullOrWhiteSpace(AiDecisionProviderId))
+        {
+            var byId = AiProviders.FirstOrDefault(p => p.Id == AiDecisionProviderId);
+            if (byId != null) return byId;
+        }
+        return AiProviders.FirstOrDefault(p => AiProtocols.IsDecision(p.Protocol));
+    }
+
+    public string DecisionModelId()
+    {
+        if (!string.IsNullOrWhiteSpace(AiDecisionModel)) return AiDecisionModel.Trim();
+        return DecisionProvider()?.Models.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m))?.Trim() ?? "";
+    }
+
+    /// <summary>批量用途判定能不能用：地址和模型都得有。密钥可以为空（本地中转常见）。</summary>
+    public bool DecisionConfigured()
+    {
+        var p = DecisionProvider();
+        return p != null
+               && !string.IsNullOrWhiteSpace(p.BaseUrl)
+               && !string.IsNullOrWhiteSpace(DecisionModelId());
     }
 
     public void Migrate()

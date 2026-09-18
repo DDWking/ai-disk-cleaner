@@ -38,13 +38,16 @@ public static class AiClient
     }
     static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public static AiProtocol ParseProtocol(string? s) => s switch
+    public static AiProtocol ParseProtocol(string? s)
     {
-        "responses" or "openai-responses" => AiProtocol.Responses,
-        "anthropic" or "anthropic-messages" => AiProtocol.Anthropic,
-        "decisions" or "systemone" => AiProtocol.Decisions,
-        _ => AiProtocol.Completions,
-    };
+        if (AiProtocols.IsDecision(s)) return AiProtocol.Decisions;
+        return s switch
+        {
+            "responses" or "openai-responses" => AiProtocol.Responses,
+            "anthropic" or "anthropic-messages" => AiProtocol.Anthropic,
+            _ => AiProtocol.Completions,
+        };
+    }
 
     public static string ProtocolId(AiProtocol p) => p switch
     {
