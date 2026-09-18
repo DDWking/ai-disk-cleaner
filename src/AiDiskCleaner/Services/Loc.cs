@@ -1027,6 +1027,61 @@ public static class Loc
           - 绝不要说某样东西可以安全删除。
           - 不要 markdown、不要工具调用、不要多余的行。
           """;
+
+    /// <summary>
+    /// Jev 批量用途判定的选项（键 → 说明）。
+    ///
+    /// 只有 10 类，而且刻意**只留一个「别删」出口**：实测把「用户数据 / 系统文件 /
+    /// 开发项目」拆成三类时，边界立刻模糊——视频文件被判成「项目」，Windows 更新
+    /// 缓存的置信度从 0.43 掉到「系统 0.84」。合并成一个出口之后，同类测试里
+    /// 用户视频 / 程序本体 / 游戏存档全部正确落进 keep，且置信度显著更高。
+    ///
+    /// 键是稳定标识（进缓存键），**不要改**；要改说明就改文本。
+    /// </summary>
+    public static (string Key, string Text)[] AiPurposeOptions => IsEn
+        ? new[]
+        {
+            ("temp",        "Temporary files — apps throw these away when done"),
+            ("browsercache","Browser cache"),
+            ("appcache",    "App cache — the app rebuilds it by itself"),
+            ("devcache",    "Component cache downloaded by a developer tool"),
+            ("applog",      "Application logs"),
+            ("dump",        "Crash dumps"),
+            ("installer",   "Installer you downloaded"),
+            ("model",       "Large asset such as an AI model or game data — deleting means downloading it again"),
+            ("keep",        "Do not delete: the user's own data (documents / photos / saves / chat history), or files belonging to Windows itself"),
+            ("unknown",     "Can't tell"),
+        }
+        : new[]
+        {
+            ("temp",        "临时文件，程序用完就丢"),
+            ("browsercache","浏览器缓存"),
+            ("appcache",    "软件缓存，软件会自己重建"),
+            ("devcache",    "开发工具下载的组件缓存"),
+            ("applog",      "软件日志"),
+            ("dump",        "崩溃转储"),
+            ("installer",   "安装包"),
+            ("model",       "AI 模型或游戏素材这种大文件，删了要重新下载"),
+            ("keep",        "别删：用户自己的数据（文档/照片/存档/聊天记录），或者系统自己的文件"),
+            ("unknown",     "看不出来"),
+        };
+
+    /// <summary>Jev 判定用途时的系统提示词。整批一次问完，不要串行追问。</summary>
+    public static string AiPurposeBatchSystem => IsEn
+        ? """
+          You are given a list of Windows paths, one per line, numbered from the top.
+          Each question asks what ONE numbered path is.
+
+          Pick the single best option. Do not explain. Do not say anything is safe to delete.
+          If the path is not enough to tell, pick "unknown" instead of guessing.
+          """
+        : """
+          下面给你一串 Windows 路径，一行一个，从上往下编号。
+          每个问题问的是其中某一个编号的路径是什么。
+
+          从选项里挑最合适的那一个。不要解释，不要判断能不能删。
+          光看路径判断不出来就选 unknown，不要猜。
+          """;
     public static string OtherFilesTitle => IsEn ? "Other files" : "其它文件";
 
     // ---- 文件夹整理（工作区，不是说明页） ----
