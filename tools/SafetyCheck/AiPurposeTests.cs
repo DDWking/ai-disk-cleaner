@@ -196,7 +196,15 @@ public static class AiPurposeTests
         check("批量归类不写 Selected", !src.Contains(".Selected ="));
         check("批量归类不写 Evidence", !src.Contains(".Evidence ="));
         check("批量归类走共用闸 GainsBatchEligibility",
-            src.Contains("GainsBatchEligibility"));
+            src.Contains("GainsBatchEligibility", StringComparison.Ordinal));
+
+        // 出站路径必须走唯一入口：默认脱敏，只有用户明确允许才发完整路径。
+        // 实测脱敏后归类不受影响（16/16 与非脱敏一致）—— <UserProfile>\Temp\ 照样认出是临时文件。
+        check("出站路径走 PathRedactor.Outbound（默认脱敏）",
+            src.Contains("PathRedactor.Outbound", StringComparison.Ordinal));
+        check("批量归类不直接发 FullPath 给模型",
+            !src.Contains("Loc.AiPurposeQuestion(chunk[i].FullPath", StringComparison.Ordinal)
+            && !src.Contains("chunk.Select(x => x.FullPath)", StringComparison.Ordinal));
 
         // 路径必须写进问题里：行号引用在 48 项时就 8/16 自相矛盾（实测）
         string loc = ReadSource("src/AiDiskCleaner/Services/Loc.cs");

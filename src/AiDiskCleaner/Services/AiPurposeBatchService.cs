@@ -137,11 +137,14 @@ public static class AiPurposeBatchService
         var questions = new Dictionary<string, AiDecisionQuestion>();
         for (int i = 0; i < chunk.Count; i++)
         {
-            // 路径写进问题本身 —— 不让模型去数行号（见类型注释第 1 条）
+            // 路径写进问题本身 —— 不让模型去数行号（见类型注释第 1 条）。
+            // 出站一律走 Outbound：默认脱敏（<UserProfile> / <User> / <PC>），
+            // 只有用户在设置里明确允许才发完整路径。脱敏只换掉用户名和机器名，
+            // 应用那几段（pip / Cache / node_modules）原样保留，所以归类照样成立。
             questions[KeyOf(i)] = new AiDecisionQuestion
             {
                 Type = "choice",
-                Instructions = Loc.AiPurposeQuestion(chunk[i].FullPath),
+                Instructions = Loc.AiPurposeQuestion(PathRedactor.Outbound(chunk[i].FullPath)),
                 Criteria = criteria,
             };
         }
@@ -150,7 +153,7 @@ public static class AiPurposeBatchService
         {
             Provider = provider,
             Model = model,
-            State = string.Join(Environment.NewLine, chunk.Select(x => x.FullPath)),
+            State = string.Join(Environment.NewLine, chunk.Select(x => PathRedactor.Outbound(x.FullPath))),
             Questions = questions,
         };
     }
