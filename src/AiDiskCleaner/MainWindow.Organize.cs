@@ -534,11 +534,12 @@ public partial class MainWindow
     private bool _autoClassifyAlerted;
 
     /// <summary>
-    /// 安排一次自动识别。可见集合变了就调它（重建 / 展开 / 收起 / 滚动停下 / 切到这一页）。
+    /// 安排一次自动识别。这一页的集合变了就调它（重建 / 展开 / 收起 / 切到这一页）。
     ///
     /// 这是对 v2.9「翻页 / 展开 = 0 次模型请求」的**有意放开**，所以四条约束一个都不能少：
-    /// ① 只问屏幕上真看得见的行（不是整个列表）；② 停下 600ms 才发，滚动中不发；
-    /// ③ 换代即取消；④ 设置里能整个关掉（<see cref="AppSettings.AiAutoClassify"/>）。
+    /// ① 只问**还没认出来的**（问过的不再问，<see cref="OrganizeNode.BatchAsked"/>）；
+    /// ② 停下 600ms 才发，展开/重建的抖动过程中不发；③ 换代即取消；
+    /// ④ 设置里能整个关掉（<see cref="AppSettings.AiAutoClassify"/>）。
     /// </summary>
     void ScheduleAutoClassify()
     {
@@ -554,9 +555,6 @@ public partial class MainWindow
                 _autoClassifyTimer.Stop();
                 _ = OrganizeClassifyRunAsync();
             };
-            // 滚动停下也算「换了一屏」：只等停稳，不在滚动过程中发
-            OrganizeGrid.AddHandler(System.Windows.Controls.ScrollViewer.ScrollChangedEvent,
-                new System.Windows.Controls.ScrollChangedEventHandler((_, _) => ScheduleAutoClassify()));
             _autoClassifyTimerHooked = true;
         }
         _autoClassifyTimer.Stop();
@@ -564,31 +562,13 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// 屏幕上**真正看得见**的那些行。只有 materialize 出来的行才在视觉树里，
-    /// 虚拟化没实现的那些拿不到 —— 这正是我们要的口径（不是「列表里全部」）。
-    /// </summary>
-    IReadOnlyList<OrganizeNode> VisibleOrganizeRows()
-    {
-        var rows = new List<OrganizeNode>();
-        CollectRows(OrganizeGrid, rows);
-        return rows;
-    }
-
-    static void CollectRows(System.Windows.DependencyObject root, List<OrganizeNode> into)
-    {
-        int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
-        for (int i = 0; i < n; i++)
-        {
-            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
-            if (child is DataGridRow row && row.IsVisible && row.Item is OrganizeNode node) into.Add(node);
-            CollectRows(child, into);
-        }
-    }
-
-    /// <summary>
-    /// 把「屏幕上这一屏里还认不出用途的」交给结构化判定通道（TypeSafe Jev 这类）。
+    /// 把**这一页里所有还认不出用途的**交给结构化判定通道（TypeSafe Jev 这类）。
     ///
-    /// 用户不点任何按钮 —— 但**不是"后台自动跑"**：只有可见集合变了、而且停稳了才发，
+    /// 范围刻意不是「屏幕上那几行」而是**全部**：一次问完比滚一屏问一次省心，
+    /// 反正问过的不会再问（<see cref="OrganizeNode.BatchAsked"/>），
+    /// 展开出新对象时也只会补问新露出来的那几个。
+    ///
+    /// 用户不点任何按钮 —— 但**不是"后台自动跑"**：只有这一页的集合变了、而且停稳了才发，
     /// 而且设置里能关。写入只落在 <see cref="OrganizeNode.BatchPurpose"/> 这一个展示字段上：
     /// 整理树的对象根本没有 Risk / CanDelete / Selected，所以「AI 不会替用户打勾」
     /// 在这里是结构上成立的。
@@ -597,7 +577,7 @@ public partial class MainWindow
     {
         if (_organizeClassifying) return;
 
-        var targets = VisibleOrganizeRows().Where(n => n.NeedsPurposeClassification).ToList();
+        var targets = _organizeAll.Where(n => n.NeedsPurposeClassification).ToList();
         if (targets.Count == 0) return;            // 自动跑：没事就不出声
         if (!App.Settings.AiAutoClassify) return;
         if (!App.Settings.DecisionConfigured()) return;

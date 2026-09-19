@@ -1382,10 +1382,10 @@ public static class Loc
     /// 设置里那个「自动识别」开关。**必须把「它会自己发请求」和「能关」都写出来** ——
     /// 这是对 v2.9 冻结的「翻页/展开 = 0 次请求」的有意放开，用户有权知道并关掉。
     /// </summary>
-    public static string AiAutoClassify => IsEn ? "Identify as you browse" : "翻到哪就自动识别哪";
+    public static string AiAutoClassify => IsEn ? "Identify automatically" : "自动识别用途";
     public static string AiAutoClassifyHint => IsEn
-        ? "On the folder-delete page, whatever is on screen gets classified automatically — there is no button to press. Only the rows you can actually see are sent, and only after you stop moving. Turn this off if your AI endpoint is metered."
-        : "在「按文件夹删除」页，屏幕上看得见的那些文件夹会自动认出来，不用点按钮。只发你看得见的那几行，而且停稳之后才发。如果你的 AI 是按量计费的，可以关掉它。";
+        ? "On the folder-delete page, folders get classified automatically — there is no button to press. It works through everything it cannot name in one pass (about a minute on a big disk), and never asks about the same folder twice. Turn this off if your AI endpoint is metered."
+        : "在「按文件夹删除」页，认不出用途的文件夹会自动认出来，不用点按钮。一次把这一页认不完的都问完（盘大的话大概一分钟），同一个文件夹不会问第二遍。如果你的 AI 是按量计费的，可以关掉它。";
 
     /// <summary>
     /// 分类结果面板的抬头。**说是「AI 认出来的」** —— 本地已经认出来的那些不进这个面板

@@ -598,8 +598,9 @@ Assert-True 'the operation column is gone (two icons per row was noise)' `
     ($xaml -notmatch 'ColOrgAction' -and $cs -notmatch 'ColOrgAction')
 Assert-True 'opening a folder is still reachable from the context menu' `
     ($xaml -match 'OrganizeOpen_Click')
-Assert-True 'classification only asks rows on screen, and only after you stop moving' `
-    ($orgsrc -match 'VisibleOrganizeRows' -and $orgsrc -match '_autoClassifyTimer' -and
+Assert-True 'classification asks everything unnamed at once, only after things settle' `
+    ($orgsrc -match '_organizeAll\.Where\(n => n\.NeedsPurposeClassification\)' -and
+     $orgsrc -match '_autoClassifyTimer' -and
      $orgsrc -match 'App\.Settings\.AiAutoClassify')
 Assert-True 'classification can be turned off entirely' `
     ($loc -match 'AiAutoClassify' -and $cs -match 'AiAutoClassify_Click')

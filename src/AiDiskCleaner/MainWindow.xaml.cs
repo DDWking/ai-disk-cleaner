@@ -218,8 +218,9 @@ public partial class MainWindow : Window, IAnalystHost
     private bool _uninstallTabVisited;
     private bool _listingApps;
     private BulkUninstallTask? _uninstallTask;
-    private bool _aiAppsBusy;
-    private CancellationTokenSource? _aiAppsStop;
+    // _aiAppsBusy / _aiAppsStop 已删除：它们是卸载页那套「AI 软件分析」的遗留，
+    // 那个入口早就不存在了，所以这两个字段从来没被赋过值（编译器一直在 CS0649 里提醒）。
+    // 它们只是被读，读到的永远是默认值 —— 留着只会让「AI 忙不忙」的判断多一个死条件。
     private string _uninstallResultNote = "";
     private BulkUninstallTask? _handledUninstallTask;
     private int _appInventoryVersion;
@@ -546,8 +547,7 @@ public partial class MainWindow : Window, IAnalystHost
         CancelQuietly(_dupCts);
         CancelQuietly(_snapshotCts);
         CancelQuietly(_uninstallCts);
-        CancelQuietly(_aiClassifyCts);   // 批量归类（识别用途）
-        CancelQuietly(_aiAppsStop);
+        CancelQuietly(_aiClassifyCts);   // 自动识别用途
         CancelQuietly(_aiConfigCts);
         // 整理页已无批量/自动识别任务：模型请求只由用户对单项发起，走逐项取消按钮
         // 标记「正在取消」：按钮立刻变成不可再点，并给出反馈，不等任务真正退出。
@@ -1785,10 +1785,9 @@ public partial class MainWindow : Window, IAnalystHost
     /// <summary>
     /// 现在是否有 AI 在跑。三个来源任一为真就算忙：
     ///  · <c>_aiBusy</c>：设置里的取模型 / 测试连接；
-    ///  · <c>_aiAppsBusy</c>：卸载页的软件分析（历史入口，保留兼容）；
-    ///  · <c>_organizeClassifying</c>：批量归类（识别用途）在跑。
+    ///  · <c>_organizeClassifying</c>：自动识别用途在跑。
     /// </summary>
-    bool AiBusyNow => _aiBusy || _aiAppsBusy || _organizeClassifying;
+    bool AiBusyNow => _aiBusy || _organizeClassifying;
 
     /// <summary>
     /// 顶栏右侧的 AI 胶囊是**主指示器**：
@@ -3331,7 +3330,7 @@ public partial class MainWindow : Window, IAnalystHost
 
     private async Task LoadApps()
     {
-        if (_listingApps || _aiAppsBusy) return;
+        if (_listingApps) return;
         // 软件清点 + 占用计算有自己的 CTS 和代次：卸载后重扫时旧结果不会覆盖新的。
         using var op = StartOperation(ref _uninstallCts, "Uninstall");
         var ct = op.Token;

@@ -925,9 +925,9 @@ public static class Program
         // 开着的时候的四条约束：都写在代码里，且**一个都不能少**
         Check("自动识别先看开关（关掉就一个请求都不发）",
             org.Contains("App.Settings.AiAutoClassify", StringComparison.Ordinal));
-        Check("自动识别只问**屏幕上看得见的行**，不是整个列表",
-            org.Contains("VisibleOrganizeRows", StringComparison.Ordinal)
-            && org.Contains("VisualTreeHelper", StringComparison.Ordinal));
+        Check("自动识别一次问完这一页还没认出来的（不是只问眼前那几行）",
+            org.Contains("_organizeAll.Where(n => n.NeedsPurposeClassification)", StringComparison.Ordinal)
+            && !org.Contains("VisibleOrganizeRows", StringComparison.Ordinal));
         Check("自动识别有防抖（停下才发，滚动过程中不发）",
             org.Contains("_autoClassifyTimer", StringComparison.Ordinal)
             && org.Contains("ScheduleAutoClassify", StringComparison.Ordinal));
