@@ -185,6 +185,8 @@ namespace AiDiskCleaner.Services
         public static string OrganizePlatformTag => "games live inside";
         public static string OrganizeEntryPointTag => "system entry";
         public static string OrganizeCoveredTag => "already inside an item above";
+        public static string PurposeDetailUnsure => "AI guess - low confidence";
+        public static string AiPurposeUnsureName(string name) => $"Not sure, maybe {name}";
         public static string OrganizeDetailWhat => "What it is: ";
         public static string OrganizeDetailWhy => "Why: ";
         public static string OrganizeDetailKind(int folders, int files, string types)

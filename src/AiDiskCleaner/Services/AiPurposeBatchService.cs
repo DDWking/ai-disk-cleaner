@@ -137,13 +137,24 @@ public static class AiPurposeBatchService
                 var kind = AiPurposeCriteria.Parse(answer.Choice);
                 dist[kind.ToString()] = dist.TryGetValue(kind.ToString(), out var c) ? c + 1 : 1;
                 conf.Add(answer.Confidence);
-                // 分开记：模型说不出 vs 说了但没把握（阈值挡掉的）
+                // 模型说不出：什么都不写（只是「未识别」）。
+                // 模型说了但没把握：**照样写进去**，只是标成「拿不准」——
+                // 官方对这种情况的说法是 escalate to a human when confidence is low，
+                // 丢掉只剩「未识别」，用户读到的信息量是零。
                 if (kind == AiPurposeKind.Unknown) { unknown++; continue; }
-                if (!AiPurposeCriteria.IsAccepted(kind, answer.Confidence)) { unsure++; continue; }
                 string name = Loc.AiPurposeDisplayName(kind);
                 if (name.Length == 0) { unknown++; continue; }
-                chunk[i].SetBatchPurpose(name);
-                applied++;
+                bool accepted = AiPurposeCriteria.IsAccepted(kind, answer.Confidence);
+                if (accepted)
+                {
+                    chunk[i].SetBatchPurpose(name);
+                    applied++;
+                }
+                else
+                {
+                    chunk[i].SetBatchPurpose(Loc.AiPurposeUnsureName(name), unsure: true);
+                    unsure++;
+                }
             }
 
             done += chunk.Count;

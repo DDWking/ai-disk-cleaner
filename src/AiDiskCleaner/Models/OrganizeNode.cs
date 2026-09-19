@@ -319,15 +319,32 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// <summary>有结论才算「已识别」—— 没有结论时状态不允许是成功。</summary>
     public bool HasConclusion => _purposeName.Length > 0 || HasBatchPurpose;
 
+    private bool _batchUnsure;
+
     /// <summary>
-    /// 批量归类写入用途。**唯一的写入口**，只改 <c>_batchPurpose</c> 并刷新展示属性；
-    /// 不碰 <c>_source</c> / <c>_needsConfirm</c> / <c>_kind</c>，也不碰任何清理字段。
+    /// 这条是模型**说了但没把握**的（低于采纳阈值），不是它的定论。
+    ///
+    /// 官方对这种情况的说法是 *escalate to a human when confidence is low* ——
+    /// **升级给人看，而不是丢掉**。丢掉的话界面只剩「未识别」，用户读到的信息量是零；
+    /// 标一句「拿不准：可能是软件缓存」，他至少知道该往哪边怀疑。
+    /// 这也是「看不出来太多」这个观感的一部分来源。
     /// </summary>
-    public void SetBatchPurpose(string? purpose)
+    public bool BatchPurposeUnsure => _batchUnsure && HasBatchPurpose;
+
+    /// <summary>
+    /// 批量归类写入用途。**唯一的写入口**，只改 <c>_batchPurpose</c> / <c>_batchUnsure</c>
+    /// 并刷新展示属性；不碰 <c>_source</c> / <c>_needsConfirm</c> / <c>_kind</c>，
+    /// 也不碰任何清理字段。
+    /// </summary>
+    /// <param name="unsure">
+    /// 模型给了答案但没把握（低于阈值）。仍然写进去，只是标出来 —— 见 <see cref="BatchPurposeUnsure"/>。
+    /// </param>
+    public void SetBatchPurpose(string? purpose, bool unsure = false)
     {
         string next = purpose ?? "";
-        if (_batchPurpose == next) return;
+        if (_batchPurpose == next && _batchUnsure == unsure) return;
         _batchPurpose = next;
+        _batchUnsure = unsure && next.Length > 0;
         // 沿用 Apply 的口径：有结论就落回结论状态；没有结论才是「未识别」。
         // 不清 _override 的话，之前 Apply 写下的 Unrecognized 会一直盖住新结论。
         _override = null;
@@ -380,7 +397,9 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (State is PurposeState.Failed) return Loc.OrganizeRetryHint;
             if (_purposeName.Length == 0)
             {
-                // 批量归类只给一个用途名，没有依据可写 —— 如实说「来源是 AI 推测」就够
+                // 批量归类只给一个用途名，没有依据可写 —— 如实说「来源是 AI 推测」就够。
+                // 拿不准的那批必须说清是「模型也没把握」，不能和它有把握的混成一句。
+                if (BatchPurposeUnsure) return Loc.PurposeDetailUnsure;
                 if (HasBatchPurpose) return Loc.PurposeFromAi;
                 return _needsConfirm ? Loc.PurposeNeedsConfirm : Loc.PurposeIdentify;
             }

@@ -1034,6 +1034,18 @@ public static class Loc
     /// 类别短名。整理页的「用途」是自由文本（不是一个枚举），所以判定结果要落成一句能看的名词。
     /// 返回空串表示这一类不该写进用途（只有 Unknown）。
     /// </summary>
+    /// <summary>
+    /// 模型给了答案但**没把握**（低于采纳阈值）时的行内文案。
+    ///
+    /// 官方对这种情况的说法是 *escalate to a human when confidence is low* ——
+    /// **升级给人看，而不是丢掉**。丢掉只剩「未识别」，用户读到的信息量是零。
+    /// 这跟之前否掉的「像是…」不一样：不是把类名说软，是**如实说模型没把握**。
+    /// </summary>
+    public static string AiPurposeUnsureName(string name)
+        => IsEn ? $"Not sure, maybe {name}" : $"拿不准：可能是{name}";
+    /// <summary>拿不准那一批的次行说明。</summary>
+    public static string PurposeDetailUnsure => IsEn ? "AI guess — low confidence" : "AI 推测 · 拿不准";
+
     public static string AiPurposeDisplayName(AiPurposeKind kind) => kind switch
     {
         AiPurposeKind.Temporary => IsEn ? "Temporary files" : "临时文件",
@@ -1073,8 +1085,8 @@ public static class Loc
     /// </summary>
     public static string AiPurposeBatchSummary(int applied, int unsure, int unknown, int calls, double cost)
         => IsEn
-            ? $"Classified {applied:N0} folder(s); {unsure:N0} guessed but not confident; {unknown:N0} it couldn't tell. {calls} request(s), about ${cost:0.0000}."
-            : $"认出了 {applied:N0} 个；{unsure:N0} 个有猜测但没把握；{unknown:N0} 个它说不出来。共 {calls} 次请求，约 ${cost:0.0000}。";
+            ? $"Classified {applied:N0}; {unsure:N0} marked \"not sure\" (shown as a guess); {unknown:N0} it couldn't tell. {calls} request(s), about ${cost:0.0000}."
+            : $"认出了 {applied:N0} 个；{unsure:N0} 个标成「拿不准」（行上写成猜测给你看）；{unknown:N0} 个它完全说不出来。共 {calls} 次请求，约 ${cost:0.0000}。";
     public static string AiPurposeBatchNotConfigured => IsEn
         ? "Batch classification needs a provider with the “structured decision” protocol. Add one in Settings."
         : "批量归类需要一条「结构化判定」协议的供应商，请先在设置里添加。";

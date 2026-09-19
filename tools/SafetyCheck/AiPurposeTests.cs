@@ -237,6 +237,28 @@ public static class AiPurposeTests
         check("本地结论优先于批量归类", node.PurposeText == "我自己的项目", node.PurposeText);
         check("本地结论下来源是本地，不是 AI", node.Source == PurposeSource.Local, node.Source.ToString());
 
+        // 低置信不再丢掉，而是**标成「拿不准」**（官方：escalate to a human when confidence is low）。
+        // 丢掉只剩「未识别」，用户读到的信息量是零。
+        var hedged = Node(@"D:\some\hedged");
+        hedged.SetBatchPurpose("拿不准：可能是软件缓存", unsure: true);
+        check("拿不准的那批照样写进去（不再是「未识别」）",
+            hedged.HasConclusion && hedged.BatchPurpose.Length > 0);
+        check("拿不准会被单独标出来", hedged.BatchPurposeUnsure);
+        // 注意：SafetyCheck 用的是 Loc 的**英文桩**，所以这里不能去找中文词，
+        // 要比的是「两种行的次行文案确实不同」—— 那才是这条不变量。
+        var sure = Node(@"D:\some\sure");
+        sure.SetBatchPurpose("软件缓存");
+        check("次行把「拿不准」和「有把握」分开说，不混成一句",
+            hedged.PurposeDetail == Loc.PurposeDetailUnsure
+            && sure.PurposeDetail == Loc.PurposeFromAi
+            && hedged.PurposeDetail != sure.PurposeDetail,
+            $"{hedged.PurposeDetail} vs {sure.PurposeDetail}");
+        check("有把握的不带拿不准标记", !sure.BatchPurposeUnsure);
+
+        var empty = Node(@"D:\some\empty");
+        empty.SetBatchPurpose("", unsure: true);
+        check("空用途谈不上拿不准", !empty.BatchPurposeUnsure && !empty.HasConclusion);
+
         // 问过之后不再入选：没有它自动识别会无限追问同一条
         var asked = Node(@"D:\some\asked");
         check("没问过时是入选的", asked.NeedsPurposeClassification);
@@ -355,6 +377,10 @@ public static class AiPurposeTests
         if (src.Length == 0) return;
 
         check("批量归类只写 BatchPurpose", src.Contains("SetBatchPurpose", StringComparison.Ordinal));
+        // 低置信必须写进去（只是标出来），不许再 `continue` 丢掉
+        check("低置信走的是「标记」而不是「丢弃」",
+            src.Contains("Loc.AiPurposeUnsureName(name), unsure: true", StringComparison.Ordinal)
+            && !src.Contains("IsAccepted(kind, answer.Confidence)) { unsure++; continue; }"));
         check("批量归类不写 Risk", !src.Contains(".Risk ="));
         check("批量归类不写 CanDelete", !src.Contains(".CanDelete ="));
         check("批量归类不写 Selected", !src.Contains(".Selected ="));
