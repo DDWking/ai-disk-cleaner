@@ -18,8 +18,27 @@ public enum AiPurposeKind
     Installer,
     /// <summary>模型 / 游戏素材这类大件：删了要重新下载，不是「会自动重建」。</summary>
     Model,
-    /// <summary>用户自己的数据，或 Windows 自己的文件。<b>只用于提示，绝不用于阻挡删除。</b></summary>
-    Keep,
+
+    // 下面四类原来合并成一个 keep 出口。合并的**代价**后来在真机上暴露了：
+    // keep 成了垃圾桶，`$WinREAgent`（更新残留）、`$Extend`（NTFS 元数据）、
+    // `Recovery`（恢复环境）、`msys64`（开发工具本体）全都显示成同一句话
+    // 「你的数据或软件自己的数据」—— 说了等于没说，用户直接反馈「太笼统、没什么帮助」。
+    //
+    // 拆开之后实测（18 条众所周知的系统/厂商目录）：
+    //   $WinREAgent  keep 0.79 → system 1.00   $Extend  keep 0.85 → system 1.00
+    //   Recovery     keep 0.95 → system 1.00   eSupport keep 0.75 → system 0.89
+    //   msys64       keep 0.84 → devtools 0.99 Downloads keep 0.95 → userdata 0.83
+    // **选项说清楚了，模型反而更确定。** 代价是每项 token 357 → 446（+25%）。
+
+    /// <summary>用户自己的东西：文档 / 照片 / 视频 / 音乐 / 游戏存档 / 聊天记录。</summary>
+    UserData,
+    /// <summary>Windows 或电脑厂商自己的系统目录：恢复环境、驱动备份、NTFS 元数据、更新残留。</summary>
+    SystemOwned,
+    /// <summary>某个软件自己的数据：它的设置 / 账号 / 插件 / 数据库。</summary>
+    AppOwned,
+    /// <summary>装好的开发工具本体（编译器、运行时、SDK）。它们不是缓存，删了要重装。</summary>
+    DevTools,
+
     /// <summary>认不出来。什么都不做。</summary>
     Unknown,
 }
@@ -54,12 +73,14 @@ public static class AiPurposeCriteria
     ///
     /// 键是稳定契约：它进请求体、也是以后做结果缓存时的缓存键 —— <b>不要改</b>。
     /// 文案（双语）在 <c>Loc.AiPurposeOptions</c> 里；键放这里是为了让离线回归
-    /// 不用碰 Loc 就能断言「选项表是闭合的、正好这 10 个」。
+    /// 不用碰 Loc 就能断言「选项表是闭合的、正好这 13 个」。
     /// </summary>
     public static readonly string[] Keys =
     {
         "temp", "browsercache", "appcache", "devcache", "applog",
-        "dump", "installer", "model", "keep", "unknown",
+        "dump", "installer", "model",
+        "userdata", "system", "appdata", "devtools",
+        "unknown",
     };
 
     /// <summary>Jev 返回的键 → 大类。认不出的键一律当 <see cref="AiPurposeKind.Unknown"/>。</summary>
@@ -73,13 +94,16 @@ public static class AiPurposeCriteria
         "dump" => AiPurposeKind.Dump,
         "installer" => AiPurposeKind.Installer,
         "model" => AiPurposeKind.Model,
-        "keep" => AiPurposeKind.Keep,
+        "userdata" => AiPurposeKind.UserData,
+        "system" => AiPurposeKind.SystemOwned,
+        "appdata" => AiPurposeKind.AppOwned,
+        "devtools" => AiPurposeKind.DevTools,
         _ => AiPurposeKind.Unknown,
     };
 
     /// <summary>
     /// 这一类能不能落到 <see cref="CleanPurpose"/> 上。
-    /// <see cref="AiPurposeKind.Keep"/> / <see cref="AiPurposeKind.Unknown"/> 落不下去——
+    /// 「别删」那四类和 <see cref="AiPurposeKind.Unknown"/> 落不下去——
     /// 它们要么是「不该动」，要么是「没结论」，都不该被写成某个清理用途。
     /// </summary>
     public static bool TryToPurpose(AiPurposeKind kind, out CleanPurpose purpose)
@@ -102,11 +126,12 @@ public static class AiPurposeCriteria
     ///
     /// **两侧刻意不对称 —— 拒绝猜「缓存」是保护，拒绝猜「别删」是危险。**
     ///
-    /// keep **不设门槛（0）**：把一条拿不准的 `keep` 挡掉，界面就只剩「未识别」——
+    /// 「别删」那四类（userdata / system / appdata / devtools）**不设门槛（0）**：
+    /// 把一条拿不准的「别删」挡掉，界面就只剩「未识别」——
     /// 而「未识别」在用户眼里等于「AI 也不知道这是什么」，比一句「你的数据」危险得多。
     /// 实测证据：`AppData\Local\Programs` 猜 keep 0.39 被 0.55 挡掉 → 显示未识别 →
     /// 那可是**装软件的地方**。同一批里 `LocalLow` 被逼着猜成 temp 0.29、
-    /// `Roaming\Code`（VS Code 的配置）被逼着猜成 devcache 0.27 —— 窄 keep 会把模型往
+    /// `Roaming\Code`（VS Code 的配置）被逼着猜成 devcache 0.27 —— 窄出口会把模型往
     /// 「猜缓存」上逼，方向正好反了。
     ///
     /// 清理类 **0.60**（原来是 0.75）—— 这个数字是**量出来的**，不是拍的：
@@ -138,7 +163,8 @@ public static class AiPurposeCriteria
     public static double ThresholdFor(AiPurposeKind kind) => kind switch
     {
         // 拿不准也照示：拒绝猜「别删」比拒绝猜「缓存」危险得多
-        AiPurposeKind.Keep => 0.0,
+        AiPurposeKind.UserData or AiPurposeKind.SystemOwned
+            or AiPurposeKind.AppOwned or AiPurposeKind.DevTools => 0.0,
         AiPurposeKind.Temporary or AiPurposeKind.BrowserCache or AiPurposeKind.AppCache
             or AiPurposeKind.DevCache or AiPurposeKind.AppLog or AiPurposeKind.Dump
             or AiPurposeKind.Installer => 0.60,
@@ -150,7 +176,8 @@ public static class AiPurposeCriteria
     public static bool IsAccepted(AiPurposeKind kind, double confidence)
         => kind != AiPurposeKind.Unknown && confidence >= ThresholdFor(kind);
 
-    /// <summary>能不能显示成「AI 推测的用途」（rest 只做展示，不回写用途）。</summary>
+    /// <summary>能不能显示成「AI 推测的用途」（这些只做展示，不回写清理用途）。</summary>
     public static bool IsInformational(AiPurposeKind kind)
-        => kind is AiPurposeKind.Keep or AiPurposeKind.Model;
+        => kind is AiPurposeKind.UserData or AiPurposeKind.SystemOwned
+           or AiPurposeKind.AppOwned or AiPurposeKind.DevTools or AiPurposeKind.Model;
 }

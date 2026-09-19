@@ -41,10 +41,15 @@ public static class AiPurposeTests
 
     static void OptionTableTests(CheckFn check)
     {
-        // 10 个键，一个不多一个不少
-        var expected = new[] { "temp", "browsercache", "appcache", "devcache", "applog", "dump", "installer", "model", "keep", "unknown" };
+        // 13 个键，一个不多一个不少。
+        // 「别删」那四类（userdata / system / appdata / devtools）是量出来的：原来只有一个
+        // keep 兜底，实测它成了垃圾桶 —— $WinREAgent / $Extend / Recovery / msys64
+        // 全显示同一句话，用户直接说「太笼统、没什么帮助」。拆开之后说法具体了，置信度反而更高。
+        var expected = new[] { "temp", "browsercache", "appcache", "devcache", "applog",
+                               "dump", "installer", "model",
+                               "userdata", "system", "appdata", "devtools", "unknown" };
         var actual = AiPurposeCriteria.Keys;
-        check("选项表正好 10 类", actual.Length == 10, string.Join(",", actual));
+        check("选项表正好 13 类", actual.Length == 13, string.Join(",", actual));
         check("选项表的键与约定一致",
             expected.All(k => actual.Contains(k)) && actual.All(k => expected.Contains(k)),
             string.Join(",", actual));
@@ -73,7 +78,13 @@ public static class AiPurposeTests
         check("devcache 解析正确", AiPurposeCriteria.Parse("devcache") == AiPurposeKind.DevCache);
         check("installer 解析正确", AiPurposeCriteria.Parse("installer") == AiPurposeKind.Installer);
         check("model 解析正确", AiPurposeCriteria.Parse("model") == AiPurposeKind.Model);
-        check("keep 解析正确", AiPurposeCriteria.Parse("keep") == AiPurposeKind.Keep);
+        check("userdata 解析正确", AiPurposeCriteria.Parse("userdata") == AiPurposeKind.UserData);
+        check("system 解析正确", AiPurposeCriteria.Parse("system") == AiPurposeKind.SystemOwned);
+        check("appdata 解析正确", AiPurposeCriteria.Parse("appdata") == AiPurposeKind.AppOwned);
+        check("devtools 解析正确", AiPurposeCriteria.Parse("devtools") == AiPurposeKind.DevTools);
+        // 旧的单一出口已拆掉：模型再吐 "keep" 只能落成 Unknown，绝不被当成某个具体类别。
+        check("旧的 keep 键不再被接受（已拆成四类）",
+            AiPurposeCriteria.Parse("keep") == AiPurposeKind.Unknown);
         check("大小写与空格不影响解析", AiPurposeCriteria.Parse("  DevCache ") == AiPurposeKind.DevCache);
 
         // 闭合性：模型吐任何没约定的词，一律 Unknown，绝不落到某个具体用途
@@ -95,7 +106,8 @@ public static class AiPurposeTests
         check("7 个可清理类都能落到 CleanPurpose",
             mappable.All(k => AiPurposeCriteria.TryToPurpose(k, out _)));
         check("keep / model / unknown 落不到用途上",
-            new[] { AiPurposeKind.Keep, AiPurposeKind.Model, AiPurposeKind.Unknown }
+            new[] { AiPurposeKind.UserData, AiPurposeKind.SystemOwned, AiPurposeKind.AppOwned,
+                    AiPurposeKind.DevTools, AiPurposeKind.Model, AiPurposeKind.Unknown }
                 .All(k => !AiPurposeCriteria.TryToPurpose(k, out _)));
     }
 
@@ -104,7 +116,7 @@ public static class AiPurposeTests
     static void ThresholdTests(CheckFn check)
     {
         double cache = AiPurposeCriteria.ThresholdFor(AiPurposeKind.AppCache);
-        double keep = AiPurposeCriteria.ThresholdFor(AiPurposeKind.Keep);
+        double keep = AiPurposeCriteria.ThresholdFor(AiPurposeKind.UserData);
         check("清理类阈值高于 keep（判错代价不同）", cache > keep, $"cache={cache} keep={keep}");
         // 0.75 → 0.60 是量出来的：14 条「错标成缓存会很危险」的真实路径在任何阈值下都是
         // keep（零误采纳），而 0.60 之后模糊缓存的收益归零。依据写在 ThresholdFor 的注释里。
@@ -119,10 +131,12 @@ public static class AiPurposeTests
         // **两侧刻意不对称**：拒绝猜「缓存」是保护，拒绝猜「别删」是危险。
         // 一条拿不准的 keep 被挡掉，界面就只剩「未识别」—— 比一句「像是你的数据」危险得多。
         // 实测：AppData\Local\Programs 猜 keep 0.39 被 0.55 挡掉 → 显示未识别 → 那是装软件的地方。
-        check("keep 不设门槛（拿不准也照示）",
-            AiPurposeCriteria.ThresholdFor(AiPurposeKind.Keep) == 0
-            && AiPurposeCriteria.IsAccepted(AiPurposeKind.Keep, 0));
-        check("keep 的阈值确实低于清理类", keep < cache);
+        check("「别删」四类都不设门槛（拿不准也照示）",
+            new[] { AiPurposeKind.UserData, AiPurposeKind.SystemOwned,
+                    AiPurposeKind.AppOwned, AiPurposeKind.DevTools }
+                .All(k => AiPurposeCriteria.ThresholdFor(k) == 0
+                          && AiPurposeCriteria.IsAccepted(k, 0)));
+        check("「别删」的阈值确实低于清理类", keep < cache);
 
         // 实测里低置信的那批（0.22~0.46）对**清理类**必须全部被挡掉
         foreach (var c in new[] { 0.22, 0.24, 0.28, 0.36, 0.40, 0.42, 0.43, 0.46 })

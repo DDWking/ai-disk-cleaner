@@ -989,11 +989,15 @@ public static class Loc
             ("dump",        "Crash dumps"),
             ("installer",   "Installer you downloaded"),
             ("model",       "Large asset such as an AI model or game data — deleting means downloading it again"),
-            // keep 是**兜底**，不是「用户数据」这一个窄类。写窄了模型就会往缓存类上猜 ——
-            // 实测：窄 keep 时 LocalLow 被猜成 temp 0.29、VS Code 的 Roaming\Code 被猜成
-            // devcache 0.27（都是错的），而 AppData\Local\Programs 猜 keep 0.39 被阈值挡掉、
-            // 显示成「未识别」——那可是装软件的地方。放宽之后 24 条里采纳数 16 → 22。
-            ("keep",        "别删：你自己的数据（文档/照片/视频/存档/聊天记录/密钥），或者某个软件、系统自己的数据目录（它自己的设置、账号、插件、数据库、模型），再或者你判断不出它是谁的数据、但明显不是临时垃圾"),
+            // 「别删」原来只有一个 keep 出口。合并的代价后来在真机上暴露了：它成了垃圾桶，
+            // $WinREAgent / $Extend / Recovery / msys64 全显示成同一句话，用户直接说
+            // 「太笼统、没什么帮助」。拆成四类之后实测（18 条系统/厂商目录）不光说法具体了，
+            // 置信度还更高（$WinREAgent 0.79→1.00、msys64 0.84→devtools 0.99）——
+            // **选项说清楚了，模型反而更确定。**
+            ("userdata",    "别删：你自己的东西 —— 文档 / 照片 / 视频 / 音乐 / 游戏存档 / 聊天记录 / 密钥"),
+            ("system",      "别删（多半是）：Windows 或电脑厂商自己的目录 —— 恢复环境 / 驱动备份 / NTFS 元数据 / 更新残留这种"),
+            ("appdata",     "别删：某个软件自己的数据 —— 它的设置 / 账号 / 插件 / 数据库"),
+            ("devtools",    "别删：装好的开发工具本体（编译器 / 运行时 / SDK），不是缓存"),
             ("unknown",     "只有在连「这是谁的数据」都判断不出来时才选这个"),
         }
         : new[]
@@ -1001,13 +1005,16 @@ public static class Loc
             ("temp",        "临时文件，程序用完就丢"),
             ("browsercache","浏览器缓存"),
             ("appcache",    "软件缓存，软件会自己重建"),
-            ("devcache",    "开发工具下载的组件缓存"),
+            ("devcache",    "开发工具下载的组件缓存，可以重新下载"),
             ("applog",      "软件日志"),
             ("dump",        "崩溃转储"),
-            ("installer",   "安装包"),
+            ("installer",   "下载的安装包，装完就没用了"),
             ("model",       "AI 模型或游戏素材这种大文件，删了要重新下载"),
-            // 同上：keep 必须是兜底，不能只是「用户数据」这一个窄类
-            ("keep",        "别删：你自己的数据（文档/照片/视频/存档/聊天记录/密钥），或者某个软件、系统自己的数据目录（它自己的设置、账号、插件、数据库、模型），再或者你判断不出它是谁的数据、但明显不是临时垃圾"),
+            // 同上：拆分之后说法具体了，模型的置信度反而更高
+            ("userdata",    "别删：你自己的东西 —— 文档 / 照片 / 视频 / 音乐 / 游戏存档 / 聊天记录 / 密钥"),
+            ("system",      "别删（多半是）：Windows 或电脑厂商自己的目录 —— 恢复环境 / 驱动备份 / NTFS 元数据 / 更新残留这种"),
+            ("appdata",     "别删：某个软件自己的数据 —— 它的设置 / 账号 / 插件 / 数据库"),
+            ("devtools",    "别删：装好的开发工具本体（编译器 / 运行时 / SDK），不是缓存"),
             ("unknown",     "只有在连「这是谁的数据」都判断不出来时才选这个"),
         };
 
@@ -1039,7 +1046,13 @@ public static class Loc
         AiPurposeKind.Model => IsEn ? "Models / game assets" : "模型 / 游戏素材",
         // 说得肯定一点：这个功能本来就是在帮用户判断，一句「像是…」等于没主见。
         // 不确定性交给「AI 推测」那个前缀去表达，不重复在名称里泄气。
-        AiPurposeKind.Keep => IsEn ? "Your data or the app's own data" : "你的数据或软件自己的数据",
+        //
+        // 这四条是把原来那句笼统的「你的数据或软件自己的数据」拆开的结果 ——
+        // 笼统一句话等于没说，用户看不出 $WinREAgent 和 msys64 有什么区别。
+        AiPurposeKind.UserData => IsEn ? "Your own files" : "你自己的文件",
+        AiPurposeKind.SystemOwned => IsEn ? "Windows / vendor's own folder" : "Windows 或厂商的系统目录",
+        AiPurposeKind.AppOwned => IsEn ? "An app's own data" : "某个软件自己的数据",
+        AiPurposeKind.DevTools => IsEn ? "Installed dev tools" : "装好的开发工具",
         _ => "",
     };
     /// <summary>模型认出这是「别删」那一类时给的提示。只是提示，不阻挡用户删。</summary>

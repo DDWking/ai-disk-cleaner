@@ -944,7 +944,7 @@ public static class Program
             batchSvc.Contains("IsTooLargeForModel", StringComparison.Ordinal)
             && batchSvc.Contains("GetRange(0, half)", StringComparison.Ordinal));
         Check("单批条数留了足够余量（不再贴着 64K 上限）",
-            batchSvc.Contains("MaxPerRequest = 100", StringComparison.Ordinal));
+            batchSvc.Contains("MaxPerRequest = 80", StringComparison.Ordinal));
         // 反复追问同一条 = 无限请求。没结论的条目必须被标记成「问过了」。
         Check("问过的条目不再入选（否则再点一次会把同一批重问）",
             orgNode.Contains("MarkBatchAsked", StringComparison.Ordinal));

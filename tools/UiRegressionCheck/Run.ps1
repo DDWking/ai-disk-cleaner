@@ -606,7 +606,7 @@ Assert-True 'classification only runs when the user clicks the one button' `
      $orgsrc -notmatch '_autoClassifyTimer' -and
      $xaml -match 'Click="OrganizeClassify_Click"')
 Assert-True 'a batch that overflows the model context is split, not failed' `
-    ($batchsvc -match 'IsTooLargeForModel' -and $batchsvc -match 'MaxPerRequest = 100')
+    ($batchsvc -match 'IsTooLargeForModel' -and $batchsvc -match 'MaxPerRequest = 80')
 Assert-True 'the classify service still never writes risk / selection' `
     ($batchsvc -notmatch '\.Risk\s*=' -and $batchsvc -notmatch '\.CanDelete\s*=' -and
      $batchsvc -notmatch '\.Selected\s*=')

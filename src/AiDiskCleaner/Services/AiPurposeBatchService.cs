@@ -34,8 +34,9 @@ public sealed record AiPurposeBatchOutcome(
 /// 而且失败模式是系统性的：前 16 行答得又准又对，后面整片塌成同一个答案。
 /// 把路径直接写进 instructions 之后，48 项 15/16、176 项 15/16 一致，token 只多 5%。</item>
 ///
-/// <item><b>一批 160 条。</b>实测 176 条时输入 53542 token（占 64K 的 82%）、
-/// 304 token/项、3.6 秒、约 $0.0022。取 160 留 15% 余量。</item>
+/// <item><b>一批 80 条。</b>条数上限跟着**每项 token 数**走，而那个数由选项表规模决定
+/// （10 类 304 / 放宽 keep 后 362 / 拆开「别删」成 13 类后 488）。
+/// 取 80 让单批输入稳定在 64K 的六成左右，见 <see cref="MaxPerRequest"/> 的对照表。</item>
 ///
 /// <item><b>出站路径一律走 <see cref="PathRedactor.Outbound"/>。</b>
 /// 默认脱敏（<c>&lt;UserProfile&gt;</c> / <c>&lt;User&gt;</c> / <c>&lt;PC&gt;</c>），
@@ -51,14 +52,21 @@ public static class AiPurposeBatchService
     /// <summary>
     /// 一次请求最多问多少条。
     ///
-    /// 原来取 160（按 304 token/项算，占 64K 的 82%）。后来把 <c>keep</c> 的文案放宽
-    /// （那一改让 24 条样本的采纳数从 16 涨到 23），每项涨到 **362 token** ——
-    /// 160 项就是 57,920，只剩 10% 余量，真机上就撞到了 <c>max tokens exceeded</c>。
+    /// 这个数字跟着**每项 token 数**走，而每项 token 数由选项表规模决定：
     ///
-    /// 改成 100：约 36K，留 44% 余量。花费不变（同样的条数、同样的单价），
-    /// 只是多几次小请求；而且上面那层「太大就拆两半」还会兜底。
+    /// <code>
+    /// 选项表                每项 token   单批   单批输入   占 64K
+    /// 10 类（原来）            304       160    48,640      76%
+    /// 10 类 + 放宽 keep        362       160    57,920      90%  ← 真机撞 max tokens
+    /// 10 类 + 放宽 keep        362       100    36,200      57%
+    /// 13 类（拆开「别删」）     488        80    39,040      61%  ← 现在
+    /// </code>
+    ///
+    /// 稳定在六成左右：路径长短有个体差异，留够余量才不会被某一批特别长的顶爆。
+    /// 花费不变（同样的条数、同样的单价），只是多几次小请求；
+    /// 而且上面那层「太大就拆两半」还会兜底。
     /// </summary>
-    public const int MaxPerRequest = 100;
+    public const int MaxPerRequest = 80;
 
     /// <param name="stillCurrent">
     /// 每写回一批之前问一次：扫描有没有换代、这一页还在不在。返回 false 就停止写入
