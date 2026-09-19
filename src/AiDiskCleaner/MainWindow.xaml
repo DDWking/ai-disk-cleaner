@@ -1304,6 +1304,7 @@
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*"/>
                   <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
                   <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
@@ -1311,10 +1312,17 @@
                   <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
                              FontSize="11" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
+                <!-- 忘掉 AI 标签：只清 Jev 那一半。本地认出来的、勾选、都不动。
+                     没有 AI 标签时整块隐藏，不留一个点了没反应的按钮。 -->
+                <Button x:Name="OrganizeForgetAiBtn" Grid.Column="1" Style="{StaticResource GhostButton}"
+                        Padding="12,5" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,8,0"
+                        Visibility="Collapsed" Click="OrganizeForgetAi_Click"
+                        ToolTip="忘掉 AI 标过的用途。本机已经认出来的、你勾过的，都还在。下次点「识别这一屏」会重新问。"
+                        AutomationProperties.Name="忘掉 AI 标签"/>
                 <!-- 数量写在按钮上，一眼知道值不值得点；跑的时候它变成「停止」。
                      未识别为 0 时整块隐藏，不留一个点了没反应的按钮。
                      **请求只由这一次点击发起** —— 扫描 / 切页 / 展开 / 筛选一个都不发。 -->
-                <Button x:Name="OrganizeClassifyBtn" Grid.Column="1" Style="{StaticResource GhostButton}"
+                <Button x:Name="OrganizeClassifyBtn" Grid.Column="2" Style="{StaticResource GhostButton}"
                         Padding="12,5" FontSize="11.5" VerticalAlignment="Center"
                         Visibility="Collapsed" Click="OrganizeClassify_Click"
                         ToolTip="把这一屏里认不出用途的文件夹一次性交给 AI 判断是什么（只补用途，不改任何删除相关的东西）"

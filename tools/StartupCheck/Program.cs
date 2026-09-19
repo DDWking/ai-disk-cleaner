@@ -832,9 +832,13 @@ public static class Program
 
         // **唯一的识别入口就是页头那个按钮**：用户点一次，认这一屏。
         // 它「只在用户点击时发请求」这件事由 9.4 的真实出站计数守着。
-        Check("按文件夹删除页只有那一个识别按钮",
+        Check("按文件夹删除页有识别按钮",
             xaml.Contains("x:Name=\"OrganizeClassifyBtn\"", StringComparison.Ordinal)
             && org.Contains("private void OrganizeClassify_Click", StringComparison.Ordinal));
+        Check("忘掉 AI 标签的入口在页头，不发请求",
+            xaml.Contains("x:Name=\"OrganizeForgetAiBtn\"", StringComparison.Ordinal)
+            && org.Contains("private void OrganizeForgetAi_Click", StringComparison.Ordinal)
+            && org.Contains("ForgetAiPurposes()", StringComparison.Ordinal));
         Check("批量归类仍然不在清理中心（那里没有认不出的堆积）",
             !scan.Contains("AiPurposeBatchService", StringComparison.Ordinal)
             && !scan.Contains("CleanClassifyPurposes", StringComparison.Ordinal));
@@ -932,10 +936,21 @@ public static class Program
         // 归类只能是「用户点那一个按钮 → 那一个处理器 → 那一处调用」。
         // （中间试过「翻到哪自动认哪」：只认眼前几行要滚很多次，一次认完整页又撞上
         // 模型的上下文上限，两个方向都不合适。回到手点最稳。）
-        Check("整理页只有那一个识别按钮（用户点一次才发一次）",
+        Check("整理页识别按钮由用户点一次才发一次",
             org.Contains("private void OrganizeClassify_Click", StringComparison.Ordinal)
             && xaml.Contains("x:Name=\"OrganizeClassifyBtn\"", StringComparison.Ordinal)
             && xaml.Contains("Click=\"OrganizeClassify_Click\"", StringComparison.Ordinal));
+        var persistSrc = ReadSource("src/AiDiskCleaner/MainWindow.RecognitionPersistence.cs");
+        Check("忘掉 AI 标签只清展示，不走模型通道",
+            org.Contains("ForgetAiPurposes()", StringComparison.Ordinal)
+            && persistSrc.Contains("ClearAiPurposes()", StringComparison.Ordinal)
+            && persistSrc.Contains("node.ClearBatchPurpose()", StringComparison.Ordinal)
+            && !persistSrc.Contains("AiPurposeBatchService", StringComparison.Ordinal)
+            && !persistSrc.Contains("DecideAsync", StringComparison.Ordinal)
+            && !org.Substring(
+                    Math.Max(0, org.IndexOf("private void OrganizeForgetAi_Click", StringComparison.Ordinal)),
+                    400)
+                .Contains("AiPurposeBatchService", StringComparison.Ordinal));
         Check("归类全仓只被一处调用", batchCalls == 1, "调用点=" + batchCalls);
         Check("没有自动 / 后台识别（防抖计时器与滚动触发都不在）",
             !org.Contains("_autoClassifyTimer", StringComparison.Ordinal)
@@ -961,6 +976,16 @@ public static class Program
         // 反复追问同一条 = 无限请求。没结论的条目必须被标记成「问过了」。
         Check("问过的条目不再入选（否则再点一次会把同一批重问）",
             orgNode.Contains("MarkBatchAsked", StringComparison.Ordinal));
+        var storeSrc = ReadSource("src/AiDiskCleaner/Services/RecognitionStore.cs");
+        Check("归类结果会落盘（下次打开不用再问同一条路径）",
+            org.Contains("PersistAiPurposes(targets)", StringComparison.Ordinal)
+            && org.Contains("TryRestoreAiPurpose(node)", StringComparison.Ordinal)
+            && storeSrc.Contains("Kind = \"ai-purpose\"", StringComparison.Ordinal)
+            && storeSrc.Contains("public void PutAiPurpose", StringComparison.Ordinal)
+            && storeSrc.Contains("public bool TryGetAiPurpose", StringComparison.Ordinal)
+            && storeSrc.Contains("public int ClearAiPurposes", StringComparison.Ordinal));
+        Check("Jev 落盘和本地用途分槽（互不覆盖）",
+            storeSrc.Contains("if (e.Kind != \"purpose\" && e.Kind != \"ai-purpose\") return false;", StringComparison.Ordinal));
 
         settings.AiModel = hadModel ? savedModel : "";
         AiGateway.ResetSentCountForTest();

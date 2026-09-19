@@ -353,6 +353,36 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// 从落盘缓存贴回一条 Jev 归类结果。和 <see cref="SetBatchPurpose"/> 同一条写路径，
+    /// 另外把「问过了」也标上 —— 否则自动/手动归类会把刚恢复的那条再问一遍，白花钱。
+    /// 空名字不贴（那等于没结论）。
+    /// </summary>
+    public void RestoreBatchPurpose(string? purpose, bool unsure)
+    {
+        if (string.IsNullOrWhiteSpace(purpose)) return;
+        SetBatchPurpose(purpose, unsure);
+        _batchAsked = true;
+        Raise(nameof(BatchAsked));
+        Raise(nameof(NeedsPurposeClassification));
+    }
+
+    /// <summary>
+    /// 忘掉这条的 AI 标签。本地规则认出来的用途不动；勾选也不动。
+    /// 「问过了」一并清掉，这样用户点「识别这一屏」会重新问这一条。
+    /// </summary>
+    public void ClearBatchPurpose()
+    {
+        if (_batchPurpose.Length == 0 && !_batchAsked && !_batchUnsure) return;
+        _batchPurpose = "";
+        _batchUnsure = false;
+        _batchAsked = false;
+        _override = HasConclusion ? null : PurposeState.Unrecognized;
+        RaiseConclusionDisplay();
+        Raise(nameof(BatchAsked));
+        Raise(nameof(NeedsPurposeClassification));
+    }
+
+    /// <summary>
     /// 界面状态。排队/处理中只由流程写入（<see cref="SetState"/>），
     /// 所以**排队时不可能显示 AI 成功结论**。
     /// </summary>

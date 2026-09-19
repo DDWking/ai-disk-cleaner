@@ -271,6 +271,24 @@ public static class AiPurposeTests
         clear.SetBatchPurpose("");
         check("清空批量用途后回到未识别",
             !clear.HasConclusion && clear.State == PurposeState.Unrecognized);
+
+        // 从落盘贴回来：用途在、而且标成「问过了」，免得再点一次把同一条重问
+        var restored = Node(@"D:\some\restored");
+        restored.RestoreBatchPurpose("软件缓存", unsure: false);
+        check("落盘贴回后有结论", restored.HasConclusion && restored.BatchPurpose == "软件缓存");
+        check("落盘贴回后标成问过了（不再入选）", restored.BatchAsked && !restored.NeedsPurposeClassification);
+        var restoredUnsure = Node(@"D:\some\restored-unsure");
+        restoredUnsure.RestoreBatchPurpose("拿不准：可能是软件缓存", unsure: true);
+        check("落盘贴回时拿不准标记也在", restoredUnsure.BatchPurposeUnsure);
+        restored.ClearBatchPurpose();
+        check("忘掉 AI 标签后回到未识别，可以再问",
+            !restored.HasConclusion && !restored.BatchAsked && restored.NeedsPurposeClassification);
+        var localKeep = Node(@"D:\some\local-keep");
+        localKeep.Apply(Local(@"D:\some\local-keep", "我自己的项目"));
+        localKeep.RestoreBatchPurpose("软件缓存", unsure: false);
+        localKeep.ClearBatchPurpose();
+        check("忘掉 AI 标签不影响本地已经认出来的",
+            localKeep.PurposeText == "我自己的项目" && localKeep.Source == PurposeSource.Local);
     }
 
     // ------------------------------------------ 本地清理资格（从已删的 AI 结论测试搬来）
@@ -386,6 +404,9 @@ public static class AiPurposeTests
         check("批量归类不写 Selected", !src.Contains(".Selected ="));
         check("批量归类不写 Evidence", !src.Contains(".Evidence ="));
         check("批量归类不碰逐项 AI 结果", !src.Contains(".Ai.Result =") && !src.Contains(".Ai.Status ="));
+        check("落盘不在批量服务里（接线在界面层，服务保持纯展示）",
+            !src.Contains("PutAiPurpose", StringComparison.Ordinal)
+            && !src.Contains("RecognitionStore", StringComparison.Ordinal));
 
         // 出站路径必须走唯一入口：默认脱敏，只有用户明确允许才发完整路径。
         // 实测脱敏不影响归类（16/16 与非脱敏一致）—— <UserProfile>\Temp\ 照样认出是临时文件。

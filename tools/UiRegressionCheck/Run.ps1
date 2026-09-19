@@ -605,6 +605,12 @@ Assert-True 'classification only runs when the user clicks the one button' `
      $orgsrc -match '_organizeRows\.Where\(n => n\.NeedsPurposeClassification\)' -and
      $orgsrc -notmatch '_autoClassifyTimer' -and
      $xaml -match 'Click="OrganizeClassify_Click"')
+Assert-True 'AI labels persist after classify and can be forgotten without a model call' `
+    ($orgsrc -match 'PersistAiPurposes\(targets\)' -and
+     $orgsrc -match 'TryRestoreAiPurpose\(node\)' -and
+     $orgsrc -match 'private void OrganizeForgetAi_Click' -and
+     $xaml -match 'x:Name="OrganizeForgetAiBtn"' -and
+     $xaml -match 'Click="OrganizeForgetAi_Click"')
 Assert-True 'a batch that overflows the model context is split, not failed' `
     ($batchsvc -match 'IsTooLargeForModel' -and $batchsvc -match 'MaxPerRequest = 80')
 Assert-True 'the classify service still never writes risk / selection' `

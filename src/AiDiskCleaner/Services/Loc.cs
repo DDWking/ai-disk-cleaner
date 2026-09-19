@@ -1956,6 +1956,11 @@ public static class Loc
     public static string AiBatchClassifyScreen(int n) => IsEn
         ? $"Classify this screen ({n:N0})"
         : $"识别这一屏（{n:N0} 项）";
+    /// <summary>忘掉 Jev 标过的用途。本地规则认出来的不动。</summary>
+    public static string AiPurposeForget => IsEn ? "Forget AI labels" : "忘掉 AI 标签";
+    public static string AiPurposeForgot(int n) => IsEn
+        ? $"Forgot {n:N0} AI label(s). Classify this screen again to re-ask."
+        : $"已忘掉 {n:N0} 个 AI 标签。再点「识别这一屏」会重新问。";
 
     /// <summary>进行中的诚实提示：没有真实百分比就不编，只报已等待时间。</summary>
     public static string AiRunningHint(TimeSpan waited) => IsEn

@@ -47,7 +47,8 @@ public partial class MainWindow
             _recognitionStore = new RecognitionStore();
             _folderPurpose.AttachRecognitionStore(_recognitionStore);
             AppLog.Info("Recognition", "op=persist stage=init entries=" + _recognitionStore.Count
-                + " purposes=" + _recognitionStore.PurposeCount);
+                + " purposes=" + _recognitionStore.PurposeCount
+                + " ai=" + _recognitionStore.AiPurposeCount);
         }
         catch (Exception ex)
         {
@@ -78,9 +79,82 @@ public partial class MainWindow
             node.Apply(hit);
             restored++;
         }
+        restored += RestoreAiPurposes();
         if (restored > 0)
             AppLog.Info("Recognition", $"op=persist stage=restore objects={restored}");
         return restored;
+    }
+
+    /// <summary>
+    /// 把上次 Jev 归类的展示名贴回**还没有结论**的对象。
+    /// 本地已经认出来的行不覆盖（本地优先）；贴上的同时标「问过了」，
+    /// 所以再点「识别这一屏」不会把同一条再问一遍。
+    /// 只读、不发请求、不动勾选。返回贴上的条数。
+    /// </summary>
+    private int RestoreAiPurposes()
+    {
+        int restored = 0;
+        foreach (var node in _organizeAll)
+            if (TryRestoreAiPurpose(node)) restored++;
+        if (restored > 0)
+            AppLog.Info("Recognition", $"op=persist stage=restore-ai objects={restored}");
+        return restored;
+    }
+
+    /// <summary>
+    /// 单条恢复。材料化子目录时也走这里，所以展开一层不必等整树重建。
+    /// </summary>
+    private bool TryRestoreAiPurpose(OrganizeNode node)
+    {
+        if (_recognitionStore == null || node.HasConclusion || node.BatchAsked) return false;
+        if (!_recognitionStore.TryGetAiPurpose(node.FullPath, out var name, out var unsure)) return false;
+        node.RestoreBatchPurpose(name, unsure);
+        return true;
+    }
+
+    /// <summary>
+    /// 把这一批刚写上的 Jev 标签落盘。空名字不写。
+    /// 失败只记日志，不影响这次归类已经贴到界面上的结果。
+    /// </summary>
+    private void PersistAiPurposes(IEnumerable<OrganizeNode> nodes)
+    {
+        if (_recognitionStore == null) return;
+        int saved = 0;
+        try
+        {
+            foreach (var n in nodes)
+            {
+                if (n.BatchPurpose.Length == 0) continue;
+                _recognitionStore.PutAiPurpose(n.FullPath, n.BatchPurpose, n.BatchPurposeUnsure);
+                saved++;
+            }
+            if (saved > 0)
+                AppLog.Info("Recognition", $"op=persist stage=save-ai objects={saved}");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Record("Recognition", ex, "save ai-purpose");
+        }
+    }
+
+    /// <summary>
+    /// 「忘掉 AI 标签」：只清 Jev 那一半（落盘 + 当前树上的展示），
+    /// 本地规则 / 用户纠正 / 勾选都不动。清完这一屏可以重新问。
+    /// </summary>
+    private int ForgetAiPurposes()
+    {
+        int cleared = 0;
+        foreach (var node in _organizeAll)
+        {
+            if (node.BatchPurpose.Length == 0 && !node.BatchAsked) continue;
+            node.ClearBatchPurpose();
+            cleared++;
+        }
+        try { _recognitionStore?.ClearAiPurposes(); }
+        catch (Exception ex) { AppLog.Record("Recognition", ex, "clear ai-purpose"); }
+        if (cleared > 0)
+            AppLog.Info("Recognition", $"op=persist stage=forget-ai objects={cleared}");
+        return cleared;
     }
 
     /// <summary>

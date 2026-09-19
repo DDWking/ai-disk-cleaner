@@ -32,8 +32,12 @@ public sealed class RecognitionStore : IPurposeRecognitionStore
     /// <summary>落盘结构版本。字段语义变了就 +1，旧文件按损坏处理（重新累积）。</summary>
     public const int SchemaVersion = 1;
 
-    /// <summary>最多保留多少条（超出按写入时间淘汰最旧）。</summary>
-    public const int MaxEntries = 400;
+    /// <summary>
+    /// 最多保留多少条（超出按写入时间淘汰最旧）。
+    /// 400 是逐项 AI 那阵定的；Jev 一次就能标一整屏（~80）再乘十几屏，
+    /// 400 会把刚花过钱的结果挤掉。4000 条 × 约 400 字节仍远低于 <see cref="MaxFileBytes"/>。
+    /// </summary>
+    public const int MaxEntries = 4000;
 
     /// <summary>单个文本字段的字符上限（防止一份记录撑大文件）。</summary>
     public const int MaxFieldChars = 512;
@@ -52,8 +56,14 @@ public sealed class RecognitionStore : IPurposeRecognitionStore
     sealed class Entry
     {
         /// <summary>
-        /// 条目种类。现在**只剩 "purpose"** —— 逐项 AI 那半套删掉之后 "item" 不再写入。
-        /// 字段本身保留：旧缓存里那些 "item" 条目会被自然跳过，不会当成用途读出来。
+        /// 条目种类。
+        /// <list type="bullet">
+        /// <item><c>purpose</c>：本地规则 / 用户纠正的目录用途（走 <see cref="TryGetPurpose"/>）。</item>
+        /// <item><c>ai-purpose</c>：Jev 批量归类的展示名（走 <see cref="TryGetAiPurpose"/>）。
+        ///       单独一种，避免和本地结论抢同一个槽：本地说「这是下载」时，
+        ///       模型那句「软件缓存」不许把它盖掉。</item>
+        /// </list>
+        /// 旧缓存里那些 "item" 条目（逐项 AI 遗留）会被自然跳过。
         /// </summary>
         public string Kind { get; set; } = "";
         public string Key { get; set; } = "";         // 确定性键（十六进制）
@@ -101,6 +111,11 @@ public sealed class RecognitionStore : IPurposeRecognitionStore
         get { lock (_lock) return _entries.Values.Count(e => e.Kind == "purpose"); }
     }
 
+    public int AiPurposeCount
+    {
+        get { lock (_lock) return _entries.Values.Count(e => e.Kind == "ai-purpose"); }
+    }
+
     static string MapKey(string kind, string key) => kind + "\u0001" + key;
 
     // ---------------- 目录用途 ----------------
@@ -144,6 +159,79 @@ public sealed class RecognitionStore : IPurposeRecognitionStore
             Source = (int)result.Source,
             NeedsConfirm = result.NeedsConfirm,
         });
+    }
+
+    // ---------------- Jev 批量归类（纯展示） ----------------
+
+    /// <summary>
+    /// 落盘键：规范化路径。
+    ///
+    /// 和 <see cref="FolderPurposeService.PurposeKey"/> 刻意不同：那边含内容指纹，
+    /// 目录里多一个文件就失效；这边只认「这个路径上次被模型标成什么」。
+    /// 内容变了旧标签可能过时，但用户可以手动清；不清的话至少**不再付钱重问同一条路径**。
+    /// 不含扫描代次、不含配置签名 —— 换模型不该让上次花过的钱作废。
+    /// </summary>
+    public static string AiPurposeKey(string? path)
+        => RecognitionKey.Hex(RecognitionKey.Stable("ai-purpose", RecognitionKey.PathKey(path)));
+
+    /// <summary>
+    /// 只读一条 Jev 归类结果。命中返回展示名和「拿不准」标记；没命中返回 false。
+    /// **不发请求、不改勾选。**
+    /// </summary>
+    public bool TryGetAiPurpose(string? path, out string name, out bool unsure)
+    {
+        name = "";
+        unsure = false;
+        string key = AiPurposeKey(path);
+        if (string.IsNullOrEmpty(key)) return false;
+
+        Entry? e;
+        lock (_lock) _entries.TryGetValue(MapKey("ai-purpose", key), out e);
+        if (e == null || e.Purpose.Length == 0) return false;
+        name = e.Purpose;
+        unsure = e.NeedsConfirm;
+        return true;
+    }
+
+    /// <summary>
+    /// 写入一条 Jev 归类结果。空名字不写（那等于「没结论」，存了也只占名额）。
+    /// <paramref name="unsure"/> 复用 <c>NeedsConfirm</c> 这个布尔位 ——
+    /// 对 <c>ai-purpose</c> 这种条目，它的语义是「模型说了但没把握」，
+    /// 不是本地规则那套「待确认」（<see cref="TryGetPurpose"/> 根本读不到这种条目）。
+    /// </summary>
+    public void PutAiPurpose(string? path, string? name, bool unsure)
+    {
+        string purpose = Clean(name);
+        if (purpose.Length == 0) return;
+        string key = AiPurposeKey(path);
+        if (string.IsNullOrEmpty(key)) return;
+
+        Upsert(new Entry
+        {
+            Kind = "ai-purpose",
+            Key = Clip(key, 128),
+            Path = Clean(path),
+            Purpose = purpose,
+            NeedsConfirm = unsure,
+        });
+    }
+
+    /// <summary>
+    /// 只清 Jev 那一半。本地规则 / 用户纠正的用途留下。
+    /// 用户点「忘掉 AI 标签」时走这里：下次会重新问模型，但本机已经认出来的不会丢。
+    /// </summary>
+    public int ClearAiPurposes()
+    {
+        int removed;
+        lock (_lock)
+        {
+            var keys = _entries.Where(kv => kv.Value.Kind == "ai-purpose")
+                               .Select(kv => kv.Key).ToList();
+            foreach (var k in keys) _entries.Remove(k);
+            removed = keys.Count;
+        }
+        if (removed > 0) Save();
+        return removed;
     }
 
     // ---------------- 写路径 ----------------
@@ -248,7 +336,8 @@ public sealed class RecognitionStore : IPurposeRecognitionStore
         if (e == null) return false;
         // 旧缓存里还可能有 "item" 记录（逐项 AI 那半套的遗留）：**当无效跳过**，
         // 不当作用途读出来，也不影响其余条目。
-        if (e.Kind != "purpose") return false;
+        // "ai-purpose" 是 Jev 批量归类自己的槽，和 "purpose" 互不覆盖。
+        if (e.Kind != "purpose" && e.Kind != "ai-purpose") return false;
         if (string.IsNullOrWhiteSpace(e.Key) || e.Key.Length > 128) return false;
         if (TooLong(e.Purpose) || TooLong(e.Basis) || TooLong(e.Category) || TooLong(e.Path)) return false;
         return e.Purpose.Length > 0;   // 没结论的用途记录没有意义

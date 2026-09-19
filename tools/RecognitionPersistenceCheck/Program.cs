@@ -65,6 +65,7 @@ public static class Program
             NoSecretsTests();
             OrganizeIsolationTests();
             WiringHookTests();
+            AiPurposeRoundtripTests();
         }
         finally
         {
@@ -461,6 +462,101 @@ public static class Program
         finally
         {
             AiClient.Handler = null;
+            try { seed.Clear(); } catch { /* 清理失败不影响结论 */ }
+        }
+    }
+
+    // ---------------- 10. Jev 批量归类落盘往返 ----------------
+
+    static void AiPurposeRoundtripTests()
+    {
+        Section("Jev 归类：落盘 ⇒ 新实例读回；清 AI 不影响本地用途");
+
+        string path = StorePath("ai-purpose");
+        var store = new RecognitionStore(path);
+        store.PutAiPurpose(@"D:\cache\npm", "软件缓存", unsure: false);
+        store.PutAiPurpose(@"D:\maybe\temp", "拿不准：可能是临时文件", unsure: true);
+        store.PutAiPurpose(@"D:\empty", "", unsure: false);
+        Check("空名字不落盘", store.AiPurposeCount == 2, store.AiPurposeCount.ToString());
+
+        var back = new RecognitionStore(path);
+        Check("新实例读回有把握的那条",
+            back.TryGetAiPurpose(@"D:\cache\npm", out var name, out var unsure)
+            && name == "软件缓存" && !unsure, name);
+        Check("路径写法不同仍命中（大小写 / 斜杠）",
+            back.TryGetAiPurpose(@"d:/cache/npm\", out var name2, out _)
+            && name2 == "软件缓存", name2);
+        Check("拿不准标记一起回来",
+            back.TryGetAiPurpose(@"D:\maybe\temp", out var hedged, out var hedgedUnsure)
+            && hedged.Length > 0 && hedgedUnsure, hedged);
+        Check("没命中的路径返回 false", !back.TryGetAiPurpose(@"D:\never-seen", out _, out _));
+
+        // 和本地用途各走各的槽：同一路径两种结论互不覆盖
+        var id = new FolderId(@"D:\cache\npm", 1);
+        store.PutPurpose("k-local", PurposeResult(@"D:\cache\npm", "npm 全局安装目录"));
+        Check("本地用途还在",
+            store.TryGetPurpose("k-local", id, out var local) && local.PurposeName == "npm 全局安装目录");
+        Check("Jev 那条也还在（没被本地覆盖）",
+            store.TryGetAiPurpose(@"D:\cache\npm", out var still, out _) && still == "软件缓存");
+
+        int removed = store.ClearAiPurposes();
+        Check("清 AI 只动 Jev 那一半",
+            removed == 2 && store.AiPurposeCount == 0 && store.PurposeCount >= 1,
+            $"removed={removed} ai={store.AiPurposeCount} purpose={store.PurposeCount}");
+        var afterClear = new RecognitionStore(path);
+        Check("清完重读：Jev 没了，本地还在",
+            !afterClear.TryGetAiPurpose(@"D:\cache\npm", out _, out _)
+            && afterClear.TryGetPurpose("k-local", id, out var kept)
+            && kept.PurposeName == "npm 全局安装目录");
+
+        // 密钥不能进 Jev 标签
+        const string secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789";
+        store.PutAiPurpose(@"D:\secret", "用途 " + secret, unsure: false);
+        string text = File.ReadAllText(path);
+        Check("Jev 落盘不含 sk- 密钥", !text.Contains(secret, StringComparison.Ordinal));
+
+        // 旧 "item" 记录和新 "ai-purpose" 可以共存；item 仍被跳过
+        string mixed = StorePath("ai-mixed");
+        File.WriteAllText(mixed,
+            "{\"Version\":1,\"Entries\":["
+            + "{\"Kind\":\"item\",\"Key\":\"k-legacy\",\"Purpose\":\"legacy\"},"
+            + "{\"Kind\":\"ai-purpose\",\"Key\":\"k-ai\",\"Purpose\":\"软件缓存\",\"NeedsConfirm\":true},"
+            + "{\"Kind\":\"purpose\",\"Key\":\"k-good\",\"Purpose\":\"good\"}"
+            + "]}");
+        var mixedStore = new RecognitionStore(mixed);
+        Check("混文件：本地 + Jev 都留下，旧逐项跳过",
+            mixedStore.Count == 2 && mixedStore.AiPurposeCount == 1 && mixedStore.PurposeCount == 1,
+            mixedStore.Count.ToString());
+
+        // 界面钩子：贴回 / 忘掉
+        const BindingFlags P = BindingFlags.Instance | BindingFlags.NonPublic;
+        var win = typeof(AiDiskCleaner.MainWindow);
+        Check("贴回钩子 RestoreAiPurposes() 存在", win.GetMethod("RestoreAiPurposes", P) != null);
+        Check("落盘钩子 PersistAiPurposes() 存在", win.GetMethod("PersistAiPurposes", P) != null);
+        Check("忘掉钩子 ForgetAiPurposes() 存在", win.GetMethod("ForgetAiPurposes", P) != null);
+
+        var seed = new RecognitionStore(RecognitionStore.DefaultPath);
+        seed.PutAiPurpose(@"D:\wired-ai", "开发工具缓存", unsure: false);
+        try
+        {
+            var window = new AiDiskCleaner.MainWindow();
+            win.GetMethod("InitRecognitionPersistence", P)!.Invoke(window, null);
+            var list = (List<OrganizeNode>)win.GetField("_organizeAll", P)!.GetValue(window)!;
+            var dir = Folder(@"D:\wired-ai", "a.dat");
+            list.Add(new OrganizeNode(dir, new FolderId(dir.FullPath, 1), 0, dir.FullPath));
+            int restored = (int)win.GetMethod("RestoreAiPurposes", P)!.Invoke(window, null)!;
+            Check("重建钩子把 Jev 标签贴回尚未有结论的对象",
+                restored == 1 && list[0].BatchPurpose == "开发工具缓存" && list[0].BatchAsked,
+                $"{restored}/{list[0].BatchPurpose}");
+            int forgot = (int)win.GetMethod("ForgetAiPurposes", P)!.Invoke(window, null)!;
+            Check("忘掉之后树上和落盘都没了",
+                forgot == 1 && list[0].BatchPurpose.Length == 0 && list[0].NeedsPurposeClassification
+                && !new RecognitionStore(RecognitionStore.DefaultPath)
+                    .TryGetAiPurpose(@"D:\wired-ai", out _, out _),
+                forgot.ToString());
+        }
+        finally
+        {
             try { seed.Clear(); } catch { /* 清理失败不影响结论 */ }
         }
     }

@@ -180,6 +180,9 @@ public partial class MainWindow
 
             if (rs.Skipped > 0) _organizeNote = Loc.OrganizeSkippedNoAccess(rs.Skipped);
             ShowOrganizeState(OrganizeStateKind.None);
+            // 本地规则没命中的行，把上次 Jev 标过的用途贴回来（不发请求）。
+            // LocalRecognize 已经把落盘的本地结论贴过一遍；这里只补 AI 那一半。
+            try { RestoreAiPurposes(); } catch (Exception ex) { AppLog.Record("Organize", ex, "restore ai-purpose"); }
             RefreshOrganizeRows();
             AppLog.Info("Organize", $"op=build roots={_organizeRoots.Count} objects={_organizeAll.Count} "
                 + $"rows={_organizeRows.Count} entries={_organizeEntryPoints.Count} skipped={rs.Skipped} "
@@ -241,6 +244,7 @@ public partial class MainWindow
         node.SetEvidence(sum);
         node.SetKind(local.Kind);
         if (local.HasConclusion) node.Apply(local);
+        else TryRestoreAiPurpose(node);
     }
 
     /// <summary>
@@ -562,6 +566,34 @@ public partial class MainWindow
         OrganizeClassifyBtn.Content = Loc.AiBatchClassifyScreen(onScreen);
         OrganizeClassifyBtn.Visibility = onScreen > 0 ? Visibility.Visible : Visibility.Collapsed;
         OrganizeClassifyBtn.IsEnabled = onScreen > 0;
+        UpdateOrganizeForgetButton();
+    }
+
+    /// <summary>
+    /// 「忘掉 AI 标签」只在**这一屏已经有 AI 标签**时出现。
+    /// 归类正在跑的时候藏起来，免得一边写一边清。
+    /// </summary>
+    void UpdateOrganizeForgetButton()
+    {
+        if (OrganizeForgetAiBtn == null) return;
+        bool has = !_organizeClassifying
+                   && _organizeRows.Any(n => n.BatchPurpose.Length > 0 || n.BatchAsked);
+        OrganizeForgetAiBtn.Content = Loc.AiPurposeForget;
+        OrganizeForgetAiBtn.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
+        OrganizeForgetAiBtn.IsEnabled = has;
+    }
+
+    /// <summary>
+    /// 忘掉当前树上（以及落盘里）的 Jev 标签。本地认出来的不动，勾选也不动。
+    /// 清完「识别这一屏」会重新出现。
+    /// </summary>
+    private void OrganizeForgetAi_Click(object sender, RoutedEventArgs e)
+    {
+        if (_organizeClassifying) return;
+        int n = ForgetAiPurposes();
+        _organizeResultShown = false;
+        SetOrganizeNote(n > 0 ? Loc.AiPurposeForgot(n) : "");
+        UpdateOrganizeHeader();
     }
 
     /// <summary>入口只有一个按钮：空闲时开始，跑着时停止。</summary>
@@ -620,6 +652,8 @@ public partial class MainWindow
                     outcome.Applied, outcome.Unsure, outcome.Unknown, outcome.Calls, outcome.Cost));
                 // 有结论就把「合并」面板摆出来：一类一行，勾一行整片处理
                 if (outcome.Applied > 0) _organizeResultShown = true;
+                // 贴上的同时落盘：下次打开不用再付钱问同一条路径。
+                if (outcome.Applied + outcome.Unsure > 0) PersistAiPurposes(targets);
                 op.Done("organize classify", outcome.Applied);
             }
             catch (OperationCanceledException)
