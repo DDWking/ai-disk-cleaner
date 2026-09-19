@@ -102,27 +102,46 @@ public static class AiPurposeCriteria
     ///
     /// **两侧刻意不对称 —— 拒绝猜「缓存」是保护，拒绝猜「别删」是危险。**
     ///
-    /// 清理类卡 0.75：实测判对且 0.89~1.00 的集中在「认识」；0.63~0.77 是「认得但语焉不详」；
-    /// 0.22~0.46 全是模糊项。**宁可少认几条，也不要给用户一个似是而非的「这是缓存」**，
-    /// 那正是会误导人去删的东西。
-    ///
     /// keep **不设门槛（0）**：把一条拿不准的 `keep` 挡掉，界面就只剩「未识别」——
-    /// 而「未识别」在用户眼里等于「AI 也不知道这是什么」，比一句「像是你的数据」危险得多。
+    /// 而「未识别」在用户眼里等于「AI 也不知道这是什么」，比一句「你的数据」危险得多。
     /// 实测证据：`AppData\Local\Programs` 猜 keep 0.39 被 0.55 挡掉 → 显示未识别 →
     /// 那可是**装软件的地方**。同一批里 `LocalLow` 被逼着猜成 temp 0.29、
     /// `Roaming\Code`（VS Code 的配置）被逼着猜成 devcache 0.27 —— 窄 keep 会把模型往
     /// 「猜缓存」上逼，方向正好反了。
     ///
-    /// 代价只是：一条真缓存如果被猜成 keep，用户就少清一个东西。**这是安全的那一侧。**
+    /// 清理类 **0.60**（原来是 0.75）—— 这个数字是**量出来的**，不是拍的：
+    ///
+    /// 拿 14 条「错标成缓存会很危险」的真实路径（文档 / 照片 / 游戏存档 / VS Code 设置 /
+    /// 雷鸟邮箱 / qBittorrent 种子状态 / Notepad++ 备份 / 火狐书签备份 / Python 安装 /
+    /// OneDrive 设置 / .ssh / 桌面 / 剪辑工程）加 14 条「模糊缓存」跑一遍，
+    /// 逐阈值数两件事：危险组被误采纳几条、模糊组被救回几条。
+    ///
+    /// <code>
+    /// 阈值   危险组误采纳   模糊组被采纳
+    /// 0.75      0/14           8/14
+    /// 0.65      0/14          11/14
+    /// 0.60      0/14          12/14   ← 拐点
+    /// 0.55      0/14          12/14
+    /// 0.50      0/14          12/14
+    /// </code>
+    ///
+    /// **危险组在任何阈值下都是 keep**（最低的 `Python311` 也有 0.55，其余 0.87~1.00），
+    /// 所以放宽不会把用户数据错标成缓存；而 0.60 之后收益归零。
+    /// 原来 0.75 的依据是「0.63~0.77 是认得但语焉不详」—— 数据说明
+    /// **「语焉不详」的是措辞，不是答案**：`D3DSCache`(0.79)、`htmlcache`(0.60)、
+    /// `OfficeFileCache`(0.68)、`Crashpad`(0.73)、`Service Worker`(0.72) 逐条看过，全是对的。
+    /// 把它们扔掉才是真的损失。
+    ///
+    /// `Model` 留在 0.75：它不在上面这批样本里，而且那句「删了要重新下载」本身是**劝退**
+    /// 方向，说错了不危险 —— 没有数据就先不动它。
     /// </summary>
     public static double ThresholdFor(AiPurposeKind kind) => kind switch
     {
-        // 拿不准也照示，靠文案里的「像是」和「AI 推测」前缀把不确定性说清楚
+        // 拿不准也照示：拒绝猜「别删」比拒绝猜「缓存」危险得多
         AiPurposeKind.Keep => 0.0,
         AiPurposeKind.Temporary or AiPurposeKind.BrowserCache or AiPurposeKind.AppCache
             or AiPurposeKind.DevCache or AiPurposeKind.AppLog or AiPurposeKind.Dump
-            or AiPurposeKind.Installer => 0.75,
-        // Model 归到清理类那一档：它同样会告诉用户「这东西可以删」。
+            or AiPurposeKind.Installer => 0.60,
         AiPurposeKind.Model => 0.75,
         _ => 1.0, // Unknown 本来就没结论
     };

@@ -106,7 +106,10 @@ public static class AiPurposeTests
         double cache = AiPurposeCriteria.ThresholdFor(AiPurposeKind.AppCache);
         double keep = AiPurposeCriteria.ThresholdFor(AiPurposeKind.Keep);
         check("清理类阈值高于 keep（判错代价不同）", cache > keep, $"cache={cache} keep={keep}");
-        check("清理类阈值不低于 0.7", cache >= 0.7, cache.ToString());
+        // 0.75 → 0.60 是量出来的：14 条「错标成缓存会很危险」的真实路径在任何阈值下都是
+        // keep（零误采纳），而 0.60 之后模糊缓存的收益归零。依据写在 ThresholdFor 的注释里。
+        check("清理类阈值不低于 0.6", cache >= 0.6, cache.ToString());
+        check("清理类阈值不高于 0.7（实测 0.75 会扔掉一批判对的缓存）", cache <= 0.7, cache.ToString());
         // （旧断言「keep 阈值不低于 0.5」已被下面的「keep 不设门槛」取代 —— 那是旧设计，
         //   当时的理由是「方向保守」，但实测证明它会把模型往猜缓存上逼，方向正好反了。）
 
