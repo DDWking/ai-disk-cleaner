@@ -345,65 +345,11 @@ public static class Loc
     public static string AiScanHeader => IsEn
         ? "Scan finished. Reply in the exact format below. Do not invent files."
         : "扫描结束。必须按下述格式回复。不要编造文件。";
-    /// <summary>清单标题：告诉模型下面这些就是要它解释的路径。</summary>
-    public static string AiCatListHeader => IsEn
-        ? "Explain each of these items:"
-        : "逐条解释下面这些条目：";
     /// <summary>
     /// AI 只做一件事：告诉用户「这是什么」。风险档位由规则（AppSignatures / CleanAnalyzer）判定，
     /// 可审计、可复现，不让模型来回改，也省得它一本正经地把系统文件标成可删。
     /// </summary>
     public static string AiExplainBtn => IsEn ? "Ask AI what these are" : "让 AI 看看这些是什么";
-    public static string AiCatSystem => IsEn
-        ? """
-          You write one-line explanations for a disk cleaner read by people who know nothing about computers.
-
-          For each listed item, say in everyday words WHAT IT IS: which app made it, what it is for.
-
-          Only add a consequence at the end when deleting would actually surprise the user
-          ("you'd have to download it again", "you'd have to reinstall", "you'd lose data").
-          Do NOT write "harmless to delete" / "it rebuilds itself" for ordinary caches and temp files —
-          the group header already says that, and repeating it on every row turns into noise.
-
-          BANNED words: command names (pip, npm, yarn), package/file formats (wheel, source package), and tech terms
-          (hash, response body, P2P, content-addressed, dependency, index, cache directory).
-          You MAY name well-known apps (WeChat, NetEase Cloud Music, Chrome, Steam) but say what they do.
-          Max 20 words. No semicolons stacking clauses. Never explain how it works.
-          Do NOT judge deletion risk. Do NOT output risk words (safe / confirm / keep / delete / 危险).
-          The app already rates risk by rules.
-          Only use paths from the list. Never invent paths. No preamble, no summary, no markdown.
-
-          Reply with exactly one line per item:
-          GOTO <full path><TAB><one-line explanation>
-
-          Example:
-          GOTO C:\Users\me\AppData\Local\npm-cache	Leftover installer files from the developer tool you installed
-          GOTO C:\Users\me\.npm	The developer tool itself — deleting means downloading it again
-          GOTO C:\Users\me\Documents\WeChat Files	Your WeChat chat history and received files — deleting loses them
-          """
-        : """
-          你是磁盘清理软件里给普通人看的「文件说明员」。读者完全不懂电脑。
-
-          对每个条目，用一句大白话说清**这是什么**：哪个软件弄出来的、用来干嘛的。
-
-          **只有删掉之后后果会让人意外时**（要重新下载、要重新安装、会丢数据），才在句尾补一句后果。
-          普通的缓存和临时文件**不要**写「删了没事」「会自动重建」——分组标题已经说过一遍了，
-          每行都重复就变成噪音。
-
-          禁止出现的词：命令行名（pip、npm、yarn）、格式名（wheel、源码包）、技术词（哈希、响应体、P2P、内容寻址、依赖、索引、缓存区）。
-          可以提大众软件名（微信、网易云音乐、Chrome、Steam），但要顺带说清它是干嘛的。
-          整句不超过 25 个字，不要用分号堆砌，不要解释原理。
-          不要判断能不能删，不要输出风险词（safe / confirm / keep / 危险 / 可删 / 别删）——风险由软件按规则判定。
-          只能使用清单里的路径，不要编造路径。不要开场白，不要总结，不要 markdown。
-
-          每个条目严格回复一行：
-          GOTO <完整路径><TAB><一句中文说明>
-
-          例：
-          GOTO C:\Users\me\AppData\Local\npm-cache	你装的开发工具留下的安装包备份
-          GOTO C:\Users\me\.npm	开发工具装好的组件，删了要重新下载
-          GOTO C:\Users\me\Documents\WeChat Files	微信的聊天记录和收到的文件，删了会丢东西
-          """;
     public static string AiCatEmpty => IsEn ? "Nothing to analyze in this category." : "这个分类没有可分析的条目。";
     /// <summary>右键「问 AI 这是什么」用的提示词：只解释，不判风险。</summary>
     public static string AiFolderAskSystem => IsEn
@@ -926,10 +872,6 @@ public static class Loc
     public static string GroupFilterHint(string what) => IsEn
         ? "will filter the file list to " + what
         : "会在文件列表里过滤到 " + what;
-    /// <summary>AI 没配置时：如实说不可以，但强调本地查看与手动选择仍然能用。</summary>
-    public static string AiNeedConfigLocalStillWorks => IsEn
-        ? "AI is not configured here — you can still open the files and pick them yourself."
-        : "这里没有配置 AI，但你仍然可以自己查看文件并手动选择。";
 
     // ---- AI 结果界面：一句结论 + 一句说明 + 下一步（面向普通用户，不出现技术词） ----
     public static string AiHeadlineClean(int count, string size) => IsEn
@@ -938,29 +880,13 @@ public static class Loc
     public static string AiHeadlineReview(int count, string size) => IsEn
         ? $"{count:N0} item(s) need your confirmation ({size}) — can't be called safe yet"
         : $"有 {count:N0} 项需要你确认（{size}），暂时不能确定是否安全";
-    public static string AiHeadlineNothing => IsEn
-        ? "Nothing here is worth cleaning right now"
-        : "这里暂时没有建议清理的内容";
 
-    public static string AiBucketCleanable => IsEn ? "Could be considered" : "可考虑清理";
-    public static string AiBucketKeep => IsEn ? "Better kept" : "建议保留";
-    public static string AiBucketReview => IsEn ? "Needs confirmation" : "需要确认";
 
-    public static string AiReasonCleanable => IsEn
-        ? "These matched the local cache/temp rules; apps usually rebuild them."
-        : "这些文件命中了本地的缓存/临时规则，程序通常会自己重建。";
-    public static string AiReasonReview => IsEn
-        ? "Open the files before deciding — the impact can't be confirmed yet."
-        : "建议查看具体文件后再决定，暂时无法确认删除影响。";
-    public static string AiReasonKeep => IsEn
-        ? "Protected or marked to keep — not offered for cleaning."
-        : "受保护或本地判定为保留，不提供清理。";
 
     public static string AiBucketStat(int count, string size) => IsEn
         ? $"{count:N0} item(s) · {size}"
         : $"{count:N0} 项 · {size}";
 
-    public static string AiSelectTheseFiles => IsEn ? "Select these files" : "选择这些文件";
     public static string AiViewFiles => IsEn ? "View files" : "查看文件";
     public static string AiWhyToggle => IsEn ? "Why this suggestion?" : "为什么这样建议？";
     /// <summary>重新扫描后旧结果过期：不给旧结论，也不给操作。</summary>
@@ -1111,9 +1037,9 @@ public static class Loc
         AiPurposeKind.Dump => IsEn ? "Crash dumps" : "崩溃转储",
         AiPurposeKind.Installer => IsEn ? "Installers" : "安装包",
         AiPurposeKind.Model => IsEn ? "Models / game assets" : "模型 / 游戏素材",
-        // 「像是」是刻意的：keep 不设置信度门槛（拒绝猜「别删」比拒绝猜「缓存」危险得多），
-        // 所以这一句必须自带不确定性，不能说得像定论。
-        AiPurposeKind.Keep => IsEn ? "Looks like your data or Windows files" : "像是你的数据或系统文件",
+        // 说得肯定一点：这个功能本来就是在帮用户判断，一句「像是…」等于没主见。
+        // 不确定性交给「AI 推测」那个前缀去表达，不重复在名称里泄气。
+        AiPurposeKind.Keep => IsEn ? "Your data or the app's own data" : "你的数据或软件自己的数据",
         _ => "",
     };
     /// <summary>模型认出这是「别删」那一类时给的提示。只是提示，不阻挡用户删。</summary>
@@ -1453,6 +1379,15 @@ public static class Loc
     public static string OrganizeBucketUnnamed => IsEn ? "Not identified yet" : "还没认出来";
 
     /// <summary>
+    /// 设置里那个「自动识别」开关。**必须把「它会自己发请求」和「能关」都写出来** ——
+    /// 这是对 v2.9 冻结的「翻页/展开 = 0 次请求」的有意放开，用户有权知道并关掉。
+    /// </summary>
+    public static string AiAutoClassify => IsEn ? "Identify as you browse" : "翻到哪就自动识别哪";
+    public static string AiAutoClassifyHint => IsEn
+        ? "On the folder-delete page, whatever is on screen gets classified automatically — there is no button to press. Only the rows you can actually see are sent, and only after you stop moving. Turn this off if your AI endpoint is metered."
+        : "在「按文件夹删除」页，屏幕上看得见的那些文件夹会自动认出来，不用点按钮。只发你看得见的那几行，而且停稳之后才发。如果你的 AI 是按量计费的，可以关掉它。";
+
+    /// <summary>
     /// 分类结果面板的抬头。**说是「AI 认出来的」** —— 本地已经认出来的那些不进这个面板
     /// （它们本来就在列表里有自己的标签），不写清楚会让人以为面板漏了东西。
     /// 同时说清楚「勾一类就整片处理」，用户才知道这一行能点。
@@ -1526,14 +1461,6 @@ public static class Loc
         ? $"direct sub-folders: {children:N0} · at most {budget:N0} AI requests this time"
         : $"直接子文件夹 {children:N0} 个 · 本次最多发 {budget:N0} 次请求";
 
-    public static string AiResultExpired => IsEn
-        ? "The scan changed — run the analysis again"
-        : "扫描内容已变化，请重新分析";
-    /// <summary>请求结束但没有可用结论时如实说，并给重试。</summary>
-    public static string AiNoResultRetry => IsEn
-        ? "Could not produce a usable result — try again"
-        : "未能生成分析结果，可以重试";
-    public static string AiAnalyzing => IsEn ? "Analysing…" : "正在分析中…";
     public static string AiFilteredToCount(int n) => IsEn
         ? $"Showing only these {n:N0} item(s)"
         : $"只显示这 {n:N0} 项";
@@ -1541,36 +1468,17 @@ public static class Loc
     public static string AiEverythingSelected => IsEn ? "All of these are already selected" : "这些都已经选好了";
 
     public static string AiNoteBelongs(string what) => IsEn ? $"These are {what}" : $"这些文件属于{what}";
-    /// <summary>只有本地规则这一条依据时，就只说规则，不替用户下「没被占用」的结论。</summary>
-    public static string AiNoteByLocalRule => IsEn ? "matched the local cleanup rules" : "命中了本地清理规则";
-    public static string AiNoteUnknown => IsEn
-        ? "we could not confirm what they are for"
-        : "暂时无法确认它们的用途";
 
     public static string AiWhyLocation(string where) => IsEn ? $"Located in {where}" : $"文件位于 {where}";
     public static string AiWhyModified(string age) => IsEn ? $"Last changed {age}" : $"最后修改于{age}";
     public static string AiWhyMatched(string tech) => IsEn ? $"Matched rule: {tech}" : $"匹配到的规则：{tech}";
-    /// <summary>没有做占用检查 —— 必须如实说，不能拿它当「安全」的依据。</summary>
-    public static string AiWhyNoLockCheck => IsEn
-        ? "File locks were not checked"
-        : "没有检查文件是否正在被占用";
-    public static string AiWhyNoContentRead => IsEn
-        ? "File contents were not read or uploaded"
-        : "没有读取或上传文件内容";
     public static string AiWhySomeUncertain(int n) => IsEn
         ? $"{n:N0} item(s) still cannot be confirmed"
         : $"仍有 {n:N0} 项无法确认";
     public static string AiWhyProtected(int n) => IsEn
         ? $"{n:N0} item(s) are protected and never offered"
         : $"{n:N0} 项受保护，不会进入清理";
-    public static string AiWhyNothingSafe => IsEn
-        ? "No item here passed the local safety rules"
-        : "这里没有通过本地安全规则的项";
-    public static string AiWhyNoModel => IsEn
-        ? "This is the local summary — no model advice was used"
-        : "这是本地判断结果，本次没有模型建议";
 
-    public static string AiAgeToday => IsEn ? "today" : "今天";
     public static string AiAgeDays(int d) => IsEn ? $"{d} day(s) ago" : $"{d} 天前";
     public static string AiAgeMonths(int m) => IsEn ? $"{m} month(s) ago" : $"{m} 个月前";
     public static string AiAgeYears(int y) => IsEn ? $"{y} year(s) ago" : $"{y} 年前";
@@ -1996,82 +1904,13 @@ public static class Loc
         : "AI 只做解释和建议。风险等级、可删除范围与最终选择仍由本地规则和你决定。";
 
     // ---- 逐项 AI（按需分析单个文件 / 单个清理位置） ----
-    public static string ItemAiAnalyze => IsEn ? "Analyse" : "AI 分析";
-    public static string ItemAiQueued => IsEn ? "Queued…" : "排队中…";
-    public static string ItemAiRunning => IsEn ? "Analysing…" : "分析中…";
-    public static string ItemAiViewResult => IsEn ? "View result" : "查看结果";
-    public static string ItemAiRetry => IsEn ? "Analyse again" : "重新分析";
-    public static string ItemAiFailed => IsEn ? "Analysis failed" : "分析失败";
-    public static string ItemAiTimeout => IsEn ? "Analysis timed out" : "分析超时";
-    public static string ItemAiCanceled => IsEn ? "Analysis canceled" : "分析已取消";
     public static string ItemAiStopped => IsEn ? "Stopped" : "已停止";
-    public static string ItemAiNoUseful => IsEn
-        ? "AI replied but gave nothing usable"
-        : "AI 有回复，但没有可用的结论";
-    public static string ItemAiStopHint => IsEn ? "Stop this analysis" : "停止这一项的分析";
-    public static string ItemAiTip => IsEn
-        ? "Ask AI about just this item (one request, does not change selection or risk)"
-        : "只就这一项问 AI（发一次请求；不改勾选、不改风险）";
 
-    public static string ItemAiSuggestionLabel => IsEn ? "Suggestion: " : "建议：";
-    public static string ItemAiPurposeLabel => IsEn ? "What it is: " : "用途：";
-    public static string ItemAiImpactLabel => IsEn ? "If removed: " : "删除影响：";
-    public static string ItemAiBasisLabel => IsEn ? "Based on: " : "判断依据：";
-    public static string ItemAiMissingLabel => IsEn ? "Missing: " : "缺少的信息：";
-    public static string ItemAiFromCache => IsEn ? "cached" : "来自缓存";
-    public static string ItemAiLocalOnly => IsEn
-        ? "[local rules] not an AI conclusion: " : "［本地规则］不是 AI 结论：";
 
-    /// <summary>建议档位：**允许「信息不足」**，不强迫模型给可删结论。</summary>
-    public static string AiSuggestCanConsider => IsEn ? "could be considered" : "可考虑清理";
-    public static string AiSuggestNeedsConfirm => IsEn ? "needs your confirmation" : "需要确认";
-    public static string AiSuggestKeep => IsEn ? "better kept" : "建议保留";
-    public static string AiSuggestUnknown => IsEn ? "not enough information" : "信息不足";
 
-    public static string AiItemFileHeader => IsEn
-        ? "Analyse ONE file. Use only the metadata below; you cannot read its content."
-        : "分析**一个文件**。只用下面的元数据；你无法读取文件内容。";
-    public static string AiItemFolderHeader => IsEn
-        ? "Analyse ONE cleanup location (folder). Use only the metadata and the bounded summary below. "
-          + "You have NOT seen every file in it — say so when it matters."
-        : "分析**一个清理位置（文件夹）**。只用下面的元数据和有上限的摘要。"
-          + "你**没有**看过里面的全部文件 —— 这一点在需要时要说出来。";
     public static string AiItemSummaryScope(int shown, int total) => IsEn
         ? $"summary covers the {shown} largest of {total} direct child item(s) — NOT the whole folder"
         : $"摘要只覆盖 {total} 个直接子项里最大的 {shown} 个 —— 不是整个文件夹";
-    public static string AiItemSystem => IsEn
-        ? """
-          You judge ONE disk-cleanup item for a non-technical Windows user.
-
-          Reply with exactly these five lines, nothing else. Keep each value short (<= 20 words):
-          SUGGEST: <one of: could be considered | needs your confirmation | better kept | not enough information>
-          PURPOSE: <what this is, in plain words>
-          IMPACT: <what the user would notice if it were removed; "probably nothing" is allowed>
-          BASIS: <which facts above you based this on>
-          MISSING: <what you could not see and cannot know>
-
-          Rules:
-          - Never say it is safe to delete. You are not allowed to promise anything.
-          - If the evidence is weak, use "not enough information" instead of guessing.
-          - Do not mention commands, package formats or internal terms.
-          - Do not output tool calls, markdown, or any extra lines.
-          """
-        : """
-          你要为一个不懂电脑的 Windows 用户判断**一个**清理项目。
-
-          只回下面五行，不要有别的内容。每行尽量短（不超过 20 个字）：
-          SUGGEST: <从这四个里选一个：可考虑清理 | 需要确认 | 建议保留 | 信息不足>
-          PURPOSE: <用大白话说这是什么>
-          IMPACT: <如果删掉，用户会察觉到什么；「大概没影响」也可以>
-          BASIS: <你是根据上面哪条信息判断的>
-          MISSING: <你没看到、也无法知道的是什么>
-
-          规则：
-          - 绝不要说「可以安全删除」。你没有资格做任何保证。
-          - 证据不足就用「信息不足」，不要猜。
-          - 不要提命令、包格式或技术术语。
-          - 不要输出工具调用、markdown 或任何多余的行。
-          """;
 
     public static string AiBtnTip => IsEn ? "Analyse this item with AI" : "用 AI 分析这一项";
     /// <summary>「更多」菜单里的说明：AI 入口已经挪到每一项旁边。</summary>

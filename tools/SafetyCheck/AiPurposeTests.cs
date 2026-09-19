@@ -31,6 +31,7 @@ public static class AiPurposeTests
         OptionTableTests(check);
         ThresholdTests(check);
         EligibilityTests(check);
+        LocalCleanableTests(check);
         OrganizeWritePurityTests(check);
         BucketTests(check);
         SourceInvariantTests(check);
@@ -208,24 +209,22 @@ public static class AiPurposeTests
         check("写入后：用途列就是这个用途", node.PurposeText == "开发工具缓存", node.PurposeText);
         check("写入后：不再是未识别", node.State != PurposeState.Unrecognized, node.State.ToString());
 
-        // 逐项 AI 的槽位一个字都不能碰：碰了界面就会假装逐项分析跑过
-        check("写入后：没有假装逐项 AI 跑过（Status 仍 Idle、Result 仍空）",
-            node.Ai.Status == ItemAiStatus.Idle && node.Ai.Result == null,
-            $"{node.Ai.Status}/{node.Ai.Result}");
+        // **逐项 AI 的槽位已经不存在了** —— 整套能力删掉之后，整理对象上只剩
+        // 批量归类这一个 AI 挂点。「不会假装逐项分析跑过」这道断言因此升级成结构断言：
+        // 没有那个槽位，就没有「假装」的可能。
+        check("整理对象上已经没有逐项 AI 的槽位",
+            typeof(OrganizeNode).GetProperty("Ai") == null);
 
         // 本地结论优先：批量不许顶掉已经认出来的
         node.Apply(Local(@"D:\some\unknown\folder", "我自己的项目"));
         check("本地结论优先于批量归类", node.PurposeText == "我自己的项目", node.PurposeText);
         check("本地结论下来源是本地，不是 AI", node.Source == PurposeSource.Local, node.Source.ToString());
 
-        // 逐项 AI 结论优先于批量（它读过这一项的摘要，更具体）
-        var both = Node(@"D:\some\both");
-        both.SetBatchPurpose("软件缓存");
-        both.Ai.Source = ItemAiSource.Organize;
-        both.Ai.Result = new ItemAiResult(ItemAiSuggestion.Unknown, "Steam 游戏库",
-            "", "", "", "", false, 0, 0, 0, "", 0);
-        both.Ai.Status = ItemAiStatus.Done;
-        check("逐项 AI 结论优先于批量", both.PurposeText == "Steam 游戏库", both.PurposeText);
+        // 问过之后不再入选：没有它自动识别会无限追问同一条
+        var asked = Node(@"D:\some\asked");
+        check("没问过时是入选的", asked.NeedsPurposeClassification);
+        asked.MarkBatchAsked();
+        check("问过之后（哪怕没拿到结论）不再入选", !asked.NeedsPurposeClassification);
 
         // 清空可以回到未识别
         var clear = Node(@"D:\some\clear");
@@ -233,6 +232,27 @@ public static class AiPurposeTests
         clear.SetBatchPurpose("");
         check("清空批量用途后回到未识别",
             !clear.HasConclusion && clear.State == PurposeState.Unrecognized);
+    }
+
+    // ------------------------------------------ 本地清理资格（从已删的 AI 结论测试搬来）
+
+    /// <summary>
+    /// 「受保护项永远不可能被判为可直接清理」。
+    ///
+    /// 这条断言原来长在 <c>AiVerdictTests</c> 里，但它守的**根本不是 AI** ——
+    /// <c>IsCleanable</c> 是纯本地判据（<c>CanDelete &amp;&amp; Risk != Keep/Confirm</c>），
+    /// 只是当初恰好和 AI 结论放在一个类里。逐项 AI 那套删掉时把它搬到了
+    /// <see cref="CleanRuleEligibility"/>；断言跟着改指向，**不删**。
+    /// </summary>
+    static void LocalCleanableTests(CheckFn check)
+    {
+        static CleanItem Item(CleanRisk risk, bool canDelete)
+            => new() { Name = "x", FullPath = @"C:\P\x.tmp", Size = 1, Risk = risk, CanDelete = canDelete };
+
+        check("不可删的项不被判为可清理", !CleanRuleEligibility.IsCleanable(Item(CleanRisk.Safe, canDelete: false)));
+        check("保留档不被判为可清理", !CleanRuleEligibility.IsCleanable(Item(CleanRisk.Keep, canDelete: true)));
+        check("需确认档不被判为可清理", !CleanRuleEligibility.IsCleanable(Item(CleanRisk.Confirm, canDelete: true)));
+        check("安全且可删才判为可清理", CleanRuleEligibility.IsCleanable(Item(CleanRisk.Safe, canDelete: true)));
     }
 
     // ------------------------------------------------ 「合并」面板的一行

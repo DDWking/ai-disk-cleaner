@@ -9,7 +9,7 @@ namespace AiDiskCleaner;
 /// 目标：**下次打开应用时，上次认出来的文件夹信息还能直接看到，且不再发任何 AI 请求。**
 ///
 /// 落盘本身在 <see cref="RecognitionStore"/>，服务侧读写已在
-/// <see cref="ItemAiService"/> / <see cref="FolderPurposeService"/> 内完成：
+/// <see cref="FolderPurposeService"/> 内完成：
 /// <list type="bullet">
 /// <item>识别成功 → 服务内部 <c>Store</c> 写穿到落盘缓存（**无需界面钩子**）；</item>
 /// <item>查内存缓存 → 命中落盘缓存就直接返回（**不会发请求**，也不会写盘）。</item>
@@ -20,8 +20,7 @@ namespace AiDiskCleaner;
 ///       <see cref="InitRecognitionPersistence"/>；</item>
 /// <item><b>可见恢复钩子</b>（可选，纯展示）：整理树重建后再调用
 ///       <see cref="RestoreRecognizedFolders"/>，把落盘结论贴回尚未有结论的对象；
-///       侧栏/逐项行若要立刻显示上次结论，用
-///       <see cref="TryRestorePurpose"/> / <see cref="TryRestoreItemAi"/>。</item>
+///       侧栏行若要立刻显示上次结论，用 <see cref="TryRestorePurpose"/>。</item>
 /// </list>
 /// 配置文件位置跟随 <see cref="AppPaths.ConfigDirectory"/>（档案/配置目录天然隔离）；
 /// 建库或读盘失败只会退化成「没有跨重启记忆」，绝不影响启动与本次识别。
@@ -46,17 +45,14 @@ public partial class MainWindow
         try
         {
             _recognitionStore = new RecognitionStore();
-            _itemAi.AttachRecognitionStore(_recognitionStore);
             _folderPurpose.AttachRecognitionStore(_recognitionStore);
             AppLog.Info("Recognition", "op=persist stage=init entries=" + _recognitionStore.Count
-                + " items=" + _recognitionStore.ItemCount
                 + " purposes=" + _recognitionStore.PurposeCount);
         }
         catch (Exception ex)
         {
             // 建库失败 ⇒ 本次会话退化为纯内存识别，不抛给启动流程。
             _recognitionStore = null;
-            _itemAi.AttachRecognitionStore(null);
             _folderPurpose.AttachRecognitionStore(null);
             AppLog.Record("Recognition", ex, "init persistence");
         }
@@ -88,25 +84,6 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// 【逐项行钩子，可选】某一项还没有结果时，先把落盘的描述性结论贴出来（不发请求、不写盘）。
-    /// 返回是否恢复成功。整理来源的对象经此恢复后**依然没有**勾选 / 定位清理明细的能力
-    /// （能力只看 <see cref="ItemAiView.Source"/>，落盘内容里也根本没有判定/选择字段）。
-    /// </summary>
-    private bool TryRestoreItemAi(ItemAiView view, ItemAiRequest request)
-    {
-        if (_recognitionStore == null || view == null || request == null) return false;
-        if (view.HasResult || view.IsBusy) return false;
-
-        var restored = _itemAi.TryGetRestored(request, AiConfigSignature());
-        if (restored == null || !ItemAiPrompt.IsUsable(restored)) return false;
-
-        view.Result = restored;                  // FromCache=true，界面会如实标「缓存」
-        view.Status = ItemAiStatus.Done;
-        view.IsExpanded = true;
-        return true;
-    }
-
-    /// <summary>
     /// 【侧栏行钩子，可选】某一目录还没有结论时，用落盘缓存把它先显示出来（不发请求）。
     /// 返回 null 表示没有可用结论（调用方按原来的「未识别」呈现）。
     /// </summary>
@@ -115,7 +92,7 @@ public partial class MainWindow
         if (_recognitionStore == null || dir == null) return null;
         // 2.11 起没有侧栏，也不再有 CurrentFolderId / DepthOf；
         // 标识与整理页同一口径：路径 + 扫描代次，深度由相对路径层数得出。
-        var id = new FolderId(dir.FullPath, _aiDataGeneration);
+        var id = new FolderId(dir.FullPath, NodeGeneration);
         string rel = RelativeOf(dir);
         int depth = 0;
         if (rel.Length > 0)

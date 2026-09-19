@@ -57,28 +57,14 @@ public sealed class CleanItem : INotifyPropertyChanged
     /// AI 完全不参与这个字段。
     /// </summary>
     public EvidenceLevel Evidence { get; set; } = EvidenceLevel.Heuristic;
-    public bool AiSuggested { get; set; }
-
-    string _aiNote = "";
     /// <summary>
-    /// AI 给的一句话说明。风险档位一律由规则判定，AI 不参与。
-    /// 表格只显示一列说明：有 AI 文字就用它，没有就回退到规则原因。
+    /// 表格「说明」列。**就是规则给的那句大白话。**
+    ///
+    /// 以前这里优先用 AI 写的一句话，逐项 AI 整套删掉之后，说明只来自规则
+    /// （规则本来就会用好几十条签名写出「这是什么 + 删了会怎样」，本来就够了）。
+    /// 保留这个别名是因为它指的是**列**（说明），<see cref="Reason"/> 指的是来源。
     /// </summary>
-    public string AiNote
-    {
-        get => _aiNote;
-        set
-        {
-            if (_aiNote == value) return;
-            _aiNote = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(NoteText));
-            OnPropertyChanged(nameof(HasAiNote));
-        }
-    }
-
-    /// <summary>表格「说明」列：优先 AI，否则规则原因。两者都该是大白话。</summary>
-    public string NoteText => !string.IsNullOrWhiteSpace(_aiNote) ? _aiNote : Reason;
+    public string NoteText => Reason;
 
     /// <summary>
     /// 「类型 · 说明」：窄窗口下类型列**整列隐藏**时，让说明列承载类型，
@@ -95,34 +81,8 @@ public sealed class CleanItem : INotifyPropertyChanged
         }
     }
 
-    public bool HasAiNote => !string.IsNullOrWhiteSpace(_aiNote);
-
     /// <summary>技术细节（命中了哪条签名等）。术语都留在悬停里，不进表格。</summary>
     public string Tech { get; set; } = "";
-
-    ItemAiView? _ai;
-    /// <summary>
-    /// 这一个文件的 AI 状态（按需分析用）。挂在条目自身上、用完整路径做稳定标识，
-    /// 因此分页/虚拟化回收不会让结果串到别的行。
-    /// 惰性创建以保证绑定永远拿得到非 null 的对象。
-    /// </summary>
-    public ItemAiView Ai
-    {
-        get
-        {
-            if (_ai == null)
-            {
-                _ai = new ItemAiView
-                {
-                    ScopeKey = FullPath,
-                    // 本地规则给出的是**本地判断**，必须标注，不能冒充 AI 结论
-                    LocalNote = Services.Loc.ItemAiLocalOnly + Reason,
-                };
-                OnPropertyChanged();
-            }
-            return _ai;
-        }
-    }
 
     /// <summary>悬停提示：完整路径 + 技术细节。</summary>
     public string HintText => string.IsNullOrEmpty(Tech) ? FullPath : FullPath + "\n" + Tech;

@@ -45,18 +45,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         Id = id;
         Depth = depth;
         RelativePath = relativePath;
-        Ai = new ItemAiView { ScopeKey = dir.FullPath, Source = ItemAiSource.Organize };
-        Ai.PropertyChanged += OnItemAiChanged;
     }
-
-    /// <summary>
-    /// 这一项的**单项 AI 分析**状态（用户点了行里的 AI 按钮才有内容）。
-    ///
-    /// 语义与清理页逐项分析完全一致：这是什么 / 删除可能影响什么 / 依据 / 缺什么。
-    /// 它是**展示态**，不参与 Risk / CanDelete / Selected，也绝不自动勾选或删除。
-    /// 一个对象 = 一次有限的摘要请求；重复点击走缓存或去重，不会重复发。
-    /// </summary>
-    public ItemAiView Ai { get; }
 
     /// <summary>对应的真实目录条目（容量、子节点都从这里来）。</summary>
     public FileEntry Dir { get; }
@@ -295,34 +284,40 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// </summary>
     public PurposeSource Source => _purposeName.Length > 0
         ? _source
-        : HasItemAiPurpose || HasBatchPurpose ? PurposeSource.Ai : _source;
-    public bool NeedsConfirm => _needsConfirm && !HasItemAiPurpose && !HasBatchPurpose;
+        : HasBatchPurpose ? PurposeSource.Ai : _source;
+    public bool NeedsConfirm => _needsConfirm && !HasBatchPurpose;
     public FolderKind Kind => _kind;
 
-    /// <summary>
-    /// 用户点过这一项的 AI、并且模型给出了非空用途。
-    /// 只影响展示（用途列替换「未识别」），不 Store、不改 Risk。
-    /// </summary>
-    bool HasItemAiPurpose =>
-        !Ai.IsStale
-        && Ai.Status == ItemAiStatus.Done
-        && Ai.Result is { Purpose.Length: > 0 };
-
-    /// <summary>批量归类给过用途。同样只影响展示。</summary>
+    /// <summary>批量归类给过用途。只影响展示。</summary>
     bool HasBatchPurpose => _batchPurpose.Length > 0;
 
+    private bool _batchAsked;
+
     /// <summary>
-    /// 这一项还等着被归类：没有任何结论（本地 / 逐项 AI / 批量都算）、不是失败态、路径非空。
+    /// 这一项**已经问过模型了**（不管最后有没有拿到结论）。
+    ///
+    /// 没有它自动识别会**无限追问**：拿不到结论的条目按 <see cref="HasConclusion"/> 看仍然「没结论」，
+    /// 于是每次可见集合一变就把它重新问一遍，花的还是真金白银。
+    /// 换扫描时节点是重建的，所以这个标记天然跟着换代复位。
+    /// </summary>
+    public bool BatchAsked => _batchAsked;
+
+    /// <summary>标记「问过了」。只有批量服务在真的发出请求之后调用。</summary>
+    public void MarkBatchAsked() => _batchAsked = true;
+
+    /// <summary>
+    /// 这一项还等着被归类：没有任何结论、**没问过**、不是失败态、路径非空。
     ///
     /// 这是批量归类的**唯一入选判据**，刻意放在节点自己身上 ——
     /// 这样离线回归只要连 <see cref="OrganizeNode"/> 就能断言它，
     /// 不必把整个批量服务（连带 AI 网关 / 设置 / 网络）拖进测试工程。
     /// </summary>
     public bool NeedsPurposeClassification =>
-        !HasConclusion && State != PurposeState.Failed && !string.IsNullOrWhiteSpace(FullPath);
+        !HasConclusion && !_batchAsked
+        && State != PurposeState.Failed && !string.IsNullOrWhiteSpace(FullPath);
 
     /// <summary>有结论才算「已识别」—— 没有结论时状态不允许是成功。</summary>
-    public bool HasConclusion => _purposeName.Length > 0 || HasItemAiPurpose || HasBatchPurpose;
+    public bool HasConclusion => _purposeName.Length > 0 || HasBatchPurpose;
 
     /// <summary>
     /// 批量归类写入用途。**唯一的写入口**，只改 <c>_batchPurpose</c> 并刷新展示属性；
@@ -369,9 +364,6 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (State is PurposeState.Running) return Loc.PurposeRunning;
             if (State is PurposeState.Failed) return Loc.PurposeFailed;
             if (_purposeName.Length > 0) return _purposeName;
-            // 逐项 AI 的结论更具体（它读过这一项的摘要），批量归类只有一个用途名；
-            // 两者都有时优先展示逐项的那句。
-            if (HasItemAiPurpose) return Ai.Result!.Purpose;
             if (HasBatchPurpose) return _batchPurpose;
             if (_needsConfirm) return Loc.PurposeUnclear;
             return Loc.PurposeUnrecognized;
@@ -388,12 +380,8 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (State is PurposeState.Failed) return Loc.OrganizeRetryHint;
             if (_purposeName.Length == 0)
             {
-                if (HasItemAiPurpose)
-                {
-                    string ai = Loc.PurposeFromAi;
-                    string basis = Ai.Result!.Basis;
-                    return basis.Length > 0 ? ai + " · " + basis : ai;
-                }
+                // 批量归类只给一个用途名，没有依据可写 —— 如实说「来源是 AI 推测」就够
+                if (HasBatchPurpose) return Loc.PurposeFromAi;
                 return _needsConfirm ? Loc.PurposeNeedsConfirm : Loc.PurposeIdentify;
             }
             string s = Source == PurposeSource.None ? "" : SourceText;
@@ -564,7 +552,6 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (_sampleNames.Count > 0)
                 bits.Add(Loc.OrganizeDetailSamples(string.Join(", ", _sampleNames)));
             if (_basis.Length > 0) bits.Add(_basis);
-            else if (HasItemAiPurpose && Ai.Result!.Basis.Length > 0) bits.Add(Ai.Result.Basis);
             sb.Append(bits.Count > 0 ? string.Join(" · ", bits) : Loc.OrganizeDetailNoEvidence);
             string src = SourceText;
             if (src.Length > 0) sb.Append('\n').Append(Loc.OrganizeDetailSource(src));
@@ -736,22 +723,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    /// <summary>
-    /// 单项 AI 出了用途之后，用途列要跟着变：用结论替换「未识别 / 识别用途」。
-    /// 只 Raise 展示属性，不 Apply、不 Store、不碰任何清理字段。
-    /// </summary>
-    void OnItemAiChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is not (nameof(ItemAiView.Result)
-            or nameof(ItemAiView.Status)
-            or nameof(ItemAiView.IsStale)
-            or nameof(ItemAiView.HasResult)
-            or null))
-            return;
-        RaiseConclusionDisplay();
-    }
-
-    /// <summary>「结论相关的展示属性」这一组。逐项 AI 变了、批量归类写了，都刷这一组。</summary>
+    /// <summary>「结论相关的展示属性」这一组。批量归类写回之后刷这一组。</summary>
     void RaiseConclusionDisplay()
     {
         Raise(nameof(HasConclusion));

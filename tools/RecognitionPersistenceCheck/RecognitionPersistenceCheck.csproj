@@ -28,7 +28,6 @@
     <Compile Include="..\..\src\AiDiskCleaner\Models\AiContracts.cs" Link="AiContracts.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanReport.cs" Link="CleanReport.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\OrganizeNode.cs" Link="OrganizeNode.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Models\ItemAiView.cs" Link="ItemAiView.cs" />
 
     <Compile Include="..\..\src\AiDiskCleaner\Native\FileProbeNative.cs" Link="FileProbeNative.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Native\ShellNative.cs" Link="ShellNative.cs" />
@@ -50,7 +49,6 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AiGateway.cs" Link="AiGateway.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AiDecisions.cs" Link="AiDecisions.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\AiNoteParser.cs" Link="AiNoteParser.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AppSignatures.cs" Link="AppSignatures.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\KnownPaths.cs" Link="KnownPaths.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FileClassifier.cs" Link="FileClassifier.cs" />
@@ -74,13 +72,9 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\RecursiveScanService.cs" Link="RecursiveScanService.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\ScanCoordinator.cs" Link="ScanCoordinator.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\DeletionCoordinator.cs" Link="DeletionCoordinator.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\AiCoordinator.cs" Link="AiCoordinator.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\DiskAnalyst.cs" Link="DiskAnalyst.cs" />
 
     <!-- 被检查的真实现 -->
-    <Compile Include="..\..\src\AiDiskCleaner\Services\ItemAiPrompt.cs" Link="ItemAiPrompt.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\AiVerdict.cs" Link="AiVerdict.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\ItemAiService.cs" Link="ItemAiService.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderPurpose.cs" Link="FolderPurpose.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderOrganize.cs" Link="FolderOrganize.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderPurposeService.cs" Link="FolderPurposeService.cs" />
@@ -88,5 +82,8 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\RecognitionStore.cs" Link="RecognitionStore.cs" />
     <!-- 接线文件（用 MainWindowStub 补依赖，保证它也能被编译并真的被调用到） -->
     <Compile Include="..\..\src\AiDiskCleaner\MainWindow.RecognitionPersistence.cs" Link="MainWindow.RecognitionPersistence.cs" />
+  
+    <Compile Include="..\..\src\AiDiskCleaner\Services\RecognitionKey.cs" Link="RecognitionKey.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleEligibility.cs" Link="CleanRuleEligibility.cs" />
   </ItemGroup>
 </Project>

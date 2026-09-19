@@ -235,16 +235,8 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
         }
     }
 
-    /// <summary>用户点过这一项的 AI 且给出了用途时的短文本；没点过或过期则为空。</summary>
-    string ItemAiPurposeText()
-    {
-        var v = _ai;
-        if (v == null || v.IsStale || v.Status != ItemAiStatus.Done) return "";
-        return v.Result?.Purpose?.Trim() ?? "";
-    }
-
     /// <summary>这一处有没有规则允许直接清理、且无需额外确认的项。</summary>
-    public bool HasCleanableItems => Items.Any(AiVerdict.IsCleanable);
+    public bool HasCleanableItems => Items.Any(CleanRuleEligibility.IsCleanable);
 
     /// <summary>
     /// 展开文件表时显示的本地「选择这些文件」芯片。
@@ -254,46 +246,6 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
 
     /// <summary>技术细节（命中了哪条签名、风险词等）。术语留在悬停里，不进标题。</summary>
     public string Tech { get; set; } = "";
-
-    /// <summary>
-    /// 这一项的 AI 状态。**挂在项目自己身上**（位置用稳定键、文件用完整路径），
-    /// 所以滚动回收、切页、重扫都不会让结果串到别的行上。
-    /// 惰性创建以保证绑定永远拿得到非 null 的对象。
-    /// </summary>
-    public ItemAiView Ai
-    {
-        get
-        {
-            if (_ai == null)
-            {
-                _ai = new ItemAiView
-                {
-                    ScopeKey = Key,
-                    // 本地规则给出的是**本地判断**，必须标注，不能冒充 AI 结论
-                    LocalNote = Services.Loc.ItemAiLocalOnly + Reason,
-                };
-                _ai.PropertyChanged += OnItemAiChanged;
-                OnPropertyChanged(nameof(Ai));
-            }
-            return _ai;
-        }
-    }
-
-    private ItemAiView? _ai;
-
-    /// <summary>已经建出来的 AI 视图；没建过就是 null（不会顺手创建）。</summary>
-    public ItemAiView? ExistingAi => _ai;
-
-    void OnItemAiChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is not (nameof(ItemAiView.Result)
-            or nameof(ItemAiView.Status)
-            or nameof(ItemAiView.IsStale)
-            or nameof(ItemAiView.HasResult)
-            or null))
-            return;
-        OnPropertyChanged(nameof(RowSubText));
-    }
 
     /// <summary>悬停：软件名 + 实际路径 + 技术细节。</summary>
     public string HintText

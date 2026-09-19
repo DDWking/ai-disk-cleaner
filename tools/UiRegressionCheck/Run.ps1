@@ -16,9 +16,11 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $cs = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\MainWindow.xaml.cs') -Raw -Encoding UTF8
 $xaml = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\MainWindow.xaml') -Raw -Encoding UTF8
-$parser = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiNoteParser.cs') -Raw -Encoding UTF8
-$aiCoord = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiCoordinator.cs') -Raw -Encoding UTF8
 $aiclient = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiClient.cs') -Raw -Encoding UTF8
+# 逐项 AI 那半套（AiNoteParser / AiCoordinator / ItemAiService / ItemAiPrompt / AiVerdict /
+# ItemAiView）已整体移除，只留下批量归类这一条 AI 路径。
+$orgsrc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\MainWindow.Organize.cs') -Raw -Encoding UTF8
+$batchsvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiPurposeBatchService.cs') -Raw -Encoding UTF8
 $analyst = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\DiskAnalyst.cs') -Raw -Encoding UTF8
 $agent = Get-Content -LiteralPath (Join-Path $repo 'sidecar\src\agent.js') -Raw -Encoding UTF8
 $loc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Loc.cs') -Raw -Encoding UTF8
@@ -27,9 +29,6 @@ $dup = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Cle
 $sig = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AppSignatures.cs') -Raw -Encoding UTF8
 $item = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\CleanItem.cs') -Raw -Encoding UTF8
 $nodes = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\CleanGroupNodes.cs') -Raw -Encoding UTF8
-$itv = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\ItemAiView.cs') -Raw -Encoding UTF8
-$iasvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\ItemAiService.cs') -Raw -Encoding UTF8
-$iap = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\ItemAiPrompt.cs') -Raw -Encoding UTF8
 $forg = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderOrganize.cs') -Raw -Encoding UTF8
 $csvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderPurposeService.cs') -Raw -Encoding UTF8
 $orgnode = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\OrganizeNode.cs') -Raw -Encoding UTF8
@@ -110,8 +109,9 @@ Assert-True 'clean pane is visible by default (no Collapsed on CleanPane itself)
     ($xaml -notmatch '<DockPanel\s+x:Name="CleanPane"[^>]*Visibility="Collapsed"')
 
 # --- 2b. tidy-up workspace requirements --------------------------------------
-Assert-True 'tidy-up columns are name / what-it-is / size / actions' `
-    ($xaml -match '(?s)x:Name="ColOrgName".*?x:Name="ColOrgPurpose".*?x:Name="ColOrgSize".*?x:Name="ColOrgAction"')
+Assert-True 'tidy-up columns are name / what-it-is / size (the actions column is gone)' `
+    ($xaml -match '(?s)x:Name="ColOrgName".*?x:Name="ColOrgPurpose".*?x:Name="ColOrgSize"' -and
+     $xaml -notmatch 'ColOrgAction')
 Assert-True 'real path sits on a second line in the row' `
     ($xaml -match '(?s)x:Name="ColOrgName".*?Binding RelativePath')
 Assert-True 'tidy-up does not copy the clean candidate space or clean buttons' `
@@ -129,15 +129,15 @@ Assert-True 'the tidy-up workspace never sends a request by itself (local recogn
     ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
      $org -match 'FolderPurposeRules\.RecognizeLocally' -and
      $org -notmatch 'RecognizeWithAsync')
-Assert-True 'single-item AI is the only model entry (one object per click)' `
-    ($orgnode -match 'public ItemAiView Ai' -and
-     $cs -match 'case OrganizeNode node:' -and
-     $cs -match 'private static List<string> BuildFolderSummary\(FileEntry dir, out int total\)' -and
-     $cs -match 'ItemAiPrompt\.MaxFolderSummary')
-Assert-True 'item AI never writes Risk / CanDelete / Selected' `
-    ($iasvc -notmatch '\.Risk\s*=' -and $iasvc -notmatch '\.CanDelete\s*=' -and $iasvc -notmatch '\.Selected\s*=')
-Assert-True 'single-item AI keeps its cache / cancel / retry plumbing' `
-    ($iasvc -match 'TryGetCached' -and $cs -match '_itemAiRunning' -and $cs -match 'ItemAiRetry_Click')
+# 「单项 AI 是唯一的模型入口」这条已经被**有意放开**：现在是「翻到哪就自动认哪」。
+# 新规矩写在下面这几条里（同样一件事的现代形态）。
+Assert-True 'folder page has no per-item AI button any more' `
+    ($orgnode -notmatch 'ItemAiView' -and $xaml -notmatch 'ItemAi_Click')
+Assert-True 'classification is the only AI entry on the folder page' `
+    ($orgsrc -match 'OrganizeClassifyRunAsync' -and $orgsrc -match 'AiPurposeBatchService')
+Assert-True 'classification never writes Risk / CanDelete / Selected' `
+    ($batchsvc -notmatch '\.Risk\s*=' -and $batchsvc -notmatch '\.CanDelete\s*=' -and
+     $batchsvc -notmatch '\.Selected\s*=')
 Assert-True 'outbound requests are countable at the single gateway choke point' `
     ((Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiGateway.cs') -Raw -Encoding UTF8) -match 'public static int SentCount')
 Assert-True 'unscanned / scanning / empty / no-model / failed states all exist' `
@@ -156,13 +156,9 @@ Assert-True 'the left arrow is the single expand/collapse entry' `
     ($xaml -match 'x:Name="ColOrgName"' -and
      [regex]::Match($xaml, '(?s)x:Name="ColOrgName".*?OrganizeExpand_Click').Success -and
      [regex]::Match($xaml, '(?s)x:Name="ColOrgName".*?Binding ExpandGlyphKey').Success)
-Assert-True 'the action column only keeps the explorer folder icon with tooltip + automation name' `
-    ([regex]::Match($xaml, '(?s)x:Name="ColOrgAction"(.*?)</DataGridTemplateColumn>').Groups[1].Value -match
-        'IconFolderOpen' -and
-     [regex]::Match($xaml, '(?s)x:Name="ColOrgAction"(.*?)</DataGridTemplateColumn>').Groups[1].Value -match
-        'AutomationProperties\.Name="在资源管理器中打开"' -and
-     [regex]::Match($xaml, '(?s)x:Name="ColOrgAction"(.*?)</DataGridTemplateColumn>').Groups[1].Value -match
-        'ToolTip=')
+Assert-True 'the actions column is gone; opening a folder lives in the context menu' `
+    ($xaml -notmatch 'ColOrgAction' -and $xaml -match 'OrganizeOpen_Click' -and
+     $xaml -match 'Header="在资源管理器中打开"')
 Assert-True 'rows can grow when a detail block is open' `
     ($xaml -match 'RowHeight="NaN"' -and $xaml -match 'MinRowHeight="46"')
 Assert-True 'the purpose cell opens an inline detail block (collapsed by default)' `
@@ -213,9 +209,9 @@ Assert-True 'the tidy-up page states counts per object, not a batch budget' `
     ($org -match 'private void UpdateOrganizeHeader\(\)' -and
      $org -match 'Loc\.OrganizeCountsLine\(local, ai, unknown, failed\)' -and
      $org -notmatch 'OrganizeCounts\.ToolTip')
-Assert-True 'single-item AI is the only way to reach the model from this page' `
-    ($orgnode -match 'public ItemAiView Ai' -and $cs -match 'case OrganizeNode node:' -and
-     $org -notmatch 'RecognizeWithAsync')
+Assert-True 'this page reaches the model only through auto-classification' `
+    ($orgsrc -match 'OrganizeClassifyRunAsync' -and $orgsrc -match 'AiPurposeBatchService' -and
+     $org -notmatch 'RecognizeWithAsync' -and $orgnode -notmatch 'ItemAiView')
 Assert-True 'local recognition still runs (the page is not dead without a model)' `
     ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
      $org -match 'FolderPurposeRules\.RecognizeLocally')
@@ -232,10 +228,11 @@ Assert-True 'a click that cannot expand says why (no silent no-op, no fake expan
 Assert-True 'the organize page no longer carries a batch task generation' `
     ($org -notmatch 'taskGen != _organizeGeneration' -and
      $org -notmatch '_organizeTaskId' -and $org -notmatch 'bool Owns\(\)')
-Assert-True 'the per-item result generation guard survives (no stale write into a new scan)' `
+Assert-True 'the organize generation guard survives (no stale write into a new scan)' `
     ($org -match 'int _organizeGeneration' -and
-     $cs -match '_aiDataGeneration\+\+' -and
-     (Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\ItemAiView.cs') -Raw -Encoding UTF8) -match 'public bool IsStale')
+     $orgsrc -match 'scanGen == _scanGeneration')
+Assert-True 'stale per-item AI results can no longer exist (the whole slot is gone)' `
+    ($orgnode -notmatch 'ItemAiView' -and $orgnode -notmatch 'IsStale')
 Assert-True 'filter is a view: it never mutates IsExpanded' `
     ($org -notmatch 'foreach \(var n in _organizeAll\) if \(n\.ChildrenLoaded\) n\.Expand\(\)' -and
      $org -match '_organizeFilterSet' -and
@@ -247,11 +244,11 @@ Assert-True 'there is no automatic target ordering left (no auto list to order)'
 Assert-True 'nothing starts an identification pass on scan or page switch' `
     ($org -notmatch 'if \(_organizeBusy\) return;' -and $org -notmatch '_organizeAutoStarted' -and
      $org -notmatch 'OrganizeIdentifyRun')
-Assert-True 'a single-item request never sends a full path by default' `
+Assert-True 'a request never sends a full path by default' `
     ($csvc -match 'BuildOutboundInput' -and
      $srcsnip -match 'SourceSnippetCollector' -and
      $newfp -match 'IsSafeOutbound' -and
-     $iasvc -match 'ItemAiPrompt\.BuildUser\(request, sendFullPaths\)')
+     $batchsvc -match 'PathRedactor\.Outbound')
 Assert-True 'the outbound payload is length-capped' `
     ($csvc -match 'MaxInputChars = 1800' -and $srcsnip -match 'MaxFiles = 3' -and
      $srcsnip -match 'TotalChars = 1200' -and $srcsnip -match 'PerFileChars = 600')
@@ -335,18 +332,18 @@ Assert-True 'collection detection is generic, not example-driven' `
 Assert-True 'deep levels are manual only (no automatic pass exists to enter)' `
     ($forg -match 'AutoChildLevel = 2' -and
      $org -notmatch 'IsAutoLevel\s*&&' -and $org -notmatch 'AutoIdentifyTargets')
-Assert-True 'a cancelled or stale per-item request cannot overwrite a new scan' `
+Assert-True 'a cancelled or stale classify run cannot overwrite a new scan' `
     ($org -match '_organizeGeneration\+\+' -and
-     $cs -match '_itemAiRunning' -and $cs -match 'ItemAiStatus\.Canceled')
+     $orgsrc -match 'scanGen == _scanGeneration')
 Assert-True 'the page counts per object, never per batch target' `
     ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
      $org -notmatch 'done = Math\.Min\(targets\.Count, done \+ 1\)')
 Assert-True 'there is no longer a current-folder batch scope' `
     ($org -notmatch 'private void SetOrganizeCurrent\(OrganizeNode\? node\)' -and
      $org -notmatch 'SetOrganizeCurrent\(node\);')
-Assert-True 'single-item analysis and its retry go through the same path' `
-    ($cs -match 'public void ItemAi_Click' -and $cs -match 'public void ItemAiRetry_Click' -and
-     $cs -match '_ = RunItemAiAsync\(view, request\)' -and $org -notmatch 'RunOrganizeIdentifyAsync')
+Assert-True 'classification has one entry point and one retry path' `
+    ($orgsrc -match 'ScheduleAutoClassify' -and $orgsrc -match 'OrganizeClassifyRunAsync' -and
+     $org -notmatch 'RunOrganizeIdentifyAsync')
 Assert-True 'tidy-up never touches risk / deletability / selection' `
     ($org -notmatch '\.(Risk|CanDelete|Selected)\s*=' -and
      $org -notmatch 'SendToRecycle|DeletionExecutor|RecycleService')
@@ -363,16 +360,17 @@ Assert-True 'queued / running states cannot show a success conclusion' `
     ($orgnode -match 'public PurposeState State => _override' -and
      $orgnode -match 'if \(State is PurposeState\.Queued\) return Loc\.PurposeQueued;' -and
      $orgnode -match 'if \(State is PurposeState\.Running\) return Loc\.PurposeRunning;')
-Assert-True 'a stale per-item result can never overwrite a new scan' `
-    ($cs -match '_aiDataGeneration\+\+' -and
-     $cs -match 'InvalidateItemAiAfterScan' -and $org -notmatch 'myData != _aiDataGeneration')
+Assert-True 'a stale classify result can never overwrite a new scan' `
+    ($orgsrc -match 'scanGen == _scanGeneration' -and
+     $cs -notmatch '_aiDataGeneration' -and $org -notmatch 'myData != _aiDataGeneration')
 Assert-True 'local recognition runs before (and without) any model call' `
     ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
      $org -match 'FolderPurposeRules\.RecognizeLocally' -and
      $org -notmatch 'if \(!allowAi\)' -and $org -notmatch 'if \(t\.HasConclusion\) continue;')
-Assert-True 'the model path is gated by config and only reachable per item' `
-    ($cs -match 'bool AiConfigured\(\)' -and $cs -match 'case OrganizeNode node:' -and
-     $org -notmatch 'RecognizeWithAsync')
+Assert-True 'the model path is gated by config and by the auto-classify switch' `
+    ($cs -match 'bool AiConfigured\(\)' -and
+     $orgsrc -match 'App\.Settings\.AiAutoClassify' -and
+     $orgsrc -match 'DecisionConfigured\(\)' -and $org -notmatch 'RecognizeWithAsync')
 Assert-True 'user corrections are persisted and win over later results' `
     ($csvc -match 'SetUserCorrection\(' -and
      $org -match 'TryGetUserCorrection\(' -and
@@ -400,14 +398,15 @@ Assert-True 'right panel still uses a Grid for the three panes' `
 Assert-True 'panes share the same Grid.Row so the visible one fills it' `
     (([regex]::Matches($xaml, 'Grid\.Row="1"')).Count -ge 3)
 
-# --- 4. AI can only write notes ---------------------------------------------
-Assert-True 'AiNoteParser never writes Risk' ($parser -notmatch '\.Risk\s*=')
-Assert-True 'AiNoteParser never writes CanDelete' ($parser -notmatch '\.CanDelete\s*=')
-Assert-True 'AiNoteParser never writes Selected' ($parser -notmatch '\.Selected\s*=')
-Assert-True 'AiNoteParser never deletes anything' ($parser -notmatch 'SendToRecycle|Delete\(')
-Assert-True 'AiCoordinator never writes Risk/CanDelete/Selected' `
-    ($aiCoord -notmatch '\.(Risk|CanDelete|Selected)\s*=')
-Assert-True 'AI cannot execute uninstall' ($aiCoord -notmatch 'StartUninstall')
+# --- 4. AI can only write display text --------------------------------------
+# 原来这一节断言 AiNoteParser / AiCoordinator「只写说明、不碰判定」。那两个类
+# 随逐项 AI 一起删了；同一条不变量现在由批量归类服务承担，断言指向它。
+Assert-True 'the classify service never writes Risk' ($batchsvc -notmatch '\.Risk\s*=')
+Assert-True 'the classify service never writes CanDelete' ($batchsvc -notmatch '\.CanDelete\s*=')
+Assert-True 'the classify service never writes Selected' ($batchsvc -notmatch '\.Selected\s*=')
+Assert-True 'the classify service never deletes anything' ($batchsvc -notmatch 'SendToRecycle|Delete\(')
+Assert-True 'the classify service only writes the display field' `
+    ($batchsvc -match 'SetBatchPurpose' -and $batchsvc -notmatch 'StartUninstall')
 
 # --- 5. no long-running operation left without a token ----------------------
 $noneCount = ([regex]::Matches($cs, 'CancellationToken\.None')).Count
@@ -582,40 +581,31 @@ Assert-True 'the home-page global AI panel is gone' `
 Assert-True 'scan completion no longer auto-fires a model request' `
     ($cs -notmatch 'AnalyzeCurrentCategory' -and $cs -notmatch 'AiAnalyzeCat_Click')
 Assert-True 'AI config and the gateway are preserved (only the entry moved)' `
-    ($cs -match 'AiConfigured\(' -and $cs -match '_aiCoordinator' -and $cs -match 'ItemAiService')
-Assert-True 'each item carries its own AI state (stable id, not the row control)' `
-    ($itv -match 'class ItemAiView' -and $itv -match 'public required string ScopeKey' -and
-     ($item -match 'public ItemAiView Ai' -or $nodes -match 'public ItemAiView Ai'))
-Assert-True 'per-item AI button is wired on rows' `
-    ($xaml -match 'x:Key="ItemAiInline"' -and $xaml -match 'x:Key="ItemAiResultOnly"' -and $cs -match 'ItemAi_Click' -and
-     $cs -match 'case CleanLocationNode loc' -and $cs -match 'case CleanItem item')
-Assert-True 'file analysis scope stays the single file' `
-    ((($cs -replace '\s+', ' ') -match 'case CleanItem item:.*?FolderChildTotal: 0'))
-Assert-True 'folder analysis scope stays that location (no whole-purpose fallback)' `
-    ($cs -match 'BuildFolderSummary' -and $cs -notmatch 'AnalyzeCurrentCategory')
-Assert-True 'folder summary is bounded and reuses scan data (no traversal)' `
-    ($cs -match 'ItemAiPrompt\.MaxFolderSummary' -and $cs -notmatch 'Directory\.EnumerateFiles')
-Assert-True 'queue / concurrency / timeout are bounded' `
-    ($iasvc -match 'MaxConcurrent' -and $iasvc -match 'Timeout' -and $iasvc -match 'SemaphoreSlim')
-Assert-True 'per-item states cover busy/done/no-useful/failed/timeout/cancel' `
-    ($itv -match 'enum ItemAiStatus' -and $itv -match 'ItemAiStatus\.Queued' -and
-     $itv -match 'ItemAiStatus\.NoUseful' -and $itv -match 'ItemAiStatus\.Timeout' -and
-     $itv -match 'ItemAiStatus\.Canceled')
-Assert-True 'per-item cancel and duplicate submission are handled' `
-    ($cs -match '_itemAiRunning' -and $cs -match 'if \(view\.IsBusy\) return;' -and
-     $cs -match 'myReq != view\.RequestId')
-Assert-True 'result is cached and the cache key covers metadata + config' `
-    ($iasvc -match 'ItemAiCacheKey' -and $iasvc -match 'TryGetCached' -and
-     $cs -match 'AiConfigSignature')
-Assert-True 'suggestion is constrained to four allowed verdicts' `
-    ($iap -match 'enum ItemAiSuggestion' -and $iap -match 'ItemAiSuggestion\.Unknown' -and
-     $iap -match 'MapSuggestion')
-Assert-True 'result panel shows the five required fields' `
-    ($itv -match 'ItemAiSuggestionLabel' -and $itv -match 'ItemAiPurposeLabel' -and
-     $itv -match 'ItemAiImpactLabel' -and $itv -match 'ItemAiBasisLabel' -and
-     $itv -match 'ItemAiMissingLabel')
-Assert-True 'local-rule feedback is labelled as local, not AI' `
-    ($itv -match 'LocalNote' -and ($cs -match 'ItemAiLocalOnly' -or $item -match 'ItemAiLocalOnly'))
+    ($cs -match 'AiConfigured\(' -and
+     (Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\App.xaml.cs') -Raw -Encoding UTF8) -match 'AiGateways\.Register\(\)')
+# 逐项 AI（ItemAiView / ItemAiService / ItemAiPrompt / AiCoordinator / AiNoteParser）
+# 已**整套移除**：按钮、结果卡片、服务、视图类型、落盘那一半，一个不留。
+# 原来这一段的十几条断言（每项自带状态 / 有界并发 / 四档建议 / 五字段面板 / 取消去重）
+# 守的都是那套能力本身 —— 能力没有了，这些断言随之消失是合理的。
+# 「AI 不得越权」这条**没有丢**：见下面按文件夹删除那一节的结构断言
+# （整理对象上根本没有 Selected / CanDelete 这些字段，连硬塞都塞不进去）。
+Assert-True 'per-item AI is gone: no view, service, button or result card' `
+    ($xaml -notmatch 'ItemAiInline' -and $xaml -notmatch 'ItemAiResultOnly' -and
+     $cs -notmatch 'ItemAi_Click' -and $cs -notmatch '_itemAiRunning' -and
+     $cs -notmatch 'DescribeAiTarget' -and
+     $orgnode -notmatch 'ItemAiView' -and $item -notmatch 'ItemAiView')
+Assert-True 'the operation column is gone (two icons per row was noise)' `
+    ($xaml -notmatch 'ColOrgAction' -and $cs -notmatch 'ColOrgAction')
+Assert-True 'opening a folder is still reachable from the context menu' `
+    ($xaml -match 'OrganizeOpen_Click')
+Assert-True 'classification only asks rows on screen, and only after you stop moving' `
+    ($orgsrc -match 'VisibleOrganizeRows' -and $orgsrc -match '_autoClassifyTimer' -and
+     $orgsrc -match 'App\.Settings\.AiAutoClassify')
+Assert-True 'classification can be turned off entirely' `
+    ($loc -match 'AiAutoClassify' -and $cs -match 'AiAutoClassify_Click')
+Assert-True 'the classify service still never writes risk / selection' `
+    ($batchsvc -notmatch '\.Risk\s*=' -and $batchsvc -notmatch '\.CanDelete\s*=' -and
+     $batchsvc -notmatch '\.Selected\s*=')
 Assert-True 'AI tools can no longer change the selection' `
     ($analyst -match 'tool removed: the app never lets AI change the selection' -and
      $analyst -notmatch '"set_checked" => SetChecked')
@@ -673,68 +663,34 @@ Assert-True 'the view-selected chip shows a count and disables when empty' `
     ($cs -match 'UpdateViewSelectedLabel' -and $cs -match 'ViewSelectedBtn\.IsEnabled = n > 0')
 
 Assert-True 'AI never writes Risk / Selected / CanDelete' `
-    ($parser -notmatch '\.Risk\s*=' -and
-     ([regex]::Match($cs, '(?s)private void UpdateAiPanel\(\).*?\n    \}').Value) -notmatch '\.(Risk|Selected|CanDelete)\s*=')
+    ($batchsvc -notmatch '\.Risk\s*=' -and $batchsvc -notmatch '\.Selected\s*=' -and
+     $batchsvc -notmatch '\.CanDelete\s*=')
 Assert-True 'no misleading AI wording anywhere' `
     ($cs -notmatch 'AI 自动清理' -and $cs -notmatch 'AI 安全清理' -and
      $cs -notmatch 'AI 决定清理' -and $cs -notmatch 'AI 已替你选择')
 
-# --- 板块：AI 结论界面（识别只写模型一句，本地勾选移出 AI 卡） ---------------
-$verdict = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiVerdict.cs') -Raw -Encoding UTF8
-Assert-True 'local verdict still computes a headline, but the AI card does not bind it' `
-    ($verdict -match 'AiHeadlineClean' -and $verdict -match 'BuildNote' -and
-     $xaml -notmatch 'Ai\.Headline')
-Assert-True 'only three user-facing buckets, named in plain words' `
-    ($verdict -match 'enum AiBucket' -and $loc -match '可考虑清理' -and
-     $loc -match '建议保留' -and $loc -match '需要确认')
-Assert-True 'groups appear only when content is genuinely mixed' `
-    ($verdict -match 'bool mixed = buckets\.Count > 1')
-Assert-True 'only the cleanable bucket can be bulk-selected' `
-    ($verdict -match 'Loc\.AiReasonCleanable, true' -and
-     $verdict -match 'Loc\.AiReasonReview, false' -and
-     $verdict -match 'Loc\.AiReasonKeep, false')
+# --- 板块：AI 结论界面 -------------------------------------------------------
+# AiVerdict / AiBucket / 那张逐项结果卡片已随逐项 AI 整体移除。
+# 但**纯本地**的那条判据（「受保护项永远不算可清理」）一个字都没变，
+# 只是从 AiVerdict 搬进了 CleanRuleEligibility —— 断言改指向，不删。
+$elig = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanRules\CleanRuleEligibility.cs') -Raw -Encoding UTF8
 Assert-True 'protected items never become cleanable' `
-    ($verdict -match 'x\.CanDelete && x\.Risk != CleanRisk\.Keep && x\.Risk != CleanRisk\.Confirm')
-$aiCard = [regex]::Match($xaml, '(?s)x:Key="ItemAiResultOnly".*?</DataTemplate>').Value
-Assert-True '选择这些文件 is a local location-row chip, not an AI card' `
-    ($loc -match '选择这些文件' -and
-     $aiCard -notmatch '选择这些文件' -and
+    ($elig -match 'x\.CanDelete && x\.Risk != CleanRisk\.Keep && x\.Risk != CleanRisk\.Confirm')
+Assert-True 'the AI verdict model and its result card are gone' `
+    ($xaml -notmatch 'ItemAiResultOnly' -and $cs -notmatch 'AiVerdict')
+Assert-True '选择这些文件 is a local location-row chip, never an AI verdict' `
+    ($xaml -match '选择这些文件' -and
      $nodes -match 'ShowLocalSelectChip' -and
      $xaml -match 'ShowLocalSelectChip' -and
      $xaml -match 'Click="AiSelectBucket_Click"')
 Assert-True 'technical wording is gone from the panel' `
     ($xaml -notmatch '本地拆分' -and $xaml -notmatch '符合清理资格' -and
      $xaml -notmatch '按组' -and $xaml -notmatch '本地规则')
-Assert-True 'AI result is purpose/impact only; no headline, select, view-files, why, retry chrome' `
-    ($aiCard.Length -gt 0 -and
-     $aiCard -match 'ShowResultPanel' -and
-     $aiCard -match 'PurposeText' -and
-     $aiCard -match 'ImpactText' -and
-     $aiCard -notmatch 'Ai\.Headline' -and
-     $aiCard -notmatch '选择这些文件' -and
-     $aiCard -notmatch '查看文件' -and
-     $aiCard -notmatch '为什么这样建议' -and
-     $aiCard -notmatch '重新分析' -and
-     $aiCard -notmatch '<Expander' -and
-     $aiCard -notmatch 'ScrollViewer')
-Assert-True 'result panel is model note on the clean tree, not local selectable headline' `
-    ($itv -match 'HasModelNote' -and
-     $itv -match 'ShowResultPanel => IsCleanSource && HasModelNote && IsExpanded' -and
-     $itv -notmatch 'ShowResultPanel => CanSelect && IsExpanded')
-Assert-True 'identify does not mark local items Done before the model' `
-    ($cs -notmatch '结论来自本地数据，不需要模型' -and
-     $cs -notmatch 'AiVerdict\.Build\(items, identity, null\)' -and
-     $cs -match 'view\.Status = ItemAiStatus\.Queued')
 Assert-True 'selecting goes through the existing refresh chain' `
     ($cs -match 'AiSelectBucket_Click' -and $cs -match 'RefreshAfterSelectionChange\(\)' -and
-     $cs -match 'ctx is CleanLocationNode loc')
+     $cs -match 'is not CleanLocationNode loc')
 Assert-True 'viewing files uses exact item filtering' `
-    ($cs -match 'AiViewBucket_Click' -and $cs -match 'SetItemFilter' -and
-     $pager -match 'public void SetItemFilter')
-Assert-True 'unconfigured AI is a one-line error, not a fake local card' `
-    ($cs -match 'AiNeedConfigLocalStillWorks' -and
-     $cs -match 'view\.Status = ItemAiStatus\.Failed;' -and
-     $itv -match 'ShowIdentifyError')
+    ($pager -match 'public void SetItemFilter')
 
 # --- 2.12 UX contract -------------------------------------------------------
 Assert-True 'clean action bar has a single 全选 toggle, not a separate clear or rule-select button' `
@@ -787,12 +743,11 @@ Assert-True 'inline file list has no 完整列表 button; extra files are counte
      $xaml -notmatch '完整列表（可搜索）' -and
      $loc -match '另有')
 Assert-True 'clean location subtitle no longer appends 用途待确认' `
-    ($nodes -match 'ItemAiPurposeText' -and $nodes -notmatch 'PurposeUnclear' -and
+    ($nodes -notmatch 'ItemAiPurposeText' -and $nodes -notmatch 'PurposeUnclear' -and
      $nodes -notmatch 'bits\.Add\(aiPurpose\)')
-Assert-True 'organize purpose column replaces 未识别 after item AI' `
-    ($orgnode -match 'HasItemAiPurpose' -and
-     $orgnode -match 'NeedsConfirm => _needsConfirm && !HasItemAiPurpose' -and
-     $cs -match 'RefreshOrganizeAfterItemAi')
+Assert-True 'organize purpose column replaces 未识别 after classification' `
+    ($orgnode -match 'HasBatchPurpose' -and
+     $orgnode -match 'NeedsConfirm => _needsConfirm && !HasBatchPurpose')
 
 # 发布产物：取 dist 下最新的 DashaoHuo-*-win-x64。
 # 这是**打包门禁**，不是行为检查：dist 是 gitignore 的生成物，开发机 / CI 没有它很正常。

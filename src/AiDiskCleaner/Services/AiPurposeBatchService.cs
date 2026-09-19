@@ -94,6 +94,10 @@ public static class AiPurposeBatchService
 
             for (int i = 0; i < chunk.Count; i++)
             {
+                // **先记「问过了」**，不管下面拿没拿到结论。
+                // 不记的话，拿不到结论的条目会被自动识别反复追问 ——
+                // 它看起来仍然「没结论」，而每次可见集合一变就会重新发一轮请求。
+                chunk[i].MarkBatchAsked();
                 if (!reply.Answers.TryGetValue(KeyOf(i), out var answer)) { unknown++; continue; }
                 var kind = AiPurposeCriteria.Parse(answer.Choice);
                 dist[kind.ToString()] = dist.TryGetValue(kind.ToString(), out var c) ? c + 1 : 1;

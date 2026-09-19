@@ -124,7 +124,8 @@ public static class Program
                      {
                          "AlertText", "Overlay", "OrganizeGrid", "OrganizeCounts",
                          "CleanSelectAllBtn", "AiChip",
-                         "ColOrgAction", "ColAppInstallDate", "TabCleanBtn", "TabOrganizeBtn",
+                         // ColOrgAction（「操作」列）已整体移除，不在这份清单里了
+                         "ColAppInstallDate", "TabCleanBtn", "TabOrganizeBtn",
                      })
                 Check($"x:Name={n} 已赋值", NamedField(win, n) != null);
 
@@ -683,17 +684,20 @@ public static class Program
         int rowsAfter = Fld<System.Collections.ObjectModel.ObservableCollection<OrganizeNode>>(win, "_organizeRows").Count;
         Check("关闭筛选：行集合回到打开前的样子", rowsAfter == rowsBefore, $"{rowsBefore} -> {rowsAfter}");
 
-        // ---------- 8.6 逐项AI结果的代次隔离（批量任务已取消，隔离发生在逐项结果上） ----------
+        // ---------- 8.6 节点身份代次**恒定**（原来每次分层重建都 +1） ----------
+        // 逐项 AI 删掉之后，这个代次只用于「节点身份」。它必须恒定：
+        // 用途缓存是「跨重启别再问一遍」的记忆，每次重建换代次会让缓存全部落空。
         ResetOrganizeCollections(win);
-        int aiGenBefore = Fld<int>(win, "_aiDataGeneration");
-        var iso = new OrganizeNode(MakeDir("iso", @"X:\iso", 10, null), new FolderId(@"X:\iso", 1), 0, "iso");
-        Call(win, "InvalidateItemAiAfterScan");     // 模拟「重复检测完成后的分层重建」
-        Check("逐项AI代次变化会推进（旧结果据此判过期）",
-            Fld<int>(win, "_aiDataGeneration") == aiGenBefore + 1,
-            $"{aiGenBefore} -> {Fld<int>(win, "_aiDataGeneration")}");
-        Check("旧代次的逐项结果会被判过期，不会冒充新结果",
-            !iso.Ai.HasResult && iso.Ai.SuggestionText.Length == 0,
-            $"has={iso.Ai.HasResult}");
+        var winSrc86 = ReadSource("src/AiDiskCleaner/MainWindow.xaml.cs");
+        Check("节点身份代次是常量（换代次会让用途缓存全部落空）",
+            winSrc86.Contains("private const int NodeGeneration = 0;", StringComparison.Ordinal));
+        Check("旧的逐项 AI 代次字段已彻底移除",
+            !winSrc86.Contains("_aiDataGeneration", StringComparison.Ordinal)
+            && !ReadSource("src/AiDiskCleaner/MainWindow.Organize.cs").Contains("_aiDataGeneration", StringComparison.Ordinal)
+            && !ReadSource("src/AiDiskCleaner/MainWindow.RecognitionPersistence.cs").Contains("_aiDataGeneration", StringComparison.Ordinal));
+        Check("旧的逐项 AI 过期逻辑已随能力一起移除",
+            typeof(MainWindow).GetMethod("InvalidateItemAiAfterScan",
+                BindingFlags.Instance | BindingFlags.NonPublic) == null);
 
         // ---------- 8.7 用途缓存与请求计数只随「真换扫描」复位 ----------
         // 先用一个**本地就能判定**的目录把缓存喂起来（allowAi:false ⇒ 绝不联网）
@@ -713,7 +717,13 @@ public static class Program
         Check("本地结论不消耗请求预算", svc.AiRequestsUsed == 0, svc.AiRequestsUsed.ToString());
 
         int cacheBefore = svc.CacheCount;
-        Call(win, "InvalidateItemAiAfterScan");     // after-duplicates 那次重建
+        // 原来这里调 InvalidateItemAiAfterScan 来模拟「重复检测完成后的分层重建」，
+        // 确认那次重建不清用途缓存。那个方法随逐项 AI 一起删掉了。
+        // 现在清缓存只剩 RebuildOrganize → ResetForScan 一处，所以改成源码断言 + 行为断言。
+        var orgSrc720 = ReadSource("src/AiDiskCleaner/MainWindow.Organize.cs");
+        Check("清用途缓存的入口只有「真换扫描」那一处",
+            orgSrc720.Split(new[] { "ResetForScan" }, StringSplitOptions.None).Length - 1 == 1,
+            "ResetForScan 出现次数");
         Check("分层重建**不得**清掉用途缓存（否则已识别的会重问）",
             svc.CacheCount == cacheBefore, $"{cacheBefore} -> {svc.CacheCount}");
         Call(win, "RebuildOrganize");               // 真正换扫描
@@ -820,24 +830,21 @@ public static class Program
             && !scan.Contains("RunPurposeAsync", StringComparison.Ordinal)
             && !xaml.Contains("CtxPurposeIdentify", StringComparison.Ordinal));
 
-        // 唯一的批量入口：确认页那个按钮 → 一次点击 → 一处调用。
-        // 「只有一处 + 那一处挂在 _Click 上」就排除了它长在扫描/分析/重建路径上的可能；
-        // 再叠加 9.4 的真实出站计数，就同时钉住了「必须用户发起」。
-        Check("按文件夹删除页有批量归类入口（用户点击处理器）",
-            org.Contains("private void OrganizeClassify_Click", StringComparison.Ordinal)
-            && xaml.Contains("x:Name=\"OrganizeClassifyBtn\"", StringComparison.Ordinal));
-        Check("批量归类不在清理中心（那里没有认不出的堆积）",
+        // **页面上不再有任何识别按钮**：翻到哪就自动认哪。
+        // 自动识别本身的四条约束在 9.4 断言（那里也是当初那套「必须用户点」的替代品）。
+        Check("按文件夹删除页没有识别按钮（改成翻到哪自动认哪）",
+            !xaml.Contains("x:Name=\"OrganizeClassifyBtn\"", StringComparison.Ordinal)
+            && !org.Contains("OrganizeClassify_Click", StringComparison.Ordinal));
+        Check("批量归类仍然不在清理中心（那里没有认不出的堆积）",
             !scan.Contains("AiPurposeBatchService", StringComparison.Ordinal)
             && !scan.Contains("CleanClassifyPurposes", StringComparison.Ordinal));
         int batchCalls = org.Split(new[] { "AiPurposeBatchService.RunAsync" }, StringSplitOptions.None).Length - 1;
         Check("批量归类全仓只被一处调用", batchCalls == 1, "调用点=" + batchCalls);
-        Check("批量归类发请求前先确认通道已配置（不会往错地址发）",
-            org.Contains("DecisionConfigured()", StringComparison.Ordinal));
-        Check("批量归类带扫描代次守卫（换代即停止写入）",
-            org.Contains("scanGen == _scanGeneration", StringComparison.Ordinal));
         Check("批量归类复用现有 AI 通道，不新造进度面板/停止按钮",
             !org.Contains("OrganizeProgressPanel", StringComparison.Ordinal)
             && !org.Contains("OrganizeStopBtn", StringComparison.Ordinal));
+        // 供下面几节复用的源码文本
+        var orgNode = ReadSource("src/AiDiskCleaner/Models/OrganizeNode.cs");
 
         // 「合并」面板（一类一行、勾一行整片处理）：
         //   - 勾选框必须绑在 CanSelect 上 —— 「还没认出来」那一桶没有结论，
@@ -867,12 +874,19 @@ public static class Program
         Check("Register() 之后判定通道确实可用（接线幂等）",
             AiGateway.DecisionsSender != null);
 
-        // ---------- 9.4 扫描 / 切页 / 展开 / 筛选 = 0 次模型请求 ----------
-        // 让「有模型配置」这件事成立，否则零请求没有说服力（没配模型本来就不会发）。
+        // ---------- 9.4 自动识别：**可关**，而且开着时也只在有未识别行时才发 ----------
+        //
+        // 这一节原来是「扫描 / 切页 / 展开 / 筛选 = 0 次模型请求」。那个不变量**被有意放开了**：
+        // 现在是「翻到哪就自动识别哪」。但它没有变成"后台随便发"，新规矩是：
+        //   ① 只问**屏幕上真看得见的行**；② 停下 600ms 才发；③ 换代即取消；④ **可以整个关掉**。
+        // 所以断言改写成两半：**关掉时严格 0 请求**（行为证据，真实出站计数）+
+        // **开着时四条约束都写在代码里**（源码断言，因为防抖计时器在同步测试里不会自己跑）。
         var settings = App.Settings;
         bool hadModel = !string.IsNullOrWhiteSpace(settings.AiModel);
         string savedModel = settings.AiModel;
+        bool savedAuto = settings.AiAutoClassify;
         settings.AiModel = "test-model-not-called";     // 只改名字，不发请求；下面用计数断言
+        settings.AiAutoClassify = false;                 // ★ 先关掉：下面这些动作必须一个请求都不发
 
         AiGateway.ResetSentCountForTest();
         ResetOrganizeCollections(win);
@@ -902,34 +916,50 @@ public static class Program
         Call(win, "ShowRightTab", Enum.Parse(typeof(MainWindow).GetNestedType("RightTab", BindingFlags.NonPublic)!, "Uninstall"));
 
         int sent = AiGateway.SentCount;
-        Check("扫描重建 + 展开/收起 + 筛选开关 + 切页 全程 0 次模型请求（真实出站计数）",
+        Check("**关掉自动识别后**：扫描重建 + 展开/收起 + 筛选开关 + 切页 全程 0 次模型请求（真实出站计数）",
             sent == 0, "SentCount=" + sent);
         Check("本地识别确实跑了（不是「什么都没做」才 0 请求）",
             node.ChildrenLoaded || node.HasConclusion || node.IsExpanded,
             $"loaded={node.ChildrenLoaded} expanded={node.IsExpanded} conclusion={node.HasConclusion}");
 
+        // 开着的时候的四条约束：都写在代码里，且**一个都不能少**
+        Check("自动识别先看开关（关掉就一个请求都不发）",
+            org.Contains("App.Settings.AiAutoClassify", StringComparison.Ordinal));
+        Check("自动识别只问**屏幕上看得见的行**，不是整个列表",
+            org.Contains("VisibleOrganizeRows", StringComparison.Ordinal)
+            && org.Contains("VisualTreeHelper", StringComparison.Ordinal));
+        Check("自动识别有防抖（停下才发，滚动过程中不发）",
+            org.Contains("_autoClassifyTimer", StringComparison.Ordinal)
+            && org.Contains("ScheduleAutoClassify", StringComparison.Ordinal));
+        Check("自动识别带扫描代次守卫（换代即停写）",
+            org.Contains("scanGen == _scanGeneration", StringComparison.Ordinal));
+        Check("自动识别没配判定通道时安静跳过（不是每次滚动弹一个对话框）",
+            org.Contains("if (!App.Settings.DecisionConfigured()) return;", StringComparison.Ordinal));
+        // 反复追问同一条 = 无限请求。没结论的条目必须被标记成「问过了」。
+        Check("问过的条目不再入选（否则自动识别会无限追问同一条）",
+            orgNode.Contains("MarkBatchAsked", StringComparison.Ordinal)
+            || ReadSource("src/AiDiskCleaner/Services/AiPurposeBatchService.cs")
+                .Contains("MarkBatchAsked", StringComparison.Ordinal));
+
         settings.AiModel = hadModel ? savedModel : "";
+        settings.AiAutoClassify = savedAuto;
         AiGateway.ResetSentCountForTest();
         ResetOrganizeCollections(win);
 
-        // ---------- 9.5 单项 AI：组织出来的请求只针对那一个对象 ----------
-        var node2 = new OrganizeNode(MakeDir("One", @"X:\One", 100, null, 0),
-            new FolderId(@"X:\One", 1), 0, "One");
-        node2.SetLevel(1);
-        var described = Call(win, "DescribeAiTarget", node2);
-        var req = described!.GetType().GetField("Item2")!.GetValue(described);
-        Check("单项分析认得出整理页对象，并且只带这一个文件夹",
-            req != null && (bool)req.GetType().GetProperty("IsFolder")!.GetValue(req)!,
-            req == null ? "null" : req.ToString()!);
-        Check("单项请求的范围键就是这个文件夹的完整路径",
-            req != null && (string)req.GetType().GetProperty("ScopeKey")!.GetValue(req)! == @"X:\One",
-            req == null ? "null" : (string)req.GetType().GetProperty("ScopeKey")!.GetValue(req)!);
-        Check("单项请求带的是有上限的摘要，不是整棵树",
-            req != null && (int)req.GetType().GetProperty("FolderSummaryShown")!.GetValue(req)!
-                <= AiDiskCleaner.Services.ItemAiPrompt.MaxFolderSummary);
-        Check("整理页对象有自己的 AI 展示态（结果缓存就在这里，不会串到别项）",
-            !ReferenceEquals(node2.Ai, node.Ai) && node2.Ai.ScopeKey == @"X:\One",
-            node2.Ai.ScopeKey + " vs " + node.Ai.ScopeKey);
+        // ---------- 9.5 逐项 AI 已整体移除 ----------
+        Check("清理页 / 整理页都不再有逐项 AI 按钮",
+            !xaml.Contains("ItemAiInline", StringComparison.Ordinal)
+            && !xaml.Contains("ItemAi_Click", StringComparison.Ordinal)
+            && !xaml.Contains("ItemAiResultOnly", StringComparison.Ordinal));
+        Check("「操作」列已整体移除（两千多行里每行两个图标只是噪音）",
+            !xaml.Contains("ColOrgAction", StringComparison.Ordinal)
+            && !org.Contains("ColOrgAction", StringComparison.Ordinal));
+        Check("「在资源管理器中打开」仍然有入口（右键菜单，不是没了）",
+            xaml.Contains("OrganizeOpen_Click", StringComparison.Ordinal));
+        Check("逐项 AI 的服务与视图类型都已经不存在了",
+            !org.Contains("ItemAiService", StringComparison.Ordinal)
+            && !org.Contains("DescribeAiTarget", StringComparison.Ordinal)
+            && !orgNode.Contains("ItemAiView", StringComparison.Ordinal));
 
         // ---------- 9.6 本地证据**确实接线**（不是字符串存在） ----------
         // 启动时构造 MainWindow 就注入 LocalEvidenceService：系统 KnownFolder 快照 +
@@ -1055,8 +1085,12 @@ public static class Program
             var note = NamedField(win, "CleanSelectionNote") as System.Windows.Controls.TextBlock;
             CheckD("底部说明告诉用户「已按规则勾选 N 项，执行前仍会走检查」",
                 note != null && note.Text.Contains("勾选", StringComparison.Ordinal), note?.Text ?? "null");
-            Check("AI 没有任何机会改变资格：AI 字段全程为空也没有影响",
-                clearA.AiNote.Length == 0 && clearA.AiSuggested == false);
+            // 原来是「AI 字段全程为空也没有影响」。逐项 AI 删掉后，候选条目上
+            // **根本没有可写的 AI 槽位**了 —— 断言升级成结构断言，比运行时断言更硬。
+            Check("AI 没有任何机会改变资格：候选条目上根本没有 AI 可写的槽位",
+                typeof(CleanItem).GetProperty("AiNote") == null
+                && typeof(CleanItem).GetProperty("AiSuggested") == null
+                && typeof(CleanItem).GetProperty("Ai") == null);
         }
         finally
         {

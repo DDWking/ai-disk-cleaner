@@ -11,10 +11,12 @@
 # Run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/release.ps1
 # Options: -OutDir <path>  -SkipBuild  -SkipPublish  -SkipZip  -SkipHash
 #
-# NOTE: this does NOT run the offline check suite (StartupCheck / SafetyCheck /
+# NOTE: this does NOT run the offline check suite (SafetyCheck / StartupCheck /
 # UiRegressionCheck / CleanupPresentationCheck / CleanAnalyzerCheck /
-# AiNoteParserCheck / AppRecommendationCheck / LocalRecognitionCheck /
-# ItemAiIsolationCheck). Run those first and treat them as the release gate.
+# AppRecommendationCheck / LocalRecognitionCheck / RecognitionPersistenceCheck /
+# FolderDeleteCheck / AppPurposeCheck). Run those first and treat them as the release gate.
+#
+# ItemAiIsolationCheck / AiNoteParserCheck 已随逐项 AI 整体移除，不再是检查项。
 
 param(
     [string]$OutDir = '',

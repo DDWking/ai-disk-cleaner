@@ -25,7 +25,11 @@ public static class Program
         ProtectedPathTests();
         ScanQualityTests();
         RecursiveScanQualityTests();
-        AiOutputConstraintTests();
+        // 这里原本有 AiOutputConstraintTests（「AI 输出不越权」）：它测的是 AiNoteParser
+        // 把「GOTO 路径<TAB>说明」写回 CleanItem.AiNote 的行为，那个解析器和 AiNote 字段
+        // 随逐项 AI 一起删掉了。它守的核心不变量（AI 只写说明、不碰 Risk / CanDelete / Selected）
+        // **没有丢** —— 搬到了 AiPurposeTests.SourceInvariantTests（断言批量归类服务同样不写这几个字段），
+        // 另有一条结构断言：候选条目上已经没有 AI 可写的槽位。
         RedactionTests();
         PathRedactionTests();
         ApiKeyEncryptionTests();
@@ -378,46 +382,6 @@ public static class Program
         Check("不存在的根 → HasSkips", mq.HasSkips);
     }
 
-    // ---------------------------------------------------------------- AI 输出约束
-
-    static void AiOutputConstraintTests()
-    {
-        Section("AI 输出约束");
-
-        var items = new List<CleanItem>
-        {
-            new() { Name = "a.tmp", FullPath = @"C:\Temp\a.tmp", Risk = CleanRisk.Safe, CanDelete = true, Size = 10 },
-            new() { Name = "b.tmp", FullPath = @"C:\Temp\b.tmp", Risk = CleanRisk.Confirm, CanDelete = true, Size = 20, Selected = false },
-        };
-
-        // 格式错误的输出：解析不出来就保留本地结果，绝不抛异常
-        int applied = AiNoteParser.Apply(items, "```\n这不是 GOTO 行\n随便写点什么\n```");
-        Check("垃圾输出不写说明", applied == 0);
-        Check("垃圾输出后规则原因保留", items[0].NoteText == items[0].Reason);
-        Check("越权输出不改风险", items[0].Risk == CleanRisk.Safe && items[1].Risk == CleanRisk.Confirm);
-        Check("越权输出不碰 CanDelete", items[0].CanDelete && items[1].CanDelete);
-        Check("越权输出不勾选", items[0].Selected == false && items[1].Selected == false);
-
-        // 风险词被塞进说明列 → 当噪音丢掉
-        int a2 = AiNoteParser.Apply(items, "GOTO C:\\Temp\\a.tmp\tsafe");
-        Check("纯风险词不算说明", a2 == 0);
-        Check("风险档位未被覆盖", items[0].Risk == CleanRisk.Safe);
-
-        // 正常输出 → 只写 AiNote
-        int a3 = AiNoteParser.Apply(items, "GOTO C:\\Temp\\a.tmp\t这是程序崩溃时留下的记录文件");
-        Check("正常输出写入说明", a3 == 1 && items[0].AiNote.Length > 0);
-        Check("写入说明后风险不变", items[0].Risk == CleanRisk.Safe);
-        Check("写入说明后勾选不变", !items[0].Selected);
-
-        // 编造的路径（清单里没有）绝不接受
-        int a4 = AiNoteParser.Apply(items, "GOTO C:\\Temp\\invented.tmp\t不存在的东西");
-        Check("未知路径被忽略", a4 == 0);
-
-        // 超长说明被截断
-        var longItems = new List<CleanItem> { new() { Name = "c.tmp", FullPath = @"C:\Temp\c.tmp", Risk = CleanRisk.Safe } };
-        AiNoteParser.Apply(longItems, "GOTO C:\\Temp\\c.tmp\t" + new string('长', 500));
-        Check("说明长度受限", longItems[0].AiNote.Length <= AiNoteParser.MaxNoteLength);
-    }
 
     // ---------------------------------------------------------------- 脱敏 / 错误分类
 
@@ -506,23 +470,6 @@ public static class Program
             PathRedactor.Outbound(@"C:\Temp\a.tmp") == @"C:\Temp\a.tmp");
         App.Settings.AiSendFullPaths = false;
 
-        // 脱敏路径也要能映射回条目（AI 回的是脱敏路径）
-        var items = new List<CleanItem>
-        {
-            new() { Name = "x.tmp", FullPath = Path.Combine(home, "AppData", "Local", "Temp", "x.tmp") },
-        };
-        string redKey = PathRedactor.Redact(items[0].FullPath);
-        // 关键：发出去的是脱敏路径，所以映射回条目也必须用同一套规则。
-        int n = AiNoteParser.Apply(items, $"GOTO {redKey}\t这是临时文件", PathRedactor.Redact);
-        Check("脱敏路径能映射回条目", n == 1 && items[0].AiNote.Length > 0, $"applied={n}");
-
-        // 反过来：不按脱敏规则映射时，模型编不出真实路径（它只见过脱敏路径）
-        var strict = new List<CleanItem>
-        {
-            new() { Name = "x.tmp", FullPath = items[0].FullPath },
-        };
-        int n2 = AiNoteParser.Apply(strict, $"GOTO {redKey}\t这是临时文件");
-        Check("未按脱敏规则映射时不误写", n2 == 0);
     }
 
     static void ApiKeyEncryptionTests()
@@ -953,48 +900,6 @@ public static class Program
         string note = DeletionCoordinator.PlanNote(plan2);
         Check("确认框说明含受保护计数", note.Contains("blocked=1", StringComparison.Ordinal), note);
 
-        // ---- AiCoordinator：默认必须发脱敏路径 ----
-        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var items = new List<CleanItem>
-        {
-            new() { Name = "x.tmp", FullPath = Path.Combine(home, "AppData", "Local", "Temp", "x.tmp"), Size = 10, Risk = CleanRisk.Safe },
-        };
-        string redactedPrompt = AiCoordinator.BuildPrompt(items, sendFullPaths: false);
-        Check("默认 prompt 不含完整路径",
-            home.Length == 0 || !redactedPrompt.Contains(home, StringComparison.OrdinalIgnoreCase), redactedPrompt);
-        Check("默认 prompt 含脱敏占位符",
-            redactedPrompt.Contains(PathRedactor.UserProfileToken, StringComparison.Ordinal));
-
-        string fullPrompt = AiCoordinator.BuildPrompt(items, sendFullPaths: true);
-        Check("明确允许后才发完整路径", fullPrompt.Contains(items[0].FullPath, StringComparison.OrdinalIgnoreCase));
-
-        // ---- AiCoordinator：AI 只写说明，不改风险/勾选 ----
-        var aiItems = new List<CleanItem>
-        {
-            new() { Name = "a.tmp", FullPath = @"C:\Temp\a.tmp", Size = 10, Risk = CleanRisk.Safe, CanDelete = true },
-        };
-        AiClient.Handler = (req, onDelta, _) =>
-        {
-            // 模型照抄输入路径回一行说明
-            string echoed = req.Turns.Count > 0 && req.Turns[0].Text.Contains("a.tmp", StringComparison.Ordinal)
-                ? "GOTO C:\\Temp\\a.tmp\t这是临时文件"
-                : "";
-            onDelta?.Invoke(echoed);
-            return Task.FromResult(new AiReply { Text = echoed });
-        };
-        var aico = new AiCoordinator();
-        var explain = aico.ExplainAsync(aiItems, null, null, sendFullPaths: true, null, CancellationToken.None)
-            .GetAwaiter().GetResult();
-        Check("AI 说明写回条目", explain.Applied == 1 && aiItems[0].AiNote.Length > 0, $"applied={explain.Applied}");
-        Check("AI 不改风险档", aiItems[0].Risk == CleanRisk.Safe);
-        Check("AI 不改 CanDelete", aiItems[0].CanDelete);
-        Check("AI 不勾选", !aiItems[0].Selected);
-        AiClient.Handler = null;
-
-        // 空批次不炸
-        var empty = aico.ExplainAsync(new List<CleanItem>(), null, null, false, null, CancellationToken.None)
-            .GetAwaiter().GetResult();
-        Check("空批次安全返回", empty.Sent == 0 && empty.Applied == 0);
     }
 
     /// <summary>假的扫描服务：能成功、能抛、能计数。</summary>

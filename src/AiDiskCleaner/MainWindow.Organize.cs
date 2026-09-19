@@ -98,7 +98,8 @@ public partial class MainWindow
         ColOrgName.Header = Loc.OrganizeColName;
         ColOrgPurpose.Header = Loc.OrganizeColPurpose;
         ColOrgSize.Header = Loc.OrganizeColSize;
-        ColOrgAction.Header = Loc.OrganizeColAction;
+        // 「操作」列已整体移除：每行两个图标在两千多行的列表里只是噪音。
+        // 「在资源管理器中打开」右键菜单里本来就有。
         // 页头**没有标题**：Tab 上写的就是「按文件夹删除」，这里不再重复一遍。
         // 右键菜单只剩两个只读动作：打开目录 / 复制路径。
         // 「纠正用途」与「展开子文件夹」已移除 —— 展开箭头就在行里，纠正不再是这一页的能力。
@@ -123,9 +124,7 @@ public partial class MainWindow
     /// </summary>
     private void ApplyOrganizeColumnPriority(double width)
     {
-        if (OrganizeGrid == null || ColOrgAction == null || ColOrgSize == null) return;
-        bool tight = width > 0 && width < 780;
-        ColOrgAction.Width = new DataGridLength(tight ? 104 : 132);
+        if (OrganizeGrid == null || ColOrgSize == null) return;
         ColOrgSize.Visibility = width > 0 && width < 620 ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -203,7 +202,7 @@ public partial class MainWindow
 
         string rel = RelativeOf(dir);
         bool isEntry = FolderOrganize.IsEntryPoint(dir.FullPath, _organizeEntryPoints);
-        var node = new OrganizeNode(dir, new FolderId(dir.FullPath, _aiDataGeneration), depth, rel)
+        var node = new OrganizeNode(dir, new FolderId(dir.FullPath, NodeGeneration), depth, rel)
         {
             IsSystemEntry = isEntry,
             IsPlatformContainer = FolderOrganize.KeepsObjectEntries(dir),
@@ -438,30 +437,10 @@ public partial class MainWindow
         if (_organizePendingOnly) line += " · " + Loc.OrganizeFilterActive(_organizeRows.Count, _organizeAll.Count);
         if (_organizeNote.Length > 0) line += " · " + _organizeNote;
         OrganizeCounts.Text = line;
-        // 按钮上的数字 = **这一屏真正会问的条数**，不是全局还没识别的条数。
-        // 写成全局那个数会出现「按钮说 2,517 项、实际只问了 83 条」——标签和动作对不上。
-        UpdateOrganizeClassifyButton(_organizeRows.Count(x => x.NeedsPurposeClassification));
         // 面板跟着当前这一屏走：展开/收起/重扫之后它显示的还是「这一屏分成了哪几类」。
         RefreshOrganizeResult();
-    }
-
-    /// <summary>
-    /// 批量归类入口：数量写在按钮上，为 0 就整块隐藏（不留一个点了没反应的按钮）；
-    /// 跑的时候变成「停止」。
-    /// </summary>
-    void UpdateOrganizeClassifyButton(int onScreen)
-    {
-        if (OrganizeClassifyBtn == null) return;
-        if (_organizeClassifying)
-        {
-            OrganizeClassifyBtn.Content = Loc.Stop;
-            OrganizeClassifyBtn.Visibility = Visibility.Visible;
-            OrganizeClassifyBtn.IsEnabled = true;
-            return;
-        }
-        OrganizeClassifyBtn.Content = Loc.AiBatchClassifyScreen(onScreen);
-        OrganizeClassifyBtn.Visibility = onScreen > 0 ? Visibility.Visible : Visibility.Collapsed;
-        OrganizeClassifyBtn.IsEnabled = onScreen > 0;
+        // 这一屏换了（重建 / 展开 / 收起）就安排一次自动识别。滚动那条走 ScrollChanged。
+        ScheduleAutoClassify();
     }
 
     // ==================== 分类结果面板（「合并」） ====================
@@ -539,44 +518,89 @@ public partial class MainWindow
         RefreshFolderDeleteBar();
     }
 
-    // ==================== 批量归类 ====================
+    // ==================== 自动归类（翻到哪认到哪） ====================
 
-    /// <summary>入口只有一个按钮：空闲时开始，跑着时停止。</summary>
-    private void OrganizeClassify_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 防抖计时器：**停下 600ms 才发**。滚动/展开过程中不断重置，所以一次导航最多一次请求。
+    /// </summary>
+    private readonly System.Windows.Threading.DispatcherTimer _autoClassifyTimer = new()
     {
-        if (_organizeClassifying)
+        Interval = TimeSpan.FromMilliseconds(600),
+    };
+
+    private bool _autoClassifyTimerHooked;
+
+    /// <summary>自动识别的失败**只弹一次窗**，之后只写页头那一行 —— 不能每次滚动都糊一个对话框。</summary>
+    private bool _autoClassifyAlerted;
+
+    /// <summary>
+    /// 安排一次自动识别。可见集合变了就调它（重建 / 展开 / 收起 / 滚动停下 / 切到这一页）。
+    ///
+    /// 这是对 v2.9「翻页 / 展开 = 0 次模型请求」的**有意放开**，所以四条约束一个都不能少：
+    /// ① 只问屏幕上真看得见的行（不是整个列表）；② 停下 600ms 才发，滚动中不发；
+    /// ③ 换代即取消；④ 设置里能整个关掉（<see cref="AppSettings.AiAutoClassify"/>）。
+    /// </summary>
+    void ScheduleAutoClassify()
+    {
+        if (!App.Settings.AiAutoClassify) return;
+        if (_organizeClassifying) return;          // 已经在跑，跑完那一轮自己会再看一次
+        if (!App.Settings.DecisionConfigured()) return;   // 没配判定通道就安静地什么都不做
+        if (OrganizeGrid == null) return;
+
+        if (!_autoClassifyTimerHooked)
         {
-            CancelQuietly(_aiClassifyCts);
-            return;
+            _autoClassifyTimer.Tick += (_, _) =>
+            {
+                _autoClassifyTimer.Stop();
+                _ = OrganizeClassifyRunAsync();
+            };
+            // 滚动停下也算「换了一屏」：只等停稳，不在滚动过程中发
+            OrganizeGrid.AddHandler(System.Windows.Controls.ScrollViewer.ScrollChangedEvent,
+                new System.Windows.Controls.ScrollChangedEventHandler((_, _) => ScheduleAutoClassify()));
+            _autoClassifyTimerHooked = true;
         }
-        _ = OrganizeClassifyRunAsync();
+        _autoClassifyTimer.Stop();
+        _autoClassifyTimer.Start();
     }
 
     /// <summary>
-    /// 批量归类：把「认不出用途」的文件夹一次性交给结构化判定通道（TypeSafe Jev 这类）。
+    /// 屏幕上**真正看得见**的那些行。只有 materialize 出来的行才在视觉树里，
+    /// 虚拟化没实现的那些拿不到 —— 这正是我们要的口径（不是「列表里全部」）。
+    /// </summary>
+    IReadOnlyList<OrganizeNode> VisibleOrganizeRows()
+    {
+        var rows = new List<OrganizeNode>();
+        CollectRows(OrganizeGrid, rows);
+        return rows;
+    }
+
+    static void CollectRows(System.Windows.DependencyObject root, List<OrganizeNode> into)
+    {
+        int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < n; i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is DataGridRow row && row.IsVisible && row.Item is OrganizeNode node) into.Add(node);
+            CollectRows(child, into);
+        }
+    }
+
+    /// <summary>
+    /// 把「屏幕上这一屏里还认不出用途的」交给结构化判定通道（TypeSafe Jev 这类）。
     ///
-    /// 和逐项 AI 同一条规矩：**只由用户主动发起**。扫描 / 切页 / 展开 / 筛选都不会走到这里，
-    /// 所以「这些动作 = 0 次模型请求」那条回归断言照样成立（计数在 AiGateway 里）。
-    ///
-    /// 写入只落在 <see cref="OrganizeNode.BatchPurpose"/> 这一个展示字段上 ——
+    /// 用户不点任何按钮 —— 但**不是"后台自动跑"**：只有可见集合变了、而且停稳了才发，
+    /// 而且设置里能关。写入只落在 <see cref="OrganizeNode.BatchPurpose"/> 这一个展示字段上：
     /// 整理树的对象根本没有 Risk / CanDelete / Selected，所以「AI 不会替用户打勾」
     /// 在这里是结构上成立的。
     /// </summary>
     async Task OrganizeClassifyRunAsync()
     {
-        // 范围：**列表里当前真正看得见的那批**（_organizeRows），不是所有材料化出来的对象。
-        // 用户要的是「把眼前这几十行分好」，不是把上千个对象一次性转一遍。
-        var targets = _organizeRows.Where(n => n.NeedsPurposeClassification).ToList();
-        if (targets.Count == 0)
-        {
-            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNothing);
-            return;
-        }
-        if (!App.Settings.DecisionConfigured())
-        {
-            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNotConfigured);
-            return;
-        }
+        if (_organizeClassifying) return;
+
+        var targets = VisibleOrganizeRows().Where(n => n.NeedsPurposeClassification).ToList();
+        if (targets.Count == 0) return;            // 自动跑：没事就不出声
+        if (!App.Settings.AiAutoClassify) return;
+        if (!App.Settings.DecisionConfigured()) return;
 
         _organizeClassifying = true;
         UpdateOrganizeHeader();
@@ -594,13 +618,12 @@ public partial class MainWindow
                     targets, () => scanGen == _scanGeneration, progress, ct);
                 SetOrganizeNote(Loc.AiPurposeBatchSummary(
                     outcome.Applied, outcome.Unsure, outcome.Unknown, outcome.Calls, outcome.Cost));
-                // 跑完才把「合并」面板弹出来：一类一行，勾一行整片处理
+                // 有结论就把「合并」面板摆出来：一类一行，勾一行整片处理
                 if (outcome.Applied > 0) _organizeResultShown = true;
                 op.Done("organize classify", outcome.Applied);
             }
             catch (OperationCanceledException)
             {
-                SetOrganizeNote(Loc.Aborted);
                 op.Canceled("organize classify canceled");
             }
             catch (Exception ex)
@@ -619,10 +642,19 @@ public partial class MainWindow
         {
             _organizeClassifying = false;
             UpdateOrganizeHeader();
-            // **失败必须出声。** 这是用户主动点的动作；只往页头那行小灰字里塞一句，
-            // 用户看到的就是「点了没反应」—— 真机就是这么反馈的：
-            // 日志里连报 4 次 "decisions channel is not registered"，界面一片安静。
-            if (failMsg.Length > 0) ShowAlert(Loc.AiBatchClassify, failMsg);
+        }
+
+        if (failMsg.Length > 0)
+        {
+            // 页头那一行永远写；弹窗只弹第一次 —— 这是自动触发的动作，
+            // 每次滚动都糊一个对话框比静默还烦。但**绝不能完全静默**：
+            // 真机上就是这么连报 4 次 "decisions channel is not registered" 而界面一片安静的。
+            SetOrganizeNote(failMsg);
+            if (!_autoClassifyAlerted)
+            {
+                _autoClassifyAlerted = true;
+                ShowAlert(Loc.AiBatchClassify, failMsg);
+            }
         }
     }
 
@@ -822,11 +854,6 @@ public partial class MainWindow
             ?? (sender as FrameworkElement)?.Tag as OrganizeNode
             ?? (sender as FrameworkElement)?.DataContext as OrganizeNode;
         if (node != null) RevealOrganize(node);
-    }
-
-    private void OrganizeReveal_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.Tag is OrganizeNode node) RevealOrganize(node);
     }
 
     /// <summary>只打开真实目录（<see cref="ShellReveal"/>），**不执行**里面的任何程序。</summary>

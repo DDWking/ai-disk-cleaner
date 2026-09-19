@@ -886,57 +886,6 @@
       </Setter>
     </Style>
 
-    <!-- 逐项 AI 的**按钮部分**：与「按文件夹删除」页同一个识别图标，不再是文字胶囊。
-         文案只进 ToolTip 与可访问名称 —— 「分析 / 分析中（点一下取消）/ 重试 / 查看结果」
-         全部沿用既有的 Ai.ButtonText 与 Ai.TipText，行为与旧文字按钮一致；
-         **分析中换成真正旋转的指示器，按钮仍可点**：再点一次＝取消这一项。 -->
-    <DataTemplate x:Key="ItemAiInline">
-      <Button Style="{StaticResource IconButton}" Width="28" Height="28" Padding="0"
-              Click="ItemAi_Click"
-              ToolTip="{Binding Ai.TipText}"
-              AutomationProperties.Name="{Binding Ai.ButtonText}">
-        <Grid Width="14" Height="14">
-          <Path Width="14" Height="14" Stretch="Uniform"
-                Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
-            <Path.Style>
-              <Style TargetType="Path">
-                <Setter Property="Data" Value="{StaticResource IconScan}"/>
-                <Style.Triggers>
-                  <!-- 分析中把识别图标收起来，位置让给旋转指示器 -->
-                  <DataTrigger Binding="{Binding Ai.IsAnalyzing}" Value="True">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                  </DataTrigger>
-                </Style.Triggers>
-              </Style>
-            </Path.Style>
-          </Path>
-          <!-- 这一项在跑：旋转指示器（本身不吃点击，按钮照常可点＝取消） -->
-          <ProgressBar Style="{StaticResource AiSpinner}"
-                       IsIndeterminate="{Binding Ai.IsAnalyzing}"
-                       Visibility="{Binding Ai.IsAnalyzing, Converter={StaticResource BoolToVisible}}"
-                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-        </Grid>
-      </Button>
-    </DataTemplate>
-
-    <!-- 逐项 AI 瘦提示：只写模型独有的用途 / 删除影响。
-         不复述文件表里的项数与空间；本地勾选芯片在位置行上，不进这块。 -->
-    <DataTemplate x:Key="ItemAiResultOnly">
-      <StackPanel Margin="0,4,0,0"
-                  Visibility="{Binding Ai.ShowAiInline, Converter={StaticResource BoolToVisible}}">
-        <StackPanel Visibility="{Binding Ai.ShowResultPanel, Converter={StaticResource BoolToVisible}}">
-          <TextBlock Text="{Binding Ai.PurposeText}" FontSize="11.5"
-                     Foreground="{DynamicResource TextDim}" TextWrapping="Wrap"
-                     Visibility="{Binding Ai.PurposeText, Converter={StaticResource EmptyToCollapsed}}"/>
-          <TextBlock Text="{Binding Ai.ImpactText}" FontSize="11.5" Margin="0,2,0,0"
-                     Foreground="{DynamicResource TextDim}" TextWrapping="Wrap"
-                     Visibility="{Binding Ai.ImpactText, Converter={StaticResource EmptyToCollapsed}}"/>
-        </StackPanel>
-        <TextBlock Text="{Binding Ai.StatusText}" FontSize="11.5" Margin="0,2,0,0"
-                   Foreground="{DynamicResource TextMuted}" TextWrapping="Wrap"
-                   Visibility="{Binding Ai.ShowIdentifyError, Converter={StaticResource BoolToVisible}}"/>
-      </StackPanel>
-    </DataTemplate>
 
     <!-- 一个清理位置的整行（含就地展开的候选文件）。
          2.11：分类行**就地展开**用的就是这一套模板，不再切到「位置页」这个第二视图；
@@ -1000,10 +949,6 @@
               <Path Data="{StaticResource IconFolderOpen}" Width="15" Height="15" Stretch="Uniform"
                     Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
             </Button>
-            <!-- 逐项 AI：识别图标，固定在右侧；结果在行下方展开 -->
-            <ContentControl Grid.Column="4" Content="{Binding}"
-                            ContentTemplate="{StaticResource ItemAiInline}"
-                            VerticalAlignment="Center" Margin="0,0,6,0"/>
             <!-- 就地展开这一处的候选文件：矢量箭头，不换页面 -->
             <Button Grid.Column="5" Style="{StaticResource ChevronButton}"
                     VerticalAlignment="Center" Click="LocationViewFiles_Click"
@@ -1015,9 +960,6 @@
                     Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
             </Button>
           </Grid>
-          <!-- 模型用途 / 删除影响 / 识别失败的一行实话。不复述项数。 -->
-          <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ItemAiResultOnly}"
-                          Margin="32,0,0,0"/>
           <!-- ===== 行内展开：这一处的候选文件，**不需要 AI** =====
                点位置行或右侧箭头就地展开；列表用真正的 CleanItem 实例，
                勾选直接写回同一份状态；只在这里看与勾，不能删。 -->
@@ -1358,29 +1300,17 @@
                  在这里是结构上成立的，不靠提示词约束。 -->
             <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
                     Padding="16,10,16,10">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
-                  <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
-                             FontSize="11.5" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
-                             FontSize="11" TextTrimming="CharacterEllipsis"/>
-                </StackPanel>
-                <!-- 数量写在按钮上，一眼知道值不值得点；跑的时候它变成「停止」。
-                     未识别为 0 时整块隐藏，不留一个点了没反应的按钮。 -->
-                <Button x:Name="OrganizeClassifyBtn" Grid.Column="1" Style="{StaticResource GhostButton}"
-                        Padding="12,5" FontSize="11.5" VerticalAlignment="Center"
-                        Visibility="Collapsed" Click="OrganizeClassify_Click"
-                        ToolTip="把认不出用途的文件夹一次性交给 AI 判断是什么（只补用途，不改任何删除相关的东西）"
-                        AutomationProperties.Name="批量识别用途"/>
-              </Grid>
+              <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
+                           FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
+                           FontSize="11" TextTrimming="CharacterEllipsis"/>
+              </StackPanel>
             </Border>
 
-            <!-- 这里**没有**常驻进度条：跑批量时进度写在页头那一行统计里，
-                 按钮变成「停止」。扫描后仍只做本地识别，不会自己发请求。 -->
+            <!-- **这里没有任何识别按钮**：翻到哪就自动认哪。
+                 进度写在页头那一行统计里；要关掉自动识别去设置里关。 -->
+
 
             <!-- ===== 分类结果面板：「合并」的落点 =====
                  跑完一次归类才出现。一屏 38 行里如果有 12 行都被认成「软件缓存」，
@@ -1686,52 +1616,6 @@
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <!-- 操作：**没有逐项「识别」按钮**，也**没有第二套展开按钮** ——
-                     左边那个箭头是唯一的展开/收起入口；这里只留「在资源管理器中打开」。
-                     表头「操作」与图标本来就都是左边距 8（单元格 Padding + 表头 Padding 同值），
-                     不再另加 HeaderStyle。 -->
-                <DataGridTemplateColumn x:Name="ColOrgAction" Header="操作" Width="92" MinWidth="92"
-                                        CanUserResize="False" CanUserSort="False" IsReadOnly="True">
-                  <DataGridTemplateColumn.CellTemplate>
-                    <DataTemplate>
-                      <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,3,4,3">
-                        <!-- 单项 AI：只分析**这一个文件夹**。再点一次 = 取消（跑着）或展开结果（已有）。
-                             本地已认出来的也可以问：知道用途不等于知道删除影响。
-                             **跑着时不禁用**：按钮变成旋转指示器，但仍可点（点了就是取消这一项）。 -->
-                        <Button Style="{StaticResource IconButton}" Width="26" Height="26"
-                                Tag="{Binding}" Click="ItemAi_Click"
-                                ToolTip="{Binding Ai.TipText}"
-                                AutomationProperties.Name="{Binding Ai.ButtonText}">
-                          <Grid Width="13" Height="13">
-                            <Path Data="{StaticResource IconScan}" Width="13" Height="13" Stretch="Uniform"
-                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
-                              <Path.Style>
-                                <Style TargetType="Path">
-                                  <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Ai.IsAnalyzing}" Value="True">
-                                      <Setter Property="Visibility" Value="Collapsed"/>
-                                    </DataTrigger>
-                                  </Style.Triggers>
-                                </Style>
-                              </Path.Style>
-                            </Path>
-                            <ProgressBar Style="{StaticResource AiSpinner}" Width="13" Height="13"
-                                         IsIndeterminate="{Binding Ai.IsAnalyzing}"
-                                         Visibility="{Binding Ai.IsAnalyzing, Converter={StaticResource BoolToVisible}}"
-                                         Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                          </Grid>
-                        </Button>
-                        <Button Style="{StaticResource IconButton}" Width="26" Height="26"
-                                Tag="{Binding}" Click="OrganizeReveal_Click"
-                                ToolTip="在资源管理器中打开（不会执行里面的程序）"
-                                AutomationProperties.Name="在资源管理器中打开">
-                          <Path Data="{StaticResource IconFolderOpen}" Width="13" Height="13" Stretch="Uniform"
-                                Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                        </Button>
-                      </StackPanel>
-                    </DataTemplate>
-                  </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>
@@ -2267,28 +2151,7 @@
                     </Style>
                   </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
-                <!-- 说明列常驻：理由就是可信度来源，藏起来只会让人更没底。
-                     AI 有产出时覆盖规则原因，没有就显示规则原因。 -->
-                <!-- 逐项 AI：只分析**这一个文件**。按钮在行右侧，结果走 RowDetails 在行下方展开。 -->
-                <DataGridTemplateColumn x:Name="ColItemAi" Header="AI" Width="118" MinWidth="118" CanUserResize="False" IsReadOnly="True">
-                  <DataGridTemplateColumn.CellTemplate>
-                    <DataTemplate>
-                      <!-- 这里曾经引用已被删除的 ItemAiBlock 键：详情页只在打开时才实例化，
-                           于是编译通过、一点箭头就抛 StaticResourceHolder 异常。 -->
-                      <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ItemAiInline}"/>
-                    </DataTemplate>
-                  </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
               </DataGrid.Columns>
-              <!-- AI 结果在**行下方**展开（DataGrid 原生 RowDetails），
-                   不额外撑出一整行按钮，也不动列布局。 -->
-              <DataGrid.RowDetailsTemplate>
-                <DataTemplate>
-                  <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ItemAiResultOnly}"
-                                  Margin="24,0,8,0"/>
-                </DataTemplate>
-              </DataGrid.RowDetailsTemplate>
-              <DataGrid.RowDetailsVisibilityMode>VisibleWhenSelected</DataGrid.RowDetailsVisibilityMode>
             </DataGrid>
                 </DockPanel>
               </Border>
@@ -2546,6 +2409,13 @@
             <CheckBox x:Name="AiFullPathBox" Margin="0,0,0,4" Click="AiFullPath_Click"
                       Foreground="{DynamicResource Text}" FontSize="12"/>
             <TextBlock x:Name="AiFullPathHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                       TextWrapping="Wrap" Margin="0,0,0,10"/>
+            <!-- 自动识别开关：翻到哪认到哪，不用点按钮。
+                 **它确实会自己发请求**（对 v2.9「翻页/展开 = 0 次请求」的有意放开），
+                 所以必须让用户看得见、关得掉。 -->
+            <CheckBox x:Name="AiAutoClassifyBox" Margin="0,0,0,4" Click="AiAutoClassify_Click"
+                      Foreground="{DynamicResource Text}" FontSize="12"/>
+            <TextBlock x:Name="AiAutoClassifyHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
                        TextWrapping="Wrap" Margin="0,0,0,10"/>
             <ItemsControl x:Name="AiProvCards" Margin="0,0,0,10">
               <ItemsControl.ItemTemplate>

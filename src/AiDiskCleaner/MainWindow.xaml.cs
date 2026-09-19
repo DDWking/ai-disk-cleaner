@@ -182,7 +182,6 @@ public partial class MainWindow : Window, IAnalystHost
     // 协调模块：窗口只管 UI 绑定和事件转发，流程都在这些类里（可独立测试）
     private readonly ScanCoordinator _scanCoordinator;
     private readonly DeletionCoordinator _deleteCoordinator = new();
-    private readonly AiCoordinator _aiCoordinator = new();
     private FileEntry _root = null!;
     private List<FileEntry> _allFiles = new(); // 缓存：根目录下所有文件（避免重复递归收集）
     private CancellationTokenSource? _scanCts;
@@ -411,6 +410,12 @@ public partial class MainWindow : Window, IAnalystHost
             AiFullPathBox.IsChecked = App.Settings.AiSendFullPaths;
         }
         if (AiFullPathHint != null) AiFullPathHint.Text = Loc.AiSendFullPathsHint;
+        if (AiAutoClassifyBox != null)
+        {
+            AiAutoClassifyBox.Content = Loc.AiAutoClassify;
+            AiAutoClassifyBox.IsChecked = App.Settings.AiAutoClassify;
+        }
+        if (AiAutoClassifyHint != null) AiAutoClassifyHint.Text = Loc.AiAutoClassifyHint;
         AiNameLabel.Text = Loc.AiName;
         AiUrlLabel.Text = Loc.AiBaseUrl;
         AiProtoLabel.Text = Loc.AiProtocolTitle;
@@ -541,7 +546,7 @@ public partial class MainWindow : Window, IAnalystHost
         CancelQuietly(_dupCts);
         CancelQuietly(_snapshotCts);
         CancelQuietly(_uninstallCts);
-        CancelQuietly(_aiStop);
+        CancelQuietly(_aiClassifyCts);   // 批量归类（识别用途）
         CancelQuietly(_aiAppsStop);
         CancelQuietly(_aiConfigCts);
         // 整理页已无批量/自动识别任务：模型请求只由用户对单项发起，走逐项取消按钮
@@ -1526,6 +1531,18 @@ public partial class MainWindow : Window, IAnalystHost
     }
 
     /// <summary>
+    /// 「翻到哪就自动识别哪」开关。关掉之后「按文件夹删除」页一个请求都不发。
+    /// </summary>
+    private void AiAutoClassify_Click(object sender, RoutedEventArgs e)
+    {
+        bool on = AiAutoClassifyBox.IsChecked == true;
+        if (App.Settings.AiAutoClassify == on) return;
+        App.Settings.AiAutoClassify = on;
+        App.Settings.Save();
+        AppLog.Info("Settings", "auto classify while browsing = " + on);
+    }
+
+    /// <summary>
     /// 「清除密钥」：把当前供应商的密钥从内存和加密仓库里都去掉，并立刻落盘。
     /// 只清当前这家，不动别的提供方。
     /// </summary>
@@ -1769,10 +1786,9 @@ public partial class MainWindow : Window, IAnalystHost
     /// 现在是否有 AI 在跑。三个来源任一为真就算忙：
     ///  · <c>_aiBusy</c>：设置里的取模型 / 测试连接；
     ///  · <c>_aiAppsBusy</c>：卸载页的软件分析（历史入口，保留兼容）；
-    ///  · <c>_itemAiRunning</c>：逐项分析的在飞登记表 —— **按条目计数**，
-    ///    所以并发多项时只有最后一项结束才会停下来。
+    ///  · <c>_organizeClassifying</c>：批量归类（识别用途）在跑。
     /// </summary>
-    bool AiBusyNow => _aiBusy || _aiAppsBusy || _itemAiRunning.Count > 0;
+    bool AiBusyNow => _aiBusy || _aiAppsBusy || _organizeClassifying;
 
     /// <summary>
     /// 顶栏右侧的 AI 胶囊是**主指示器**：
@@ -1873,409 +1889,49 @@ public partial class MainWindow : Window, IAnalystHost
     }
 
 
-    // ===== AI：**按需**分析单个文件 / 单个清理位置 =====
-    //
-    // 这里刻意不再有「首页全局分析」：扫描完成后不会自动发任何模型请求。
-    // 只有用户点了某一项的 AI 按钮，才为**那一项**发一次请求，范围不扩大。
+    /// <summary>
+    /// 节点身份（<see cref="FolderId"/>）里的代次槽。**故意恒定。**
+    ///
+    /// 文件夹的身份就是它的路径；用途缓存是「跨重启别再问一遍」的记忆 ——
+    /// 每次分层重建都换一个代次会让缓存全部落空（它以前跟着分层重建一起 +1，
+    /// 而递增它的那个方法属于已经删掉的逐项 AI）。
+    /// 真正换扫描时的重置在 <c>FolderPurposeService.ResetForScan</c> 里。
+    /// 建节点与查缓存必须用同一个值，所以留成一个具名常量而不是就地写 0。
+    /// </summary>
+    private const int NodeGeneration = 0;
 
-    /// <summary>逐项分析用的共享 CTS（顶栏「停止」与单项取消都会用到）。</summary>
-    CancellationTokenSource? _aiStop;
-
-    /// <summary>逐项分析服务：缓存 + 有限并发 + 超时都在这层。</summary>
-    private readonly ItemAiService _itemAi = new();
-
-    /// <summary>正在进行的逐项分析：来源+稳定标识 → 取消源。用于就地取消与去重。</summary>
-    private readonly ItemAiRunningRegistry _itemAiRunning = new();
-
-    /// <summary>配置签名：换了提供方/模型/脱敏设置后，旧缓存失效。</summary>
+    /// <summary>
+    /// 识别缓存的**配置签名**：换了提供方 / 模型 / 脱敏设置之后，落盘的旧结论就不再算数。
+    /// （它原来跟着逐项 AI 的服务走，但用途识别也在用它，所以留在这里。）
+    /// </summary>
     private string AiConfigSignature()
     {
         var p = App.Settings.CurrentProvider();
         return $"{p?.Id}|{p?.BaseUrl}|{App.Settings.AiModel}|{App.Settings.AiSendFullPaths}";
     }
 
-    /// <summary>取（或建）某一项的 AI 视图状态。挂在项目自身上，不依赖行控件。</summary>
-    private static ItemAiView AiOf(string scopeKey, ItemAiView? existing)
-        => existing ?? new ItemAiView { ScopeKey = scopeKey };
-    /// <summary>
-    /// 行上的 AI 按钮。**同一项再点一次 = 取消**（正在跑）或**展开/收起结果**（已有结果）。
-    /// 换到别的项不会影响这一项的状态。
-    /// </summary>
-    public void ItemAi_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.DataContext is not { } ctx) return;
-
-        var (view, request) = DescribeAiTarget(ctx);
-        if (view == null || request == null) return;
-
-        if (view.IsBusy)
-        {
-            // 取消这一项（不影响别的项的队列）
-            if (_itemAiRunning.TryGet(view.IsolationKey, out var cts) && cts != null)
-            {
-                try { cts.Cancel(); } catch (ObjectDisposedException) { }
-            }
-            return;
-        }
-        if (view.HasResult)
-        {
-            // 已有结果：切换展开，**不再请求模型**
-            view.IsExpanded = !view.IsExpanded;
-            return;
-        }
-        _ = RunItemAiAsync(view, request);
-    }
-
-    /// <summary>把行数据上下文翻译成「AI 视图 + 分析范围」。文件只看文件，位置只看位置。</summary>
-    private (ItemAiView?, ItemAiRequest?) DescribeAiTarget(object ctx)
-    {
-        switch (ctx)
-        {
-            case CleanItem item:
-            {
-                item.Ai.Source = ItemAiSource.Clean;   // 显式声明来源：清理树
-                return (item.Ai, new ItemAiRequest(
-                    ScopeKey: item.FullPath,
-                    IsFolder: item.IsDirectory,
-                    Path: item.FullPath,
-                    Label: item.Name,
-                    Size: item.Size,
-                    Modified: item.Entry?.Modified ?? default,
-                    Kind: item.IsDirectory ? Loc.Folder : (item.Entry?.Category ?? ""),
-                    LocalReason: item.Reason,
-                    FolderSummary: Array.Empty<string>(),
-                    FolderSummaryShown: 0,
-                    FolderChildTotal: 0));
-            }
-            case CleanLocationNode loc:
-            {
-                loc.Ai.Source = ItemAiSource.Clean;    // 显式声明来源：清理树
-                var summary = BuildFolderSummary(loc, out int total);
-                return (loc.Ai, new ItemAiRequest(
-                    ScopeKey: loc.Key,
-                    IsFolder: true,
-                    Path: loc.Path,
-                    Label: loc.DisplayName,
-                    Size: loc.Bytes,
-                    Modified: default,
-                    Kind: Loc.Folder,
-                    LocalReason: loc.Reason,
-                    FolderSummary: summary,
-                    FolderSummaryShown: summary.Count,
-                    FolderChildTotal: total));
-            }
-            // 整理页的对象：**只分析这一个文件夹**，不碰子目录、不碰整层、不碰整盘。
-            // 本地已经认出来的也可以问 —— 知道用途不等于知道删除影响，这是两件事。
-            // 关键：来源标成整理树。它的路径可能和某个清理候选**完全一样**，
-            // 但结果绝不携带清理动作能力（不能勾选、不能定位清理明细）。
-            case OrganizeNode node:
-            {
-                node.Ai.Source = ItemAiSource.Organize;
-                var summary = BuildFolderSummary(node.Dir, out int total);
-                return (node.Ai, new ItemAiRequest(
-                    ScopeKey: node.FullPath,
-                    IsFolder: true,
-                    Path: node.FullPath,
-                    Label: node.Name,
-                    Size: node.Size,
-                    Modified: node.Dir.Modified,
-                    Kind: Loc.Folder,
-                    LocalReason: node.Basis.Length > 0 ? node.Basis : node.SourceText,
-                    FolderSummary: summary,
-                    FolderSummaryShown: summary.Count,
-                    FolderChildTotal: total)
-                { Source = ItemAiSource.Organize });
-            }
-            default:
-                return (null, null);
-        }
-    }
 
     /// <summary>
-    /// 整理页那一项的有限目录摘要：**只取扫描树里已经存在的直接子项**，最大的若干条。
-    /// 不在点击时去遍历磁盘（深层目录可能有几十万文件）。
-    /// </summary>
-    private static List<string> BuildFolderSummary(FileEntry dir, out int total)
-    {
-        total = dir.FolderCount + dir.FileCount;
-        var lines = new List<string>();
-        foreach (var x in dir.ChildList
-                     .OrderByDescending(c => c.Size)
-                     .Take(ItemAiPrompt.MaxFolderSummary))
-        {
-            lines.Add($"{(x.IsDirectory ? Loc.Folder : "")}{FileEntry.FormatSize(x.Size)}  {x.Name}");
-        }
-        return lines;
-    }
-
-    /// <summary>
-    /// 文件夹的有上限摘要：**只用已经扫出来的数据**，取最大的若干直接子项。
-    /// 绝不在点击时同步遍历目录 —— 一个位置可能有几十万个文件。
-    /// </summary>
-    private static List<string> BuildFolderSummary(CleanLocationNode loc, out int total)
-    {
-        total = loc.FileCount;
-        var lines = new List<string>();
-        foreach (var x in loc.Items
-                     .OrderByDescending(i => i.Size)
-                     .Take(ItemAiPrompt.MaxFolderSummary))
-        {
-            lines.Add($"{FileEntry.FormatSize(x.Size)}  {x.Name}");
-        }
-        return lines;
-    }
-
-    /// <summary>跑一项分析。只更新这一项的状态；浏览、展开、勾选照常可用。</summary>
-    private async Task RunItemAiAsync(ItemAiView view, ItemAiRequest request)
-    {
-        // 去重：同一项已经在跑就不重复提交
-        if (view.IsBusy) return;
-
-        // 过期（重新扫描过）就先复位，绝不用旧结果去动新数据
-        if (view.IsStale) { view.IsStale = false; view.Result = null; view.Verdict = null; }
-        // 新请求开始：上一轮的失败/提示语不再代表这一轮
-        view.Error = "";
-        view.Notice = "";
-
-        // 「认领清理条目」只属于清理树：整理页路径可能和某个清理候选完全一样
-        //（FindItemByPath 会命中），一旦共用查找就会带上勾选能力。
-        // 来源在 DescribeAiTarget 里显式标好。识别本身不先用本地项数冒充结论。
-        bool cleanSource = view.IsCleanSource;
-        var node = cleanSource ? ResolveLocationNode(view.ScopeKey) : null;
-        IReadOnlyList<CleanItem> items = cleanSource
-            ? ItemsForScope(view.ScopeKey)
-            : (IReadOnlyList<CleanItem>)Array.Empty<CleanItem>();
-        if (items.Count > 0)
-            view.CanViewFiles = ResolveLocationForItem(items[0]) != null;
-
-        if (!AiConfigured())
-        {
-            // 不造一张本地项数卡。文件表照样能展开、能勾；这里只说模型不可用。
-            view.Error = Loc.AiNeedConfigLocalStillWorks;
-            view.Notice = Loc.AiNeedConfigLocalStillWorks;
-            view.Status = ItemAiStatus.Failed;
-            return;
-        }
-
-        var cts = new CancellationTokenSource();
-        _itemAiRunning.Add(view.IsolationKey, cts);
-        int myReq = ++view.RequestId;
-        view.Status = ItemAiStatus.Queued;
-        RefreshAiLamp();   // 顶栏胶囊开始转（并发多项时按登记表计数，最后一项结束才停）
-
-        try
-        {
-            var result = await _itemAi.AnalyzeAsync(
-                request, App.Settings.CurrentProvider(), App.Settings.AiModel,
-                App.Settings.AiSendFullPaths, AiConfigSignature(), cts.Token);
-
-            // 旧请求晚回来：不许覆盖新状态
-            if (myReq != view.RequestId) return;
-
-            view.Result = result;
-            // 模型不能改 CanDelete / Risk / Selected。「哪些可清理」仍只由本地规则决定。
-            if (items.Count > 0)
-            {
-                string identity = node != null
-                    ? IdentityOf(node)
-                    : IdentityOfItem(items[0], ResolveLocationForItem(items[0]));
-                view.Verdict = AiVerdict.Build(items, identity, result);
-            }
-
-            // 「请求结束」≠「有可用结论」：解析失败/空响应要如实说，并给重试。
-            // 判据与 ItemAiResult.Barren 合同一致：有用途/影响/依据就还算有用，
-            // 不因为建议档位没认出来（Unknown）就把有效内容丢掉。
-            bool usable = ItemAiPrompt.IsUsable(result);
-            if (!usable)
-            {
-                view.Status = ItemAiStatus.NoUseful;
-                view.Error = Loc.AiNoResultRetry;
-                view.Notice = Loc.AiNoResultRetry;
-                view.IsExpanded = false;
-            }
-            else
-            {
-                view.Status = ItemAiStatus.Done;
-                view.IsExpanded = true;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            if (myReq != view.RequestId) return;
-            // 区分「用户取消」与「超时」
-            view.Status = cts.IsCancellationRequested && !_scanning
-                ? ItemAiStatus.Canceled
-                : ItemAiStatus.Timeout;
-        }
-        catch (Exception ex)
-        {
-            if (myReq != view.RequestId) return;
-            view.Error = AppError.From(ex, "item ai").UserMessage;
-            view.Status = ItemAiStatus.Failed;
-            AppLog.Record("Ai", ex, $"item-ai {request.ScopeKey}");
-        }
-        finally
-        {
-            // 只有登记的仍是自己这一条时才移除：晚到的旧请求不能删掉新请求的取消源
-            _itemAiRunning.RemoveIfCurrent(view.IsolationKey, cts);
-            try { cts.Dispose(); } catch { }
-            // 登记表清空后胶囊才停：并发多项时中途不会闪回绿点
-            RefreshAiLamp();
-            RefreshOrganizeAfterItemAi(view);
-        }
-    }
-
-    /// <summary>
-    /// 整理页单项 AI 结束后，用途列 / 页头计数要跟上。
-    /// 只刷新展示，不改 Risk / CanDelete / Selected。
-    /// </summary>
-    void RefreshOrganizeAfterItemAi(ItemAiView view)
-    {
-        if (view.Source != ItemAiSource.Organize) return;
-        RefreshOrganizeRows();
-    }
-
-    /// <summary>
-    /// 扫描内容变了：**已经建出来的**逐项 AI 视图标记为过期。
-    ///
-    /// 只遍历已存在的视图（位置数量有上限；条目视图是惰性创建的），
-    /// 所以在 30 万候选下也不会批量创建对象。
-    /// 过期后不显示旧结论、也不提供任何操作，用户重新分析即可。
-    /// </summary>
-    void InvalidateItemAiAfterScan()
-    {
-        _aiDataGeneration++;
-        // 注意：这里**不**动用途识别的缓存与请求计数。
-        // 逐项 AI 代次在**每次分层重建**都会 +1（包括重复检测完成后的那次），
-        // 而用途缓存/计数属于**整理页那一遍**的生命周期：在这里清会导致
-        // ①已识别的结果被丢掉重问、②请求计数被归零（60 次的预算形同失效）。
-        // 现在只有真正换扫描时（RebuildOrganize）才 ResetForScan。
-        foreach (var loc in _layered.Purposes.SelectMany(p => p.Locations))
-        {
-            var v = loc.ExistingAi;
-            if (v == null) continue;
-            if (v.ScanGeneration != _aiDataGeneration) v.IsStale = true;
-        }
-    }
-
-    /// <summary>
-    /// 清理数据代次：每次重建分层结果就 +1。
-    /// 逐项 AI 结果据此判断是否过期（**独立于扫描任务守卫 `_scanGeneration`**）。
-    /// </summary>
-    private int _aiDataGeneration;
-
-    /// <summary>按稳定键找回这个 AI 视图对应的清理位置。找不到返回 null。</summary>
-    private CleanLocationNode? ResolveLocationNode(string scopeKey)
-    {
-        if (_openLocation != null
-            && string.Equals(scopeKey, _openLocation.Key, StringComparison.OrdinalIgnoreCase))
-            return _openLocation;
-        return _layered.Purposes.SelectMany(p => p.Locations)
-                   .FirstOrDefault(l => string.Equals(l.Key, scopeKey, StringComparison.OrdinalIgnoreCase));
-    }
-
-    /// <summary>
-    /// 这个 AI 视图**实际分析的对象**。
-    ///
-    /// 位置级：该位置的全部条目。
-    /// 文件级：就是那一个文件 —— 以前这里只按「位置键」查，文件路径永远查不到，
-    /// 于是文件级的结论是空的（界面上只剩按钮和大片空白），
-    /// 「查看文件」也会报「找不到这一组对应的位置」。
-    /// </summary>
-    IReadOnlyList<CleanItem> ItemsForScope(string scopeKey)
-    {
-        var loc = ResolveLocationNode(scopeKey);
-        if (loc != null) return loc.Items;
-        var item = FindItemByPath(scopeKey);
-        return item != null ? new[] { item } : Array.Empty<CleanItem>();
-    }
-
-    /// <summary>按完整路径找回条目（用对象身份，不用显示名或截断路径）。</summary>
-    CleanItem? FindItemByPath(string fullPath)
-    {
-        if (string.IsNullOrWhiteSpace(fullPath)) return null;
-        foreach (var l in _layered.Purposes.SelectMany(p => p.Locations))
-            foreach (var x in l.Items)
-                if (string.Equals(x.FullPath, fullPath, StringComparison.OrdinalIgnoreCase)) return x;
-        return _layered.AllItems.FirstOrDefault(
-            x => string.Equals(x.FullPath, fullPath, StringComparison.OrdinalIgnoreCase));
-    }
-
-    /// <summary>某个条目所属的位置（用于「查看文件」定位）。按对象身份找，不靠路径猜。</summary>
-    CleanLocationNode? ResolveLocationForItem(CleanItem item)
-        => _layered.Purposes.SelectMany(p => p.Locations)
-            .FirstOrDefault(l => l.Items.Any(x => ReferenceEquals(x, item)));
-
-    /// <summary>结论里那句说明要用的「这是什么」：优先本地认得出来的身份。</summary>
-    static string IdentityOf(CleanLocationNode node)
-    {
-        string sig = AppSignatures.FriendlyName(node.Path) ?? "";
-        if (!string.IsNullOrWhiteSpace(sig)) return sig;
-        return node.DisplayName;
-    }
-
-    /// <summary>文件级结论的「这是什么」：签名名 → 规则原因 → 位置名。</summary>
-    static string IdentityOfItem(CleanItem item, CleanLocationNode? owner)
-    {
-        string sig = AppSignatures.FriendlyName(item.FullPath) ?? "";
-        if (!string.IsNullOrWhiteSpace(sig)) return sig;
-        if (!string.IsNullOrWhiteSpace(item.Reason)) return item.Reason.Trim();
-        return owner?.DisplayName ?? item.Name;
-    }
-
-    /// <summary>重新分析：把这一项的状态清回未分析，再跑一次。</summary>
-    public void ItemAiRetry_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.DataContext is not { } ctx) return;
-        var (view, request) = DescribeAiTarget(ctx);
-        if (view == null || request == null || view.IsBusy) return;
-        view.Result = null;
-        view.Error = "";
-        view.Status = ItemAiStatus.Idle;
-        _ = RunItemAiAsync(view, request);
-    }
-
-    /// <summary>
-    /// 「选择这些文件」：本地动作，不是 AI 意见。
-    /// 只勾符合本地清理资格、且无需额外确认的项；不依赖识别是否跑过。
+    /// 「选择这些文件」：**纯本地动作**，跟 AI 无关（名字是历史遗留的）。
+    /// 只勾这一处符合本地清理资格、且无需额外确认的项；不依赖识别有没有跑过。
     ///
     /// 硬约束：
     /// <list type="bullet">
-    /// <item>位置行芯片：该位置 <see cref="AiVerdict.IsCleanable"/> 的项；</item>
-    /// <item>若仍带着旧的分组 Tag，只勾那一组里同样符合资格的项；</item>
-    /// <item>整理树没有这个入口，误点也直接返回；</item>
+    /// <item>只看位置行芯片：该位置 <see cref="CleanRuleEligibility.IsCleanable"/> 的项；</item>
     /// <item>不新建删除入口，结果照常汇入「查看已选」与既有预检/确认/执行链路。</item>
     /// </list>
     /// </summary>
     public void AiSelectBucket_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is not { } ctx) return;
-        if (ctx is OrganizeNode) return;
+        if ((sender as FrameworkElement)?.DataContext is not CleanLocationNode loc) return;
 
-        IReadOnlyList<CleanItem> scope;
-        if (ctx is CleanLocationNode loc)
-        {
-            scope = loc.Items.Where(AiVerdict.IsCleanable).ToList();
-        }
-        else
-        {
-            var (view, _) = DescribeAiTarget(ctx);
-            if (view == null || !view.IsCleanSource) return;
-            var verdict = view.Verdict;
-            if (verdict == null) return;
-            scope = verdict.SelectableItems;
-            if ((sender as FrameworkElement)?.Tag is AiBucketResult bucket)
-            {
-                if (!bucket.CanSelect) { SetAiStatus(Loc.SelectBlockedByRule); return; }
-                scope = bucket.Items.Where(AiVerdict.IsCleanable).ToList();
-            }
-        }
+        var scope = loc.Items.Where(CleanRuleEligibility.IsCleanable).ToList();
 
         int added = 0;
         long bytes = 0;
         foreach (var x in scope)
         {
-            if (!AiVerdict.IsCleanable(x) || x.Selected) continue;
+            if (!CleanRuleEligibility.IsCleanable(x) || x.Selected) continue;
             x.Selected = true;
             added++;
             bytes += Math.Max(0, x.Size);
@@ -2288,56 +1944,6 @@ public partial class MainWindow : Window, IAnalystHost
         SetAiStatus(Loc.SelectAdded(added, FileEntry.FormatSize(bytes)));
     }
 
-    /// <summary>
-    /// 「查看文件」：打开对应位置的明细，并**精确过滤到这些条目**。
-    ///
-    /// 文件级结果只定位那一个文件（不再去查一个「分组」）；
-    /// 分组级结果只显示该组真实关联的候选项。定位失败**保持当前页面与选择不变**，
-    /// 给一句可读原因，不跳到错误位置。
-    /// </summary>
-    public void AiViewBucket_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.DataContext is not { } ctx) return;
-        var (view, _) = DescribeAiTarget(ctx);
-        if (view == null || view.Verdict == null) return;
-
-        // 按钮 Tag 是分组时只看这一组；顶部按钮看「可考虑清理」那部分（没有就退回全部已分析对象）
-        IReadOnlyList<CleanItem> subset = view.Verdict.SelectableItems.Count > 0
-            ? view.Verdict.SelectableItems
-            : view.Verdict.Buckets.SelectMany(b => b.Items).ToList();
-        if ((sender as FrameworkElement)?.Tag is AiBucketResult bucket) subset = bucket.Items;
-
-        if (subset.Count == 0)
-        {
-            SetAiStatus(Loc.GroupViewNeedsLocation);
-            return;
-        }
-
-        // 按**对象身份**找所属位置：位置级直接命中，文件级用条目反查
-        var node = ResolveLocationNode(view.ScopeKey) ?? ResolveLocationForItem(subset[0]);
-        if (node == null)
-        {
-            // 找不到就什么都不动（不改页面、不改选择），只说明原因
-            SetAiStatus(Loc.GroupViewNeedsLocation);
-            view.CanViewFiles = false;
-            return;
-        }
-
-        _locationScrollOffset = PurposePage?.VerticalOffset ?? _locationScrollOffset;
-        if (!_detailIsOverlay || !ReferenceEquals(_openLocation, node)) OpenDetail(node);
-
-        _pager?.SetItemFilter(subset);
-        BindDetailPage();
-        SetAiStatus(Loc.AiFilteredToCount(subset.Count));
-    }
-
-    private void AiStop_Click(object sender, RoutedEventArgs e)
-    {
-        // 统一取消，但保留登记：各请求结束时会各自按身份移除（不会误删别人的）
-        _itemAiRunning.CancelAll();
-        try { _aiStop?.Cancel(); } catch (ObjectDisposedException) { }
-        AppLog.Info("Ai", "user stopped AI analysis");
-    }
 
     /// <summary>
     /// 2.11：目录侧栏（及其右键菜单「问 AI 这是什么」）已整体移除。
@@ -2385,6 +1991,8 @@ public partial class MainWindow : Window, IAnalystHost
         MarkTab(TabUninstallBtn, tab == RightTab.Uninstall);
         // 卸载页第一次被打开时才去扫软件清单（隐藏面板按需初始化）
         if (tab == RightTab.Uninstall) EnsureAppsLoaded();
+        // 切到「按文件夹删除」页 = 打开了一屏新的：安排一次自动识别（防抖，滚动中不会连发）
+        if (tab == RightTab.Organize) ScheduleAutoClassify();
         // 切页时把第三层状态同步过去（各页只显示自己的状态）
         UpdateScanStateLine();
     }
@@ -2468,11 +2076,7 @@ public partial class MainWindow : Window, IAnalystHost
     /// 后台重建分层结果（去重 / 分用途 / 分位置 / 统计），完成后在 UI 线程一次性换掉。
     /// **不在后台碰任何控件或绑定视图** —— 只算数据。
     /// </summary>
-    /// <param name="invalidateItemAi">
-    /// 是否顺手把逐项 AI 结果标记过期。**只有真的换了扫描内容才该这么做** ——
-    /// 批量归类只是给候选补了用途，扫描数据一个字没变，标过期等于白扔掉用户已经跑过的逐项分析。
-    /// </param>
-    private async Task RebuildLayersAsync(FileEntry root, PerfTrace? perf, string label, bool invalidateItemAi = true)
+    private async Task RebuildLayersAsync(FileEntry root, PerfTrace? perf, string label)
     {
         if (_report == null) return;
         int myGeneration = ++_layerGeneration;
@@ -2510,8 +2114,6 @@ public partial class MainWindow : Window, IAnalystHost
         if (!ReferenceEquals(_root, root) || myGeneration != _layerGeneration) return;
 
         _layered = layered;
-        if (invalidateItemAi)
-            InvalidateItemAiAfterScan();   // 新扫描 ⇒ 旧的逐项 AI 结果过期，不给旧结论也不给操作
         // 文件夹整理：**每次扫描只建一次**，而且建在扫描代次落定之后，
         // 这样对象标识里的代次与本次扫描一致（旧请求就不可能串到新列表里）。
         if (_organizeBuiltForScan != _scanGeneration) RebuildOrganize();

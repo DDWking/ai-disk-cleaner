@@ -27,7 +27,7 @@ namespace AiDiskCleaner.Services;
 /// <see cref="AppPaths.OverrideDirectory"/> 隔离），因此不同配置/档案天然互不串扰；
 /// 测试可以直接注入一个临时文件路径，绝不碰真实用户配置。
 /// </summary>
-public sealed class RecognitionStore : IItemAiRecognitionStore, IPurposeRecognitionStore
+public sealed class RecognitionStore : IPurposeRecognitionStore
 {
     /// <summary>落盘结构版本。字段语义变了就 +1，旧文件按损坏处理（重新累积）。</summary>
     public const int SchemaVersion = 1;
@@ -51,18 +51,19 @@ public sealed class RecognitionStore : IItemAiRecognitionStore, IPurposeRecognit
 
     sealed class Entry
     {
-        public string Kind { get; set; } = "";       // "item" | "purpose"
+        /// <summary>
+        /// 条目种类。现在**只剩 "purpose"** —— 逐项 AI 那半套删掉之后 "item" 不再写入。
+        /// 字段本身保留：旧缓存里那些 "item" 条目会被自然跳过，不会当成用途读出来。
+        /// </summary>
+        public string Kind { get; set; } = "";
         public string Key { get; set; } = "";         // 确定性键（十六进制）
         public string Path { get; set; } = "";        // 规范化身份路径（诊断/排查用）
         public string Purpose { get; set; } = "";
-        public string Impact { get; set; } = "";
         public string Basis { get; set; } = "";       // 「证据 / 依据」
-        public string Missing { get; set; } = "";
         public string Category { get; set; } = "";
         public int FolderKind { get; set; }           // FolderKind（仅 purpose）
         public int Source { get; set; }               // PurposeSource（仅 purpose）
         public bool NeedsConfirm { get; set; }
-        public long Version { get; set; }             // 内容/提示词版本（仅 item）
         /// <summary>写入序号（确定性淘汰顺序；不依赖同一毫秒内的时间比较）。</summary>
         public long Seq { get; set; }
         public long StoredAtUnixMs { get; set; }
@@ -95,62 +96,12 @@ public sealed class RecognitionStore : IItemAiRecognitionStore, IPurposeRecognit
     /// <summary>当前内存中的有效条数。</summary>
     public int Count { get { lock (_lock) return _entries.Count; } }
 
-    public int ItemCount
-    {
-        get { lock (_lock) return _entries.Values.Count(e => e.Kind == "item"); }
-    }
-
     public int PurposeCount
     {
         get { lock (_lock) return _entries.Values.Count(e => e.Kind == "purpose"); }
     }
 
     static string MapKey(string kind, string key) => kind + "\u0001" + key;
-
-    // ---------------- 逐项 AI ----------------
-
-    public bool TryGetItem(string key, out ItemAiResult result)
-    {
-        result = ItemAiResult.Empty(0);
-        if (string.IsNullOrEmpty(key)) return false;
-
-        Entry? e;
-        lock (_lock) _entries.TryGetValue(MapKey("item", key), out e);
-        if (e == null) return false;
-
-        // 恢复出来的结果：**没有**建议档位、**没有**原始回复、**没有**任何判定/选择能力。
-        // 只有上次真的认出来的描述性文本。
-        result = new ItemAiResult(
-            ItemAiSuggestion.Unknown,
-            e.Purpose, e.Impact, e.Basis, e.Missing,
-            Raw: "", FromCache: true,
-            QueueMs: 0, SendMs: 0, ParseMs: 0, Channel: "",
-            CacheVersion: e.Version);
-        return true;
-    }
-
-    public void PutItem(string key, long version, ItemAiResult result)
-    {
-        if (string.IsNullOrEmpty(key) || result == null) return;
-
-        string purpose = Clean(result.Purpose);
-        string impact = Clean(result.Impact);
-        string basis = Clean(result.Basis);
-        string missing = Clean(result.Missing);
-        if (purpose.Length == 0 && impact.Length == 0 && basis.Length == 0 && missing.Length == 0)
-            return;   // 没内容就没有落盘价值，也不该把「空」恢复成结论
-
-        Upsert(new Entry
-        {
-            Kind = "item",
-            Key = Clip(key, 128),
-            Purpose = purpose,
-            Impact = impact,
-            Basis = basis,
-            Missing = missing,
-            Version = version,
-        });
-    }
 
     // ---------------- 目录用途 ----------------
 
@@ -295,14 +246,12 @@ public sealed class RecognitionStore : IItemAiRecognitionStore, IPurposeRecognit
     static bool IsValid(Entry? e)
     {
         if (e == null) return false;
-        if (e.Kind is not ("item" or "purpose")) return false;
+        // 旧缓存里还可能有 "item" 记录（逐项 AI 那半套的遗留）：**当无效跳过**，
+        // 不当作用途读出来，也不影响其余条目。
+        if (e.Kind != "purpose") return false;
         if (string.IsNullOrWhiteSpace(e.Key) || e.Key.Length > 128) return false;
-        if (TooLong(e.Purpose) || TooLong(e.Impact) || TooLong(e.Basis)
-            || TooLong(e.Missing) || TooLong(e.Category) || TooLong(e.Path)) return false;
-        if (e.Kind == "purpose")
-            return e.Purpose.Length > 0;   // 没结论的用途记录没有意义
-        return e.Purpose.Length > 0 || e.Impact.Length > 0
-            || e.Basis.Length > 0 || e.Missing.Length > 0;
+        if (TooLong(e.Purpose) || TooLong(e.Basis) || TooLong(e.Category) || TooLong(e.Path)) return false;
+        return e.Purpose.Length > 0;   // 没结论的用途记录没有意义
     }
 
     static bool TooLong(string? s) => s != null && s.Length > MaxFieldChars;

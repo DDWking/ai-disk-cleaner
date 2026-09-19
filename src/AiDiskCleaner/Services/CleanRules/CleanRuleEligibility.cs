@@ -41,6 +41,19 @@ public static class CleanRuleEligibility
         _ => false,
     };
 
+    /// <summary>
+    /// 单个条目是否**符合本地清理资格且无需额外确认**。
+    ///
+    /// 和 <see cref="IsRuleClear"/> 的区别：这里不看证据等级、不看用途，
+    /// 只看「本地敢不敢说它可以删」。**纯本地判据 —— 不看 AI，也不看是否已选。**
+    /// 清理页的「选择这些文件」用它决定范围。
+    ///
+    /// （原来放在 <c>AiVerdict</c> 里，但它是地地道道的本地规则，跟 AI 无关；
+    /// 逐项 AI 那套删掉时把它搬到了这里。）
+    /// </summary>
+    public static bool IsCleanable(CleanItem x)
+        => x.CanDelete && x.Risk != CleanRisk.Keep && x.Risk != CleanRisk.Confirm;
+
     /// <summary>这条候选够不够格被「选择规则明确的清理项」带走。</summary>
     public static bool IsRuleClear(CleanItem item)
         => item.CanDelete

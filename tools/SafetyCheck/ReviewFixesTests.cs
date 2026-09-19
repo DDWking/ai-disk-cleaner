@@ -90,19 +90,14 @@ public static class ReviewFixesTests
         check("下载里的视频不参与批选", !CleanRuleEligibility.IsRuleClear(videoInDownloads));
 
         // ---- AI 不能改变候选资格 ----
-        var aiTouched = Clear(@"C:\Users\x\AppData\Local\Temp\cache\ai.bin", 1000);
-        aiTouched.AiNote = "AI 说这个可以删";
-        aiTouched.AiSuggested = true;
-        check("AI 说明/标记不会让不够格的项变得够格",
-            CleanRuleEligibility.IsRuleClear(aiTouched) == CleanRuleEligibility.IsRuleClear(eligible));
-
-        var heuristicWithAi = Clear(@"C:\whatever\x.bin", 1000);
-        heuristicWithAi.Evidence = EvidenceLevel.Heuristic;
-        heuristicWithAi.AiNote = "AI 建议删";
-        heuristicWithAi.AiSuggested = true;
-        heuristicWithAi.Ai.IsExpanded = true;
-        check("AI 结论再多也改不了「启发式证据」这个事实",
-            !CleanRuleEligibility.IsRuleClear(heuristicWithAi));
+        // 以前这里往条目上写 AiNote / AiSuggested 再断言资格没变。逐项 AI 删掉之后，
+        // 那两个字段连**存在**都不存在了 —— 断言升级成结构断言，比运行时断言更硬：
+        // 没有可写的槽位，就没有越权的可能。
+        check("候选条目上已经没有 AI 说明 / AI 标记的槽位",
+            typeof(CleanItem).GetProperty("AiNote") == null
+            && typeof(CleanItem).GetProperty("AiSuggested") == null
+            && typeof(CleanItem).GetProperty("Ai") == null);
+        // （「启发式证据的项不管 AI 说什么都不够格」上面第 57-60 行已经断言过，不重复。）
 
         // ---- 预览：分类、排除、取消 ----
         var candidates = new List<CleanItem>
@@ -399,20 +394,17 @@ public static class ReviewFixesTests
         lazyNode.Collapse();
         check("收起后子对象还在（再展开不重复请求）", lazyNode.ChildrenLoaded && lazyNode.Children.Count == 2);
 
-        // (7) 点过单项 AI 后，用途列替换「未识别」，不再叠「需要确认」
+        // (7) 批量归类给出用途之后，用途列替换「未识别」，不再叠「需要确认」
+        //     （这一条原来测的是「点过单项 AI 之后」，逐项 AI 删掉后改测批量归类这个唯一挂点。）
         var unknownDir = DirNode("VolleyballBall", @"X:\VolleyballBall", 100);
         var unknownNode = new OrganizeNode(unknownDir, new FolderId(unknownDir.FullPath, 1), 0, "VolleyballBall");
-        check("点 AI 前用途是未识别", unknownNode.PurposeText == Loc.PurposeUnrecognized,
+        check("归类前用途是未识别", unknownNode.PurposeText == Loc.PurposeUnrecognized,
             unknownNode.PurposeText);
-        unknownNode.Ai.Result = new ItemAiResult(
-            ItemAiSuggestion.Unknown, "排球游戏存档", "删了进度没了",
-            "文件夹名", "", "", false, 0, 0, 0, "", 1);
-        unknownNode.Ai.Status = ItemAiStatus.Done;
-        check("点过 AI 后用途列换成模型给的用途",
-            unknownNode.PurposeText == "排球游戏存档", unknownNode.PurposeText);
-        check("点过 AI 后不再算未识别 / 待确认",
+        unknownNode.SetBatchPurpose("模型 / 游戏素材");
+        check("归类后用途列换成模型给的用途",
+            unknownNode.PurposeText == "模型 / 游戏素材", unknownNode.PurposeText);
+        check("归类后不再算未识别 / 待确认",
             unknownNode.HasConclusion && !unknownNode.NeedsConfirm && !unknownNode.IsPending);
-        check("整理树 AI 结果仍然不能勾选清理项", !unknownNode.Ai.CanSelect);
     }
 
     static FileEntry DirNode(string name, string path, long size, FileEntry? parent = null)

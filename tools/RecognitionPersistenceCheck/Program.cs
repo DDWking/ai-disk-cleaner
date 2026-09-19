@@ -59,7 +59,6 @@ public static class Program
         {
             KeyDeterminismTests();
             StoreBoundsAndAtomicityTests();
-            ItemAiRoundtripTests();
             PurposeRoundtripTests();
             ChangedEvidenceInvalidationTests();
             CorruptionToleranceTests();
@@ -82,17 +81,16 @@ public static class Program
 
     // ---------------- 工具 ----------------
 
-    static ItemAiRequest ItemReq(string path, long size = 100, ItemAiSource src = ItemAiSource.Clean)
-        => new(
-            ScopeKey: path, IsFolder: true, Path: path, Label: "x", Size: size,
-            Modified: new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), Kind: "folder",
-            LocalReason: "rule", FolderSummary: new[] { "1 KB a" },
-            FolderSummaryShown: 1, FolderChildTotal: 3)
-        { Source = src };
-
-    static ItemAiResult ItemResult(string purpose)
-        => new(ItemAiSuggestion.CanConsider, purpose, "影响文本", "证据文本", "缺少文本",
-            "RAW-MODEL-REPLY", false, 3, 4, 5, "http", 7);
+    /// <summary>
+    /// 造一条用途结论。
+    ///
+    /// 逐项 AI 那半套删掉之后，落盘缓存**只剩用途这一半** ——
+    /// 原来配套的 ItemAiRequest / ItemAiResult 都随能力一起没了，
+    /// 所以这里的往返测试统一走目录用途这条路。
+    /// </summary>
+    static FolderPurposeResult PurposeResult(string path, string purpose, string basis = "依据文本")
+        => new(new FolderId(path, 1), purpose, "开发", basis, PurposeSource.Ai,
+            NeedsConfirm: false, FolderKind.Concrete);
 
     static FileEntry Folder(string path, params string[] files)
     {
@@ -137,12 +135,11 @@ public static class Program
     {
         Section("确定性键：路径规范化、不含扫描代次、不用 GetHashCode");
 
-        Check("同路径不同写法（斜杠/大小写/末尾反斜杠）键相同",
-            RecognitionKey.Item(@"C:\A", 5) == RecognitionKey.Item(@"c:/a\", 5),
-            RecognitionKey.Item(@"C:\A", 5) + " vs " + RecognitionKey.Item(@"c:/a\", 5));
-        Check("版本变化 ⇒ 键变化（内容/提示词/配置任一变化都会失效）",
-            RecognitionKey.Item(@"C:\A", 5) != RecognitionKey.Item(@"C:\A", 6));
-        Check("不同路径 ⇒ 键不同", RecognitionKey.Item(@"C:\A", 5) != RecognitionKey.Item(@"C:\B", 5));
+        Check("同路径不同写法（斜杠/大小写/末尾反斜杠）得到同一个路径键",
+            RecognitionKey.PathKey(@"C:\A") == RecognitionKey.PathKey(@"c:/a\"),
+            RecognitionKey.PathKey(@"C:\A") + " vs " + RecognitionKey.PathKey(@"c:/a\"));
+        Check("不同路径 ⇒ 路径键不同",
+            RecognitionKey.PathKey(@"C:\A") != RecognitionKey.PathKey(@"C:\B"));
         Check("稳定哈希是纯函数（同输入两次一致）",
             RecognitionKey.Stable("a", "b", "c") == RecognitionKey.Stable("a", "b", "c"));
         Check("分段有分隔符，不会把 (“a”,“bc”) 和 (“ab”,“c”) 撞到一起",
@@ -166,12 +163,12 @@ public static class Program
 
         // 源码守卫：键的实现里不能出现进程随机哈希
         string storeSrc = ReadSource("src/AiDiskCleaner/Services/RecognitionStore.cs");
-        string itemSrc = ReadSource("src/AiDiskCleaner/Services/ItemAiService.cs");
+        string keySrc = ReadSource("src/AiDiskCleaner/Services/RecognitionKey.cs");
         string purposeSrc = ReadSource("src/AiDiskCleaner/Services/FolderPurposeService.cs");
         Check("键/存储实现不使用 GetHashCode（跨进程稳定）",
-            storeSrc.Length > 0 && itemSrc.Length > 0 && purposeSrc.Length > 0
+            storeSrc.Length > 0 && keySrc.Length > 0 && purposeSrc.Length > 0
             && !storeSrc.Contains("GetHashCode(", StringComparison.Ordinal)
-            && !itemSrc.Contains("GetHashCode(", StringComparison.Ordinal)
+            && !keySrc.Contains("GetHashCode(", StringComparison.Ordinal)
             && !purposeSrc.Contains("GetHashCode(", StringComparison.Ordinal));
     }
 
@@ -183,11 +180,9 @@ public static class Program
 
         string path = StorePath("bounds");
         var store = new RecognitionStore(path);
-        for (int i = 0; i < RecognitionStore.MaxEntries + 30; i++)
-        {
-            long v = i + 1;
-            store.PutItem(RecognitionKey.Item(@"C:\bounded\" + i, v), v, ItemResult("p" + i));
-        }
+        int total = RecognitionStore.MaxEntries + 30;
+        for (int i = 0; i < total; i++)
+            store.PutPurpose("k" + i, PurposeResult(@"C:\bounded\" + i, "p" + i));
 
         Check("条数不超过上限", store.Count == RecognitionStore.MaxEntries, store.Count.ToString());
         Check("写入不留临时文件", !File.Exists(path + ".tmp"));
@@ -196,54 +191,16 @@ public static class Program
         var reload = new RecognitionStore(path);
         Check("新实例读回同样多的条数", reload.Count == store.Count, reload.Count.ToString());
         // 最新写入的一条必须还在（淘汰的是最旧的）
-        long lastV = RecognitionStore.MaxEntries + 30;
+        int last = total - 1;
         Check("淘汰的是最旧、保留的是最新",
-            reload.TryGetItem(RecognitionKey.Item(@"C:\bounded\" + (lastV - 1), lastV), out var last)
-            && last.Purpose == "p" + (lastV - 1),
-            last?.Purpose ?? "(missing)");
+            reload.TryGetPurpose("k" + last, new FolderId(@"C:\bounded\" + last, 1), out var got)
+            && got.PurposeName == "p" + last,
+            got?.PurposeName ?? "(missing)");
 
         store.Clear();
         Check("Clear 后文件被删除", !File.Exists(path));
     }
 
-    // ---------------- 3. 逐项 AI 真往返 ----------------
-
-    static void ItemAiRoundtripTests()
-    {
-        Section("逐项 AI：服务实例 A 落盘 ⇒ 全新实例 B 读回，且不再发请求");
-
-        string path = StorePath("item");
-        var req = ItemReq(@"C:\cache-dir");
-        string cfg = "cfg-item";
-
-        var svcA = new ItemAiService(new RecognitionStore(path));
-        var calls = StubAi("SUGGEST: 可考虑清理\nPURPOSE: 缓存目录\nIMPACT: 删了会重建\nBASIS: 命中规则\nMISSING: 无");
-        var first = svcA.AnalyzeAsync(req, Provider(), "m", false, cfg, CancellationToken.None)
-            .GetAwaiter().GetResult();
-        Check("首次识别真的发了一次并拿到结论",
-            calls() == 1 && first != null && first.Purpose == "缓存目录", first?.Purpose ?? "(null)");
-
-        // 恢复阶段：换成会计数的空回复通道；一旦恢复真的去问模型，计数就会 > 0。
-        int afterStore = calls();
-        var svcB = new ItemAiService(new RecognitionStore(path));
-        var restored = svcB.TryGetRestored(req, cfg);
-        Check("全新实例从落盘读回同一份文本",
-            restored != null
-            && restored.Purpose == "缓存目录" && restored.Impact == "删了会重建"
-            && restored.Basis == "命中规则" && restored.Missing == "无",
-            restored?.Purpose ?? "(null)");
-        Check("恢复结果标为来自缓存", restored?.FromCache == true);
-        Check("恢复阶段没有再发任何请求", calls() == afterStore, calls().ToString());
-        Check("恢复结果不带建议档位（不是判定）", restored?.Suggestion == ItemAiSuggestion.Unknown);
-        Check("恢复结果不带模型原始回复", restored != null && restored.Raw.Length == 0);
-
-        // 通过完整 Analyze 路径也会命中落盘缓存，同样不发请求
-        var viaAnalyze = svcB.AnalyzeAsync(req, Provider(), "m", false, cfg, CancellationToken.None)
-            .GetAwaiter().GetResult();
-        Check("Analyze 命中落盘缓存，仍然一次请求都没发",
-            calls() == afterStore && viaAnalyze != null && viaAnalyze.FromCache);
-        AiClient.Handler = null;
-    }
 
     // ---------------- 4. 用途识别真往返 ----------------
 
@@ -298,27 +255,9 @@ public static class Program
     {
         Section("证据变化 ⇒ 旧结论失效（不会贴到已经变了的目录上）");
 
-        string path = StorePath("evidence");
-        var req = ItemReq(@"C:\changed");
+        // 逐项 AI 那一半随能力删掉了，这里只剩目录用途这一条路 ——
+        // 但「内容变了旧结论就失效」这条不变量一个字都没变。
         string cfg = "cfg-evidence";
-
-        var store = new RecognitionStore(path);
-        long v1 = ItemAiPrompt.VersionOf(req, cfg);
-        store.PutItem(RecognitionKey.Item(req.ScopeKey, v1), v1, ItemResult("旧结论"));
-
-        var same = new ItemAiService(new RecognitionStore(path));
-        Check("内容没变 ⇒ 命中",
-            same.TryGetRestored(req, cfg)?.Purpose == "旧结论");
-
-        var changed = ItemReq(@"C:\changed", size: 4096);
-        long v2 = ItemAiPrompt.VersionOf(changed, cfg);
-        Check("版本随内容指纹变化", v1 != v2);
-        Check("内容变了 ⇒ 不再命中旧结论",
-            new ItemAiService(new RecognitionStore(path)).TryGetRestored(changed, cfg) == null);
-        Check("配置签名变了 ⇒ 不再命中旧结论",
-            new ItemAiService(new RecognitionStore(path)).TryGetRestored(req, "cfg-other") == null);
-
-        // 用途侧同理
         var dir = Folder(@"D:\evidence-folder", "x.dat");
         var id = new FolderId(dir.FullPath, 3);
         var sum = FolderPurposeRules.Summarize(dir, id, 0, "evidence-folder");
@@ -344,40 +283,44 @@ public static class Program
         var store = new RecognitionStore(path);
         Check("非法 JSON 不抛异常且当空库", store.Count == 0, store.Count.ToString());
 
-        long v = 11;
-        store.PutItem(RecognitionKey.Item(@"C:\after-corrupt", v), v, ItemResult("恢复"));
+        store.PutPurpose("k-after-corrupt", PurposeResult(@"C:\after-corrupt", "恢复"));
         var back = new RecognitionStore(path);
         Check("坏文件被下一次写入原子覆盖，数据可读回",
-            back.TryGetItem(RecognitionKey.Item(@"C:\after-corrupt", v), out var r) && r.Purpose == "恢复",
-            r?.Purpose ?? "(missing)");
+            back.TryGetPurpose("k-after-corrupt", new FolderId(@"C:\after-corrupt", 1), out var r)
+            && r.PurposeName == "恢复",
+            r?.PurposeName ?? "(missing)");
 
-        // 结构正确、但混了一条坏记录：好记录要留下，坏记录只跳过
+        // 结构正确、但混了坏记录：好记录要留下，坏记录只跳过
+        // 注意第一条 Kind 用的是 "item" —— 那是逐项 AI 那半套的遗留，
+        // 现在**应当被当无效跳过**（不能当成用途读出来）。
         string path2 = StorePath("mixed");
         File.WriteAllText(path2,
             "{\"Version\":1,\"Entries\":["
-            + "{\"Kind\":\"item\",\"Key\":\"k-good\",\"Purpose\":\"good\"},"
+            + "{\"Kind\":\"item\",\"Key\":\"k-legacy\",\"Purpose\":\"legacy\"},"
             + "{\"Kind\":\"bogus\",\"Key\":\"k-bad\",\"Purpose\":\"bad\"},"
-            + "{\"Kind\":\"purpose\",\"Key\":\"k-empty\",\"Purpose\":\"\"}"
+            + "{\"Kind\":\"purpose\",\"Key\":\"k-good\",\"Purpose\":\"good\"}"
             + "]}");
         var mixed = new RecognitionStore(path2);
-        Check("坏记录只跳过自己，好记录保留", mixed.Count == 1, mixed.Count.ToString());
-        Check("保留的正是好记录", mixed.TryGetItem("k-good", out var good) && good.Purpose == "good");
+        Check("坏记录 / 旧逐项记录只跳过自己，好记录保留", mixed.Count == 1, mixed.Count.ToString());
+        Check("保留的正是好记录",
+            mixed.TryGetPurpose("k-good", new FolderId(@"C:\x", 1), out var good) && good.PurposeName == "good");
+        Check("旧的逐项记录不会被当成用途读出来",
+            !mixed.TryGetPurpose("k-legacy", new FolderId(@"C:\x", 1), out _));
 
         // 未知 schema 版本：整份当损坏，不解析
         string path3 = StorePath("schema");
-        File.WriteAllText(path3, "{\"Version\":999,\"Entries\":[{\"Kind\":\"item\",\"Key\":\"k\",\"Purpose\":\"x\"}]}");
+        File.WriteAllText(path3, "{\"Version\":999,\"Entries\":[{\"Kind\":\"purpose\",\"Key\":\"k\",\"Purpose\":\"x\"}]}");
         Check("未知 schema 版本当空库", new RecognitionStore(path3).Count == 0);
 
         // 超长文本字段：写入时被截断，不会撑大文件
         string path4 = StorePath("longfield");
         var longStore = new RecognitionStore(path4);
-        long v4 = 21;
-        longStore.PutItem(RecognitionKey.Item(@"C:\long", v4), v4, ItemResult(new string('甲', 5000)));
+        longStore.PutPurpose("k-long", PurposeResult(@"C:\long", new string('甲', 5000)));
         var lr = new RecognitionStore(path4);
         Check("单字段长度被限制在上限内",
-            lr.TryGetItem(RecognitionKey.Item(@"C:\long", v4), out var longRes)
-            && longRes.Purpose.Length <= RecognitionStore.MaxFieldChars,
-            lr.TryGetItem(RecognitionKey.Item(@"C:\long", v4), out var l2) ? l2.Purpose.Length.ToString() : "0");
+            lr.TryGetPurpose("k-long", new FolderId(@"C:\long", 1), out var longRes)
+            && longRes.PurposeName.Length <= RecognitionStore.MaxFieldChars,
+            lr.TryGetPurpose("k-long", new FolderId(@"C:\long", 1), out var l2) ? l2.PurposeName.Length.ToString() : "0");
     }
 
     // ---------------- 7. 无密钥 / 无原始回复 ----------------
@@ -392,67 +335,54 @@ public static class Program
         long v = 31;
 
         var store = new RecognitionStore(path);
-        store.PutItem(RecognitionKey.Item(@"C:\secret", v), v,
-            new ItemAiResult(ItemAiSuggestion.CanConsider, "用途里有 " + secret, "影响 " + secret,
-                "依据 apiKey=" + secret, "缺少", rawSecret, false, 0, 0, 0, "", v));
+        store.PutPurpose("k-secret", new FolderPurposeResult(
+            new FolderId(@"C:\secret", 1),
+            "用途里有 " + secret, "类别 " + secret, "依据 apiKey=" + secret + " token " + rawSecret,
+            PurposeSource.Ai, NeedsConfirm: false, FolderKind.Concrete));
 
         string text = File.ReadAllText(path);
         Check("落盘文件不含 sk- 密钥", !text.Contains(secret, StringComparison.Ordinal));
-        Check("落盘文件不含模型原始回复里的密钥", !text.Contains(rawSecret, StringComparison.Ordinal));
+        Check("落盘文件不含 ghp_ 密钥", !text.Contains(rawSecret, StringComparison.Ordinal));
         Check("落盘文件里没有密钥自检能认出的内容", !LogRedactor.LooksSecret(text));
 
         var back = new RecognitionStore(path);
         Check("恢复出的文本也不再带密钥",
-            back.TryGetItem(RecognitionKey.Item(@"C:\secret", v), out var r)
-            && !r.Purpose.Contains(secret, StringComparison.Ordinal)
-            && !r.Impact.Contains(secret, StringComparison.Ordinal)
+            back.TryGetPurpose("k-secret", new FolderId(@"C:\secret", 1), out var r)
+            && !r.PurposeName.Contains(secret, StringComparison.Ordinal)
+            && !r.Category.Contains(secret, StringComparison.Ordinal)
             && !r.Basis.Contains(secret, StringComparison.Ordinal),
             "restored");
-        Check("原始模型回复字段恢复后为空（从不落盘）", r.Raw.Length == 0);
     }
 
     // ---------------- 8. 来源隔离 / 无清理能力 ----------------
 
     static void OrganizeIsolationTests()
     {
-        Section("来源隔离：整理树拿不到清理树的落盘结果，也没有勾选/删除能力");
+        Section("落盘缓存与恢复载体都没有任何清理能力");
 
         string path = StorePath("isolation");
         string cfg = "cfg-iso";
-        var cleanReq = ItemReq(@"C:\Same", src: ItemAiSource.Clean);
-        var orgReq = ItemReq(@"C:\Same", src: ItemAiSource.Organize);
+        var dir = Folder(@"C:\Same", "a.dat");
+        var id = new FolderId(dir.FullPath, 1);
+        var sum = FolderPurposeRules.Summarize(dir, id, 0, dir.FullPath);
+        new RecognitionStore(path).PutPurpose(FolderPurposeService.PurposeKey(sum, cfg),
+            new FolderPurposeResult(id, "恢复出来的用途", "类别", "依据", PurposeSource.Ai,
+                NeedsConfirm: false, FolderKind.Concrete));
 
-        long vClean = ItemAiPrompt.VersionOf(cleanReq, cfg);
-        var store = new RecognitionStore(path);
-        store.PutItem(RecognitionKey.Item(cleanReq.ScopeKey, vClean), vClean, ItemResult("清理结论"));
-
-        var svc = new ItemAiService(new RecognitionStore(path));
-        Check("清理来源可命中", svc.TryGetRestored(cleanReq, cfg)?.Purpose == "清理结论");
-        Check("整理来源不会命中清理来源的落盘结果（键含来源版本）",
-            svc.TryGetRestored(orgReq, cfg) == null);
-
-        // 就算把恢复结果硬塞给整理视图，也不能出现勾选 / 定位清理明细能力
-        var items = new List<CleanItem>
-        {
-            new() { Name = "Same", FullPath = @"C:\Same", Size = 10, Reason = "r", CanDelete = true,
-                    Risk = CleanRisk.Safe, Purpose = CleanPurpose.Other },
-        };
-        var verdict = AiVerdict.Build(items, "Same", null);
-        Check("本地判定本身确实可勾选（对照组）", verdict.CanSelect);
-
-        var orgView = new ItemAiView { ScopeKey = @"C:\Same", Source = ItemAiSource.Organize };
-        orgView.Result = svc.TryGetRestored(cleanReq, cfg);
-        orgView.Verdict = verdict;   // 硬塞：能力仍必须被来源挡住
-        Check("整理视图有恢复结果 + 可勾选判定，仍然不能勾选", !orgView.CanSelect);
-        Check("整理视图不提供清理明细定位", !orgView.CanViewFiles);
-
-        // 恢复载体本身不能携带清理条目 / 选择 / 删除字段
-        Check("ItemAiResult 不含 CleanItem / 选择 / 删除字段",
-            !typeof(ItemAiResult).GetProperties().Any(p =>
-                p.PropertyType == typeof(CleanItem)
-                || p.Name.Contains("Select", StringComparison.OrdinalIgnoreCase)
-                || p.Name.Contains("Delete", StringComparison.OrdinalIgnoreCase)
-                || p.Name.Contains("CleanItem", StringComparison.Ordinal)));
+        // 恢复出来的东西**只有描述性文本**：没有判定、没有选择、没有任何清理动作能力。
+        // 逐项 AI 删掉之后，这条不变量变成了纯结构断言 —— 更硬：
+        // 整理树的对象上根本没有可以勾选 / 删除的字段，连「硬塞」都塞不进去。
+        Check("整理对象结构上没有 Selected / CanDelete / CanSelect",
+            typeof(OrganizeNode).GetProperty("Selected") == null
+            && typeof(OrganizeNode).GetProperty("CanDelete") == null
+            && typeof(OrganizeNode).GetProperty("CanSelect") == null);
+        Check("逐项 AI 的视图类型已整体移除（没有可夹带清理能力的载体）",
+            Type.GetType("AiDiskCleaner.Models.ItemAiView") == null
+            && Type.GetType("AiDiskCleaner.Models.ItemAiView, AiDiskCleaner") == null);
+        Check("恢复出的用途结论本身不带选择 / 删除字段",
+            !typeof(FolderPurposeResult).GetProperties().Any(p =>
+                p.Name.Contains("Select", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Contains("Delete", StringComparison.OrdinalIgnoreCase)));
         Check("RecognitionStore 的公开 API 不返回 CleanItem",
             !typeof(RecognitionStore).GetMethods().Any(m => m.ReturnType == typeof(CleanItem)
                 || m.GetParameters().Any(p => p.ParameterType == typeof(CleanItem))));
@@ -485,22 +415,17 @@ public static class Program
             win.GetMethod("InitRecognitionPersistence", P) != null);
         Check("重建恢复钩子 RestoreRecognizedFolders() 存在且返回条数",
             win.GetMethod("RestoreRecognizedFolders", P)?.ReturnType == typeof(int));
-        Check("逐项行恢复钩子签名正确",
-            win.GetMethod("TryRestoreItemAi", P)?.GetParameters() is { Length: 2 } ip
-            && ip[0].ParameterType == typeof(ItemAiView) && ip[1].ParameterType == typeof(ItemAiRequest));
+        Check("逐项行恢复钩子已随能力一起移除", win.GetMethod("TryRestoreItemAi", P) == null);
         Check("侧栏恢复钩子签名正确",
             win.GetMethod("TryRestorePurpose", P)?.GetParameters() is { Length: 1 } pp
             && pp[0].ParameterType == typeof(FileEntry));
 
         // 模拟「上次启动留下了一份落盘结果」，再打开一次应用
         string cfg = "cfg";
-        var req = ItemReq(@"C:\wired-item");
-        long v = ItemAiPrompt.VersionOf(req, cfg);
         var dir = Folder(@"D:\wired-purpose", "a.dat");
         var sum = FolderPurposeRules.Summarize(dir, new FolderId(dir.FullPath, 1), 0, dir.FullPath);
 
         var seed = new RecognitionStore(RecognitionStore.DefaultPath);
-        seed.PutItem(RecognitionKey.Item(req.ScopeKey, v), v, ItemResult("上次的用途"));
         seed.PutPurpose(FolderPurposeService.PurposeKey(sum, cfg),
             new FolderPurposeResult(new FolderId(dir.FullPath, 1), "上次的目录用途", "类别", "依据",
                 PurposeSource.Ai, true, FolderKind.Concrete));
@@ -516,15 +441,8 @@ public static class Program
             var window = new AiDiskCleaner.MainWindow();
             win.GetMethod("InitRecognitionPersistence", P)!.Invoke(window, null);
             var store = win.GetField("_recognitionStore", P)?.GetValue(window) as RecognitionStore;
-            Check("构造钩子建立并接上了落盘缓存", store != null && store.Count >= 2,
+            Check("构造钩子建立并接上了落盘缓存", store != null && store.Count >= 1,
                 store?.Count.ToString() ?? "(null)");
-
-            var view = new ItemAiView { ScopeKey = req.ScopeKey };
-            bool itemOk = (bool)win.GetMethod("TryRestoreItemAi", P)!
-                .Invoke(window, new object[] { view, req })!;
-            Check("逐项钩子把上次结论贴进视图（状态 Done）",
-                itemOk && view.Result?.Purpose == "上次的用途" && view.Status == ItemAiStatus.Done,
-                view.Result?.Purpose ?? "(null)");
 
             var purpose = win.GetMethod("TryRestorePurpose", P)!
                 .Invoke(window, new object[] { dir }) as FolderPurposeResult;
