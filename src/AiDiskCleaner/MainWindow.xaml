@@ -1300,15 +1300,29 @@
                  在这里是结构上成立的，不靠提示词约束。 -->
             <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
                     Padding="16,10,16,10">
-              <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
-                <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
-                           FontSize="11.5" TextTrimming="CharacterEllipsis"/>
-                <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
-                           FontSize="11" TextTrimming="CharacterEllipsis"/>
-              </StackPanel>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
+                  <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
+                             FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
+                             FontSize="11" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <!-- 数量写在按钮上，一眼知道值不值得点；跑的时候它变成「停止」。
+                     未识别为 0 时整块隐藏，不留一个点了没反应的按钮。
+                     **请求只由这一次点击发起** —— 扫描 / 切页 / 展开 / 筛选一个都不发。 -->
+                <Button x:Name="OrganizeClassifyBtn" Grid.Column="1" Style="{StaticResource GhostButton}"
+                        Padding="12,5" FontSize="11.5" VerticalAlignment="Center"
+                        Visibility="Collapsed" Click="OrganizeClassify_Click"
+                        ToolTip="把这一屏里认不出用途的文件夹一次性交给 AI 判断是什么（只补用途，不改任何删除相关的东西）"
+                        AutomationProperties.Name="批量识别用途"/>
+              </Grid>
             </Border>
 
-            <!-- **这里没有任何识别按钮**：翻到哪就自动认哪。
+            <!-- **识别只由上面那个按钮发起**：扫描 / 切页 / 展开 / 筛选都不发请求。
                  进度写在页头那一行统计里；要关掉自动识别去设置里关。 -->
 
 
@@ -2409,13 +2423,6 @@
             <CheckBox x:Name="AiFullPathBox" Margin="0,0,0,4" Click="AiFullPath_Click"
                       Foreground="{DynamicResource Text}" FontSize="12"/>
             <TextBlock x:Name="AiFullPathHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
-                       TextWrapping="Wrap" Margin="0,0,0,10"/>
-            <!-- 自动识别开关：翻到哪认到哪，不用点按钮。
-                 **它确实会自己发请求**（对 v2.9「翻页/展开 = 0 次请求」的有意放开），
-                 所以必须让用户看得见、关得掉。 -->
-            <CheckBox x:Name="AiAutoClassifyBox" Margin="0,0,0,4" Click="AiAutoClassify_Click"
-                      Foreground="{DynamicResource Text}" FontSize="12"/>
-            <TextBlock x:Name="AiAutoClassifyHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
                        TextWrapping="Wrap" Margin="0,0,0,10"/>
             <ItemsControl x:Name="AiProvCards" Margin="0,0,0,10">
               <ItemsControl.ItemTemplate>

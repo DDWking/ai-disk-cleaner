@@ -341,8 +341,9 @@ Assert-True 'the page counts per object, never per batch target' `
 Assert-True 'there is no longer a current-folder batch scope' `
     ($org -notmatch 'private void SetOrganizeCurrent\(OrganizeNode\? node\)' -and
      $org -notmatch 'SetOrganizeCurrent\(node\);')
-Assert-True 'classification has one entry point and one retry path' `
-    ($orgsrc -match 'ScheduleAutoClassify' -and $orgsrc -match 'OrganizeClassifyRunAsync' -and
+Assert-True 'classification has one entry point (the header button)' `
+    ($orgsrc -match 'private void OrganizeClassify_Click' -and
+     $orgsrc -match 'OrganizeClassifyRunAsync' -and
      $org -notmatch 'RunOrganizeIdentifyAsync')
 Assert-True 'tidy-up never touches risk / deletability / selection' `
     ($org -notmatch '\.(Risk|CanDelete|Selected)\s*=' -and
@@ -367,10 +368,11 @@ Assert-True 'local recognition runs before (and without) any model call' `
     ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
      $org -match 'FolderPurposeRules\.RecognizeLocally' -and
      $org -notmatch 'if \(!allowAi\)' -and $org -notmatch 'if \(t\.HasConclusion\) continue;')
-Assert-True 'the model path is gated by config and by the auto-classify switch' `
+Assert-True 'the model path is gated by config and only runs on a user click' `
     ($cs -match 'bool AiConfigured\(\)' -and
-     $orgsrc -match 'App\.Settings\.AiAutoClassify' -and
-     $orgsrc -match 'DecisionConfigured\(\)' -and $org -notmatch 'RecognizeWithAsync')
+     $orgsrc -match 'DecisionConfigured\(\)' -and
+     $orgsrc -match 'private void OrganizeClassify_Click' -and
+     $org -notmatch 'RecognizeWithAsync')
 Assert-True 'user corrections are persisted and win over later results' `
     ($csvc -match 'SetUserCorrection\(' -and
      $org -match 'TryGetUserCorrection\(' -and
@@ -598,12 +600,13 @@ Assert-True 'the operation column is gone (two icons per row was noise)' `
     ($xaml -notmatch 'ColOrgAction' -and $cs -notmatch 'ColOrgAction')
 Assert-True 'opening a folder is still reachable from the context menu' `
     ($xaml -match 'OrganizeOpen_Click')
-Assert-True 'classification asks everything unnamed at once, only after things settle' `
-    ($orgsrc -match '_organizeAll\.Where\(n => n\.NeedsPurposeClassification\)' -and
-     $orgsrc -match '_autoClassifyTimer' -and
-     $orgsrc -match 'App\.Settings\.AiAutoClassify')
-Assert-True 'classification can be turned off entirely' `
-    ($loc -match 'AiAutoClassify' -and $cs -match 'AiAutoClassify_Click')
+Assert-True 'classification only runs when the user clicks the one button' `
+    ($orgsrc -match 'private void OrganizeClassify_Click' -and
+     $orgsrc -match '_organizeRows\.Where\(n => n\.NeedsPurposeClassification\)' -and
+     $orgsrc -notmatch '_autoClassifyTimer' -and
+     $xaml -match 'Click="OrganizeClassify_Click"')
+Assert-True 'a batch that overflows the model context is split, not failed' `
+    ($batchsvc -match 'IsTooLargeForModel' -and $batchsvc -match 'MaxPerRequest = 100')
 Assert-True 'the classify service still never writes risk / selection' `
     ($batchsvc -notmatch '\.Risk\s*=' -and $batchsvc -notmatch '\.CanDelete\s*=' -and
      $batchsvc -notmatch '\.Selected\s*=')

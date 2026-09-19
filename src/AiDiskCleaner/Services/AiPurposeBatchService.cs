@@ -48,8 +48,17 @@ public sealed record AiPurposeBatchOutcome(
 /// </summary>
 public static class AiPurposeBatchService
 {
-    /// <summary>一次请求最多问多少条（实测依据见类型注释）。</summary>
-    public const int MaxPerRequest = 160;
+    /// <summary>
+    /// 一次请求最多问多少条。
+    ///
+    /// 原来取 160（按 304 token/项算，占 64K 的 82%）。后来把 <c>keep</c> 的文案放宽
+    /// （那一改让 24 条样本的采纳数从 16 涨到 23），每项涨到 **362 token** ——
+    /// 160 项就是 57,920，只剩 10% 余量，真机上就撞到了 <c>max tokens exceeded</c>。
+    ///
+    /// 改成 100：约 36K，留 44% 余量。花费不变（同样的条数、同样的单价），
+    /// 只是多几次小请求；而且上面那层「太大就拆两半」还会兜底。
+    /// </summary>
+    public const int MaxPerRequest = 100;
 
     /// <param name="stillCurrent">
     /// 每写回一批之前问一次：扫描有没有换代、这一页还在不在。返回 false 就停止写入
@@ -78,25 +87,43 @@ public static class AiPurposeBatchService
         var dist = new Dictionary<string, int>(StringComparer.Ordinal);
         var conf = new List<double>();
 
-        foreach (var chunk in Chunk(targets, MaxPerRequest))
+        // 一批问不完就拆两半再问。
+        //
+        // 存在的理由是真机上撞过的：**criteria 是「每题一份」**（API 强制，放进 state 会被
+        // 校验拒掉），所以一批的输入 = 条数 × (路径 + 10 类文案)。实测每项 362 token，
+        // 160 项一批就是 57,920 —— 离 64K 只剩 10% 余量，路径稍长就整批 400
+        // （max tokens exceeded）。拆开比整批失败强得多，而且总花费一样。
+        async Task AskAsync(List<OrganizeNode> chunk)
         {
+            if (chunk.Count == 0) return;
             ct.ThrowIfCancellationRequested();
-            if (stillCurrent != null && !stillCurrent()) break;
-            progress?.Report(Loc.AiPurposeBatchProgress(done, targets.Count));
+            if (stillCurrent != null && !stillCurrent()) return;
 
-            var reply = await AiGateway.DecideAsync(BuildRequest(provider, model, chunk), ct);
+            AiDecisionReply reply;
+            try
+            {
+                reply = await AiGateway.DecideAsync(BuildRequest(provider, model, chunk), ct);
+            }
+            catch (Exception ex) when (chunk.Count > 1 && IsTooLargeForModel(ex))
+            {
+                AppLog.Warn("AiClassify",
+                    $"batch too large ({chunk.Count} items), splitting in half | {ex.Message}");
+                int half = chunk.Count / 2;
+                await AskAsync(chunk.GetRange(0, half));
+                await AskAsync(chunk.GetRange(half, chunk.Count - half));
+                return;
+            }
             calls++;
             inTokens += reply.InputTokens;
             cost += reply.Cost;
 
             // 结果回来之后再确认一次：等待期间可能刚换了扫描
-            if (stillCurrent != null && !stillCurrent()) break;
+            if (stillCurrent != null && !stillCurrent()) return;
 
             for (int i = 0; i < chunk.Count; i++)
             {
                 // **先记「问过了」**，不管下面拿没拿到结论。
-                // 不记的话，拿不到结论的条目会被自动识别反复追问 ——
-                // 它看起来仍然「没结论」，而每次可见集合一变就会重新发一轮请求。
+                // 不记的话，没结论的条目会被反复追问 —— 它看起来仍然「没结论」。
                 chunk[i].MarkBatchAsked();
                 if (!reply.Answers.TryGetValue(KeyOf(i), out var answer)) { unknown++; continue; }
                 var kind = AiPurposeCriteria.Parse(answer.Choice);
@@ -115,6 +142,14 @@ public static class AiPurposeBatchService
             progress?.Report(Loc.AiPurposeBatchProgress(done, targets.Count));
         }
 
+        foreach (var chunk in Chunk(targets, MaxPerRequest))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (stillCurrent != null && !stillCurrent()) break;
+            progress?.Report(Loc.AiPurposeBatchProgress(done, targets.Count));
+            await AskAsync(chunk);
+        }
+
         if (conf.Count > 0) conf.Sort();
         AppLog.Info("AiClassify",
             $"asked={targets.Count} applied={applied} unsure={unsure} unknown={unknown} calls={calls} "
@@ -126,6 +161,20 @@ public static class AiPurposeBatchService
     }
 
     static string KeyOf(int index) => "p" + (index + 1);
+
+    /// <summary>
+    /// 这批是不是把模型的上下文撑爆了。判据放宽一点：各家端点的措辞不一样
+    /// （<c>max tokens exceeded</c> / <c>context length</c> / <c>too large</c>），
+    /// 漏判的代价是整批失败，误判的代价只是多拆一次。
+    /// </summary>
+    static bool IsTooLargeForModel(Exception ex)
+    {
+        string s = ex.ToString();
+        return s.Contains("max tokens", StringComparison.OrdinalIgnoreCase)
+               || s.Contains("context length", StringComparison.OrdinalIgnoreCase)
+               || s.Contains("too many tokens", StringComparison.OrdinalIgnoreCase)
+               || s.Contains("maximum context", StringComparison.OrdinalIgnoreCase);
+    }
 
     static AiDecisionRequest BuildRequest(AiProviderCfg provider, string model, List<OrganizeNode> chunk)
     {

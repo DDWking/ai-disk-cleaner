@@ -411,12 +411,6 @@ public partial class MainWindow : Window, IAnalystHost
             AiFullPathBox.IsChecked = App.Settings.AiSendFullPaths;
         }
         if (AiFullPathHint != null) AiFullPathHint.Text = Loc.AiSendFullPathsHint;
-        if (AiAutoClassifyBox != null)
-        {
-            AiAutoClassifyBox.Content = Loc.AiAutoClassify;
-            AiAutoClassifyBox.IsChecked = App.Settings.AiAutoClassify;
-        }
-        if (AiAutoClassifyHint != null) AiAutoClassifyHint.Text = Loc.AiAutoClassifyHint;
         AiNameLabel.Text = Loc.AiName;
         AiUrlLabel.Text = Loc.AiBaseUrl;
         AiProtoLabel.Text = Loc.AiProtocolTitle;
@@ -1531,18 +1525,6 @@ public partial class MainWindow : Window, IAnalystHost
     }
 
     /// <summary>
-    /// 「翻到哪就自动识别哪」开关。关掉之后「按文件夹删除」页一个请求都不发。
-    /// </summary>
-    private void AiAutoClassify_Click(object sender, RoutedEventArgs e)
-    {
-        bool on = AiAutoClassifyBox.IsChecked == true;
-        if (App.Settings.AiAutoClassify == on) return;
-        App.Settings.AiAutoClassify = on;
-        App.Settings.Save();
-        AppLog.Info("Settings", "auto classify while browsing = " + on);
-    }
-
-    /// <summary>
     /// 「清除密钥」：把当前供应商的密钥从内存和加密仓库里都去掉，并立刻落盘。
     /// 只清当前这家，不动别的提供方。
     /// </summary>
@@ -1990,8 +1972,6 @@ public partial class MainWindow : Window, IAnalystHost
         MarkTab(TabUninstallBtn, tab == RightTab.Uninstall);
         // 卸载页第一次被打开时才去扫软件清单（隐藏面板按需初始化）
         if (tab == RightTab.Uninstall) EnsureAppsLoaded();
-        // 切到「按文件夹删除」页 = 打开了一屏新的：安排一次自动识别（防抖，滚动中不会连发）
-        if (tab == RightTab.Organize) ScheduleAutoClassify();
         // 切页时把第三层状态同步过去（各页只显示自己的状态）
         UpdateScanStateLine();
     }

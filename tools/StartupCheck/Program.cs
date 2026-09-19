@@ -830,11 +830,11 @@ public static class Program
             && !scan.Contains("RunPurposeAsync", StringComparison.Ordinal)
             && !xaml.Contains("CtxPurposeIdentify", StringComparison.Ordinal));
 
-        // **页面上不再有任何识别按钮**：翻到哪就自动认哪。
-        // 自动识别本身的四条约束在 9.4 断言（那里也是当初那套「必须用户点」的替代品）。
-        Check("按文件夹删除页没有识别按钮（改成翻到哪自动认哪）",
-            !xaml.Contains("x:Name=\"OrganizeClassifyBtn\"", StringComparison.Ordinal)
-            && !org.Contains("OrganizeClassify_Click", StringComparison.Ordinal));
+        // **唯一的识别入口就是页头那个按钮**：用户点一次，认这一屏。
+        // 它「只在用户点击时发请求」这件事由 9.4 的真实出站计数守着。
+        Check("按文件夹删除页只有那一个识别按钮",
+            xaml.Contains("x:Name=\"OrganizeClassifyBtn\"", StringComparison.Ordinal)
+            && org.Contains("private void OrganizeClassify_Click", StringComparison.Ordinal));
         Check("批量归类仍然不在清理中心（那里没有认不出的堆积）",
             !scan.Contains("AiPurposeBatchService", StringComparison.Ordinal)
             && !scan.Contains("CleanClassifyPurposes", StringComparison.Ordinal));
@@ -874,19 +874,18 @@ public static class Program
         Check("Register() 之后判定通道确实可用（接线幂等）",
             AiGateway.DecisionsSender != null);
 
-        // ---------- 9.4 自动识别：**可关**，而且开着时也只在有未识别行时才发 ----------
+        // ---------- 9.4 扫描 / 切页 / 展开 / 筛选 = 0 次模型请求 ----------
         //
-        // 这一节原来是「扫描 / 切页 / 展开 / 筛选 = 0 次模型请求」。那个不变量**被有意放开了**：
-        // 现在是「翻到哪就自动识别哪」。但它没有变成"后台随便发"，新规矩是：
-        //   ① 只问**屏幕上真看得见的行**；② 停下 600ms 才发；③ 换代即取消；④ **可以整个关掉**。
-        // 所以断言改写成两半：**关掉时严格 0 请求**（行为证据，真实出站计数）+
-        // **开着时四条约束都写在代码里**（源码断言，因为防抖计时器在同步测试里不会自己跑）。
+        // 这条不变量中途被放开过两次（先「翻到哪自动认哪」，再「一次认完整页」），
+        // 两次都回滚了：只认眼前几行要滚很多次；一次认完整页会撞上模型的上下文上限
+        // （criteria 是每题一份，实测每项 362 token，160 项一批就是 57,920）。
+        // **回到「用户点一次、认这一屏」最稳**，所以这条 0 请求的断言也回来了。
+        //
+        // 让「有模型配置」这件事成立，否则零请求没有说服力（没配模型本来就不会发）。
         var settings = App.Settings;
         bool hadModel = !string.IsNullOrWhiteSpace(settings.AiModel);
         string savedModel = settings.AiModel;
-        bool savedAuto = settings.AiAutoClassify;
         settings.AiModel = "test-model-not-called";     // 只改名字，不发请求；下面用计数断言
-        settings.AiAutoClassify = false;                 // ★ 先关掉：下面这些动作必须一个请求都不发
 
         AiGateway.ResetSentCountForTest();
         ResetOrganizeCollections(win);
@@ -922,27 +921,35 @@ public static class Program
             node.ChildrenLoaded || node.HasConclusion || node.IsExpanded,
             $"loaded={node.ChildrenLoaded} expanded={node.IsExpanded} conclusion={node.HasConclusion}");
 
-        // 开着的时候的四条约束：都写在代码里，且**一个都不能少**
-        Check("自动识别先看开关（关掉就一个请求都不发）",
-            org.Contains("App.Settings.AiAutoClassify", StringComparison.Ordinal));
-        Check("自动识别一次问完这一页还没认出来的（不是只问眼前那几行）",
-            org.Contains("_organizeAll.Where(n => n.NeedsPurposeClassification)", StringComparison.Ordinal)
-            && !org.Contains("VisibleOrganizeRows", StringComparison.Ordinal));
-        Check("自动识别有防抖（停下才发，滚动过程中不发）",
-            org.Contains("_autoClassifyTimer", StringComparison.Ordinal)
-            && org.Contains("ScheduleAutoClassify", StringComparison.Ordinal));
-        Check("自动识别带扫描代次守卫（换代即停写）",
+        // 上面那条真实出站计数已经把「这些动作不发请求」钉死了。这里再钉住**唯一入口**：
+        // 归类只能是「用户点那一个按钮 → 那一个处理器 → 那一处调用」。
+        // （中间试过「翻到哪自动认哪」：只认眼前几行要滚很多次，一次认完整页又撞上
+        // 模型的上下文上限，两个方向都不合适。回到手点最稳。）
+        Check("整理页只有那一个识别按钮（用户点一次才发一次）",
+            org.Contains("private void OrganizeClassify_Click", StringComparison.Ordinal)
+            && xaml.Contains("x:Name=\"OrganizeClassifyBtn\"", StringComparison.Ordinal)
+            && xaml.Contains("Click=\"OrganizeClassify_Click\"", StringComparison.Ordinal));
+        Check("归类全仓只被一处调用", batchCalls == 1, "调用点=" + batchCalls);
+        Check("没有自动 / 后台识别（防抖计时器与滚动触发都不在）",
+            !org.Contains("_autoClassifyTimer", StringComparison.Ordinal)
+            && !org.Contains("ScheduleAutoClassify", StringComparison.Ordinal)
+            && !org.Contains("ScrollChangedEvent", StringComparison.Ordinal));
+        Check("归类带扫描代次守卫（换代即停写）",
             org.Contains("scanGen == _scanGeneration", StringComparison.Ordinal));
-        Check("自动识别没配判定通道时安静跳过（不是每次滚动弹一个对话框）",
-            org.Contains("if (!App.Settings.DecisionConfigured()) return;", StringComparison.Ordinal));
+        Check("归类发请求前先确认通道已配置（不会往错地址发）",
+            org.Contains("DecisionConfigured()", StringComparison.Ordinal));
+        // 一批太大不能整批失败：模型的上下文上限是硬的（criteria 是每题一份，实测每项 362 token）
+        var batchSvc = ReadSource("src/AiDiskCleaner/Services/AiPurposeBatchService.cs");
+        Check("一批撑爆上下文时会拆两半重试，而不是整批失败",
+            batchSvc.Contains("IsTooLargeForModel", StringComparison.Ordinal)
+            && batchSvc.Contains("GetRange(0, half)", StringComparison.Ordinal));
+        Check("单批条数留了足够余量（不再贴着 64K 上限）",
+            batchSvc.Contains("MaxPerRequest = 100", StringComparison.Ordinal));
         // 反复追问同一条 = 无限请求。没结论的条目必须被标记成「问过了」。
-        Check("问过的条目不再入选（否则自动识别会无限追问同一条）",
-            orgNode.Contains("MarkBatchAsked", StringComparison.Ordinal)
-            || ReadSource("src/AiDiskCleaner/Services/AiPurposeBatchService.cs")
-                .Contains("MarkBatchAsked", StringComparison.Ordinal));
+        Check("问过的条目不再入选（否则再点一次会把同一批重问）",
+            orgNode.Contains("MarkBatchAsked", StringComparison.Ordinal));
 
         settings.AiModel = hadModel ? savedModel : "";
-        settings.AiAutoClassify = savedAuto;
         AiGateway.ResetSentCountForTest();
         ResetOrganizeCollections(win);
 

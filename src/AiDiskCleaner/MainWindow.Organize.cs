@@ -437,10 +437,11 @@ public partial class MainWindow
         if (_organizePendingOnly) line += " · " + Loc.OrganizeFilterActive(_organizeRows.Count, _organizeAll.Count);
         if (_organizeNote.Length > 0) line += " · " + _organizeNote;
         OrganizeCounts.Text = line;
+        // 按钮上的数字 = **这一屏真正会问的条数**，不是全局还没识别的条数。
+        // 写成全局那个数会出现「按钮说 2,517 项、实际只问了 83 条」——标签和动作对不上。
+        UpdateOrganizeClassifyButton(_organizeRows.Count(x => x.NeedsPurposeClassification));
         // 面板跟着当前这一屏走：展开/收起/重扫之后它显示的还是「这一屏分成了哪几类」。
         RefreshOrganizeResult();
-        // 这一屏换了（重建 / 展开 / 收起）就安排一次自动识别。滚动那条走 ScrollChanged。
-        ScheduleAutoClassify();
     }
 
     // ==================== 分类结果面板（「合并」） ====================
@@ -518,58 +519,51 @@ public partial class MainWindow
         RefreshFolderDeleteBar();
     }
 
-    // ==================== 自动归类（翻到哪认到哪） ====================
+    // ==================== 归类（用户点一次，认这一屏） ====================
 
     /// <summary>
-    /// 防抖计时器：**停下 600ms 才发**。滚动/展开过程中不断重置，所以一次导航最多一次请求。
-    /// </summary>
-    private readonly System.Windows.Threading.DispatcherTimer _autoClassifyTimer = new()
-    {
-        Interval = TimeSpan.FromMilliseconds(600),
-    };
-
-    private bool _autoClassifyTimerHooked;
-
-    /// <summary>自动识别的失败**只弹一次窗**，之后只写页头那一行 —— 不能每次滚动都糊一个对话框。</summary>
-    private bool _autoClassifyAlerted;
-
-    /// <summary>
-    /// 安排一次自动识别。这一页的集合变了就调它（重建 / 展开 / 收起 / 切到这一页）。
+    /// 归类入口：数量写在按钮上，为 0 就整块隐藏（不留一个点了没反应的按钮）；
+    /// 跑的时候变成「停止」。
     ///
-    /// 这是对 v2.9「翻页 / 展开 = 0 次模型请求」的**有意放开**，所以四条约束一个都不能少：
-    /// ① 只问**还没认出来的**（问过的不再问，<see cref="OrganizeNode.BatchAsked"/>）；
-    /// ② 停下 600ms 才发，展开/重建的抖动过程中不发；③ 换代即取消；
-    /// ④ 设置里能整个关掉（<see cref="AppSettings.AiAutoClassify"/>）。
+    /// **只由用户主动点。** 扫描 / 切页 / 展开 / 筛选一个请求都不发 ——
+    /// 这条不变量有真实出站计数守着（StartupCheck §9.4）。
+    /// （中间试过「翻到哪自动认哪」，两个方向都不合适：只认眼前几行要滚很多次，
+    /// 一次认完整页又撞上模型的上下文上限。回到手点最稳。）
     /// </summary>
-    void ScheduleAutoClassify()
+    void UpdateOrganizeClassifyButton(int onScreen)
     {
-        if (!App.Settings.AiAutoClassify) return;
-        if (_organizeClassifying) return;          // 已经在跑，跑完那一轮自己会再看一次
-        if (!App.Settings.DecisionConfigured()) return;   // 没配判定通道就安静地什么都不做
-        if (OrganizeGrid == null) return;
-
-        if (!_autoClassifyTimerHooked)
+        if (OrganizeClassifyBtn == null) return;
+        if (_organizeClassifying)
         {
-            _autoClassifyTimer.Tick += (_, _) =>
-            {
-                _autoClassifyTimer.Stop();
-                _ = OrganizeClassifyRunAsync();
-            };
-            _autoClassifyTimerHooked = true;
+            OrganizeClassifyBtn.Content = Loc.Stop;
+            OrganizeClassifyBtn.Visibility = Visibility.Visible;
+            OrganizeClassifyBtn.IsEnabled = true;
+            return;
         }
-        _autoClassifyTimer.Stop();
-        _autoClassifyTimer.Start();
+        OrganizeClassifyBtn.Content = Loc.AiBatchClassifyScreen(onScreen);
+        OrganizeClassifyBtn.Visibility = onScreen > 0 ? Visibility.Visible : Visibility.Collapsed;
+        OrganizeClassifyBtn.IsEnabled = onScreen > 0;
+    }
+
+    /// <summary>入口只有一个按钮：空闲时开始，跑着时停止。</summary>
+    private void OrganizeClassify_Click(object sender, RoutedEventArgs e)
+    {
+        if (_organizeClassifying)
+        {
+            CancelQuietly(_aiClassifyCts);
+            return;
+        }
+        _ = OrganizeClassifyRunAsync();
     }
 
     /// <summary>
-    /// 把**这一页里所有还认不出用途的**交给结构化判定通道（TypeSafe Jev 这类）。
+    /// 把这一屏里**还认不出用途的**交给结构化判定通道（TypeSafe Jev 这类）。
     ///
-    /// 范围刻意不是「屏幕上那几行」而是**全部**：一次问完比滚一屏问一次省心，
-    /// 反正问过的不会再问（<see cref="OrganizeNode.BatchAsked"/>），
-    /// 展开出新对象时也只会补问新露出来的那几个。
+    /// 范围 = 列表里当前这一屏的对象（<c>_organizeRows</c>），一次最多
+    /// <see cref="AiPurposeBatchService.MaxPerRequest"/> 条，超了自动分批。
+    /// 问过的不再问（<see cref="OrganizeNode.BatchAsked"/>），所以再点一次只会补问新露出来的。
     ///
-    /// 用户不点任何按钮 —— 但**不是"后台自动跑"**：只有这一页的集合变了、而且停稳了才发，
-    /// 而且设置里能关。写入只落在 <see cref="OrganizeNode.BatchPurpose"/> 这一个展示字段上：
+    /// 写入只落在 <see cref="OrganizeNode.BatchPurpose"/> 这一个展示字段上：
     /// 整理树的对象根本没有 Risk / CanDelete / Selected，所以「AI 不会替用户打勾」
     /// 在这里是结构上成立的。
     /// </summary>
@@ -577,10 +571,17 @@ public partial class MainWindow
     {
         if (_organizeClassifying) return;
 
-        var targets = _organizeAll.Where(n => n.NeedsPurposeClassification).ToList();
-        if (targets.Count == 0) return;            // 自动跑：没事就不出声
-        if (!App.Settings.AiAutoClassify) return;
-        if (!App.Settings.DecisionConfigured()) return;
+        var targets = _organizeRows.Where(n => n.NeedsPurposeClassification).ToList();
+        if (targets.Count == 0)
+        {
+            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNothing);
+            return;
+        }
+        if (!App.Settings.DecisionConfigured())
+        {
+            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNotConfigured);
+            return;
+        }
 
         _organizeClassifying = true;
         UpdateOrganizeHeader();
@@ -626,15 +627,11 @@ public partial class MainWindow
 
         if (failMsg.Length > 0)
         {
-            // 页头那一行永远写；弹窗只弹第一次 —— 这是自动触发的动作，
-            // 每次滚动都糊一个对话框比静默还烦。但**绝不能完全静默**：
-            // 真机上就是这么连报 4 次 "decisions channel is not registered" 而界面一片安静的。
+            // **失败必须出声。** 这是用户主动点的动作；只往页头那行小灰字里塞一句，
+            // 用户看到的就是「点了没反应」—— 真机就是这么反馈的：
+            // 日志里连报 4 次 "decisions channel is not registered"，界面一片安静。
             SetOrganizeNote(failMsg);
-            if (!_autoClassifyAlerted)
-            {
-                _autoClassifyAlerted = true;
-                ShowAlert(Loc.AiBatchClassify, failMsg);
-            }
+            ShowAlert(Loc.AiBatchClassify, failMsg);
         }
     }
 
