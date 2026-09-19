@@ -68,6 +68,16 @@ public static class AiPurposeBatchService
     /// </summary>
     public const int MaxPerRequest = 80;
 
+    /// <summary>
+    /// 自适应步长的**起点**。故意小：别人可能填 32k 上下文的端点，
+    /// 一上来发 80 条会整批 400；从 20 条起步只多花几次往返。
+    /// 成功一次就翻倍，很快长到 <see cref="MaxPerRequest"/>。
+    /// </summary>
+    public const int AdaptiveStart = 20;
+
+    /// <summary>步长的下限。撞上限就一直减半，但不许减到 0（那会死循环）。</summary>
+    public const int AdaptiveMin = 5;
+
     /// <param name="stillCurrent">
     /// 每写回一批之前问一次：扫描有没有换代、这一页还在不在。返回 false 就停止写入
     /// —— 旧结果绝不许贴到新扫描上。为 null 表示调用方自己保证。
@@ -98,14 +108,16 @@ public static class AiPurposeBatchService
         // 一批问不完就拆两半再问。
         //
         // 存在的理由是真机上撞过的：**criteria 是「每题一份」**（API 强制，放进 state 会被
-        // 校验拒掉），所以一批的输入 = 条数 × (路径 + 10 类文案)。实测每项 362 token，
-        // 160 项一批就是 57,920 —— 离 64K 只剩 10% 余量，路径稍长就整批 400
-        // （max tokens exceeded）。拆开比整批失败强得多，而且总花费一样。
-        async Task AskAsync(List<OrganizeNode> chunk)
+        // 校验拒掉），所以一批的输入 = 条数 × (路径 + 类别文案)。实测每项 487 token
+        // （13 类），80 项一批就是 38,960 —— 64K 还剩 40% 余量，但**别人可能填一个 32k 的
+        // 端点**，那就直接爆。拆开比整批失败强得多，而且总花费一样。
+        //
+        // 返回：这一批是不是**第一次就成功**了 —— 外层据此调步长（见下面的自适应循环）。
+        async Task<bool> AskAsync(List<OrganizeNode> chunk)
         {
-            if (chunk.Count == 0) return;
+            if (chunk.Count == 0) return true;
             ct.ThrowIfCancellationRequested();
-            if (stillCurrent != null && !stillCurrent()) return;
+            if (stillCurrent != null && !stillCurrent()) return true;
 
             AiDecisionReply reply;
             try
@@ -119,14 +131,15 @@ public static class AiPurposeBatchService
                 int half = chunk.Count / 2;
                 await AskAsync(chunk.GetRange(0, half));
                 await AskAsync(chunk.GetRange(half, chunk.Count - half));
-                return;
+                return false;
             }
             calls++;
             inTokens += reply.InputTokens;
             cost += reply.Cost;
 
-            // 结果回来之后再确认一次：等待期间可能刚换了扫描
-            if (stillCurrent != null && !stillCurrent()) return;
+            // 结果回来之后再确认一次：等待期间可能刚换了扫描。
+            // 返回值只用来调步长；真正"该不该继续"由外层循环再判一次，所以这里给 true 不影响正确性。
+            if (stillCurrent != null && !stillCurrent()) return true;
 
             for (int i = 0; i < chunk.Count; i++)
             {
@@ -159,14 +172,28 @@ public static class AiPurposeBatchService
 
             done += chunk.Count;
             progress?.Report(Loc.AiPurposeBatchProgress(done, targets.Count));
+            return true;
         }
 
-        foreach (var chunk in Chunk(targets, MaxPerRequest))
+        // **自适应步长**：从 AdaptiveStart 起步，成功一次翻倍、撞上限减半。
+        //
+        // 为什么不直接固定 80：别人填的端点可能是 32k 上下文（甚至是自建的小服务），
+        // 一上来发 80 条就整批 400。从 20 条起步只多花几次往返，代价远小于"第一批就失败"；
+        // 而一旦确认放得下，它会自己长到 MaxPerRequest，不会一直小步爬。
+        int size = AdaptiveStart;
+        for (int start = 0; start < targets.Count; )
         {
             ct.ThrowIfCancellationRequested();
             if (stillCurrent != null && !stillCurrent()) break;
             progress?.Report(Loc.AiPurposeBatchProgress(done, targets.Count));
-            await AskAsync(chunk);
+
+            var chunk = targets.GetRange(start, Math.Min(size, targets.Count - start));
+            bool firstTry = await AskAsync(chunk);
+            // 无论拆没拆，这一批都已经处理完了（拆出来的两半也处理完了），所以步长照常往前推
+            start += chunk.Count;
+            size = firstTry
+                ? Math.Min(MaxPerRequest, size * 2)
+                : Math.Max(AdaptiveMin, size / 2);
         }
 
         if (conf.Count > 0) conf.Sort();

@@ -952,6 +952,12 @@ public static class Program
             && batchSvc.Contains("GetRange(0, half)", StringComparison.Ordinal));
         Check("单批条数留了足够余量（不再贴着 64K 上限）",
             batchSvc.Contains("MaxPerRequest = 80", StringComparison.Ordinal));
+        // 别人可能填自己的端点（可能只有 32k 上下文）。**先小批试、成功了再放大** ——
+        // 一上来就发最大批，遇到小端点会整批 400。
+        Check("分批是自适应的：先小批试，成功了放大，撞上限减半",
+            batchSvc.Contains("AdaptiveStart = 20", StringComparison.Ordinal)
+            && batchSvc.Contains("Math.Min(MaxPerRequest, size * 2)", StringComparison.Ordinal)
+            && batchSvc.Contains("Math.Max(AdaptiveMin, size / 2)", StringComparison.Ordinal));
         // 反复追问同一条 = 无限请求。没结论的条目必须被标记成「问过了」。
         Check("问过的条目不再入选（否则再点一次会把同一批重问）",
             orgNode.Contains("MarkBatchAsked", StringComparison.Ordinal));
