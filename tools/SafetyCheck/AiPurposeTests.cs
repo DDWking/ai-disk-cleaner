@@ -318,6 +318,21 @@ public static class AiPurposeTests
         check("「还没认出来」不能整片勾选", !unnamed.CanSelect);
         check("有结论的桶可以整片勾选", bucket.CanSelect);
 
+        // 父子同时上榜时的那句提示：判据必须准 —— 父子要认出来，兄弟/前缀相似不能误判。
+        // 真机上 `Users` 和 `Users\32098` 都显示 179 G（盘上 32098 是 Users 里唯一的东西），
+        // 用户以为重复了；实际勾了两个不会算两遍，界面只是需要解释一句。
+        var listed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            @"C:\Users", @"C:\Users\32098", @"C:\Users\32098\Documents", @"D:\other",
+        };
+        check("子目录被祖先包含 → 认出来", OrganizeBucket.HasAncestorIn(@"C:\Users\32098", listed));
+        check("孙目录也被包含", OrganizeBucket.HasAncestorIn(@"C:\Users\32098\Documents", listed));
+        check("顶层自己不算被包含", !OrganizeBucket.HasAncestorIn(@"C:\Users", listed));
+        check("无关的兄弟不算被包含", !OrganizeBucket.HasAncestorIn(@"D:\other", listed));
+        check("只是名字前缀像的兄弟不算（C:\\Users2 不是 C:\\Users 的子目录）",
+            !OrganizeBucket.HasAncestorIn(@"C:\Users2", listed));
+        check("盘根不算被包含", !OrganizeBucket.HasAncestorIn(@"D:\", listed));
+
         // 桶模型自己绝不碰节点的勾选 —— 勾选只由用户在界面上点
         string src = ReadSource("src/AiDiskCleaner/Models/OrganizeBucket.cs");
         check("桶模型不写任何节点的勾选",

@@ -1513,6 +1513,12 @@
                                     Visibility="{Binding IsPlatformContainer, Converter={StaticResource BoolToVisible}}">
                               <TextBlock Text="{Binding PlatformTag}" FontSize="10" Foreground="{DynamicResource AccentDim}"/>
                             </Border>
+                            <!-- 父子同时上榜时的一句解释：容量一样、看着像重复，其实**不会算两遍** -->
+                            <Border Margin="4,0,0,0" Padding="5,0" CornerRadius="7" VerticalAlignment="Center"
+                                    Background="{DynamicResource SelectBg}"
+                                    Visibility="{Binding IsCoveredByAncestor, Converter={StaticResource BoolToVisible}}">
+                              <TextBlock Text="{Binding CoveredTag}" FontSize="10" Foreground="{DynamicResource TextMuted}"/>
+                            </Border>
                           </StackPanel>
                           <!-- 真实路径可看，但不抢主视觉：单行、截断、悬停给完整路径 -->
                           <TextBlock Text="{Binding RelativePath}" FontSize="10.5" Margin="0,1,0,0"

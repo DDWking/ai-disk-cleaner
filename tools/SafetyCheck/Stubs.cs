@@ -184,6 +184,7 @@ namespace AiDiskCleaner.Services
         public static string OrganizeIdentifyOne => "Identify";
         public static string OrganizePlatformTag => "games live inside";
         public static string OrganizeEntryPointTag => "system entry";
+        public static string OrganizeCoveredTag => "already inside an item above";
         public static string OrganizeDetailWhat => "What it is: ";
         public static string OrganizeDetailWhy => "Why: ";
         public static string OrganizeDetailKind(int folders, int files, string types)

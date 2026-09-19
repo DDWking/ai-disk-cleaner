@@ -858,6 +858,13 @@ public static class Program
         Check("面板勾选回流到唯一执行栏（不另起删除路径）",
             org.Contains("RefreshFolderDeleteBar();", StringComparison.Ordinal)
             && delSrc.Contains("FolderDelete.Refresh(", StringComparison.Ordinal));
+        // 父子同时上榜（Users / Users\32098 容量一样）时，界面要解释一句：
+        // 它们是父子、**勾了两个不会算两遍**（FolderSelectionService 会去重），
+        // 但不解释用户会以为自己选了两份空间。
+        Check("父子同时上榜会被标出来（免得用户以为重复）",
+            org.Contains("MarkCoveredRows", StringComparison.Ordinal)
+            && org.Contains("OrganizeBucket.HasAncestorIn", StringComparison.Ordinal)
+            && xaml.Contains("IsCoveredByAncestor", StringComparison.Ordinal));
         Check("整理页仍然没有任何删除实现（删除只在 FolderDelete 合同里）",
             !org.Contains("SHFileOperation", StringComparison.Ordinal)
             && !org.Contains("Directory.Delete", StringComparison.Ordinal));

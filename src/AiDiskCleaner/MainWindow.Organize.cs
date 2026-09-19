@@ -385,9 +385,28 @@ public partial class MainWindow
             AddVisibleRows(r, ref n2);
             if (FolderOrganize.RowBudgetReached(n2)) break;
         }
+        MarkCoveredRows();
         UpdateOrganizeHeader();
         // 行集合变了：底部执行栏的「已选 / 可删除 / 状态」跟着重算（后端合同提供）
         RefreshFolderDeleteBar();
+    }
+
+    /// <summary>
+    /// 标记「列表里上面那一项已经把它整个包住」的行。
+    ///
+    /// 用户看到 `Users`(179 G) 和 `Users\32098`(179 G) 会以为重复了 —— 它们是父子，
+    /// 而这个盘上 `32098` 是 `Users` 里唯一的东西，所以容量一样。**勾了两个不会算两遍**
+    /// （<see cref="FolderSelectionService"/> 按父目录覆盖子目录去重），但列表得说清楚。
+    ///
+    /// 算法：把这一屏的路径收进集合，再让每一行顺着自己的父目录往上查 —— O(行数×深度)，
+    /// 不做两两比较（2645 行两两比是 700 万次）。
+    /// </summary>
+    void MarkCoveredRows()
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var n in _organizeRows) paths.Add(n.FullPath);
+        foreach (var n in _organizeRows)
+            n.IsCoveredByAncestor = OrganizeBucket.HasAncestorIn(n.FullPath, paths);
     }
 
     private void AddVisibleRows(OrganizeNode node, ref int count)

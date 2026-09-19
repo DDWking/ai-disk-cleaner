@@ -1183,6 +1183,11 @@ public static class Loc
         ? $"{shown:N0} of {total:N0} sub-folders shown"
         : $"只列出 {shown:N0} / {total:N0} 个子文件夹";
     public static string OrganizeEntryPointTag => IsEn ? "system entry" : "系统入口";
+    /// <summary>
+    /// 被列表里某一个祖先目录包住时给的行内标签。
+    /// 用户看到父子两行容量一样时会以为重复，这句就是解释；容量与删除都会自动去重，不会算两遍。
+    /// </summary>
+    public static string OrganizeCoveredTag => IsEn ? "already inside an item above" : "已被上面那项包含";
     public static string OrganizePlatformTag => IsEn ? "games live inside" : "里面有游戏";
 
     // ---- 展开状态：为什么这一行没有箭头 / 为什么写未知（不是 0 KB） ----

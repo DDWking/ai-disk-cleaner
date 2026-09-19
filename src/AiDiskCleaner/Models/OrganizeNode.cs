@@ -414,6 +414,33 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// <summary>入口的短标签（入口本身只是导航/容器，不是清理结论）。</summary>
     public string SystemEntryTag => IsSystemEntry ? Loc.OrganizeEntryPointTag : "";
 
+    private bool _coveredByAncestor;
+
+    /// <summary>
+    /// 列表里**上面那一项已经把它整个包住了**（父子同时上榜）。
+    ///
+    /// 真机上用户就是这样困惑的：`Users` 和 `Users\32098` 都显示 179 G，看着像重复 ——
+    /// 它们确实是父子，而这个盘上 `32098` 是 `Users` 里唯一的东西，所以容量一样。
+    /// **勾了两个不会算两遍**（<c>FolderSelectionService</c> 按父目录覆盖子目录去重），
+    /// 但界面得说清楚，否则用户会以为自己选了两份空间。
+    ///
+    /// 由 <c>MarkCoveredRows</c> 在每次建行之后算一次（O(行数×深度)，不做两两比较）。
+    /// </summary>
+    public bool IsCoveredByAncestor
+    {
+        get => _coveredByAncestor;
+        set
+        {
+            if (_coveredByAncestor == value) return;
+            _coveredByAncestor = value;
+            Raise();
+            Raise(nameof(CoveredTag));
+        }
+    }
+
+    /// <summary>被祖先包含时给的那句短标签。没被包含就是空串（标签自己会收起来）。</summary>
+    public string CoveredTag => IsCoveredByAncestor ? Loc.OrganizeCoveredTag : "";
+
     /// <summary>顶层对象（首屏只显示这些）。</summary>
     public bool IsRoot => Depth == 0;
 

@@ -79,8 +79,13 @@ public sealed class OrganizeBucket : INotifyPropertyChanged
         Raise(nameof(SelectedText));
     }
 
-    /// <summary>路径 <paramref name="path"/> 上面有没有人也在集合里（含自身则不算）。</summary>
-    static bool HasAncestorIn(string path, HashSet<string> paths)
+    /// <summary>
+    /// 路径 <paramref name="path"/> 上面有没有人也在集合里（含自身则不算）。
+    ///
+    /// 公开出来给列表复用：一行如果被列表里某个祖先目录包含，勾了两个**不会算两遍**
+    /// （<c>FolderSelectionService</c> 会去重），但列表看起来像重复，得在界面上说清楚。
+    /// </summary>
+    public static bool HasAncestorIn(string path, HashSet<string> paths)
     {
         int i = path.Length;
         while (i > 3)
