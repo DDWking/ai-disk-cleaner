@@ -1,60 +1,19 @@
 using System.Diagnostics;
 using System.IO;
-using System.Text.Json;
 using AiDiskCleaner.Models;
-using UninstallTools;
 
 namespace AiDiskCleaner.Services;
 
 /// <summary>
-/// 软件卸载建议的安全边界。规则负责硬性拦截和基础判断，远程 AI 只能补充解释与排序。
+/// 卸载页的**事实**口径：真实占用怎么归属（<see cref="CalculateUsage"/>），
+/// 以及「Windows 自带组件」怎么按结构判定（<see cref="IsInboxComponent(string?, string?)"/>）。
+///
+/// 这个类**不给卸载建议**：卸载页只显示名称 / 安装日期 / 用途 / 占用 / 操作。
+/// 以前那套「本地规则 + 远程建议」的档位（建议卸载 / 可以考虑 / 建议保留 / 未评估）
+/// 在生产里已经没有调用方，本轮整体删除 —— 不是隐藏，是连判定带文案一起删。
 /// </summary>
 public static class AppRecommendationService
 {
-    private static readonly string[] BloatNames =
-    {
-        "2345", "驱动精灵", "驱动人生", "快压", "好压", "鲁大师",
-        "优化大师", "浏览器助手", "网址大全",
-    };
-    private static readonly string[] SafetyCriticalNames =
-    {
-        "microsoft visual c++", "visual studio", ".net runtime", ".net framework",
-        "windows sdk", "windows driver kit", "directx", "webview2",
-        "nvidia", "amd software", "intel", "realtek", "driver", "驱动",
-        "defender", "antivirus", "security", "firewall", "火绒", "卡巴斯基",
-        "eset", "bitdefender", "安全卫士", "杀毒", "防火墙",
-        "vmware", "virtualbox", "docker", "wsl", "hyper-v",
-    };
-
-    public static void ApplyLocalRules(IList<AppUninstallItem> apps)
-        => ApplyLocalRules(apps, clearSelection: true);
-
-    public static void ApplyLocalRules(IList<AppUninstallItem> apps, bool clearSelection)
-    {
-        foreach (var app in apps)
-        {
-            var result = LocalRule(app);
-            Apply(app, result, fromAi: false, clearSelection);
-        }
-    }
-
-    public static int ApplyAiResults(IList<AppUninstallItem> apps, IEnumerable<AppRecommendation> results)
-    {
-        var known = apps
-            .GroupBy(x => x.AppId, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
-        int applied = 0;
-        foreach (var result in results)
-        {
-            if (string.IsNullOrWhiteSpace(result.AppId)) continue;
-            if (!known.TryGetValue(result.AppId, out var app)) continue;
-            var safe = EnforceSafety(app, result);
-            Apply(app, safe, fromAi: true, clearSelection: false);
-            applied++;
-        }
-        return applied;
-    }
-
     private static readonly object UsageCacheGate = new();
     private static string _usageCacheKey = "";
     private static List<AppUsage>? _usageCache;
@@ -232,86 +191,6 @@ public static class AppRecommendationService
             item.App.UserDataBytes = item.UserDataBytes;
             item.App.CacheBytes = item.CacheBytes;
         }
-    }
-
-    public static AppRecommendation LocalRule(AppUninstallItem app)
-    {
-        if (app.IsProtected || app.SystemComponent || app.GroupKey == 2)
-            return Keep(1, Loc.AppKeepSystem);
-        if (!app.CanUninstall)
-            return Keep(1, Loc.AppKeepNoUninstaller);
-        // Windows 自带组件 / 厂商驱动软件：由**卸载程序路径或安装路径**结构判定，
-        // 不是靠名字里出现「windows」这种子串（那会把真正的软件也误伤）。
-        if (app.InboxComponent || IsInboxComponent(app))
-            return Keep(0.9, Loc.AppKeepInboxComponent);
-        if (IsSafetyCritical(app))
-            return Keep(0.9, Loc.AppKeepCritical);
-        // 「正在运行」是**一件具体的、可核实的事**，值得用户看一眼；
-        // 但它同时也意味着现在卸载会失败，所以只到「需要看一下」，永不 Recommend。
-        if (app.RunningState == AppRunningState.Running)
-            return Consider(0.95, Loc.AppConsiderRunning, Loc.AppRunningWarning);
-        // 命中已知捆绑软件特征：这是**有依据的结论**，理由栏写这条依据。
-        // 但「没法确认它没在跑」时不得升到「建议卸载」—— 只降一档，理由仍然是真信号。
-        if (IsKnownBloat(app))
-        {
-            return app.RunningState == AppRunningState.NotRunning
-                ? Recommend(0.86, Loc.AppRecommendBloat)
-                : Consider(0.72, Loc.AppRecommendBloat);
-        }
-        // 其余一律**中性**。以前这里会依次用「无法确认是否正在运行」「占用空间较大」
-        // 「会随系统启动」「没有足够依据」把它们全塞进「可以考虑」，207 行全是同一句套话，
-        // 没有任何决策价值。没有依据就是没有依据。
-        return Neutral();
-    }
-
-    /// <summary>
-    /// 中性档：不说可以卸，也不说别卸，理由栏留空（不写套话）。
-    /// </summary>
-    static AppRecommendation Neutral()
-        => new()
-        {
-            Decision = AppRecommendationDecision.Neutral,
-            Confidence = 0,
-            Reason = Loc.AppNeutralReason,
-            DataWarning = "",
-        };
-
-    static AppRecommendation EnforceSafety(AppUninstallItem app, AppRecommendation result)
-    {
-        var local = LocalRule(app);
-        if (app.IsProtected || app.SystemComponent || app.GroupKey == 2 || !app.CanUninstall
-            || app.InboxComponent || IsInboxComponent(app) || IsSafetyCritical(app))
-            return local;
-        if (app.RunningState != AppRunningState.NotRunning
-            && result.Decision == AppRecommendationDecision.Recommend)
-        {
-            // 运行状态没确认（或确认在跑）时，模型不许把它抬到「建议卸载」；
-            // 同时明确告诉用户先退出软件 —— 这句话只在真的有这回事时出现，
-            // 不再像以前那样挂在两百多行上。
-            result.Decision = AppRecommendationDecision.Consider;
-            result.DataWarning = AppendWarning(result.DataWarning, Loc.AppRunningWarning);
-        }
-        result.Confidence = Math.Clamp(result.Confidence, 0, 1);
-        if (string.IsNullOrWhiteSpace(result.Reason)) result.Reason = local.Reason;
-        return result;
-    }
-
-    static bool IsKnownBloat(AppUninstallItem app)
-    {
-        string text = string.Join(" ", app.Name, app.Publisher, app.InstallLocation);
-        return BloatNames.Any(x => text.Contains(x, StringComparison.CurrentCultureIgnoreCase));
-    }
-
-    /// <summary>
-    /// 运行库 / 驱动 / 安全 / 虚拟化组件：按**名字签名表**判定。
-    /// 注意这里**不含**「Windows 自带组件」那条结构化判定 ——
-    /// 那个由 <see cref="IsInboxComponent(AppUninstallItem)"/> 单独判定，
-    /// 因为两者的理由文案不同，用户看到的原因必须是准确的那一条。
-    /// </summary>
-    static bool IsSafetyCritical(AppUninstallItem app)
-    {
-        string text = string.Join(" ", app.Name, app.Publisher, app.InstallLocation);
-        return SafetyCriticalNames.Any(x => text.Contains(x, StringComparison.CurrentCultureIgnoreCase));
     }
 
     /// <summary>Windows 目录（含 System32 / SysWOW64 / WinSxS），由系统 API 解析，不写死盘符。</summary>
@@ -540,33 +419,6 @@ public static class AppRecommendationService
             ? AppRunningState.Running
             : AppRunningState.NotRunning;
     }
-
-    static string AppendWarning(string existing, string warning)
-    {
-        if (string.IsNullOrWhiteSpace(existing)) return warning;
-        return existing.Contains(warning, StringComparison.CurrentCultureIgnoreCase)
-            ? existing
-            : existing + "；" + warning;
-    }
-
-    static void Apply(AppUninstallItem app, AppRecommendation result, bool fromAi, bool clearSelection)
-    {
-        app.Recommendation = result.Decision;
-        app.RecommendationConfidence = result.Confidence;
-        app.RecommendationReason = result.Reason;
-        app.RecommendationWarning = result.DataWarning;
-        app.AiSuggested = fromAi;
-        if (clearSelection) app.Selected = false;
-    }
-
-    static AppRecommendation Recommend(double confidence, string reason, string warning = "")
-        => new() { Decision = AppRecommendationDecision.Recommend, Confidence = confidence, Reason = reason, DataWarning = warning };
-
-    static AppRecommendation Consider(double confidence, string reason, string warning = "")
-        => new() { Decision = AppRecommendationDecision.Consider, Confidence = confidence, Reason = reason, DataWarning = warning };
-
-    static AppRecommendation Keep(double confidence, string reason, string warning = "")
-        => new() { Decision = AppRecommendationDecision.Keep, Confidence = confidence, Reason = reason, DataWarning = warning };
 
     private readonly record struct FileUsage(string Path, long Bytes);
     private readonly record struct AppLocation(AppUninstallItem App, string Location);

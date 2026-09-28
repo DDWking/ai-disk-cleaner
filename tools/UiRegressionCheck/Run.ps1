@@ -8,6 +8,8 @@
 #   - AI can only write notes; it never touches risk / selection / deletability
 #   - no long-running operation is left with CancellationToken.None
 #   - 2.12: single 全选 toggles, size-sorted organize roots, AI chip, factual uninstall columns
+#   - 3.0: the uninstall page is FACT-ONLY (name / install date / purpose / footprint / actions).
+#     No advice column, no recommendation field, no "review suggestions" entry, no tier enum.
 #
 # Run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/UiRegressionCheck/Run.ps1
 
@@ -40,6 +42,8 @@ $csvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Fo
 $orgnode = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\OrganizeNode.cs') -Raw -Encoding UTF8
 $factual = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AppFactualInfoService.cs') -Raw -Encoding UTF8
 $appitem = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\AppUninstallItem.cs') -Raw -Encoding UTF8
+# 卸载页的占用归属 / 自带组件判定仍在这个服务里；它已经**不给建议**了（本轮删掉那套档位）
+$recsvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AppRecommendationService.cs') -Raw -Encoding UTF8
 # v2.7.0: filtered README/config snippets and the automatic two-level pass
 $srcsnip = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\SourceSnippet.cs') -Raw -Encoding UTF8
 $newfp = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderPurpose.cs') -Raw -Encoding UTF8
@@ -752,6 +756,16 @@ Assert-True 'uninstall keeps name / install date / purpose / size / actions' `
     ($xaml -match 'x:Name="ColAppName"' -and $xaml -match 'x:Name="ColAppInstallDate"' -and
      $xaml -match 'x:Name="ColAppPurpose"' -and $xaml -match 'x:Name="ColAppSize"' -and
      $xaml -match 'x:Name="ColAppAction"')
+# 产品规则：卸载页**只讲事实**，不给建议。上面那条只保证事实列还在，这条保证
+# 「建议」再也长不回来 —— 没有建议列、条目上没有建议字段、窗口里没有那个入口、
+# 服务里没有那套档位（建议卸载 / 可以考虑 / 建议保留 / 未评估）。
+Assert-True 'uninstall page shows no advice (no advice column / field / entry / tier)' `
+    ($xaml -notmatch 'AiSuggested' -and $xaml -notmatch 'Binding Recommendation' -and
+     $appitem -notmatch 'Recommendation' -and $appitem -notmatch 'AiSuggested' -and
+     $cs -notmatch 'ReviewSuggestions' -and
+     $recsvc -notmatch 'AppRecommendationDecision' -and
+     $recsvc -notmatch 'ApplyLocalRules' -and $recsvc -notmatch 'ApplyAiResults' -and
+     $loc -notmatch 'AppRecommendationLabel')
 Assert-True 'uninstall publisher / version / status columns stay in the tree but are collapsed' `
     ($xaml -match '(?s)x:Name="ColAppPub".{0,220}Visibility="Collapsed"' -and
      $xaml -match '(?s)x:Name="ColAppVersion".{0,220}Visibility="Collapsed"' -and
@@ -800,8 +814,13 @@ if (Test-Path -LiteralPath $distDir) {
     if ($publish -and (Test-Path -LiteralPath $publish)) {
         $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
         Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
+        # 版本号从 csproj 读，**不写死** —— 写死的话每次升版本这条门禁都会误报
+        # （v3.0.0 升版时撞了一次：包里明明是 3.0.0.0，断言还在比 2.12.1）。
+        $csproj = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\AiDiskCleaner.csproj') -Raw
+        $wantVersion = [regex]::Match($csproj, '<Version>([^<]+)</Version>').Groups[1].Value.Trim()
         $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
-        Assert-True "published exe carries the new version (got $exeVersion)" ($exeVersion -like '2.12.1*')
+        Assert-True "published exe carries the new version (want $wantVersion, got $exeVersion)" `
+            ($wantVersion.Length -gt 0 -and $exeVersion -like "$wantVersion*")
     }
     else {
         Assert-True 'publish package exists (dist/ present but no DashaoHuo-*-win-x64 package)' $false

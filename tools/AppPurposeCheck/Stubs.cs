@@ -64,14 +64,6 @@ namespace AiDiskCleaner.Services
         public static bool IsEn => false;
         public static string AiAppsSystem => "";
         public static string AiAppsPrompt(string json) => json;
-        public static string AppKeepSystem => "system";
-        public static string AppKeepNoUninstaller => "no uninstaller";
-        public static string AppKeepCritical => "critical";
-        public static string AppConsiderRunning => "running";
-        public static string AppRunningWarning => "close first";
-        public static string AppRecommendBloat => "bloat";
-        public static string AppNeutralReason => "";
-        public static string AppKeepInboxComponent => "inbox";
         public static string AppSizeFromRecord(string size) => "~" + size + " (record)";
         public static string AppSizeUnknown => "unknown";
         public static string AppSizeMeasuredEmpty => "0 KB";
@@ -86,7 +78,6 @@ namespace AiDiskCleaner.Services
         public static string AppFootprintWhyUnreadable => "unreadable";
         public static string AppFootprintNotEqualFree => "footprint != freed";
         public static string UninstallConfirmSizeNote => "size is not a promise";
-        public static string AppNeutralHint => "no signal";
         public static string AppSizeColumnHeader => "Footprint";
         public static string AppSizeColumnTip => "measured / record / unknown";
         public static string AppSizeEstimated => " est.";
@@ -94,8 +85,5 @@ namespace AiDiskCleaner.Services
         public static string FootprintUserData(string size) => "userdata: " + size;
         public static string FootprintCache(string size) => "cache: " + size;
         public static string FootprintReclaimable(string size) => "reclaimable: " + size;
-        public static string AiMark => "AI";
-        public static string AppRecommendationLabel(AppRecommendationDecision decision) => decision.ToString();
-        public static string RunningStateText(AppRunningState state) => state.ToString();
     }
 }

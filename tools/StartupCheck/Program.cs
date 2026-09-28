@@ -1353,57 +1353,15 @@ public static class Program
             !organizeSource.Contains("StartOrganizeAutoIdentify", StringComparison.Ordinal)
             && !organizeSource.Contains("OrganizeIdentifyAllBtn", StringComparison.Ordinal));
 
-        // ---------- 10.4 卸载页：中性档 + 不为「无法确认运行状态」编建议 ----------
-        var ordinary = new AppUninstallItem
-        {
-            AppId = "ordinary", Name = "Some Ordinary App", InstallLocation = @"C:\Apps\Ordinary",
-            SizeBytes = 1000, ActualSizeBytes = 1000, CanUninstall = true,
-            RunningState = AppRunningState.Unknown,
-        };
-        var rule = AppRecommendationService.LocalRule(ordinary);
-        Check("未知应用落中性档，不再产出「可以考虑 · 无法确认是否正在运行」",
-            rule.Decision == AppRecommendationDecision.Neutral && rule.Reason.Length == 0,
-            rule.Decision + "/" + rule.Reason);
-        AppRecommendationService.ApplyLocalRules(new[] { ordinary });
-        CheckD("中性档只显示「未评估」",
-            ordinary.RecommendationText == Loc.AppRecommendationLabel(AppRecommendationDecision.Neutral),
-            ordinary.RecommendationText);
-        Check("中性档不被自动勾选", !ordinary.Selected);
-
-        // 系统条目：结构判定（卸载程序在 Windows 目录内）⇒ 不进泛化建议
-        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-        var inboxApp = new AppUninstallItem
-        {
-            AppId = "inbox", Name = "Microsoft Windows Operating System",
-            InstallLocation = Path.Combine(windowsDir, "System32"),
-            SizeBytes = 0, ActualSizeBytes = 0, CanUninstall = true,
-            RunningState = AppRunningState.Unknown,
-            Entry = new UninstallTools.ApplicationUninstallerEntry
-            {
-                UninstallString = "\"" + Path.Combine(windowsDir, "System32", "mstsc.exe") + "\" /uninstall",
-            },
-        };
-        var inboxRule = AppRecommendationService.LocalRule(inboxApp);
-        CheckD("系统/驱动条目不进「可以考虑」",
-            inboxRule.Decision != AppRecommendationDecision.Consider, inboxRule.Decision.ToString());
-        Check("系统/驱动条目的理由是结构判定的结果",
-            inboxRule.Decision == AppRecommendationDecision.Keep
-            && inboxRule.Reason == Loc.AppKeepInboxComponent, inboxRule.Reason);
-
-        // 「选择建议项」只作用于「建议卸载」，中性/保留都不在内
-        var mix = new List<AppUninstallItem>
-        {
-            new() { AppId = "r", Name = "2345 helper", InstallLocation = @"C:\Apps\Bloat",
-                    SizeBytes = 10, CanUninstall = true, RunningState = AppRunningState.NotRunning },
-            ordinary,
-            inboxApp,
-        };
-        AppRecommendationService.ApplyLocalRules(mix, clearSelection: true);
-        var selectable = mix.Where(x => x.CanUninstall
-            && x.Recommendation == AppRecommendationDecision.Recommend).ToList();
-        CheckD("按建议勾选只覆盖「建议卸载」那一档",
-            selectable.Count == 1 && selectable[0].AppId == "r",
-            string.Join(",", selectable.Select(x => x.AppId)));
+        // ---------- 10.4 卸载页：只讲事实，不给建议 ----------
+        //
+        // 这一节以前守「卸载建议」那套档位：中性档（未评估）、系统/驱动条目落「建议保留」、
+        // 「按建议勾选」只覆盖「建议卸载」那一档。卸载页固定为**事实页**
+        // （名称 / 安装日期 / 用途 / 占用 / 操作）之后，那套机制在生产里没有任何调用方，
+        // 已整体删除；这些断言随能力一起删除（不是隐藏，是连代码带文案一起没了）。
+        // 结构判定「Windows 自带组件」的能力没有丢，断言在
+        // AppRecommendationCheck（IsInboxComponent）与 AppPurposeCheck（WindowsInboxComponent）里。
+        // 事实口径（占用三态文案）在 10.5。
 
         // ---------- 10.5 占用三态在真条目上的显示 ----------
         var measured = new AppUninstallItem

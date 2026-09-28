@@ -201,7 +201,6 @@ public static class Loc
         string name = (App.Settings.AiModel ?? "").Trim();
         return string.IsNullOrEmpty(name) ? "AI" : name;
     }
-    public static string AiMark => IsEn ? "AI suggested" : "AI 建议";
     public static string AiLampBusy => IsEn ? "AI reading…" : "AI 正在分析…";
     public static string AiTimeout => IsEn
         ? "Timed out. Check URL / key, or the model is too slow."
@@ -382,33 +381,6 @@ public static class Loc
     public static string UninstallGroupKeep(int n) => IsEn ? $"Suggested to keep ({n:N0})" : $"建议保留（{n:N0}）";
     /// <summary>没有足够证据的一档。**中性**：不叫「可以考虑」，也不假装有结论。</summary>
     public static string UninstallGroupNeutral(int n) => IsEn ? $"Not assessed ({n:N0})" : $"未评估（{n:N0}）";
-    public static string AppRecommendationLabel(AppRecommendationDecision decision) => decision switch
-    {
-        AppRecommendationDecision.Recommend => IsEn ? "Recommend uninstall" : "建议卸载",
-        AppRecommendationDecision.Keep => IsEn ? "Keep" : "建议保留",
-        AppRecommendationDecision.Neutral => IsEn ? "Not assessed" : "未评估",
-        _ => IsEn ? "Worth a look" : "需要看一下",
-    };
-    public static string AppKeepSystem => IsEn ? "System or protected component" : "系统或受保护组件";
-    public static string AppKeepNoUninstaller => IsEn ? "No usable uninstaller was found" : "没有可用的卸载程序";
-    public static string AppKeepCritical => IsEn ? "Runtime, driver, security, or virtualization component" : "运行库、驱动、安全或虚拟化组件";
-    /// <summary>Windows 自带组件 / 厂商驱动：本页不给卸载建议（也没有可信占用）。</summary>
-    public static string AppKeepInboxComponent =>
-        IsEn ? "Windows component or device software; this page does not suggest removing it"
-             : "Windows 自带组件或设备软件，本页不提供卸载建议";
-    public static string AppConsiderRunning => IsEn ? "Currently running" : "当前正在运行";
-    public static string AppRunningWarning => IsEn ? "Close it before uninstalling" : "卸载前请先退出软件";
-    /// <summary>运行状态只作为事实说明，不当成卸载依据。</summary>
-    public static string RunningStateText(AppRunningState state) => state switch
-    {
-        AppRunningState.Running => IsEn ? "Running: yes" : "运行状态：正在运行",
-        AppRunningState.NotRunning => IsEn ? "Running: no" : "运行状态：未在运行",
-        _ => IsEn ? "Running: could not be verified" : "运行状态：未能确认",
-    };
-    public static string AppRecommendBloat => IsEn ? "Known bundled or unwanted software pattern" : "符合常见捆绑或不需要软件特征";
-    /// <summary>中性档不给理由 —— 理由栏只写有证据的话，不写套话。</summary>
-    public static string AppNeutralReason => "";
-
     // ---- 占用可信度：扫描实测 / 安装记录估计 / 未测得，三者必须一眼分清 ----
     /// <summary>安装记录里的体积（不是实测）。</summary>
     public static string AppSizeFromRecord(string size) =>
@@ -445,10 +417,6 @@ public static class Loc
     public static string AppSizeColumnTip => IsEn
         ? "Measured from the scan when possible; otherwise the installer's own record. Unknown stays unknown."
         : "能实测就用扫描结果；否则用安装记录。两者都没有就写「未知」。";
-    /// <summary>建议列不是证据就不要往上写东西。</summary>
-    public static string AppNeutralHint => IsEn
-        ? "No uninstall signal was found. Search, sort by footprint, or uninstall it manually."
-        : "没有找到卸载依据。可以搜索、按占用排序，或自己直接卸载。";
     public static string UninstallRunning => IsEn ? "Uninstalling…" : "正在卸载…";
     public static string UninstallDone => IsEn ? "Done" : "完成";
     public static string UninstallFailed => IsEn ? "Failed" : "失败";
@@ -460,22 +428,10 @@ public static class Loc
         IsEn ? $"Uninstall finished: {ok} done, {fail} failed, {skip} skipped · freed ≈ {freed}"
              : $"卸载完成：成功 {ok}，失败 {fail}，跳过 {skip} · 释放约 {freed}";
     public static string UninstallResultPending => IsEn ? "Still left:" : "未完成：";
-    /// <summary>只按建议勾选并展示，绝不代替用户删除——AI 只负责分析，删不删由用户确认。</summary>
-    public static string ReviewSuggestions => IsEn ? "Review suggestions" : "看 AI 建议";
     public static string SelectAllTip => IsEn ? "Select all / clear" : "全选 / 取消全选";
     public static string ConfirmDelete(int n) => n > 0
         ? (IsEn ? $"Delete {n:N0} item(s)" : $"确认删除 {n:N0} 项")
         : (IsEn ? "Delete selected" : "确认删除");
-    public static string ReviewScanFirst =>
-        IsEn ? "Scan the disk first, then review suggestions." : "请先扫描磁盘，再看建议。";
-    public static string ReviewScanning =>
-        IsEn ? "Scanning in progress, please wait." : "正在扫描，请稍候。";
-    public static string ReviewNothing =>
-        IsEn ? "No suggestions right now." : "暂时没有可以建议清理的内容。";
-    public static string ReviewHint(int junkCount, string junkSize, int appCount, string appSize) =>
-        IsEn
-            ? $"Pre-checked by suggestion: {junkCount:N0} item(s) ({junkSize}) and {appCount:N0} app(s) (≈{appSize}). Nothing has been deleted — review each group, then confirm."
-            : $"已按建议勾选：可清理 {junkCount:N0} 项（{junkSize}），软件 {appCount:N0} 个（约 {appSize}）。还没有删除任何东西——请逐组核对后再确认。";
     public static string JunkScanning => IsEn ? "Scanning leftovers…" : "正在扫描残留…";
     public static string JunkNone => IsEn ? "No leftovers found." : "没有发现残留。";
     public static string JunkHint(int n, int safe) =>

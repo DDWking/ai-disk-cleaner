@@ -1,3 +1,12 @@
+// 卸载页的**事实**回归检查。
+//
+// 目录名是历史遗留：这里以前测的是「卸载建议」（档位 / 理由 / 远程建议降档）。
+// 卸载页改成只讲事实（名称 / 安装日期 / 用途 / 占用 / 操作）之后，那套机制在生产里
+// 没有任何调用方，已整体删除，相关断言随之删除 —— 见 UiRegressionCheck 里
+// 「uninstall page shows no advice」那条不变量。
+//
+// 现在守的是：真实占用怎么归属（共用目录整棵树不算给单个软件、跨盘不臆造、
+// 系统目录不归属）、占用来源三态文案、以及 Windows 自带组件的结构化判定。
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 
@@ -54,84 +63,23 @@ Check("nested install locations are not double-counted",
 Check("unique install location uses scanned file usage",
     unique.HasMeasuredSize && unique.ActualSizeBytes == 1_234);
 
-var unknownBloat = App("2345 helper", @"D:\", 1);
-unknownBloat.RunningState = AppRunningState.Unknown;
-var unknownBloatRule = AppRecommendationService.LocalRule(unknownBloat);
-CheckD("已知捆绑特征不会因为「运行状态未知」被丢掉，但也不升到「建议卸载」",
-    unknownBloatRule.Decision == AppRecommendationDecision.Consider
-    && unknownBloatRule.Reason == Loc.AppRecommendBloat,
-    unknownBloatRule.Decision + " / " + unknownBloatRule.Reason);
-Check("这一档的理由是真信号，不是「无法确认是否正在运行」那句套话",
-    unknownBloatRule.Reason != Loc.AppConsiderRunning && unknownBloatRule.DataWarning.Length == 0);
-
-// ---- 中性档：没有依据就是没有依据，不许用套话凑出「可以考虑」----
-// 实拍反馈：207 行都写着「可以考虑 · 无法确认是否正在运行 · 卸载前请确认软件已退出」。
-// 那句话对每一行都一样，等于没有信息。
-var ordinary = App("Some Ordinary App", @"C:\Apps\Ordinary", 2_000);
-ordinary.RunningState = AppRunningState.Unknown;
-ordinary.HasStartup = true;
-var ordinaryRule = AppRecommendationService.LocalRule(ordinary);
-CheckD("普通未知应用落中性档（不是「可以考虑」）",
-    ordinaryRule.Decision == AppRecommendationDecision.Neutral, ordinaryRule.Decision.ToString());
-CheckD("中性档不带套话理由", ordinaryRule.Reason.Length == 0, ordinaryRule.Reason);
-AppRecommendationService.ApplyLocalRules(new[] { ordinary });
-Check("中性档只显示「未评估」，不带任何理由/警告",
-    ordinary.RecommendationText == Loc.AppRecommendationLabel(AppRecommendationDecision.Neutral)
-    && ordinary.RecommendationReason.Length == 0 && ordinary.RecommendationWarning.Length == 0);
-Check("中性档的悬停里说明了可以去搜索/排序/自己卸",
-    ordinary.RecommendationHint.Contains(Loc.AppNeutralHint));
-Check("中性档不被自动勾选", !ordinary.Selected);
-
-// 运行状态未知**不再**制造建议；正在运行才是「需要看一下」。
-var runningApp = App("Running App", @"C:\Apps\Running", 2_000);
-runningApp.RunningState = AppRunningState.Running;
-var runningRule = AppRecommendationService.LocalRule(runningApp);
-CheckD("正在运行 ⇒ 需要看一下（而不是中性）",
-    runningRule.Decision == AppRecommendationDecision.Consider, runningRule.Decision.ToString());
-Check("正在运行的提醒只在真的在跑时出现",
-    runningRule.DataWarning == Loc.AppRunningWarning && runningRule.Reason == Loc.AppConsiderRunning);
-
-// 「大」「会随系统启动」都不是卸载依据，不能进「可以考虑」。
-var bigOnly = App("Big Neutral App", @"C:\Apps\BigNeutral", 9L * 1024 * 1024 * 1024);
-CheckD("只是体积大不再产生建议", AppRecommendationService.LocalRule(bigOnly).Decision == AppRecommendationDecision.Neutral,
-    AppRecommendationService.LocalRule(bigOnly).Decision.ToString());
-CheckD("只是开机自启不再产生建议",
-    AppRecommendationService.LocalRule(ordinary).Decision == AppRecommendationDecision.Neutral,
-    AppRecommendationService.LocalRule(ordinary).Decision.ToString());
-
-var aiBloat = App("2345 browser", @"D:\", 1);
-aiBloat.RunningState = AppRunningState.Unknown;
-AppRecommendationService.ApplyAiResults(
-    new[] { aiBloat },
-    new[]
-    {
-        new AppRecommendation
-        {
-            AppId = aiBloat.AppId,
-            Decision = AppRecommendationDecision.Recommend,
-            Reason = "remote result",
-        },
-    });
-Check("运行的软件不得被远程建议抬成「建议卸载」",
-    aiBloat.Recommendation == AppRecommendationDecision.Consider
-    && aiBloat.RecommendationWarning.Length > 0);
-
-// ---- 系统 / 驱动 / 运行库：结构化判定，不靠名字子串，也不进泛化建议 ----
+// ---- Windows 自带组件：**结构化判定**，不靠名字子串（事实能力，保留）----
 // 实拍依据：本机 `Microsoft® Windows® Operating System` 的卸装命令是
 //   "C:\Windows\System32\mstsc.exe" /uninstall，安装位置 C:\Windows\System32，
 // 而 BCU 的 SystemComponent / IsProtected 都是 false —— 只看 BCU 标记会漏掉它。
+//
+// 这里原来还有一组断言，守的是「卸载建议」那套档位：已知捆绑特征的分档、
+// 中性档（未评估）、正在运行 ⇒ 需要看一下、体积大/开机自启不算依据、
+// 远程建议不得越过运行状态、系统条目落「建议保留」。
+// 卸载页改成**只讲事实**之后，那套机制在生产里没有任何调用方（已整体删除），
+// 这些断言随之消失 —— 记在 PR 说明里，不在这里假装还测着。
+// 「系统条目怎么认出来」这条能力**没有丢**：下面三条就是它的结构化断言。
 var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
 var mstsc = App("Microsoft® Windows® Operating System", Path.Combine(windowsDir, "System32"), 0);
 mstsc.Entry = new UninstallTools.ApplicationUninstallerEntry
 {
     UninstallString = "\"" + Path.Combine(windowsDir, "System32", "mstsc.exe") + "\" /uninstall",
 };
-var mstscRule = AppRecommendationService.LocalRule(mstsc);
-CheckD("Windows 系统条目不进「可以考虑」",
-    mstscRule.Decision != AppRecommendationDecision.Consider, mstscRule.Decision.ToString());
-CheckD("Windows 系统条目落「建议保留」并说明原因",
-    mstscRule.Decision == AppRecommendationDecision.Keep && mstscRule.Reason == Loc.AppKeepInboxComponent,
-    mstscRule.Reason);
 Check("结构化判定：卸装程序在 Windows 目录内 ⇒ 系统自带组件",
     AppRecommendationService.IsInboxComponent(mstsc));
 Check("只有安装位置在 Windows 目录内也算系统自带组件",

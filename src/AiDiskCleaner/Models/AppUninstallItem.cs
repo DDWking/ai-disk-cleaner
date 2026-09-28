@@ -18,11 +18,6 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
     private AppInfoConfidence _purposeConfidence = AppInfoConfidence.Unknown;
     private AppSourceKind _purposeKind = AppSourceKind.Unknown;
     private AppRunningState _runningState = AppRunningState.Unknown;
-    private AppRecommendationDecision _recommendation = AppRecommendationDecision.Neutral;
-    private string _recommendationReason = "";
-    private string _recommendationWarning = "";
-    private double _recommendationConfidence;
-    private bool _aiSuggested;
     private string _footprintNote = "";
 
     public bool Selected
@@ -151,7 +146,7 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
     public bool SystemComponent { get; set; }
     /// <summary>
     /// Windows 自带组件 / 设备驱动软件（由卸载程序路径或安装路径**结构判定**，不靠名字猜）。
-    /// 这类条目不属于用户装的软件，不能进泛化卸载建议，也不进「选择建议项」。
+    /// 这类条目不属于用户安装的软件：界面如实标注它是系统自带，不给卸载建议。
     /// </summary>
     public bool InboxComponent { get; set; }
     public bool HasStartup { get; set; }
@@ -165,15 +160,12 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsRunning));
             OnPropertyChanged(nameof(IsRunningKnown));
-            OnPropertyChanged(nameof(RecommendationHint));
         }
     }
     public bool IsRunning => RunningState == AppRunningState.Running;
     public bool IsRunningKnown => RunningState != AppRunningState.Unknown;
     /// <summary>0 普通软件，1 Steam，2 Windows 功能，3 受保护。决定分组和默认折叠。</summary>
     public int GroupKey { get; set; }
-    /// <summary>0 建议卸载，1 可以考虑，2 建议保留。只影响展示，不会自动执行动作。</summary>
-    public int RecommendationGroupKey => (int)Recommendation;
     public byte[]? IconBytes { get; set; }
     public ImageSource? Icon { get; set; }
     public ApplicationUninstallerEntry? Entry { get; set; }
@@ -287,91 +279,6 @@ public sealed class AppUninstallItem : INotifyPropertyChanged
         OnPropertyChanged(nameof(ReclaimableBytes));
         OnPropertyChanged(nameof(HasFootprintBreakdown));
         OnPropertyChanged(nameof(FootprintText));
-    }
-
-    public AppRecommendationDecision Recommendation
-    {
-        get => _recommendation;
-        set
-        {
-            if (_recommendation == value) return;
-            _recommendation = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(RecommendationGroupKey));
-            OnPropertyChanged(nameof(RecommendationText));
-            OnPropertyChanged(nameof(RecommendationHint));
-        }
-    }
-
-    public double RecommendationConfidence
-    {
-        get => _recommendationConfidence;
-        set { if (Math.Abs(_recommendationConfidence - value) < 0.001) return; _recommendationConfidence = value; OnPropertyChanged(); }
-    }
-
-    public string RecommendationReason
-    {
-        get => _recommendationReason;
-        set
-        {
-            if (_recommendationReason == value) return;
-            _recommendationReason = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(RecommendationText));
-            OnPropertyChanged(nameof(RecommendationHint));
-        }
-    }
-
-    public string RecommendationWarning
-    {
-        get => _recommendationWarning;
-        set
-        {
-            if (_recommendationWarning == value) return;
-            _recommendationWarning = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(RecommendationText));
-            OnPropertyChanged(nameof(RecommendationHint));
-        }
-    }
-
-    public bool AiSuggested
-    {
-        get => _aiSuggested;
-        set
-        {
-            if (_aiSuggested == value) return;
-            _aiSuggested = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(RecommendationText));
-        }
-    }
-
-    public string RecommendationText
-    {
-        get
-        {
-            string label = Loc.AppRecommendationLabel(Recommendation);
-            string reason = string.IsNullOrWhiteSpace(RecommendationReason) ? "" : " · " + RecommendationReason;
-            string warning = string.IsNullOrWhiteSpace(RecommendationWarning) ? "" : " · " + RecommendationWarning;
-            string ai = AiSuggested ? " · " + Loc.AiMark : "";
-            return label + reason + warning + ai;
-        }
-    }
-
-    /// <summary>
-    /// 建议列的悬停：建议 + （中性档时）为什么没有建议 + 占用来源说明。
-    /// 套话只留在悬停里，而且只在确实有内容可讲的时候才出现。
-    /// </summary>
-    public string RecommendationHint
-    {
-        get
-        {
-            var bits = new List<string> { RecommendationText };
-            if (Recommendation == AppRecommendationDecision.Neutral) bits.Add(Loc.AppNeutralHint);
-            bits.Add(Loc.RunningStateText(RunningState));
-            return string.Join(Environment.NewLine, bits);
-        }
     }
 
     // ---- 事实用途（本地元数据 / 结构证据；**不涉及该不该卸载**）----
