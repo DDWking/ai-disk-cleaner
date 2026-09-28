@@ -645,10 +645,13 @@ Assert-True 'the chat tool loop and its sidecar are gone (no tool can touch the 
 #   · 入口必须由用户点（扫描流程里不许出现判定调用，否则「扫描 = 0 请求」就破了）；
 #   · 回写只碰说明文字（AI 永远不写 Selected / CanDelete / Risk / Evidence）。
 $dupkeep = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\DuplicateKeepDecisionSet.cs') -Raw -Encoding UTF8
+$grouping = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanGroupingService.cs') -Raw -Encoding UTF8
 Assert-True 'duplicate keep-advice exists and asks one choice per group' `
     ($dupkeep -match 'IDecisionSet<CleanLocationNode>' -and
      $dupkeep -match 'Type = "choice"' -and
-     $dupkeep -match 'MaxMembers = 12')
+     # 上限来自模型那一侧，界面和判定域必须是同一个数字（写死 12 会在两处漂移）
+     $dupkeep -match 'MaxMembers = CleanLocationNode\.DupAskMaxMembers' -and
+     $nodes -match 'DupAskMaxMembers = 12')
 Assert-True 'the duplicate entry point is a click handler, not part of the scan' `
     ($cs -match 'DupAskKeep_Click' -and
      $xaml -match 'Click="DupAskKeep_Click"' -and
@@ -666,6 +669,11 @@ Assert-True 'duplicate advice only ever writes display text (never selection / d
      $dupkeep -notmatch '\.CanDelete\s*=' -and
      $dupkeep -notmatch '\.Risk\s*=' -and
      $dupkeep -notmatch '\.Evidence\s*=')
+# 一组重复文件在界面上被拆成「保留项 / 多余项」两行，每行只有一半 ——
+# 判定域必须看全组（DupMembers），否则生产里永远只有一个选项可选。
+Assert-True 'duplicate advice reads the whole group, not just the row half' `
+    ($dupkeep -match 'node\.DupMembers\.Count > 0 \? node\.DupMembers : node\.Items' -and
+     $grouping -match 'node\.DupMembers = members')
 Assert-True 'duplicate advice is below-threshold silent, and the threshold is shared' `
     ($dupkeep -match 'confidence < DecisionThresholds\.DuplicateKeep' -and
      $dupkeep -match 'DecisionWriteBack\.Unsure')

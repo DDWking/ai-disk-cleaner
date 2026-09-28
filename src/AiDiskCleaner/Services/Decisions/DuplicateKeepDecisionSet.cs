@@ -65,8 +65,11 @@ public sealed class DuplicateKeepDecisionSet : IDecisionSet<CleanLocationNode>
     /// 组内成员超过这个数就不出题（连问都不问）。
     /// 理由不是 token，是**人**：十几个长得差不多的路径摆一起，模型也只能瞎猜，
     /// 而猜错一句「建议留这份」的代价是用户删错文件。
+    ///
+    /// 值来自模型那一侧（<see cref="CleanLocationNode.DupAskMaxMembers"/>）：
+    /// 界面要显示「问不问」、判定域要决定「问不问」，两处必须是同一个数字。
     /// </summary>
-    public const int MaxMembers = 12;
+    public const int MaxMembers = CleanLocationNode.DupAskMaxMembers;
 
     /// <summary>
     /// 一组里至少要有两个成员才谈得上「留哪一个」。
@@ -100,7 +103,7 @@ public sealed class DuplicateKeepDecisionSet : IDecisionSet<CleanLocationNode>
             Type = "choice",
             // 把「这是同一份内容的多个副本，选最该留下的那一份」写进问题本身 ——
             // 不让模型去猜这道题在问什么。
-            Instructions = Loc.DupKeepQuestion(index + 1, item.FileCount),
+            Instructions = Loc.DupKeepQuestion(index + 1, Members(item).Count),
             Criteria = Criteria(item),
         };
 
@@ -109,7 +112,7 @@ public sealed class DuplicateKeepDecisionSet : IDecisionSet<CleanLocationNode>
         var sb = new System.Text.StringBuilder();
         for (int i = 0; i < chunk.Count; i++)
         {
-            var items = chunk[i].Items;
+            var items = Members(chunk[i]);
             sb.Append("g").Append(i + 1).Append(" · ")
               .Append(Loc.DupKeepGroupSummary(items.Count, chunk[i].Bytes))
               .AppendLine();
@@ -126,14 +129,25 @@ public sealed class DuplicateKeepDecisionSet : IDecisionSet<CleanLocationNode>
         return sb.ToString().TrimEnd();
     }
 
+    /// <summary>
+    /// 这一组的**全组成员**（保留项在前）。
+    ///
+    /// 清理页把一组拆成「保留项 / 多余项」两行，每行的 <c>Items</c> 只有一半，
+    /// 所以要用分组时挂上来的 <see cref="CleanLocationNode.DupMembers"/>。
+    /// 拿不到时退回本行条目 —— 那样至少还能问「留这一行里的哪一份」，不会崩。
+    /// </summary>
+    internal static IReadOnlyList<CleanItem> Members(CleanLocationNode node)
+        => node.DupMembers.Count > 0 ? node.DupMembers : node.Items;
+
     DecisionApplied IDecisionSet<CleanLocationNode>.Apply(CleanLocationNode item, AiDecisionAnswer? answer)
     {
         if (answer == null) return DecisionApplied.NoAnswer;
 
+        var members = Members(item);
         int index = MemberIndex(answer.Choice);
-        if (index < 0 || index >= item.Items.Count) return DecisionApplied.NoAnswer;
+        if (index < 0 || index >= members.Count) return DecisionApplied.NoAnswer;
 
-        var keep = item.Items[index];
+        var keep = members[index];
         double confidence = answer.Confidence;
         string label = "m" + (index + 1);
 
@@ -142,6 +156,8 @@ public sealed class DuplicateKeepDecisionSet : IDecisionSet<CleanLocationNode>
         if (confidence < DecisionThresholds.DuplicateKeep)
             return new DecisionApplied(DecisionWriteBack.Unsure, label, confidence);
 
+        // 本地基线 = 组内第一项。建议**始终写在保留项那一行的说明上**：
+        // 它是这一组在界面上的「主行」，写在别处用户根本看不到。
         var baseline = BaselineKeep(item);
         string note = ReferenceEquals(keep, baseline)
             ? Loc.DupKeepSameAsBaseline(confidence)
@@ -168,15 +184,16 @@ public sealed class DuplicateKeepDecisionSet : IDecisionSet<CleanLocationNode>
     /// 本地基线算出来的保留项 = 组内第一项（<see cref="DuplicateDetector.FullGroupOrder"/>
     /// 把「路径最短 / 最浅」排在最前，重复检测也是按它产出 keep 行的）。
     /// </summary>
-    internal static CleanItem BaselineKeep(CleanLocationNode node) => node.Items[0];
+    internal static CleanItem BaselineKeep(CleanLocationNode node) => Members(node)[0];
 
     /// <summary>选项表：组内每个成员一项，键 <c>m1..mN</c>，值是**脱敏后的路径**。</summary>
     static Dictionary<string, string> Criteria(CleanLocationNode node)
     {
-        int count = Math.Min(node.Items.Count, MaxMembers);
+        var members = Members(node);
+        int count = Math.Min(members.Count, MaxMembers);
         var criteria = new Dictionary<string, string>(count, StringComparer.Ordinal);
         for (int i = 0; i < count; i++)
-            criteria["m" + (i + 1)] = PathRedactor.Outbound(node.Items[i].FullPath);
+            criteria["m" + (i + 1)] = PathRedactor.Outbound(members[i].FullPath);
         return criteria;
     }
 
@@ -199,7 +216,10 @@ public sealed class DuplicateKeepDecisionSet : IDecisionSet<CleanLocationNode>
         {
             if (node.Purpose != CleanPurpose.Duplicate) continue;
             if (!node.Key.Contains("dup-keep", StringComparison.Ordinal)) continue;
-            if (node.Items.Count < MinMembers || node.Items.Count > MaxMembers) continue;
+            // 组大小看**全组**（分组时挂上来的 DupMembers），不是这一行的条数 ——
+            // 一行只有这一组的一半，用行内条数会把 4 个副本的组当成 2 个。
+            int members = Members(node).Count;
+            if (members < MinMembers || members > MaxMembers) continue;
             if (AlreadySuggested(node)) continue;
             targets.Add(node);
         }

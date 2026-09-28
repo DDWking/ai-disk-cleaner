@@ -252,6 +252,30 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
     public bool HasCleanableItems => Items.Any(CleanRuleEligibility.IsCleanable);
 
     /// <summary>
+    /// 这一组重复文件的**全部成员**（保留项在前）。
+    ///
+    /// 为什么需要它：清理页把一组重复文件拆成**两行** —— 「保留项」一行、「多余项」一行
+    /// （它们的 <see cref="CleanItem.Handling"/> 不同，所以位置键不同）。于是
+    /// <see cref="CleanGroupNodeBase.Items"/> 在每一行里都只有这一组的**一半**。
+    /// 而「留哪一份」这个问题必须看到整组才问得出来，所以分组时把全组成员一起挂上来。
+    ///
+    /// 非重复组恒为空；界面和判定域都用 <see cref="DupMemberCount"/> 兜底。
+    /// </summary>
+    public IReadOnlyList<CleanItem> DupMembers { get; internal set; } = Array.Empty<CleanItem>();
+
+    /// <summary>这一组的成员总数（拿不到全组时退回本行条数）。</summary>
+    public int DupMemberCount => DupMembers.Count > 0 ? DupMembers.Count : Items.Count;
+
+    /// <summary>
+    /// 一组重复文件里，成员超过这个数就不提供「问一下留哪一份」。
+    ///
+    /// 理由不是 token 而是**人**：十几个长得差不多的路径摆在一起，模型也只能瞎猜，
+    /// 而猜错一句「建议留这份」的代价是用户删错文件。判定域共用这个数字
+    /// （<see cref="Services.DuplicateKeepDecisionSet.MaxMembers"/>），避免两处漂移。
+    /// </summary>
+    public const int DupAskMaxMembers = 12;
+
+    /// <summary>
     /// 展开文件表时显示的本地「选择这些文件」芯片。
     /// 不依赖识别、不是 AI 意见；整理树没有这个入口。
     /// </summary>
@@ -281,11 +305,7 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
     /// 而且**还没问过**（问过就不再显示，避免重复花钱）。
     /// </summary>
     public bool ShowDupAskChip
-        => IsFilesOpen
-           && Purpose == CleanPurpose.Duplicate
-           && Key.Contains("dup-keep", StringComparison.Ordinal)
-           && Items.Count >= 2
-           && !AlreadySuggested;
+        => IsFilesOpen && ShowDupAskRowChip;
 
     /// <summary>
     /// 位置行上（不需要展开）显示同一个入口。
@@ -297,7 +317,8 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
     public bool ShowDupAskRowChip
         => Purpose == CleanPurpose.Duplicate
            && Key.Contains("dup-keep", StringComparison.Ordinal)
-           && Items.Count >= 2
+           && DupMemberCount >= 2
+           && DupMemberCount <= DupAskMaxMembers
            && !AlreadySuggested;
 
     /// <summary>
