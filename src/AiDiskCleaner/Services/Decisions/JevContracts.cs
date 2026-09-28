@@ -25,7 +25,7 @@ public sealed class AiDecisionQuestion
 /// <summary>
 /// 一次结构化判定请求。
 ///
-/// 注意它**不是** <see cref="AiRequest"/> 的变体：那个是 chat（system + turns），
+/// 注意它**不是**聊天请求的变体：那个是「system + turns」，
 /// 这个是「一份 state + 若干道题」。硬凑成一个类型只会让两边都别扭。
 /// </summary>
 public sealed class AiDecisionRequest

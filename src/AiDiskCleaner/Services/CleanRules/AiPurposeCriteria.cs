@@ -164,11 +164,11 @@ public static class AiPurposeCriteria
     {
         // 拿不准也照示：拒绝猜「别删」比拒绝猜「缓存」危险得多
         AiPurposeKind.UserData or AiPurposeKind.SystemOwned
-            or AiPurposeKind.AppOwned or AiPurposeKind.DevTools => 0.0,
+            or AiPurposeKind.AppOwned or AiPurposeKind.DevTools => DecisionThresholds.KeepKind,
         AiPurposeKind.Temporary or AiPurposeKind.BrowserCache or AiPurposeKind.AppCache
             or AiPurposeKind.DevCache or AiPurposeKind.AppLog or AiPurposeKind.Dump
-            or AiPurposeKind.Installer => 0.60,
-        AiPurposeKind.Model => 0.75,
+            or AiPurposeKind.Installer => DecisionThresholds.CleanKind,
+        AiPurposeKind.Model => DecisionThresholds.ModelKind,
         _ => 1.0, // Unknown 本来就没结论
     };
 

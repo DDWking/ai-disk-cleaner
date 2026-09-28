@@ -961,18 +961,24 @@ public static class Program
         Check("归类发请求前先确认通道已配置（不会往错地址发）",
             org.Contains("DecisionConfigured()", StringComparison.Ordinal));
         // 一批太大不能整批失败：模型的上下文上限是硬的（criteria 是每题一份，实测每项 362 token）
-        var batchSvc = ReadSource("src/AiDiskCleaner/Services/AiPurposeBatchService.cs");
+        // 判定层拆成「域」+「执行器」之后，这几条要分两个文件看：
+        //   批的大小与起点是域的参数；拆半与步长在执行器里。
+        var decisionSet = ReadSource("src/AiDiskCleaner/Services/Decisions/FolderPurposeDecisionSet.cs");
+        var runner = ReadSource("src/AiDiskCleaner/Services/Decisions/DecisionRunner.cs");
         Check("一批撑爆上下文时会拆两半重试，而不是整批失败",
-            batchSvc.Contains("IsTooLargeForModel", StringComparison.Ordinal)
-            && batchSvc.Contains("GetRange(0, half)", StringComparison.Ordinal));
+            runner.Contains("IsTooLargeForModel", StringComparison.Ordinal)
+            && runner.Contains("GetRange(0, half)", StringComparison.Ordinal));
         Check("单批条数留了足够余量（不再贴着 64K 上限）",
-            batchSvc.Contains("MaxPerRequest = 80", StringComparison.Ordinal));
+            decisionSet.Contains("MaxPerRequest = 80", StringComparison.Ordinal));
         // 别人可能填自己的端点（可能只有 32k 上下文）。**先小批试、成功了再放大** ——
         // 一上来就发最大批，遇到小端点会整批 400。
         Check("分批是自适应的：先小批试，成功了放大，撞上限减半",
-            batchSvc.Contains("AdaptiveStart = 20", StringComparison.Ordinal)
-            && batchSvc.Contains("Math.Min(MaxPerRequest, size * 2)", StringComparison.Ordinal)
-            && batchSvc.Contains("Math.Max(AdaptiveMin, size / 2)", StringComparison.Ordinal));
+            decisionSet.Contains("AdaptiveStart = 20", StringComparison.Ordinal)
+            && runner.Contains("Math.Min(set.MaxPerRequest, size * 2)", StringComparison.Ordinal)
+            && runner.Contains("Math.Max(floor, size / 2)", StringComparison.Ordinal)
+            && runner.Contains("int floor = Math.Min(AdaptiveMin, set.AdaptiveStart)", StringComparison.Ordinal));
+        Check("判定请求的硬限制在发出去之前校验（选项数 / 档位数 / 字符预算）",
+            runner.Contains("JevLimits.Validate(request)", StringComparison.Ordinal));
         // 反复追问同一条 = 无限请求。没结论的条目必须被标记成「问过了」。
         Check("问过的条目不再入选（否则再点一次会把同一批重问）",
             orgNode.Contains("MarkBatchAsked", StringComparison.Ordinal));

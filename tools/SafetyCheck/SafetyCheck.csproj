@@ -16,6 +16,7 @@
     <Compile Include="LayeredCleanTests.cs" />
     <Compile Include="ReviewFixesTests.cs" />
     <Compile Include="AiPurposeTests.cs" />
+    <Compile Include="JevDecisionTests.cs" />
 
     <Compile Include="..\..\src\AiDiskCleaner\Models\DeletionModels.cs" Link="DeletionModels.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" Link="FileEntry.cs" />
@@ -43,7 +44,13 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\SecretProtector.cs" Link="SecretProtector.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AiGateway.cs" Link="AiGateway.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\AiDecisions.cs" Link="AiDecisions.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevContracts.cs" Link="Decisions\JevContracts.cs" />
+    <!-- 判定层：阈值表 + 分批执行器 + 硬限制。全部离线可测（假 sender），不联网 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\DecisionThresholds.cs" Link="Decisions\DecisionThresholds.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\IDecisionSet.cs" Link="Decisions\IDecisionSet.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\DecisionRunner.cs" Link="Decisions\DecisionRunner.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevLimits.cs" Link="Decisions\JevLimits.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevLog.cs" Link="Decisions\JevLog.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleContracts.cs" Link="CleanRuleContracts.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanItemFactory.cs" Link="CleanItemFactory.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleEligibility.cs" Link="CleanRuleEligibility.cs" />

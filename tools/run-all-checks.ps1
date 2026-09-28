@@ -115,9 +115,9 @@ foreach ($c in $checks) {
     }
 }
 
-$failed = $results | Where-Object { -not $_.Ok }
+$failed = @($results | Where-Object { -not $_.Ok })
 Write-Host ''
-if ($failed) {
+if ($failed.Count -gt 0) {
     Write-Host "FAIL: $($failed.Count) of $($results.Count) check(s) failed" -ForegroundColor Red
     $failed | ForEach-Object { Write-Host "  - $($_.Name) (see $logDir\$($_.Name).log)" -ForegroundColor Red }
     exit 1

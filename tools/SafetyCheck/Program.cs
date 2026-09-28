@@ -41,6 +41,7 @@ public static class Program
         LayeredCleanTests.Run(Check, Section);
         ReviewFixesTests.Run(Check, Section);
         AiPurposeTests.Run(Check, Section);
+        JevDecisionTests.Run(Check, Section);
         ErrorClassificationTests();
         DiagnosticsTests();
 

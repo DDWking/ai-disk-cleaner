@@ -390,28 +390,40 @@ public static class AiPurposeTests
 
     static void SourceInvariantTests(CheckFn check)
     {
-        string src = ReadSource("src/AiDiskCleaner/Services/AiPurposeBatchService.cs");
-        check("读到批量归类服务源码", src.Length > 0);
+        // 这批不变量现在跨两个文件，因为判定层被拆成了「域」与「执行器」：
+        //   FolderPurposeDecisionSet.cs —— 出题与回写（认识 OrganizeNode）
+        //   DecisionRunner.cs            —— 分批/拆半/换代守卫（泛型，不认识 OrganizeNode）
+        // 拆开之后断言反而更强：执行器连 BatchPurpose 这个字段都碰不到。
+        string setSrc = ReadSource("src/AiDiskCleaner/Services/Decisions/FolderPurposeDecisionSet.cs");
+        string runner = ReadSource("src/AiDiskCleaner/Services/Decisions/DecisionRunner.cs");
+        string src = setSrc + "\n" + runner;
+        check("读到判定域与执行器源码", setSrc.Length > 0 && runner.Length > 0,
+            $"set={setSrc.Length} runner={runner.Length}");
         if (src.Length == 0) return;
 
-        check("批量归类只写 BatchPurpose", src.Contains("SetBatchPurpose", StringComparison.Ordinal));
+        check("批量归类只写 BatchPurpose", setSrc.Contains("SetBatchPurpose", StringComparison.Ordinal));
         // 低置信必须写进去（只是标出来），不许再 `continue` 丢掉
         check("低置信走的是「标记」而不是「丢弃」",
-            src.Contains("Loc.AiPurposeUnsureName(name), unsure: true", StringComparison.Ordinal)
+            setSrc.Contains("Loc.AiPurposeUnsureName(name), unsure: true", StringComparison.Ordinal)
             && !src.Contains("IsAccepted(kind, answer.Confidence)) { unsure++; continue; }"));
         check("批量归类不写 Risk", !src.Contains(".Risk ="));
         check("批量归类不写 CanDelete", !src.Contains(".CanDelete ="));
         check("批量归类不写 Selected", !src.Contains(".Selected ="));
         check("批量归类不写 Evidence", !src.Contains(".Evidence ="));
         check("批量归类不碰逐项 AI 结果", !src.Contains(".Ai.Result =") && !src.Contains(".Ai.Status ="));
-        check("落盘不在批量服务里（接线在界面层，服务保持纯展示）",
+        check("落盘不在判定层里（接线在界面层，判定层保持纯展示）",
             !src.Contains("PutAiPurpose", StringComparison.Ordinal)
             && !src.Contains("RecognitionStore", StringComparison.Ordinal));
+
+        // 执行器是泛型的：这个断言在旧结构里根本写不出来
+        check("执行器不认识整理页的字段（泛型化的直接好处）",
+            !runner.Contains("BatchPurpose", StringComparison.Ordinal)
+            && !runner.Contains("OrganizeNode", StringComparison.Ordinal));
 
         // 出站路径必须走唯一入口：默认脱敏，只有用户明确允许才发完整路径。
         // 实测脱敏不影响归类（16/16 与非脱敏一致）—— <UserProfile>\Temp\ 照样认出是临时文件。
         check("出站路径走 PathRedactor.Outbound（默认脱敏）",
-            src.Contains("PathRedactor.Outbound", StringComparison.Ordinal));
+            setSrc.Contains("PathRedactor.Outbound", StringComparison.Ordinal));
         check("批量归类不直接发 FullPath 给模型",
             !src.Contains("AiPurposeQuestion(chunk[i].FullPath", StringComparison.Ordinal)
             && !src.Contains("x => x.FullPath", StringComparison.Ordinal));

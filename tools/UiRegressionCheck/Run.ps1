@@ -20,7 +20,13 @@ $aiclient = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Service
 # 逐项 AI 那半套（AiNoteParser / AiCoordinator / ItemAiService / ItemAiPrompt / AiVerdict /
 # ItemAiView）已整体移除，只留下批量归类这一条 AI 路径。
 $orgsrc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\MainWindow.Organize.cs') -Raw -Encoding UTF8
-$batchsvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiPurposeBatchService.cs') -Raw -Encoding UTF8
+# v3.0：判定层拆成「域 + 执行器 + 门面」三个文件。这里把它们拼起来看 ——
+# 下面那些断言的语义没变（出站要脱敏、不写 risk/selection、撑爆要拆批），只是现在跨文件了。
+$batchsvc = @(
+    (Join-Path $repo 'src\AiDiskCleaner\Services\AiPurposeBatchService.cs')
+    (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\FolderPurposeDecisionSet.cs')
+    (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\DecisionRunner.cs')
+) | ForEach-Object { Get-Content -LiteralPath $_ -Raw -Encoding UTF8 } | Out-String
 $analyst = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\DiskAnalyst.cs') -Raw -Encoding UTF8
 $agent = Get-Content -LiteralPath (Join-Path $repo 'sidecar\src\agent.js') -Raw -Encoding UTF8
 $loc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Loc.cs') -Raw -Encoding UTF8
