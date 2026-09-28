@@ -20,6 +20,15 @@ public enum AppErrorKind
     Network,
     /// <summary>数据解析失败（端点返回的结构不符合约定）。</summary>
     Parse,
+    /// <summary>
+    /// 判定通道拒绝了密钥（401 / 403 / 欠费 / 密钥过期）。
+    ///
+    /// 单独一类，因为它的处置和别的都不一样：重试没有意义（<see cref="AiGateway.IsTransient"/>
+    /// 也不会重试），用户要做的是**去设置里换一把密钥**，而不是检查网络。
+    /// 真机反馈：以前这种错会走「未知」，界面把服务商的原文糊上去 ——
+    /// 用户看到的是「出了点问题：API key expired.」，既不知道该怎么办，也不确定是不是软件坏了。
+    /// </summary>
+    Auth,
     /// <summary>磁盘 IO 失败。</summary>
     Io,
     /// <summary>未知。</summary>
@@ -51,6 +60,14 @@ public sealed record AppError(AppErrorKind Kind, string UserMessage, string Tech
 
         if (ex is UnauthorizedAccessException || ex is SecurityException)
             return AppErrorKind.Permission;
+
+        // 判定通道拒绝密钥：**必须排在网络判断之前** —— HttpRequestException 会被
+        // 下面那条网络分支先接走，401/403 就永远归不到 Auth 了（写这行的时候真踩了一次）。
+        // 只看异常本身（状态码 / 文案），不去嗅探别的东西。
+        if (ex is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden })
+            return AppErrorKind.Auth;
+        if (ex is InvalidOperationException && LooksLikeAuthRejection(ex.Message))
+            return AppErrorKind.Auth;
 
         if (ex is HttpRequestException || ex is SocketException || ex is WebException)
             return AppErrorKind.Network;
@@ -87,10 +104,35 @@ public sealed record AppError(AppErrorKind Kind, string UserMessage, string Tech
         AppErrorKind.Permission => "没有权限，试试用管理员身份运行。",
         AppErrorKind.Path => "路径读不到，可能已被移动或删除。",
         AppErrorKind.Network => "网络连不上，检查一下网络或本机的 AI 服务是否启动。",
+        AppErrorKind.Auth => "判定通道拒绝了这把密钥（过期 / 无效 / 额度用完）。到设置里换一把再试 —— 重试没用。",
         AppErrorKind.Parse => "返回的数据看不懂，已保留本地规则的结果。",
         AppErrorKind.Io => "磁盘读写失败，可能被别的程序占用。",
         _ => "出了点问题：" + Short(ex?.Message),
     };
+
+    /// <summary>
+    /// 判定通道拒绝密钥时，端点返回的文案长什么样。
+    ///
+    /// 匹配的是**服务商真实的措辞**（OpenRouter / OpenAI 风格），不是我们自己的话：
+    /// <c>API key expired.</c>（真机撞到的就是这个）、<c>Invalid API key</c>、
+    /// <c>Incorrect API key provided</c>、<c>insufficient credits</c>、<c>quota exceeded</c>。
+    /// 判不出来就退回「未知」——**宁可不说，也不猜错**：把网络故障说成密钥问题，
+    /// 用户会去换一把好密钥，然后问题还在。
+    /// </summary>
+    internal static bool LooksLikeAuthRejection(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return false;
+        string m = message.ToLowerInvariant();
+        return m.Contains("api key")
+               || m.Contains("api-key")
+               || m.Contains("unauthorized")
+               || m.Contains("invalid key")
+               || m.Contains("no auth")
+               || m.Contains("insufficient credit")
+               || m.Contains("insufficient_quota")
+               || m.Contains("quota")
+               || m.Contains("out of credits");
+    }
 
     public static string Short(string? s)
     {

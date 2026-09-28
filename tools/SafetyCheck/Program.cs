@@ -1256,6 +1256,46 @@ public static class Program
         Check("未知异常给用户一句人话",
             AppError.From(new InvalidOperationException("内部错误细节")).UserMessage.Length > 0);
 
+        // ---- 判定通道拒绝密钥：真机反馈（2026-09-28 的 app.log）----
+        //
+        // 端点回的是 200 + {"error":{"message":"API key expired."}}，于是异常是
+        // InvalidOperationException("API key expired.")，落到「未知」那一档，
+        // 界面把服务商原文糊上去：**「出了点问题：API key expired.」**
+        // —— 既没告诉用户该怎么办，也不像一句中文软件该说的话。
+        Check("API key expired 归到 Auth（而不是未知）",
+            AppError.Classify(new InvalidOperationException("API key expired.")) == AppErrorKind.Auth);
+        Check("Invalid API key 归到 Auth",
+            AppError.Classify(new InvalidOperationException("Invalid API key provided")) == AppErrorKind.Auth);
+        Check("余额不足 / 额度用完也归到 Auth",
+            AppError.Classify(new InvalidOperationException("insufficient credits")) == AppErrorKind.Auth
+            && AppError.Classify(new InvalidOperationException("You exceeded your current quota")) == AppErrorKind.Auth);
+        Check("401 / 403 的 HTTP 异常归到 Auth",
+            AppError.Classify(new System.Net.Http.HttpRequestException(
+                "unauthorized", null, System.Net.HttpStatusCode.Unauthorized)) == AppErrorKind.Auth
+            && AppError.Classify(new System.Net.Http.HttpRequestException(
+                "forbidden", null, System.Net.HttpStatusCode.Forbidden)) == AppErrorKind.Auth);
+        Check("Auth 给的是中文人话，而且说清「重试没用、去换密钥」",
+            AppError.From(new InvalidOperationException("API key expired.")).UserMessage
+                is string authMsg
+            && authMsg.Contains("密钥", StringComparison.Ordinal)
+            && authMsg.Contains("设置", StringComparison.Ordinal)
+            && !authMsg.Contains("API key", StringComparison.Ordinal),
+            AppError.From(new InvalidOperationException("API key expired.")).UserMessage);
+        Check("服务商原文仍然留在技术细节里（排查要看得到）",
+            AppError.From(new InvalidOperationException("API key expired.")).Technical
+                .Contains("API key expired", StringComparison.Ordinal));
+
+        // **宁可不说，也不猜错**：判不出来的错不许被塞进 Auth 档
+        Check("普通的内部错误不会被误判成密钥问题",
+            AppError.Classify(new InvalidOperationException("decisions channel is not registered"))
+                == AppErrorKind.Unknown);
+        Check("网络故障不会被误判成密钥问题",
+            AppError.Classify(new System.Net.Http.HttpRequestException("connection refused"))
+                == AppErrorKind.Network);
+        Check("内容里恰好出现 key 字样也不会被误判",
+            AppError.Classify(new InvalidOperationException("keyboard layout file missing"))
+                == AppErrorKind.Unknown);
+
         // 异常里的密钥不能进日志
         var err = AppError.From(new InvalidOperationException("failed with sk-abcdefghijklmnopqrstuvwxyz012345"));
         Check("异常消息里的密钥被抹掉", !LogRedactor.LooksSecret(err.Technical));
