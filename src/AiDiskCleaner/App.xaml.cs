@@ -62,10 +62,12 @@ public partial class App : Application
         base.OnStartup(e);
     }
 
+    /// <summary>
+    /// v3.0：退出时不再需要收拾外部进程 —— Node 侧车（那个会残留的 sidecar）已经删掉了，
+    /// 判定通道只是本进程里的一次 HTTP 调用。
+    /// </summary>
     protected override void OnExit(ExitEventArgs e)
     {
-        // 不关的话，用户退出大扫货后 sidecar 进程会残留
-        try { SidecarClient.Stop(); } catch { }
         base.OnExit(e);
     }
 
@@ -184,7 +186,6 @@ public partial class App : Application
     /// <summary>受控非零退出：不留空转进程。</summary>
     static void ExitControlled()
     {
-        try { SidecarClient.Stop(); } catch { }
         try { Current?.Shutdown(FatalStartupExitCode); } catch { }
         Environment.Exit(FatalStartupExitCode);
     }

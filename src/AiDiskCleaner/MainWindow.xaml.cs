@@ -173,7 +173,7 @@ public sealed class IconKeyConverter : IValueConverter
         => Binding.DoNothing;
 }
 
-public partial class MainWindow : Window, IAnalystHost
+public partial class MainWindow : Window
 {
     private const int MaxDisplayRows = 50000; // 文件列表最多渲染的行数，超出只显示前 N 行
 
@@ -228,14 +228,8 @@ public partial class MainWindow : Window, IAnalystHost
     private bool _showingJunk;
     private long _volumeTotal;
     private long _volumeUsed;
-    private bool _aiModelLock;
+    /// <summary>设置页「测试判定通道」在跑（防重入 + 忙状态行）。</summary>
     private bool _aiBusy;
-    private bool _aiOk;
-
-    FileEntry? IAnalystHost.Root => _root;
-    CleanReport? IAnalystHost.Report => _report;
-    private static readonly AiProtocol[] AiProtos =
-        { AiProtocol.Completions, AiProtocol.Responses, AiProtocol.Anthropic, AiProtocol.Decisions };
 
     public MainWindow()
     {
@@ -274,14 +268,6 @@ public partial class MainWindow : Window, IAnalystHost
         // 用户之前手动纠正过的用途：跨重启仍然有效，且优先于本地/AI 结论
         try { _folderPurpose.LoadCorrections(); } catch (Exception ex) { AppLog.Record("Purpose", ex, "load corrections"); }
         RebuildOrganize();
-        // sidecar 的工具回调落到这里（this 实现了 IAnalystHost），
-        // 勾选/删除等动作仍在 C# 侧执行。
-        try { SidecarClient.AttachToolHost(this); }
-        catch (Exception ex)
-        {
-            // 挂不上工具回调只影响 sidecar 的工具循环，内置 HTTP 通道照常用。
-            AppLog.Record("Ai", ex, "attach tool host");
-        }
         PickDrive("C:\\");
         // 构造彻底完成：所有 x:Name 控件都已赋值。
         // 崩溃处理器靠这个标记区分「窗口已就绪」和「半初始化」——
@@ -413,20 +399,13 @@ public partial class MainWindow : Window, IAnalystHost
         if (AiFullPathHint != null) AiFullPathHint.Text = Loc.AiSendFullPathsHint;
         AiNameLabel.Text = Loc.AiName;
         AiUrlLabel.Text = Loc.AiBaseUrl;
-        AiProtoLabel.Text = Loc.AiProtocolTitle;
-        AiModelLabel.Text = Loc.AiModel;
         AiKeyLabel.Text = Loc.AiApiKey;
         AiTestBtn.Content = Loc.AiTest;
-        AiFetchBtn.Content = Loc.AiFetchModels;
         AiNameBox.Tag = Loc.AiNameHint;
         AiUrlBox.Tag = Loc.AiUrlHint;
-        AiModelBox.Tag = Loc.AiModelHintBox;
-        AiModelHint.Text = Loc.AiModelsEmpty;
         AiAddProvBtn.Content = Loc.AiAddCustom;
-        if (AiPickModelLabel != null) AiPickModelLabel.Text = Loc.AiPickModel;
-        FillAiProtoBox();
-        FillRunModels();
-        RefreshAiLamp();   // 顶栏胶囊的模型名 / 可访问名称随语言与配置一起刷新
+        UpdateDecisionsHint();
+        RefreshAiLamp();   // 忙状态行（清理页）随语言与配置一起刷新
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_root == null)
@@ -1395,27 +1374,27 @@ public partial class MainWindow : Window, IAnalystHost
         LoadAiFields();
     }
 
-    void FillAiProtoBox()
-    {
-        AiProtoBox.ItemsSource = AiProtos.Select(Loc.AiKindName).ToList();
-        AiProtoBox.SelectionChanged += (_, _) => UpdateDecisionsHint();
-    }
-
     /// <summary>
-    /// 选中「结构化判定」时才显示地址说明：这条通道不走 /v1，
-    /// 不说清楚用户照着 chat 的习惯填就会拿到 404。
+    /// 判定通道的地址与模型说明**常显**。
+    ///
+    /// v3.0 起整个软件只有这一条 AI 通道（聊天通道连同协议下拉一起删了），
+    /// 所以不再有「选中判定协议才显示」的条件。而这条通道**不走 /v1**，
+    /// 不说清楚用户照着聊天 API 的习惯填就会拿到 404。
     /// </summary>
     void UpdateDecisionsHint()
     {
-        if (AiDecisionsHintText == null) return;
-        int i = AiProtoBox.SelectedIndex;
-        bool on = i >= 0 && i < AiProtos.Length && AiProtos[i] == AiProtocol.Decisions;
-        var vis = on ? Visibility.Visible : Visibility.Collapsed;
-        AiDecisionsHintText.Text = Loc.AiDecisionsHint;
-        AiDecisionsHintText.Visibility = vis;
-        AiDecisionsModelLabel.Text = Loc.AiDecisionsModel;
-        AiDecisionsModelLabel.Visibility = vis;
-        AiDecisionModelBox.Visibility = vis;
+        if (AiDecisionModelBox == null) return;
+        if (AiDecisionsHintText != null)
+        {
+            AiDecisionsHintText.Text = Loc.AiDecisionsHint;
+            AiDecisionsHintText.Visibility = Visibility.Visible;
+        }
+        if (AiDecisionsModelLabel != null)
+        {
+            AiDecisionsModelLabel.Text = Loc.AiDecisionsModel;
+            AiDecisionsModelLabel.Visibility = Visibility.Visible;
+        }
+        AiDecisionModelBox.Visibility = Visibility.Visible;
     }
 
     void LoadAiFields()
@@ -1423,7 +1402,6 @@ public partial class MainWindow : Window, IAnalystHost
         App.Settings.Migrate();
         AiProvCards.ItemsSource = null;
         AiProvCards.ItemsSource = App.Settings.AiProviders.ToList();
-        FillRunModels();
         RefreshAiLamp();
     }
 
@@ -1438,11 +1416,8 @@ public partial class MainWindow : Window, IAnalystHost
         ConfirmButtons.Visibility = Visibility.Collapsed;
         DialogClose.Visibility = Visibility.Visible;
         DialogTitle.Text = Loc.AiEditTitle;
-        _aiModelLock = true;
         ShowProv(p);
         AiTestHint.Text = "";
-        _aiModelLock = false;
-        FillRunModels();
         RefreshAiLamp();
     }
 
@@ -1450,12 +1425,11 @@ public partial class MainWindow : Window, IAnalystHost
     {
         AiNameBox.Text = p?.Name ?? "";
         AiUrlBox.Text = p?.BaseUrl ?? "";
-        var proto = AiClient.ParseProtocol(p?.Protocol);
-        int i = Array.IndexOf(AiProtos, proto);
-        AiProtoBox.SelectedIndex = i < 0 ? 0 : i;
         UpdateDecisionsHint();
         AiKeyBox.Password = p?.ApiKey ?? "";
-        AiDecisionModelBox.Text = App.Settings.AiDecisionModel ?? "";
+        // 显示**实际会用**的模型：DecisionModelId() 在没有显式指定时会退到该供应商模型表的第一个，
+        // 让用户看见真值，而不是一个空框 + 一个看不见的回退。
+        AiDecisionModelBox.Text = App.Settings.DecisionModelId();
         if (AiKeyHint != null)
         {
             AiKeyHint.Text = !SecretProtector.Available
@@ -1463,12 +1437,6 @@ public partial class MainWindow : Window, IAnalystHost
                 : (p?.HasStoredKey == true ? Loc.AiKeyStored : Loc.AiKeyMissing) + "  ·  " + Loc.AiKeyStoreHint;
         }
         if (AiKeyClearBtn != null) AiKeyClearBtn.Content = Loc.AiKeyClear;
-        string model = App.Settings.AiModel ?? "";
-        if (p != null && (string.IsNullOrEmpty(model) || !p.Models.Contains(model, StringComparer.OrdinalIgnoreCase)) && p.Models.Count > 0)
-            model = p.Models[0];
-        AiModelBox.Text = model;
-        FillModelPick(p?.Models, model);
-        AiModelHint.Text = (p?.Models.Count ?? 0) == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(p!.Models.Count);
     }
 
     void SaveAiFields()
@@ -1479,7 +1447,6 @@ public partial class MainWindow : Window, IAnalystHost
         if (p == null) return;
         WriteProv(p);
         App.Settings.Save();
-        FillRunModels();
         RefreshAiLamp();
     }
 
@@ -1488,7 +1455,6 @@ public partial class MainWindow : Window, IAnalystHost
         {
             Id = "p" + Guid.NewGuid().ToString("N")[..8],
             Name = Loc.IsEn ? "Provider" : "提供方",
-            Protocol = "completions",
         };
 
     /// <summary>
@@ -1543,30 +1509,25 @@ public partial class MainWindow : Window, IAnalystHost
         AppLog.Info("Settings", "user cleared the stored API key for the active provider");
     }
 
+    /// <summary>
+    /// 保存当前供应商。
+    ///
+    /// v3.0 起整条通道只有一个模型字段（判定模型）—— 以前要分「聊天模型 / 判定模型」
+    /// 两个字段，是因为同一个供应商既能聊天又能判定；现在只剩判定，分开存只会两边都不对。
+    /// 写回 <c>p.Models</c> 是为了让老配置里那份模型表继续可用（<c>DecisionModelId()</c>
+    /// 会在没有显式指定时退到它的第一个）。
+    /// </summary>
     void WriteProv(AiProviderCfg p)
     {
-        int i = AiProtoBox.SelectedIndex;
-        var proto = i >= 0 && i < AiProtos.Length ? AiProtos[i] : AiProtocol.Completions;
         p.Name = AiNameBox.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(p.Name)) p.Name = p.Id;
         p.BaseUrl = AiUrlBox.Text?.Trim() ?? "";
-        p.Protocol = AiClient.ProtocolId(proto);
         p.ApiKey = AiKeyBox.Password ?? "";
 
-        if (proto == AiProtocol.Decisions)
-        {
-            // 判定通道单独走一个模型字段，而且**不碰全局聊天模型** ——
-            // 它是「结构化判定」用的，跟平时聊天的模型是两回事，互相覆盖只会两边都不对。
-            App.Settings.AiDecisionModel = AiDecisionModelBox.Text?.Trim() ?? "";
-            return;
-        }
-
-        p.Models = (AiModelPick.ItemsSource as IEnumerable<string>)?.ToList()
-                   ?? AiModelPick.Items.OfType<string>().ToList();
-        string model = AiModelBox.Text?.Trim() ?? "";
+        string model = AiDecisionModelBox.Text?.Trim() ?? "";
+        App.Settings.AiDecisionModel = model;
         if (!string.IsNullOrEmpty(model) && !p.Models.Contains(model, StringComparer.OrdinalIgnoreCase))
             p.Models.Add(model);
-        App.Settings.AiModel = model;
     }
 
     private void AiAddProv_Click(object sender, RoutedEventArgs e)
@@ -1594,72 +1555,6 @@ public partial class MainWindow : Window, IAnalystHost
         LoadAiFields();
     }
 
-    void FillModelPick(IEnumerable<string>? ids, string? current)
-    {
-        var list = (ids ?? Array.Empty<string>())
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        AiModelPick.ItemsSource = list;
-        if (list.Count == 0) return;
-        string pick = current ?? "";
-        var match = list.FirstOrDefault(x => x.Equals(pick, StringComparison.OrdinalIgnoreCase));
-        AiModelPick.SelectedItem = match ?? list[0];
-    }
-
-    private void AiModelPick_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_aiModelLock) return;
-        if (AiModelPick.SelectedItem is string id && !string.IsNullOrWhiteSpace(id))
-            AiModelBox.Text = id;
-    }
-
-    private async void AiFetch_Click(object sender, RoutedEventArgs e)
-    {
-        if (_aiBusy) return;
-        SaveAiFields();
-        _aiBusy = true;
-        RefreshAiLamp();
-        AiFetchBtn.IsEnabled = false;
-        AiModelHint.Text = Loc.AiWorking;
-        using var op = StartOperation(ref _aiConfigCts, "AiConfig");
-        var ct = op.Token;
-        try
-        {
-            var ids = await AiClient.ListModelsAsync(ct);
-            _aiModelLock = true;
-            string current = AiModelBox.Text?.Trim() ?? "";
-            FillModelPick(ids, current);
-            if (string.IsNullOrEmpty(current) && ids.Count > 0)
-                AiModelBox.Text = ids[0];
-            _aiModelLock = false;
-            var p = App.Settings.CurrentProvider();
-            if (p != null) p.Models = ids.ToList();
-            App.Settings.AiModels = ids.ToList();
-            App.Settings.Save();
-            FillRunModels();
-            AiModelHint.Text = ids.Count == 0 ? Loc.AiModelsEmpty : Loc.AiModelsOk(ids.Count);
-            op.Done("models fetched", ids.Count);
-        }
-        catch (OperationCanceledException)
-        {
-            AiModelHint.Text = Loc.Aborted;
-            op.Canceled("model list canceled");
-        }
-        catch (Exception ex)
-        {
-            // 界面上给分类过的短句，技术细节进日志（已脱敏，不含 Key）
-            AiModelHint.Text = AppError.From(ex, "list models").UserMessage;
-            op.Fail(ex, "list models");
-        }
-        finally
-        {
-            _aiBusy = false;
-            AiFetchBtn.IsEnabled = true;
-            RefreshAiLamp();
-        }
-    }
-
     private async void AiTest_Click(object sender, RoutedEventArgs e)
     {
         if (_aiBusy) return;
@@ -1670,12 +1565,36 @@ public partial class MainWindow : Window, IAnalystHost
         AiTestHint.Text = Loc.AiWorking;
         using var op = StartOperation(ref _aiConfigCts, "AiConfig");
         var ct = op.Token;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            string reply = await AiClient.TestAsync(ct);
-            AiTestHint.Text = string.IsNullOrWhiteSpace(reply) ? Loc.AiOk : Loc.AiOk + "  " + reply.Trim();
-            SetAiLamp(true);
-            op.Done("ai test ok");
+            var request = new AiDecisionRequest
+            {
+                Provider = App.Settings.DecisionProvider(),
+                Model = App.Settings.DecisionModelId(),
+                State = Loc.IsEn ? "This is a connection test." : "这是一次连接测试。",
+                Questions =
+                {
+                    ["ok"] = new AiDecisionQuestion
+                    {
+                        Type = "noul",
+                        Instructions = Loc.IsEn
+                            ? "Does this text say it is a connection test?"
+                            : "这段话是不是在说这是一次连接测试？",
+                    },
+                },
+            };
+            if (request.Provider == null || string.IsNullOrWhiteSpace(request.Model))
+                throw new InvalidOperationException(Loc.AiNeedConfig);
+            // 本地硬限制先过一遍：配置填错时给的是「哪道题哪里不对」，不是端点的 400
+            JevLimits.Validate(request);
+
+            var reply = await AiGateway.DecideAsync(request, ct);
+            sw.Stop();
+            reply.Answers.TryGetValue("ok", out var answer);
+            AiTestHint.Text = Loc.AiTestOk(
+                sw.ElapsedMilliseconds, reply.Model, answer?.Noul ?? answer?.Confidence ?? 0, reply.Cost);
+            op.Done("decisions test ok");
         }
         catch (OperationCanceledException)
         {
@@ -1685,7 +1604,6 @@ public partial class MainWindow : Window, IAnalystHost
         catch (Exception ex)
         {
             AiTestHint.Text = AppError.From(ex, "ai test").UserMessage;
-            SetAiLamp(false);
             op.Fail(ex, "ai test");
         }
         finally
@@ -1696,116 +1614,25 @@ public partial class MainWindow : Window, IAnalystHost
         }
     }
 
-    bool AiConfigured()
-    {
-        var p = App.Settings.CurrentProvider();
-        return p != null && !string.IsNullOrWhiteSpace(p.BaseUrl) && !string.IsNullOrWhiteSpace(App.Settings.AiModel);
-    }
-
-    void FillRunModels()
-    {
-        if (AiModelList == null || AiModelBtnText == null) return;
-        var rows = new List<ModelRow>();
-        string cur = (App.Settings.AiModel ?? "").Trim();
-        string activeId = App.Settings.AiActiveId ?? "";
-
-        foreach (var p in App.Settings.AiProviders)
-        {
-            var models = p.Models.Where(m => !string.IsNullOrWhiteSpace(m))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            // 当前模型还没进目录（手填的），也让它出现在列表里
-            if (models.Count == 0 && p.Id == activeId && cur.Length > 0)
-                models.Add(cur);
-            if (models.Count == 0) continue;
-
-            rows.Add(new ModelRow { IsHeader = true, Text = ProvName(p) });
-            foreach (var m in models)
-                rows.Add(new ModelRow
-                {
-                    Text = m,
-                    ProviderId = p.Id,
-                    Model = m,
-                    IsCurrent = p.Id == activeId && string.Equals(m, cur, StringComparison.OrdinalIgnoreCase),
-                });
-        }
-
-        AiModelList.ItemsSource = rows;
-
-        // 按钮显示「提供方 / 模型」；没配任何东西时提示去设置
-        var prov = App.Settings.CurrentProvider();
-        string provName = prov == null ? "" : ProvName(prov);
-        AiModelBtnText.Text = rows.Count == 0
-            ? Loc.AiNoModel
-            : (string.IsNullOrWhiteSpace(cur)
-                ? (provName.Length > 0 ? provName + " / " + Loc.AiNoModel : Loc.AiNoModel)
-                : (provName.Length > 0 ? provName + " / " + cur : cur));
-    }
-
-    static string ProvName(AiProviderCfg p)
-        => string.IsNullOrWhiteSpace(p.Name) ? p.Id : p.Name.Trim();
-
-    private void AiModelBtn_Click(object sender, RoutedEventArgs e)
-        => AiModelPopup.IsOpen = !AiModelPopup.IsOpen;
-
-    private void AiModelRow_Click(object sender, MouseButtonEventArgs e)
-    {
-        if (e.OriginalSource is not DependencyObject src) return;
-        var border = Ancestor<Border>(src);
-        if (border?.DataContext is not ModelRow row || row.IsHeader) return;
-        if (string.IsNullOrWhiteSpace(row.Model)) return;
-
-        App.Settings.AiActiveId = row.ProviderId;
-        App.Settings.AiModel = row.Model;
-        App.Settings.Save();
-        AiModelPopup.IsOpen = false;
-        FillRunModels();
-        RefreshAiLamp();
-    }
+    bool AiConfigured() => App.Settings.DecisionConfigured();
 
     /// <summary>
-    /// 现在是否有 AI 在跑。三个来源任一为真就算忙：
-    ///  · <c>_aiBusy</c>：设置里的取模型 / 测试连接；
-    ///  · <c>_organizeClassifying</c>：自动识别用途在跑。
+    /// 现在是否有 AI 在跑。两个来源任一为真就算忙：
+    ///  · <c>_aiBusy</c>：设置里的「测试判定通道」；
+    ///  · <c>_organizeClassifying</c>：识别用途在跑。
     /// </summary>
     bool AiBusyNow => _aiBusy || _organizeClassifying;
 
     /// <summary>
-    /// 顶栏右侧的 AI 胶囊是**主指示器**：
-    ///  · 已配置：模型 ID + 7px 绿点；
-    ///  · 正在分析：模型名保留，绿点换成旋转指示器（由 AiSpinner 模板触发）；
-    ///  · 未配置：整块 Collapsed（不显示灰色「未配置」标记）。
-    /// 清理页那次性状态行仍然保留，但不再是唯一指示。
+    /// AI 忙状态只在清理页那一行状态里表达。
+    ///
+    /// 顶栏那枚常驻胶囊在 v3.0 删掉了：判定只服务「按文件夹删除」一页，
+    /// 而那一页自己有进度与结果面板 —— 常驻胶囊是重复的第二份指示，
+    /// 以前它显示的还是聊天模型 id，现在连「聊天模型」这个概念都没有了。
     /// </summary>
     void RefreshAiLamp()
     {
         bool busy = AiBusyNow;
-        bool configured = AiConfigured();
-
-        if (AiChip != null)
-        {
-            AiChip.Visibility = configured ? Visibility.Visible : Visibility.Collapsed;
-            if (AiChipSpin != null)
-            {
-                // IsIndeterminate 的模板触发器负责启停旋转时钟；未配置时一定停掉，
-                // 免得收起来的控件上还挂着一个 Forever 动画。
-                AiChipSpin.IsIndeterminate = configured && busy;
-                AiChipSpin.Visibility = configured && busy ? Visibility.Visible : Visibility.Collapsed;
-            }
-            if (configured)
-            {
-                string model = (App.Settings.AiModel ?? "").Trim();
-                if (AiChipModel != null) AiChipModel.Text = model;
-                if (AiChipDot != null)
-                    AiChipDot.Visibility = busy ? Visibility.Collapsed : Visibility.Visible;
-                // 可访问名称必须同时说清「哪个模型」和「空闲 / 分析中」
-                string name = Loc.AiChipName(model, busy);
-                System.Windows.Automation.AutomationProperties.SetName(AiChip, name);
-                AiChip.ToolTip = name;
-            }
-        }
-
         if (CleanSummarySub == null) return;
         if (busy)
         {
@@ -1820,24 +1647,6 @@ public partial class MainWindow : Window, IAnalystHost
         }
     }
 
-    /// <summary>
-    /// 顶栏 AI 胶囊的点击入口：进设置里的 AI 区，并把已有的模型弹层打开。
-    /// 模型清单仍然只有 FillRunModels 那一套 —— 这里不新建任何第二份列表。
-    /// </summary>
-    private void AiChip_Click(object sender, RoutedEventArgs e)
-    {
-        OpenOverlay(Loc.SettingsTitle, settings: true);
-        // 弹层刚可见时按钮还没完成布局，PlacementTarget 要等这一帧过去。
-        // 若此时仍未加载（或设置区不可见），就安静地停在设置页，不抛异常。
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            if (SettingsBody.Visibility != Visibility.Visible) return;
-            if (AiModelBtn == null || !AiModelBtn.IsLoaded) return;
-            FillRunModels();
-            AiModelPopup.IsOpen = true;
-        }), System.Windows.Threading.DispatcherPriority.Loaded);
-    }
-
     /// <summary>临时 AI 状态（跑完就清掉，不做常驻指示）。</summary>
     private string _aiTransientStatus = "";
 
@@ -1845,28 +1654,6 @@ public partial class MainWindow : Window, IAnalystHost
     {
         _aiTransientStatus = text ?? "";
         if (CleanSummarySub != null) CleanSummarySub.Text = _aiTransientStatus;
-    }
-
-    void SetAiLamp(bool ok)
-    {
-        _aiOk = ok;
-        RefreshAiLamp();
-    }
-
-    static string StripToolMarkup(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return "";
-        var sb = new System.Text.StringBuilder();
-        foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
-        {
-            string line = raw.Trim();
-            if (line.Length == 0) { sb.AppendLine(); continue; }
-            if (line.Contains("| DSML |", StringComparison.OrdinalIgnoreCase)) continue;
-            if (line.Contains("<|") && line.Contains("|>")) continue;
-            if (line.Contains("tool_calls", StringComparison.OrdinalIgnoreCase) && line.Contains('<')) continue;
-            sb.AppendLine(raw);
-        }
-        return sb.ToString().Trim();
     }
 
 

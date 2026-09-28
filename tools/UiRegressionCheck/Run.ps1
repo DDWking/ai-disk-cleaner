@@ -27,8 +27,8 @@ $batchsvc = @(
     (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\FolderPurposeDecisionSet.cs')
     (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\DecisionRunner.cs')
 ) | ForEach-Object { Get-Content -LiteralPath $_ -Raw -Encoding UTF8 } | Out-String
-$analyst = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\DiskAnalyst.cs') -Raw -Encoding UTF8
-$agent = Get-Content -LiteralPath (Join-Path $repo 'sidecar\src\agent.js') -Raw -Encoding UTF8
+# v3.0：聊天通道（协议下拉 / 模型目录 / 工具循环 / Node 侧车 / 陪审团）整体下线，
+# 这里不再读 DiskAnalyst.cs 与 sidecar/src/agent.js —— 它们已经不存在了。
 $loc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Loc.cs') -Raw -Encoding UTF8
 $rules = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanRules\CleanRules.cs') -Raw -Encoding UTF8
 $dup = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanRules\DuplicateScanService.cs') -Raw -Encoding UTF8
@@ -47,6 +47,11 @@ $newfp = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\F
 $app = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\App.xaml.cs') -Raw -Encoding UTF8
 $firstcrash = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CrashFirstRecord.cs') -Raw -Encoding UTF8
 $startupcheck = Join-Path $repo 'tools\StartupCheck\Program.cs'
+# v3.0：判定层与出站闸门（脱敏、字符预算、批大小都住在这些文件里）
+$decisions = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\DecisionRunner.cs') -Raw -Encoding UTF8
+$decisionset = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\FolderPurposeDecisionSet.cs') -Raw -Encoding UTF8
+$limits = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\JevLimits.cs') -Raw -Encoding UTF8
+$redactor = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\PathRedactor.cs') -Raw -Encoding UTF8
 
 $fail = 0
 function Assert-True([string]$name, [bool]$ok) {
@@ -251,12 +256,11 @@ Assert-True 'nothing starts an identification pass on scan or page switch' `
     ($org -notmatch 'if \(_organizeBusy\) return;' -and $org -notmatch '_organizeAutoStarted' -and
      $org -notmatch 'OrganizeIdentifyRun')
 Assert-True 'a request never sends a full path by default' `
-    ($csvc -match 'BuildOutboundInput' -and
-     $srcsnip -match 'SourceSnippetCollector' -and
-     $newfp -match 'IsSafeOutbound' -and
-     $batchsvc -match 'PathRedactor\.Outbound')
+    ($batchsvc -match 'PathRedactor\.Outbound' -and
+     $srcsnip -match 'SourceSnippetReader' -and
+     $redactor -match 'AiSendFullPaths \? \(path \?\? ""\) : Redact\(path\)')
 Assert-True 'the outbound payload is length-capped' `
-    ($csvc -match 'MaxInputChars = 1800' -and $srcsnip -match 'MaxFiles = 3' -and
+    ($limits -match 'MaxRequestChars' -and $srcsnip -match 'MaxFiles = 3' -and
      $srcsnip -match 'TotalChars = 1200' -and $srcsnip -match 'PerFileChars = 600')
 Assert-True 'secrets are filtered before anything is sent' `
     ($srcsnip -match 'api\[_-\]\?key' -and $srcsnip -match 'Bearer' -and $srcsnip -match '已脱敏')
@@ -392,7 +396,8 @@ Assert-True 'recognised platforms keep their inner game entries' `
     ($forg -match 'KeepsObjectEntries' -and $forg -match 'IsObjectContainer')
 Assert-True 'exploration, requests and rows all have hard budgets' `
     ($forg -match 'ChildBudget = 24' -and $forg -match 'UnknownProbeBudget' -and
-     $forg -match 'MaxRows = 4000' -and $csvc -match 'MaxAiRequests')
+     $forg -match 'MaxRows = 4000' -and $decisionset -match 'MaxPerRequest = 80' -and
+     $decisions -match 'AdaptiveMin = 5')
 Assert-True 'reparse points / links are skipped, not followed' `
     ($forg -match 'c\.IsReparsePoint \|\| c\.IsFilesGroup' -and $forg -match 'skipped\+\+')
 Assert-True 'the list is virtualised and has no nested scroller' `
@@ -623,10 +628,13 @@ Assert-True 'the classify service still never writes risk / selection' `
     ($batchsvc -notmatch '\.Risk\s*=' -and $batchsvc -notmatch '\.CanDelete\s*=' -and
      $batchsvc -notmatch '\.Selected\s*=')
 Assert-True 'AI tools can no longer change the selection' `
-    ($analyst -match 'tool removed: the app never lets AI change the selection' -and
-     $analyst -notmatch '"set_checked" => SetChecked')
-Assert-True 'the sidecar no longer offers selection-changing tools' `
-    ($agent -notmatch "name: 'set_checked'" -and $agent -notmatch "name: 'suggest'")
+    (-not (Test-Path -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\DiskAnalyst.cs')) -and
+     $batchsvc -notmatch 'name:\s*.set_checked')
+Assert-True 'the chat tool loop and its sidecar are gone (no tool can touch the selection)' `
+    (-not (Test-Path -LiteralPath (Join-Path $repo 'sidecar\src\agent.js')) -and
+     -not (Test-Path -LiteralPath (Join-Path $repo 'sidecar\package.json')) -and
+     -not (Test-Path -LiteralPath (Join-Path $repo 'build-sidecar.ps1')) -and
+     -not (Test-Path -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\SidecarClient.cs')))
 
 # ---- 清理候选 + 默认不勾选 ----
 Assert-True 'the safe tier is renamed to 清理候选' `
@@ -732,12 +740,14 @@ Assert-True 'organize grid cannot be resorted from the header (tree order is dat
 Assert-True 'organize roots mix entry points with other top-level dirs and sort by size' `
     ($forg -match '入口与普通子目录混在一起按容量降序' -and
      $forg -match 'int bySize = b\.Size\.CompareTo\(a\.Size\)')
-Assert-True 'AI chip sits between volume text and settings' `
-    ($xaml -match '(?s)x:Name="VolumeText".*?x:Name="AiChip".*?x:Name="SettingsButton"')
-Assert-True 'AI chip is collapsed when unconfigured and spins while busy' `
-    ($cs -match 'AiChip\.Visibility = configured \? Visibility\.Visible : Visibility\.Collapsed' -and
-     $xaml -match 'x:Name="AiChipDot"' -and $xaml -match 'Fill="#3ECF6A"' -and
-     $xaml -match 'x:Name="AiChipSpin"')
+Assert-True 'the AI chip is gone (one page uses decisions; that page reports its own progress)' `
+    ($xaml -notmatch 'x:Name="AiChip"' -and $cs -notmatch 'AiChip')
+Assert-True 'the decisions channel is the only AI channel left' `
+    ($xaml -match 'x:Name="AiDecisionModelBox"' -and
+     $xaml -notmatch 'x:Name="AiProtoBox"' -and
+     $xaml -notmatch 'x:Name="AiFetchBtn"' -and
+     $xaml -notmatch 'x:Name="AiModelList"' -and
+     $xaml -notmatch 'xmlns:ctrl')
 Assert-True 'uninstall keeps name / install date / purpose / size / actions' `
     ($xaml -match 'x:Name="ColAppName"' -and $xaml -match 'x:Name="ColAppInstallDate"' -and
      $xaml -match 'x:Name="ColAppPurpose"' -and $xaml -match 'x:Name="ColAppSize"' -and

@@ -20,7 +20,6 @@
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanItem.cs" Link="CleanItem.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanGroupNodes.cs" Link="CleanGroupNodes.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\ScanQuality.cs" Link="ScanQuality.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Models\AiContracts.cs" Link="AiContracts.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanReport.cs" Link="CleanReport.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\OrganizeNode.cs" Link="OrganizeNode.cs" />
 
@@ -66,7 +65,6 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\RecursiveScanService.cs" Link="RecursiveScanService.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\ScanCoordinator.cs" Link="ScanCoordinator.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\DeletionCoordinator.cs" Link="DeletionCoordinator.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\DiskAnalyst.cs" Link="DiskAnalyst.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderPurpose.cs" Link="FolderPurpose.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\SourceSnippet.cs" Link="SourceSnippet.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderPurposeService.cs" Link="FolderPurposeService.cs" />

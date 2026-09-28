@@ -70,7 +70,6 @@ public static class Program
         finally
         {
             AppPaths.OverrideDirectory = oldOverride;
-            AiClient.Handler = null;
             try { Directory.Delete(_tmp, true); } catch { /* 清理失败不影响结论 */ }
         }
 
@@ -107,19 +106,8 @@ public static class Program
         return d;
     }
 
-    static AiProviderCfg Provider() => new() { Id = "t", BaseUrl = "http://localhost", Models = { "m" } };
-
-    /// <summary>装一个能用的假通道，并返回「被调用次数」的读取器。</summary>
-    static Func<int> StubAi(string reply)
-    {
-        int calls = 0;
-        AiClient.Handler = (_, _, _) =>
-        {
-            Interlocked.Increment(ref calls);
-            return Task.FromResult(new AiReply { Text = reply });
-        };
-        return () => Volatile.Read(ref calls);
-    }
+    // v3.0 删掉了聊天桩（AiClient.Handler / StubAi / Provider）：一个目录一次聊天请求那条路
+    // 整体下线，判定通道的假发送口直接塞 AiGateway.DecisionsSender（见 JevDecisionTests）。
 
     static string ReadSource(string relativePath)
     {
@@ -207,47 +195,40 @@ public static class Program
 
     static void PurposeRoundtripTests()
     {
-        Section("目录用途：AI 结论落盘 ⇒ 新实例直接读回（跨扫描代次）");
+        Section("目录用途：本地结论落盘 ⇒ 新实例直接读回（跨扫描代次）");
 
         string path = StorePath("purpose");
+        // 有本地结论的目录：开发项目标志（结构证据 ⇒ 有结论，但标为「推测」）
         var dir = Folder(@"D:\mystery-folder", "a.dat", "b.dat");
+        dir.Children.Add(new FileEntry
+        {
+            Name = ".git", FullPath = @"D:\mystery-folder\.git", Kind = EntryKind.File, Size = 16, Parent = dir,
+        });
         string cfg = "cfg-purpose";
         var id1 = new FolderId(dir.FullPath, 1);
 
         var svcA = new FolderPurposeService(null, new RecognitionStore(path));
-        var calls = StubAi("PURPOSE: 神秘目录\nCATEGORY: 资料\nBASIS: 模型判断");
-        var res1 = svcA.RecognizeAsync(dir, id1, 0, "mystery-folder", allowAi: true,
-            provider: Provider(), model: "m", sendFullPath: false, configSignature: cfg,
-            ct: CancellationToken.None).GetAwaiter().GetResult();
-        Check("本地说不清 ⇒ 走一次 AI 并得到结论",
-            calls() == 1 && res1.HasConclusion && res1.PurposeName == "神秘目录"
-            && res1.Source == PurposeSource.Ai,
+        var res1 = svcA.Recognize(dir, id1, 0, "mystery-folder", cfg);
+        Check("本地规则给出结论（不依赖任何模型）",
+            res1.HasConclusion && res1.Source == PurposeSource.Local,
             $"{res1.PurposeName}/{res1.Source}");
 
-        int afterStore = calls();
         // 全新实例 + 不同扫描代次：落盘键不含代次，应该照样命中
         var svcB = new FolderPurposeService(null, new RecognitionStore(path));
         var id9 = new FolderId(dir.FullPath, 999);
-        var res2 = svcB.RecognizeAsync(dir, id9, 0, "mystery-folder", allowAi: true,
-            provider: Provider(), model: "m", sendFullPath: false, configSignature: cfg,
-            ct: CancellationToken.None).GetAwaiter().GetResult();
-        Check("新实例跨代次读回同一结论，且没有发请求",
-            calls() == afterStore && res2.HasConclusion && res2.PurposeName == "神秘目录",
-            res2.PurposeName);
-        Check("结论挂到当前代次的标识上", res2.Id.ScanGeneration == 999, res2.Id.ScanGeneration.ToString());
-        Check("新实例的 AI 预算计数仍为 0（恢复不算一次识别）", svcB.AiRequestsUsed == 0,
-            svcB.AiRequestsUsed.ToString());
-        Check("来源仍如实标为 AI（不冒充本地/用户）", res2.Source == PurposeSource.Ai);
-        Check("待确认标记被保留", res2.NeedsConfirm);
+        var sum9 = FolderPurposeRules.Summarize(dir, id9, 0, "mystery-folder");
+        var hit = svcB.TryGetCached(id9, sum9, cfg);
+        Check("新实例跨代次读回同一结论（不再重算）",
+            hit is { HasConclusion: true } && hit.PurposeName == res1.PurposeName, hit?.PurposeName);
+        Check("结论挂到当前代次的标识上", hit!.Id.ScanGeneration == 999, hit.Id.ScanGeneration.ToString());
+        Check("来源仍如实标为本地（落盘不改变来源）", hit.Source == PurposeSource.Local, hit.Source.ToString());
+        Check("推测标记被保留", hit.NeedsConfirm == res1.NeedsConfirm);
 
         // 重扫只清内存，不该丢掉落盘结论
         svcA.ResetForScan();
-        var res3 = svcA.RecognizeAsync(dir, id1, 0, "mystery-folder", allowAi: true,
-            provider: Provider(), model: "m", sendFullPath: false, configSignature: cfg,
-            ct: CancellationToken.None).GetAwaiter().GetResult();
-        Check("重扫（ResetForScan）后仍能从落盘恢复，不再重问",
-            calls() == afterStore && res3.HasConclusion && res3.PurposeName == "神秘目录");
-        AiClient.Handler = null;
+        var res3 = svcA.Recognize(dir, id1, 0, "mystery-folder", cfg);
+        Check("重扫（ResetForScan）后仍能从落盘恢复",
+            res3.HasConclusion && res3.PurposeName == res1.PurposeName, res3.PurposeName);
     }
 
     // ---------------- 5. 证据变化失效 ----------------
@@ -431,12 +412,9 @@ public static class Program
             new FolderPurposeResult(new FolderId(dir.FullPath, 1), "上次的目录用途", "类别", "依据",
                 PurposeSource.Ai, true, FolderKind.Concrete));
 
-        int calls = 0;
-        AiClient.Handler = (_, _, _) =>
-        {
-            Interlocked.Increment(ref calls);
-            return Task.FromResult(new AiReply { Text = "" });
-        };
+        // 整个恢复过程必须是纯离线的：用**真实出站计数**守（比假通道的调用计数更硬 ——
+        // 它数的是网关真正发出去的那一次，v3.0 之后全进程只有这一个出站口）。
+        AiGateway.ResetSentCountForTest();
         try
         {
             var window = new AiDiskCleaner.MainWindow();
@@ -457,11 +435,11 @@ public static class Program
                 restored == 1 && list[0].HasConclusion,
                 $"{restored}/{list[0].PurposeName}");
 
-            Check("整个恢复过程一次请求都没发（纯离线）", calls == 0, calls.ToString());
+            Check("整个恢复过程一次请求都没发（纯离线）", AiGateway.SentCount == 0,
+                AiGateway.SentCount.ToString());
         }
         finally
         {
-            AiClient.Handler = null;
             try { seed.Clear(); } catch { /* 清理失败不影响结论 */ }
         }
     }

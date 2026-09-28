@@ -454,48 +454,7 @@ namespace AiDiskCleaner.Services
             => $"{outcome}({count}): {names}";
     }
 
-    /// <summary>离线测试里不需要真的发请求，只挡住 AiCoordinator 的编译依赖。</summary>
-    public static class AiClient
-    {
-        public static Func<AiRequest, Action<string>?, CancellationToken, Task<AiReply>>? Handler { get; set; }
-
-        public static Task<AiReply> StreamAsync(
-            AiProviderCfg? p, string? modelId, string system,
-            IReadOnlyList<AiMsg> turns, Action<string> onDelta, CancellationToken ct, int maxTurns = 1)
-            => Handler != null
-                ? Handler(new AiRequest { Provider = p, Model = modelId, System = system, Turns = turns }, onDelta, ct)
-                : Task.FromResult(new AiReply { Text = "" });
-    }
-
-    /// <summary>
-    /// 假的 AI 通道，用来验证 <see cref="AiGateway"/> 的选路、重试、限流与 fallback，
-    /// 不需要真的联网或起 sidecar。
-    /// </summary>
-    public sealed class FakeGateway : IAiGateway
-    {
-        private readonly Func<AiRequest, CancellationToken, Task<AiReply>> _handler;
-
-        public FakeGateway(string name, Func<AiRequest, CancellationToken, Task<AiReply>> handler)
-        {
-            Name = name;
-            _handler = handler;
-        }
-
-        public string Name { get; }
-        public int Calls { get; private set; }
-
-        public Task<AiReply> SendAsync(AiRequest request, Action<string>? onDelta, CancellationToken ct)
-        {
-            Calls++;
-            return _handler(request, ct);
-        }
-    }
-
-    /// <summary>测试用的通道提供者：两条通道都能换，sidecar 开关也能控。</summary>
-    public sealed class FakeGatewayProvider : IAiGatewayProvider
-    {
-        public bool SidecarEnabled { get; set; }
-        public IAiGateway Sidecar { get; set; } = new FakeGateway("sidecar", (_, _) => Task.FromResult(new AiReply()));
-        public IAiGateway Direct { get; set; } = new FakeGateway("http", (_, _) => Task.FromResult(new AiReply()));
-    }
+    // v3.0 删掉了这里的聊天桩面（AiClient.Handler / StreamAsync、FakeGateway、FakeGatewayProvider）：
+    // 聊天通道（含 sidecar 选路与 fallback）整体下线，判定通道的假发送口直接塞
+    // AiGateway.DecisionsSender 就行 —— 见 JevDecisionTests 与 RecognitionPersistenceCheck 的 StubDecisions。
 }

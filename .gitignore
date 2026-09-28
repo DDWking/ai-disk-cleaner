@@ -50,12 +50,7 @@ cache/
 *.scandb
 *.scan.json
 
-# ===== Pi sidecar =====
-# 自包含 exe 由 build-sidecar.ps1 生成（约 86MB），不进版本库
-sidecar/AiSidecar.exe
-sidecar/install.log
-sidecar/run.log
-sidecar/.bun-cache/
+# v3.0：Pi sidecar（Node 聊天通道）已整体删除，相关忽略项不再需要。
 
 # ===== 会话/工具产生的临时物（不属于产品代码）=====
 _session_restore/

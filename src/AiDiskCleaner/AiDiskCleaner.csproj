@@ -20,9 +20,6 @@
     <Resource Include="Assets\app.ico" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="OpenAI" Version="2.13.0" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\UninstallTools\UninstallTools.csproj" />
     <ProjectReference Include="..\..\vendor\Bulk-Crap-Uninstaller\source\StoreAppHelper\StoreAppHelper.csproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
@@ -35,11 +32,8 @@
     <Content Include="..\..\vendor\Bulk-Crap-Uninstaller\Licence.txt" Link="THIRD-PARTY\BCUninstaller\Licence.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\vendor\Bulk-Crap-Uninstaller\NOTICE" Link="THIRD-PARTY\BCUninstaller\NOTICE" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <!-- Pi sidecar：自包含 exe，由 build-sidecar.ps1 生成。
-       不存在也能正常编译，只是 AI 走内置 OpenAI.NET 降级路径。 -->
-  <ItemGroup Condition="Exists('..\..\sidecar\AiSidecar.exe')">
-    <Content Include="..\..\sidecar\AiSidecar.exe" Link="sidecar\AiSidecar.exe" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
+  <!-- v3.0：Pi sidecar 的嵌入项删掉了（Node 侧车与聊天通道整体下线）。
+       判定通道只是一次 HTTP 调用，不需要外部进程，发布包也小了一圈。 -->
 
   <!-- Non-reference helper executables still need their managed entry assemblies. -->
   <Target Name="IncludeHelperEntryAssemblies" AfterTargets="ResolveProjectReferences">

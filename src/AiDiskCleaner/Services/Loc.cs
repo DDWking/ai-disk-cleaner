@@ -1,4 +1,4 @@
-using AiDiskCleaner.Models;
+﻿using AiDiskCleaner.Models;
 using UninstallTools.Junk.Confidence;
 // 别名是必须的：Loc 自己有一个叫 CleanRules 的**字符串属性**（分析步骤文案），
 // 在类内部写 CleanRules.AiPurposeKind 会解析到那个属性上。
@@ -14,7 +14,6 @@ public static class Loc
 
     public static string AppName => IsEn ? "Dashao Huo" : "大扫货";
     public static string NavBrowse => IsEn ? "Browse" : "浏览";
-    public static string NavAi => IsEn ? "AI analysis" : "AI 分析";
     public static string Scan => IsEn ? "Scan" : "扫描";
     public static string Stop => IsEn ? "Stop" : "停止";
     public static string Settings => IsEn ? "Settings" : "设置";
@@ -134,9 +133,7 @@ public static class Loc
     public static string AiName => IsEn ? "Display name" : "显示名称";
     public static string AiNameHint => IsEn ? "My provider" : "显示名称";
     public static string AiUrlHint => "https://api.example.com/v1";
-    public static string AiModelHintBox => IsEn ? "model id" : "模型 ID";
     public static string AiBaseUrl => IsEn ? "API URL" : "API 地址";
-    public static string AiProtocolTitle => IsEn ? "API protocol" : "API 协议";
     public static string AiModel => IsEn ? "Model catalog" : "模型目录";
     public static string AiApiKey => IsEn ? "API key" : "API 密钥";
     public static string AiKeyStoreHint => IsEn
@@ -154,17 +151,6 @@ public static class Loc
         ? "Off by default: paths go out as <UserProfile>\\AppData\\... so usernames stay local."
         : "默认关闭：路径会以 <UserProfile>\\AppData\\… 的形式发出，用户名不出本机。";
     public static string AiTest => IsEn ? "Test" : "测试连接";
-    public static string AiFetchModels => IsEn ? "Fetch models" : "获取可用模型";
-    public static string AiNeedUrl => IsEn ? "Fill in the API URL first." : "先填 API 地址。";
-    public static string AiModelsEmpty => IsEn
-        ? "No models yet. Fetch, or type an ID below."
-        : "还没有模型。点获取，或在下面手填 ID。";
-    public static string AiModelsOk(int n) => IsEn ? $"{n:N0} models" : $"已获取 {n:N0} 个模型";
-    public static string AiProtoCompletions => "openai-completions";
-    public static string AiProtoResponses => "openai-responses";
-    public static string AiProtoAnthropic => "anthropic-messages";
-    /// <summary>结构化判定协议（TypeSafe Jev）。和 chat 那三种不兼容，地址也是单独一条。</summary>
-    public static string AiProtoDecisions => "structured-decisions";
     public static string AiDecisionsModel => IsEn ? "Model for decisions" : "判定用的模型";
     public static string AiDecisionsHint => IsEn
         ? "Structured decisions (TypeSafe Jev and friends) is a separate channel — its URL is not /v1. "
@@ -173,40 +159,12 @@ public static class Loc
         : "「结构化判定」（TypeSafe Jev 这类）是单独一条通道，地址不走 /v1。"
           + "走 OpenRouter 的话填 https://openrouter.ai/api/alpha，模型填 typesafe/jev-1.13。"
           + "它只用于批量归类：把本地规则认不出用途的那批一次性问清楚是什么。";
-    public static string AiExplain => IsEn ? "AI explain" : "AI 解释勾选项";
     public static string AiNeedConfig => IsEn ? "Set base URL and model first." : "先填接口地址和模型。";
-    public static string AiNeedKey => IsEn ? "API key is empty." : "还没填 API 密钥。";
-    public static string AiNeedItems => IsEn ? "Check some items first." : "先勾几项再解释。";
     public static string AiWorking => IsEn ? "Asking the model…" : "正在问模型…";
-    public static string AiOk => IsEn ? "Connected." : "连通。";
-    public static string AiTitle => IsEn ? "AI" : "AI 建议";
-    public static string AiSystem => IsEn
-        ? "You help with disk cleanup. Only use the listed items. Be brief. Do not invent files. Do not recommend deleting protected system items. Reply in the user's language."
-        : "你是磁盘清理助手。只根据列出的勾选项给简短建议，不要编造没给的文件，不要建议删除系统保护项。用中文。";
-    public static string AiPromptHeader => IsEn
-        ? "Explain these checked items. Should I delete them? Any risk?"
-        : "解释这些已勾选项：能不能删、有没有风险？";
-    public static string AiChatTitle => IsEn ? "AI" : "AI";
-    public static string AiChatHint => IsEn ? "Ask about this disk…" : "问这张盘…";
-    public static string AiSend => IsEn ? "Send" : "发送";
-    public static string AiClear => IsEn ? "Clear" : "清空";
-    public static string AiNeedScan => IsEn ? "Scan first." : "先扫描再问。";
-    public static string AiScanSkip => IsEn ? "Add a provider in Settings, pick a model, then click Analyze." : "在设置里添加提供方，选好模型，再点分析。";
-    public static string AiAnalyze => IsEn ? "Analyze" : "分析";
-    public static string AiAddProvider => IsEn ? "Add" : "添加";
+    public static string AiTestOk(long ms, string model, double confidence, double cost) => IsEn
+        ? $"OK · {ms} ms · {model} · p={confidence:0.00} · ${cost:0.000000}"
+        : $"连通 · {ms} 毫秒 · {model} · 把握 {confidence:0.00} · ${cost:0.000000}";    public static string AiTitle => IsEn ? "AI" : "AI 建议";
     public static string AiDelProvider => IsEn ? "Remove" : "删除";
-    public static string AiProviderList => IsEn ? "Providers" : "提供方";
-    public static string AiPickModel => IsEn ? "Model used for Analyze" : "分析用的模型";
-    public static string AiAppsAnalyzing => IsEn ? "AI is reviewing installed apps…" : "AI 正在分析已安装软件…";
-    public static string AiAppsDone(int n) => IsEn ? $"AI reviewed {n:N0} apps. Suggestions are for review only." : $"AI 已分析 {n:N0} 个软件。建议仅供核对，不会自动卸载。";
-    public static string AiAppsLocal => IsEn ? "Local rules are active. Configure AI for deeper suggestions." : "当前使用本地规则。配置 AI 后可获得更深入的建议。";
-    public static string AiAppsFailed(string error) => IsEn ? "AI unavailable: " + error + ". Local rules remain active." : "AI 暂不可用：" + error + "。已保留本地规则建议。";
-    public static string AiAppsStale => IsEn ? "The app list changed during analysis. Results were discarded." : "分析期间软件清单已更新，已丢弃本次结果。";
-    public static string AiAppsPrivacy => IsEn
-        ? "Remote AI receives app name, publisher, version, installed date, size and usage signals. Paths and API keys are not sent.\n\nContinue with remote analysis?"
-        : "远程 AI 只接收软件名称、发布者、版本、安装日期、大小和使用状态，不发送路径和密钥。\n\n是否继续发送给远程 AI 分析？";
-    public static string AiAppsAnalyze => IsEn ? "Analyze apps" : "分析软件";
-    public static string AiAppsSelect => IsEn ? "Select suggestions" : "勾选建议项";
     public static string AppRecommendationHeader => IsEn ? "Recommendation" : "建议";
     public static string AppScannedSize => IsEn ? "Scanned size" : "扫描占用";
     public static string AppSizeEstimated => IsEn ? " est." : "（估算）";
@@ -238,194 +196,16 @@ public static class Loc
           """;
     public static string AiAppsPrompt(string json) =>
         IsEn ? "Installed app inventory:\n" + json : "已安装软件清单：\n" + json;
-    /// <summary>模型选择按钮上，还没选任何模型时的占位。</summary>
-    public static string AiNoModel => IsEn ? "no model selected" : "未选模型";
-    public static string AiNeedScanFirst => IsEn ? "Scan the disk first." : "先扫描磁盘。";
-    public static string AiRound(int n) => IsEn ? $"round {n}" : $"第 {n} 轮";
-    public static string AiToolResult(string name, string preview) =>
-        IsEn ? $"{name} → {preview}" : $"{name} → {preview}";
-    public static string AiYou => IsEn ? "You" : "你";
-    public static string AiBot => ModelLabel();
-    public static string AiJuryName => IsEn ? "Jury" : "评审";
     public static string ModelLabel()
     {
         string name = (App.Settings.AiModel ?? "").Trim();
         return string.IsNullOrEmpty(name) ? "AI" : name;
     }
-    public static string AiLampOff => IsEn ? "AI not configured" : "AI 未配置";
-    public static string AiReady => IsEn ? "AI ready" : "AI 已配置";
     public static string AiMark => IsEn ? "AI suggested" : "AI 建议";
-    public static string AiInside(string note) => IsEn ? "inside: " + note : "内有 · " + note;
-    public static string AiLampOn => IsEn ? "AI connected" : "AI 已连接";
     public static string AiLampBusy => IsEn ? "AI reading…" : "AI 正在分析…";
-    /// <summary>顶栏 AI 胶囊的空闲 / 分析中状态（可访问名称里要说清是哪一种）。</summary>
-    public static string AiChipIdle => IsEn ? "idle" : "空闲";
-    public static string AiChipAnalyzing => IsEn ? "analysing" : "分析中";
-    public static string AiChipName(string model, bool busy)
-        => IsEn
-            ? $"AI model {model} — {(busy ? AiChipAnalyzing : AiChipIdle)}"
-            : $"AI 模型 {model}（{(busy ? AiChipAnalyzing : AiChipIdle)}）";
-    public static string AiLampFail => IsEn ? "AI failed" : "AI 失败";
-    public static string AiExtraPrompt => IsEn ? "Extra instructions (optional)" : "额外提示词（可选）";
-    public static string AiExtraHint => IsEn
-        ? "e.g. Always ask what I want before suggesting deletes."
-        : "例如：先问我想清什么，再给建议。";
-    public static string SecSummary => IsEn ? "Overview" : "总览";
-    public static string SecFolders => IsEn ? "Folders" : "大文件夹";
-    public static string SecDeletable => IsEn ? "Likely deletable" : "可能能删";
-    public static string SecKeep => IsEn ? "Keep" : "别动";
-    public static string SecQuestion => IsEn ? "Question" : "问你一句";
-    public static string SecNeed => IsEn ? "Your goal" : "你的需求";
-    public static string GradeHigh => IsEn ? "High" : "高把握";
-    public static string GradeMid => IsEn ? "Medium" : "中把握";
-    public static string GradeLow => IsEn ? "Low" : "低把握";
-    public static string JuryToggleOn => IsEn ? "Multi-model jury: paused" : "多模型评选：暂关";
-    public static string JuryToggleOff => IsEn ? "Multi-model jury: off" : "多模型评选：关";
-    public static string JuryPaused => IsEn
-        ? "Jury is paused. Analyze uses one model until chat is stable."
-        : "评选先关掉。分析只用当前模型，对话稳了再开。";
-    public static string JuryChipMore(int n) => IsEn ? $"+{n}" : $"+{n}";
-    public static string JuryDefaultNeed => IsEn
-        ? "Clean everything that is safe: temp, caches, dumps, leftover installers, dev caches. Do not touch Windows / Program Files / Users as a whole."
-        : "能清的都清：临时、缓存、转储、装完的安装包、开发缓存。Windows / Program Files / Users 整夹别动。";
-    public static string JuryWorking(int n) => IsEn ? $"jury: {n} models…" : $"评审：{n} 个模型并行…";
-    public static string JuryThinking => IsEn ? "connecting…" : "正在连接…";
-    public static string JuryWaiting => IsEn ? "request sent, waiting for reply…" : "请求已发出，等回复…";
-    public static string AiWaiting(int s) => IsEn ? $"waiting… {s}s" : $"等回复中… {s} 秒";
-    public static string JuryRetry(string err) => IsEn ? "retrying: " + err : "改整段请求：" + err;
-    public static string AiPartial(string err) => IsEn ? "Stopped: " + err + " Using what we already have." : "中断：" + err + " 先用已经找到的项。";
-    public static string AiHttp520 => IsEn
-        ? "The API proxy returned 520. Too many tool rounds. Try Analyze again."
-        : "接口中转返回 520，多半是工具轮次太多。再点一次分析。";
     public static string AiTimeout => IsEn
         ? "Timed out. Check URL / key, or the model is too slow."
         : "连接超时。检查地址和密钥，或模型太慢。";
-    public static string AiHostFail(string err) => IsEn
-        ? "Cannot reach host: " + err
-        : "连不上主机：" + err;
-    public static string AiNetFail(string err) => IsEn ? "Network error: " + err : "网络错误：" + err;
-    public static string AiHttpFail(int code, string err) => IsEn ? $"HTTP {code}: {err}" : $"HTTP {code}：{err}";
-    public static string JuryMerge => IsEn ? "Merged score" : "汇总";
-    public static string JurySeatOk(string name, int n) => IsEn ? $"{name} voted {n} items" : $"{name} 投了 {n} 条";
-    public static string JurySeatFail(string name, string err) => IsEn ? $"{name} failed, no vote: {err}" : $"{name} 失败没投：{err}";
-    public static string JurySeatEmpty(string name) => IsEn ? $"{name} returned nothing, no vote" : $"{name} 没有给出条目，没投";
-    public static string JuryVotedYes(IEnumerable<string> names) => IsEn ? "yes: " + string.Join(", ", names) : "投了：" + string.Join("、", names);
-    public static string JuryVotedNo(IEnumerable<string> names) => IsEn ? "no: " + string.Join(", ", names) : "没投：" + string.Join("、", names);
-    public static string JurySummary(int models, int high) => IsEn
-        ? $"{models} models voted. {high} high-confidence items are checked on the right."
-        : $"{models} 个模型已投票。高把握 {high} 项已在右边勾上。";
-    public static string JuryAsk => IsEn
-        ? "High-confidence items are checked. Press Recycle when ready."
-        : "高把握项已勾上。确认后点删除。";
-    public static string JuryChecked => IsEn ? "High-confidence items are now checked on the right." : "高把握项已在右边勾上。等你点删除。";
-    public static string JuryNone => IsEn ? "No overlapping suggestions. Try a clearer goal." : "没有重叠建议。需求再说具体一点。";
-    public static string JurySystem => IsEn
-        ? """
-          Score cleanup candidates. Never delete. Never invent paths. Copy full paths from the scan.
-          Never list Windows / Program Files / Users / WinSxS as a whole.
-          List at most 8 DELETABLE items:
-
-          SUMMARY
-          one sentence
-
-          DELETABLE
-          GOTO C:\full\path	12.4G	why
-          """
-        : """
-          给清理项打分。不要删除，不要编造路径。只从扫描结果复制完整路径。
-          不要写整个 Windows / Program Files / Users / WinSxS。
-          只列最值得清的 8 条。格式：
-
-          SUMMARY
-          一句话
-
-          DELETABLE
-          GOTO C:\完整路径	12.4G	原因
-          """;
-    public static string AiScanHeader => IsEn
-        ? "Scan finished. Reply in the exact format below. Do not invent files."
-        : "扫描结束。必须按下述格式回复。不要编造文件。";
-    /// <summary>
-    /// AI 只做一件事：告诉用户「这是什么」。风险档位由规则（AppSignatures / CleanAnalyzer）判定，
-    /// 可审计、可复现，不让模型来回改，也省得它一本正经地把系统文件标成可删。
-    /// </summary>
-    public static string AiExplainBtn => IsEn ? "Ask AI what these are" : "让 AI 看看这些是什么";
-    public static string AiCatEmpty => IsEn ? "Nothing to analyze in this category." : "这个分类没有可分析的条目。";
-    /// <summary>右键「问 AI 这是什么」用的提示词：只解释，不判风险。</summary>
-    public static string AiFolderAskSystem => IsEn
-        ? """
-          You explain a folder to someone who knows nothing about computers.
-          First sentence: what happens if they delete it. Then, in everyday words, what this folder is and which app made it.
-          BANNED words: command names (pip, npm, yarn), package/file formats (wheel, source package), and tech terms
-          (hash, response body, P2P, content-addressed, dependency, index, cache directory).
-          You MAY name well-known apps (WeChat, NetEase Cloud Music, Chrome, Steam) but say what they do.
-          Do NOT judge deletion risk and do NOT tell the user to delete or keep it — the app rates risk by rules.
-          No markdown, no preamble, no bullet list. Two or three plain sentences, no jargon.
-          """
-        : """
-          你要向一个完全不懂电脑的人解释一个文件夹。
-          第一句先说「删了会怎样」，然后用大白话说清这是什么、哪个软件弄出来的。
-          禁止出现的词：命令行名（pip、npm、yarn）、格式名（wheel、源码包）、技术词（哈希、响应体、P2P、内容寻址、依赖、索引、缓存区）。
-          可以提大众软件名（微信、网易云音乐、Chrome、Steam），但要顺带说清它是干嘛的。
-          不要判断能不能删，不要劝用户删或留——风险由软件按规则判定。
-          不要 markdown，不要开场白，不要列点。两三句白话，不要术语。
-          """;
-    /// <summary>问 AI 单个文件夹时的用户消息模板。</summary>
-    public static string AiFolderAskUser(string path, string listing) => IsEn
-        ? $"Folder: {path}\nTop items:\n{listing}"
-        : $"文件夹：{path}\n里面的条目：\n{listing}";
-    public static string AiFolderAskFail(string err) => IsEn
-        ? "AI did not answer: " + err
-        : "AI 没答上来：" + err;
-    public static string AiCatDone(int n) => IsEn ? $"AI explained {n} items" : $"AI 说明了 {n} 条";
-    public static string AiCatStopped => IsEn ? "Stopped." : "已停止。";
-    public static string AiNoItems => IsEn ? "AI returned nothing usable." : "AI 没给出可用的说明。";
-    /// <summary>清理表格里 AI 说明列的表头。</summary>
-    public static string AiColNote => IsEn ? "What it is" : "这是什么";
-
-    public static string AiAnalystSystem => IsEn
-        ? """
-          You are a file analyst in a disk cleaner. Never delete. Never invent paths.
-          The user wants the disk as clean as it can safely be. Do not ask what to clean. List every safe candidate.
-          FINAL reply MUST use this exact shape. No markdown, no extra sections, no QUESTION section:
-
-          SUMMARY
-          one or two sentences.
-
-          DELETABLE
-          GOTO C:\full\path	2.4G	why it can be deleted
-          (concrete files/caches/dumps/leftover installers/dev caches; never Windows / Program Files / Users / WinSxS as a whole)
-
-          KEEP
-          GOTO C:\full\path	24.4G	why not delete
-
-          Each GOTO line: GOTO, then the full path, then size, then one-line reason. Copy paths from the scan list. Suggest safe cache. WeChat/QQ: cache only. Do not invent XML/DSML/tool tags. Do not call tools. One shot.
-          """
-        : """
-          你是磁盘清理软件里的文件分析师。不要删除，不要编造路径。
-          用户想尽量清干净。不要问清哪块，把能安全清的都列出来。
-          最终回复必须用下面这个格式。不要 markdown，不要 QUESTION 章节：
-
-          SUMMARY
-          一两句话总览。
-
-          DELETABLE
-          GOTO C:\完整路径	2.4G	为什么能删
-          （只写具体文件/缓存/转储/装完的安装包/开发缓存，不要写整个 Windows / Program Files / Users / WinSxS）
-
-          KEEP
-          GOTO C:\完整路径	24.4G	为什么不能删
-
-          每条 GOTO：GOTO、完整路径、大小、一句原因。路径从扫描清单原样复制。safe cache 可建议删。微信/QQ 只动缓存。不要写 XML/DSML/工具标签，不要调工具，一轮答完。
-          """;
-    public static string AiTool(string name) => IsEn ? $"tool: {name}" : $"工具：{name}";
-    public static string AiKindName(AiProtocol p) => p switch
-    {
-        AiProtocol.Responses => AiProtoResponses,
-        AiProtocol.Anthropic => AiProtoAnthropic,
-        AiProtocol.Decisions => AiProtoDecisions,
-        _ => AiProtoCompletions,
-    };
     public static string LangZh => "中文";
     public static string LangEn => "English";
     public static string Close => IsEn ? "Close" : "关闭";
@@ -669,9 +449,6 @@ public static class Loc
     public static string AppNeutralHint => IsEn
         ? "No uninstall signal was found. Search, sort by footprint, or uninstall it manually."
         : "没有找到卸载依据。可以搜索、按占用排序，或自己直接卸载。";
-    public static string UninstallAiNotConfigured => IsEn
-        ? "Local rules are being used. AI is optional and never controls uninstall."
-        : "当前使用本地规则。AI 可选，且永远不会直接控制卸载。";
     public static string UninstallRunning => IsEn ? "Uninstalling…" : "正在卸载…";
     public static string UninstallDone => IsEn ? "Done" : "完成";
     public static string UninstallFailed => IsEn ? "Failed" : "失败";
@@ -685,7 +462,6 @@ public static class Loc
     public static string UninstallResultPending => IsEn ? "Still left:" : "未完成：";
     /// <summary>只按建议勾选并展示，绝不代替用户删除——AI 只负责分析，删不删由用户确认。</summary>
     public static string ReviewSuggestions => IsEn ? "Review suggestions" : "看 AI 建议";
-    public static string ReviewSuggestionsShort => IsEn ? "Pre-check by suggestion" : "按 AI 建议勾选";
     public static string SelectAllTip => IsEn ? "Select all / clear" : "全选 / 取消全选";
     public static string ConfirmDelete(int n) => n > 0
         ? (IsEn ? $"Delete {n:N0} item(s)" : $"确认删除 {n:N0} 项")
@@ -747,8 +523,6 @@ public static class Loc
     public static string ColType => IsEn ? "Type" : "类型";
     public static string FilterLabel => IsEn ? "Filter" : "筛选";
     public static string ColName => IsEn ? "Name" : "名称";
-
-    public static string CatAi => IsEn ? "AI suggested" : "AI 建议";
     public static string CatCleanable => IsEn ? "Safe to clean" : "可清理";
     public static string CatLarge => IsEn ? "Largest files" : "大文件";
     public static string CatOld => IsEn ? "Old files" : "老文件";
@@ -851,12 +625,6 @@ public static class Loc
     public static string GroupsTruncated(int hidden) => IsEn
         ? $"{hidden} more group(s) merged into Others"
         : $"另有 {hidden} 个小组已并入「其它」";
-    /// <summary>发给模型的分组说明：只发汇总数字，不发逐条记录。</summary>
-    public static string AiGroupsUserHeader(int groups) => IsEn
-        ? $"local groups ({groups}). For EACH group write one line: '#N <one short sentence>'. "
-          + "Judge groups separately; never say the whole folder is safe."
-        : $"本地分组（{groups} 组）。**每一组**写一行：'#N <一句短建议>'。"
-          + "分组要分开判断，绝不能说「整个文件夹都安全」。";
     public static string GroupScopeSampled(int shown, int total) => IsEn
         ? $"analysis covered {shown} of {total} items"
         : $"分析范围：{total} 项中的 {shown} 项";
@@ -865,7 +633,6 @@ public static class Loc
     public static string GroupSummaryLine(int items, int candidates, string size, string source) => IsEn
         ? $"{items:N0} item(s) · {candidates:N0} eligible · {size} · {source}"
         : $"{items:N0} 项 · 符合清理资格 {candidates:N0} 项 · 候选空间 {size} · {source}";
-    public static string GroupAiTag => IsEn ? "[AI] " : "［AI］";
     public static string GroupProtectedOnly => IsEn
         ? "protected — cannot be cleaned"
         : "受保护，不能清理";
@@ -874,23 +641,6 @@ public static class Loc
         : "会在文件列表里过滤到 " + what;
 
     // ---- AI 结果界面：一句结论 + 一句说明 + 下一步（面向普通用户，不出现技术词） ----
-    public static string AiHeadlineClean(int count, string size) => IsEn
-        ? $"Suggest cleaning {count:N0} item(s) — about {size} can be freed"
-        : $"建议清理其中 {count:N0} 项，可释放 {size}";
-    public static string AiHeadlineReview(int count, string size) => IsEn
-        ? $"{count:N0} item(s) need your confirmation ({size}) — can't be called safe yet"
-        : $"有 {count:N0} 项需要你确认（{size}），暂时不能确定是否安全";
-
-
-
-    public static string AiBucketStat(int count, string size) => IsEn
-        ? $"{count:N0} item(s) · {size}"
-        : $"{count:N0} 项 · {size}";
-
-    public static string AiViewFiles => IsEn ? "View files" : "查看文件";
-    public static string AiWhyToggle => IsEn ? "Why this suggestion?" : "为什么这样建议？";
-    /// <summary>重新扫描后旧结果过期：不给旧结论，也不给操作。</summary>
-    // ---- 详情列表的分组表头 ----
     public static string GroupStatLine(int count, string size) => IsEn
         ? $"{count:N0} item(s) · {size}"
         : $"{count:N0} 项 · {size}";
@@ -940,44 +690,6 @@ public static class Loc
     public static string PurposeAiHeader => IsEn
         ? "Identify ONE folder's purpose from this bounded summary. Do not read file contents."
         : "根据下面这份有上限的摘要判断**一个**目录的用途。不要读取文件内容。";
-    public static string PurposeAiSystem => IsEn
-        ? """
-          You name what a folder is for, for a non-technical Windows user.
-
-          Reply with exactly these three lines, nothing else. Keep each short (<= 12 words):
-          PURPOSE: <what this folder is, e.g. "Steam game library">
-          CATEGORY: <one of: games | dev | system | media | documents | apps | mixed | unknown>
-          BASIS: <which facts above you used>
-
-          Rules:
-          - If the summary is not enough, write PURPOSE: unknown. Do not guess.
-          - Never say anything is safe to delete.
-          - No markdown, no tool calls, no extra lines.
-          """
-        : """
-          你要为一个不懂电脑的 Windows 用户判断**一个**目录是做什么用的。
-
-          只回下面三行，不要有别的内容。每行尽量短（不超过 12 个字）：
-          PURPOSE: <这个目录是什么，例如「Steam 游戏库」>
-          CATEGORY: <从这些里选一个：游戏 | 开发 | 系统 | 影音 | 文档 | 应用 | 混合 | 未知>
-          BASIS: <你用了上面哪些信息>
-
-          规则：
-          - 摘要不够就写 PURPOSE: 未知，不要猜。
-          - 绝不要说某样东西可以安全删除。
-          - 不要 markdown、不要工具调用、不要多余的行。
-          """;
-
-    /// <summary>
-    /// Jev 批量用途判定的选项（键 → 说明）。
-    ///
-    /// 只有 10 类，而且刻意**只留一个「别删」出口**：实测把「用户数据 / 系统文件 /
-    /// 开发项目」拆成三类时，边界立刻模糊——视频文件被判成「项目」，Windows 更新
-    /// 缓存的置信度从 0.43 掉到「系统 0.84」。合并成一个出口之后，同类测试里
-    /// 用户视频 / 程序本体 / 游戏存档全部正确落进 keep，且置信度显著更高。
-    ///
-    /// 键是稳定标识（进缓存键），**不要改**；要改说明就改文本。
-    /// </summary>
     public static (string Key, string Text)[] AiPurposeOptions => IsEn
         ? new[]
         {
@@ -1025,22 +737,6 @@ public static class Loc
     /// </summary>
     public static string AiPurposeQuestion(string path)
         => IsEn ? $"What is this path: {path}" : $"这个路径是什么：{path}";
-    /// <summary>批量判定的结果写进「说明」列时，必须一眼看出这是 AI 推测、不是规则结论。</summary>
-    public static string AiPurposeNote(string name, string impact)
-        => IsEn ? $"{PurposeFromAi}: {name} · {impact}" : $"{PurposeFromAi}：{name} · {impact}";
-    public static string AiPurposeFromAi(string text)
-        => IsEn ? $"{PurposeFromAi}: {text}" : $"{PurposeFromAi}：{text}";
-    /// <summary>
-    /// 类别短名。整理页的「用途」是自由文本（不是一个枚举），所以判定结果要落成一句能看的名词。
-    /// 返回空串表示这一类不该写进用途（只有 Unknown）。
-    /// </summary>
-    /// <summary>
-    /// 模型给了答案但**没把握**（低于采纳阈值）时的行内文案。
-    ///
-    /// 官方对这种情况的说法是 *escalate to a human when confidence is low* ——
-    /// **升级给人看，而不是丢掉**。丢掉只剩「未识别」，用户读到的信息量是零。
-    /// 这跟之前否掉的「像是…」不一样：不是把类名说软，是**如实说模型没把握**。
-    /// </summary>
     public static string AiPurposeUnsureName(string name)
         => IsEn ? $"Not sure, maybe {name}" : $"拿不准：可能是{name}";
     /// <summary>拿不准那一批的次行说明。</summary>
@@ -1067,15 +763,6 @@ public static class Loc
         AiPurposeKind.DevTools => IsEn ? "Installed dev tools" : "装好的开发工具",
         _ => "",
     };
-    /// <summary>模型认出这是「别删」那一类时给的提示。只是提示，不阻挡用户删。</summary>
-    public static string AiPurposeKeepHint => IsEn
-        ? "Looks like your own data or a Windows file — check before deleting"
-        : "看着像你自己的数据或系统文件，删之前先看一眼";
-    /// <summary>模型认出这是模型 / 素材这类大件时给的提示。</summary>
-    public static string AiPurposeModelHint => IsEn
-        ? "Looks like a model or game asset — deleting means downloading it again"
-        : "看着像模型或游戏素材这类大件，删了要重新下载";
-    public static string AiPurposeBatchRunning => IsEn ? "Classifying…" : "正在归类…";
     public static string AiPurposeBatchProgress(int done, int total)
         => IsEn ? $"Classified {done:N0} / {total:N0}" : $"已归类 {done:N0} / {total:N0}";
     /// <summary>
@@ -1095,22 +782,6 @@ public static class Loc
         : "没有需要归类的条目了。";
     public static string AiPurposeBatchFailed(string why)
         => IsEn ? "Classification failed: " + why : "归类失败：" + why;
-    /// <summary>Jev 判定用途时的系统提示词。整批一次问完，不要串行追问。</summary>
-    public static string AiPurposeBatchSystem => IsEn
-        ? """
-          You are given a list of Windows paths, one per line, numbered from the top.
-          Each question asks what ONE numbered path is.
-
-          Pick the single best option. Do not explain. Do not say anything is safe to delete.
-          If the path is not enough to tell, pick "unknown" instead of guessing.
-          """
-        : """
-          下面给你一串 Windows 路径，一行一个，从上往下编号。
-          每个问题问的是其中某一个编号的路径是什么。
-
-          从选项里挑最合适的那一个。不要解释，不要判断能不能删。
-          光看路径判断不出来就选 unknown，不要猜。
-          """;
     public static string OtherFilesTitle => IsEn ? "Other files" : "其它文件";
 
     // ---- 文件夹整理（工作区，不是说明页） ----
@@ -1246,13 +917,6 @@ public static class Loc
     public static string OrganizeBudgetUsed(int used) => IsEn
         ? $"stopped at the request budget ({used:N0}) — the rest stays to confirm"
         : $"已到本次请求上限（{used:N0} 次），剩下的保持待确认";
-    public static string OrganizePurposeUnknownAi => IsEn
-        ? "the model did not give a usable answer"
-        : "模型没有给出可用的结论";
-
-    // ---- 自动识别（两级）与「识别当前文件夹」（三级及更深） ----
-
-    /// <summary>片段说明也写进提示词里，让模型知道自己看的是什么。</summary>
     public static string PurposeAiSnippetHeader => IsEn
         ? "Filtered snippets (README / project config / manifests only; secrets, tokens and accounts are masked):"
         : "经过筛选的片段（只有 README / 项目配置 / 清单文件；密钥、Token、账号已脱敏）：";
@@ -1482,29 +1146,8 @@ public static class Loc
     public static string OrganizeWorkBarScope(int children, int budget) => IsEn
         ? $"direct sub-folders: {children:N0} · at most {budget:N0} AI requests this time"
         : $"直接子文件夹 {children:N0} 个 · 本次最多发 {budget:N0} 次请求";
-
-    public static string AiFilteredToCount(int n) => IsEn
-        ? $"Showing only these {n:N0} item(s)"
-        : $"只显示这 {n:N0} 项";
     public static string DetailShowingAll => IsEn ? "Showing all items" : "显示全部";
     public static string AiEverythingSelected => IsEn ? "All of these are already selected" : "这些都已经选好了";
-
-    public static string AiNoteBelongs(string what) => IsEn ? $"These are {what}" : $"这些文件属于{what}";
-
-    public static string AiWhyLocation(string where) => IsEn ? $"Located in {where}" : $"文件位于 {where}";
-    public static string AiWhyModified(string age) => IsEn ? $"Last changed {age}" : $"最后修改于{age}";
-    public static string AiWhyMatched(string tech) => IsEn ? $"Matched rule: {tech}" : $"匹配到的规则：{tech}";
-    public static string AiWhySomeUncertain(int n) => IsEn
-        ? $"{n:N0} item(s) still cannot be confirmed"
-        : $"仍有 {n:N0} 项无法确认";
-    public static string AiWhyProtected(int n) => IsEn
-        ? $"{n:N0} item(s) are protected and never offered"
-        : $"{n:N0} 项受保护，不会进入清理";
-
-    public static string AiAgeDays(int d) => IsEn ? $"{d} day(s) ago" : $"{d} 天前";
-    public static string AiAgeMonths(int m) => IsEn ? $"{m} month(s) ago" : $"{m} 个月前";
-    public static string AiAgeYears(int y) => IsEn ? $"{y} year(s) ago" : $"{y} 年前";
-
     public static string GroupViewNeedsLocation => IsEn
         ? "Cannot locate the folder for this group"
         : "找不到这一组对应的位置";
@@ -1555,7 +1198,6 @@ public static class Loc
     public static string ReasonVmDisk => IsEn
         ? "Careful · this is a virtual machine's disk, real data lives inside"
         : "要小心 · 这是虚拟机的磁盘，里面的数据是真的";
-    public static string AskAiFolder => IsEn ? "Ask AI what this is" : "问 AI 这是什么";
     public static string ReasonRecycle => IsEn
         ? "Things you deleted earlier — clearing these loses them for good"
         : "你之前删掉的东西，清掉就真没了";
@@ -1802,7 +1444,6 @@ public static class Loc
     public static string OpenHere => IsEn ? "Open in Explorer" : "在资源管理器中打开";
     public static string CloseDetail => IsEn ? "Close" : "关闭";
     public static string MoreMenu => IsEn ? "More" : "更多";
-    public static string AiExplainHere => IsEn ? "AI: explain what these are" : "AI 解释这些是什么";
     public static string ScanDetails => IsEn ? "Scan details" : "扫描详情";
     public static string ScanDetailsTitle => IsEn ? "Scan details" : "扫描详情";
 
@@ -1872,87 +1513,12 @@ public static class Loc
         : "没有选中内容，无需检查。";
 
     // ---- AI 分析面板（清理中心的核心区域） ----
-    public static string AiPanelTitle => IsEn ? "AI analysis" : "AI 分析";
-    public static string AiPanelIntro => IsEn
-        ? "Helps you understand the scan and see what is worth handling first."
-        : "帮你理解扫描结果，并判断哪些内容值得优先处理。";
-    public static string AiNotConfiguredTitle => IsEn ? "AI analysis is not configured" : "AI 分析尚未配置";
-    public static string AiNotConfiguredSub => IsEn
-        ? "Configure it to get explanations and priority suggestions for the cleanup list."
-        : "配置后可获得清理内容的解释和优先级建议。";
-    public static string AiConfigure => IsEn ? "Configure AI" : "配置 AI";
-    public static string AiWorkingTitle => IsEn ? "AI is analysing the scan…" : "AI 正在分析当前扫描结果……";
-    public static string AiDoneTitle => IsEn ? "AI analysis finished" : "AI 已完成分析";
-    public static string AiIdleTitle => IsEn ? "AI analysis has not run yet" : "尚未进行 AI 分析";
-    public static string AiIdleSub => IsEn
-        ? "Run it to get per-item explanations for the candidates."
-        : "运行后会为候选项补充说明，帮助你判断。";
-    public static string AiStoppedTitle => IsEn ? "AI analysis stopped" : "AI 分析已停止";
-    public static string AiFailedTitle => IsEn ? "AI analysis failed" : "AI 分析失败";
-    public static string AiRecommendLabel => IsEn ? "Handle first: " : "优先建议：";
-    public static string AiCautionLabel => IsEn ? "Decide carefully: " : "谨慎判断：";
-    public static string ViewAiAnalysis => IsEn ? "View AI analysis" : "查看 AI 分析";
     public static string Reanalyze => IsEn ? "Analyse again" : "重新分析";
-    public static string AiPanelNoLists => IsEn ? "no recognizable groups" : "没有可归类的分组";
-    /// <summary>AI 建议选择：文案必须说清「只是建议」且仍要用户确认。</summary>
-    public static string AiSelectByAdvice => IsEn ? "Select by AI advice" : "按 AI 建议选择";
-    public static string AiAdviceHint => IsEn
-        ? "Only ticks items local rules already allow. You still confirm before anything is cleaned."
-        : "只勾选本地规则已经允许的项；执行前仍然由你确认。";
-    public static string AiAnalysisTitle => IsEn ? "AI analysis" : "AI 分析详情";
-    public static string AiAnalysisNoResult => IsEn
-        ? "AI has not produced a result yet. Run the analysis first."
-        : "AI 还没有产出结果，请先运行一次分析。";
-    public static string RunAiAnalysis => IsEn ? "Run AI analysis" : "开始 AI 分析";
-    public static string AiAnalyzingShort => IsEn ? "Analysing…" : "分析中…";
-    public static string AiNoKeepGroup => IsEn ? "nothing is marked keep-only" : "没有被标为「保留」的分组";
-    public static string AiAdviceApplied(int n) => IsEn
-        ? $"Selected {n:N0} item(s) that local rules already allow. Review, then confirm."
-        : $"已按建议勾选 {n:N0} 项（都在本地规则允许范围内）。请核对后再确认执行。";
-    public static string AiAdviceNothing => IsEn
-        ? "Nothing new to select by advice." : "按建议没有可新增勾选的内容。";
-    public static string AiScopeLine(int analysed, int total) => IsEn
-        ? $"Scope: {analysed:N0} of {total:N0} candidate item(s) were sent for analysis"
-        : $"分析依据范围：本次送出 {analysed:N0} 项，共 {total:N0} 个候选项";
-    public static string AiScopePartial => IsEn
-        ? "Note: only part of the candidates was analysed (batch limit). The rest keep their local rule descriptions."
-        : "注意：受单次上限影响，只分析了部分候选项；其余保留本地规则给出的说明。";
-    public static string AiDetailWhy => IsEn ? "Why these are suggested:" : "为什么推荐这些：";
-    public static string AiDetailImpact => IsEn ? "What cleaning may affect:" : "清理后可能产生的影响：";
-    public static string AiDetailAvoid => IsEn ? "What is NOT suggested for handling:" : "哪些内容不建议处理：";
-    public static string AiDetailAsk => IsEn ? "What needs your decision:" : "哪些内容需要你确认：";
-    public static string AiDetailBoundary => IsEn
-        ? "AI only explains and suggests. Risk levels, deletable scope and the final choice all stay with the local rules and with you."
-        : "AI 只做解释和建议。风险等级、可删除范围与最终选择仍由本地规则和你决定。";
-
-    // ---- 逐项 AI（按需分析单个文件 / 单个清理位置） ----
-    public static string ItemAiStopped => IsEn ? "Stopped" : "已停止";
-
-
-
-    public static string AiItemSummaryScope(int shown, int total) => IsEn
-        ? $"summary covers the {shown} largest of {total} direct child item(s) — NOT the whole folder"
-        : $"摘要只覆盖 {total} 个直接子项里最大的 {shown} 个 —— 不是整个文件夹";
-
-    public static string AiBtnTip => IsEn ? "Analyse this item with AI" : "用 AI 分析这一项";
-    /// <summary>「更多」菜单里的说明：AI 入口已经挪到每一项旁边。</summary>
     public static string AiPerItemHint => IsEn
         ? "Single-item AI analysis lives on the row itself (the ✦ button)"
         : "单项 AI 分析在每一行自己的按钮上（✦）";
     /// <summary>「更多」菜单里的批量归类入口。</summary>
     public static string AiBatchClassify => IsEn ? "Classify items AI can't name" : "批量识别用途";
-    public static string AiBatchClassifyWithCount(int n) => IsEn
-        ? $"Classify {n:N0} item(s) AI can't name"
-        : $"批量识别用途（还有 {n:N0} 项没认出来）";
-    /// <summary>页头按钮上的短文案（长的放 ToolTip 和菜单）。</summary>
-    public static string AiBatchClassifyShort(int n) => IsEn
-        ? $"Classify {n:N0} unnamed"
-        : $"识别用途（{n:N0} 项）";
-    /// <summary>
-    /// 页头按钮：数字必须是**这一屏真正会问的条数**。
-    /// 曾经写成「全局还没识别的条数」，于是按钮显示 (2,517 项)、实际只问了当前可见的 83 条 ——
-    /// 标签和动作对不上，用户会以为卡住了。
-    /// </summary>
     public static string AiBatchClassifyScreen(int n) => IsEn
         ? $"Classify this screen ({n:N0})"
         : $"识别这一屏（{n:N0} 项）";
@@ -1961,57 +1527,6 @@ public static class Loc
     public static string AiPurposeForgot(int n) => IsEn
         ? $"Forgot {n:N0} AI label(s). Classify this screen again to re-ask."
         : $"已忘掉 {n:N0} 个 AI 标签。再点「识别这一屏」会重新问。";
-
-    /// <summary>进行中的诚实提示：没有真实百分比就不编，只报已等待时间。</summary>
-    public static string AiRunningHint(TimeSpan waited) => IsEn
-        ? $"Waiting for the model… {waited.TotalSeconds:0}s elapsed. It can take a while; you can stop at any time."
-        : $"正在等待模型返回……已等待 {waited.TotalSeconds:0} 秒。可能较慢，随时可以停止。";
-    public static string AiStopShort => IsEn ? "Stop analysis" : "停止分析";
-    public static string AiStopping => IsEn ? "Stopping AI analysis…" : "正在停止 AI 分析…";
-    /// <summary>「提交 60 项 · 生成 15 条可用说明 · 45 项无说明」—— 三个数分开说。</summary>
-    public static string AiCountLine(int sent, int applied, int without) => IsEn
-        ? $"Submitted {sent:N0} · usable notes {applied:N0} · no note {without:N0}"
-        : $"提交 {sent:N0} 项 · 生成可用说明 {applied:N0} 条 · 无说明 {without:N0} 项";
-    public static string AiDoneSub(int applied, int sent, int without) => IsEn
-        ? $"Generated {applied:N0} usable note(s) from {sent:N0} submitted item(s)"
-          + (without > 0 ? $"; {without:N0} item(s) got no note." : ".")
-        : $"从提交的 {sent:N0} 项中生成 {applied:N0} 条可用说明"
-          + (without > 0 ? $"；另有 {without:N0} 项没有拿到说明。" : "。");
-    public static string AiNoUsefulTitle => IsEn ? "AI replied, but no usable notes" : "AI 有回复，但没有可用说明";
-    public static string AiNoUsefulSub(int sent) => IsEn
-        ? $"{sent:N0} item(s) were submitted but none came back in a usable format. Local rule descriptions are unchanged."
-        : $"提交了 {sent:N0} 项，但没有一条能按格式解析成说明。本地规则的说明保持不变。";
-    public static string AiResultUnusable => IsEn
-        ? "AI replied but produced no usable note; local rules still apply."
-        : "AI 有回复但没有产出可用说明；本地规则仍然有效。";
-    public static string AiNoNotesBody => IsEn
-        ? "No usable per-item AI note was produced. Nothing here is an AI conclusion."
-        : "本次没有产出可用的逐项 AI 说明。下面显示的都是本地规则结果，不是 AI 结论。";
-    public static string AiNotesHead(int n) => IsEn
-        ? $"AI notes for {n:N0} item(s) (real model output):"
-        : $"AI 逐项说明（真实模型输出，共 {n:N0} 条）：";
-    public static string AiNotesMore(int n) => IsEn
-        ? $"…plus {n:N0} more (open the file detail to read them all)."
-        : $"……另有 {n:N0} 条（在文件详情里可以逐条查看）。";
-    /// <summary>本地规则摘要必须打标签，不能冒充 AI 结论。</summary>
-    public static string AiLocalTag => IsEn ? "[local rules]" : "［本地规则］";
-    public static string AiLocalHead => IsEn
-        ? "From local rules (not an AI conclusion):"
-        : "以下来自本地规则，不是 AI 结论：";
-    public static string AiTimingLine(double buildMs, double sendMs, double parseMs) => IsEn
-        ? $"Timing: prepare {buildMs:0}ms · request {sendMs:0}ms · parse {parseMs:0}ms"
-        : $"耗时：组装 {buildMs:0} 毫秒 · 请求 {sendMs:0} 毫秒 · 解析 {parseMs:0} 毫秒";
-    public static string AiParseLine(int lines, int candidates, int hits, int noise) => IsEn
-        ? $"Response: {lines:N0} line(s) · {candidates:N0} list-like · {hits:N0} matched a submitted path · {noise:N0} noise cell(s) skipped"
-        : $"响应解析：{lines:N0} 行 · 像清单的 {candidates:N0} 行 · 命中提交路径 {hits:N0} 行 · 跳过噪音列 {noise:N0} 次";
-    public static string AiChannelLine(string channel, int attempts) => IsEn
-        ? $"Channel: {channel} · attempt(s): {attempts}"
-        : $"通道：{channel} · 尝试次数：{attempts}";
-
-    /// <summary>
-    /// 估算口径改成悬停提示（不再单独占一整行）。
-    /// 措辞不能承诺「立刻多出等量空间」—— 回收站清空后空间才真正回来。
-    /// </summary>
     public static string EstimateTip => IsEn
         ? "“About” is an estimate, not a promise. Actual free space grows after the Recycle Bin is emptied."
         : "「预计」是估算值，不是承诺。实际可用空间会在回收站清空后才增加。";

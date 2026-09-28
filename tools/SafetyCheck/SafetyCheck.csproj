@@ -24,7 +24,6 @@
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanItem.cs" Link="CleanItem.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanGroupNodes.cs" Link="CleanGroupNodes.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\ScanQuality.cs" Link="ScanQuality.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Models\AiContracts.cs" Link="AiContracts.cs" />
 
     <Compile Include="..\..\src\AiDiskCleaner\Native\FileProbeNative.cs" Link="FileProbeNative.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Native\ShellNative.cs" Link="ShellNative.cs" />
@@ -81,7 +80,6 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\ScanCoordinator.cs" Link="ScanCoordinator.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\DeletionCoordinator.cs" Link="DeletionCoordinator.cs" />
     <!-- 真 AI 工具面：用来断言「AI 不能改选择」 -->
-    <Compile Include="..\..\src\AiDiskCleaner\Services\DiskAnalyst.cs" Link="DiskAnalyst.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanReport.cs" Link="CleanReport.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FolderPurpose.cs" Link="FolderPurpose.cs" />
     <!-- 脱敏片段读取：白名单 + 密钥过滤，必须测真代码 -->

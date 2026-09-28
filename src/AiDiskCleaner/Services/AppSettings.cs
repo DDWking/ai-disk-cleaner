@@ -12,7 +12,10 @@ public sealed class AiProviderCfg
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string BaseUrl { get; set; } = "";
-    public string Protocol { get; set; } = "completions";
+
+    // v3.0 删掉了 Protocol 字段：聊天通道（completions / responses / anthropic）连同
+    // 协议下拉一起下线，供应商只可能是判定端点。老配置里那个字段留在 json 里没关系，
+    // 反序列化会忽略未知成员。
 
     /// <summary>
     /// API Key 的**明文**，只在内存里活着。
@@ -41,27 +44,27 @@ public sealed class AppSettings
     public int UiRev { get; set; }
     public List<AiProviderCfg> AiProviders { get; set; } = new();
     public string AiActiveId { get; set; } = "";
+
+    /// <summary>
+    /// 旧字段：聊天时代的「全局聊天模型」。v3.0 起整个软件只有判定一条通道，
+    /// 模型统一由 <see cref="AiDecisionModel"/> 表达。保留它只是为了读得懂老配置
+    /// （<see cref="Migrate"/> 会把它搬进判定模型），**新代码不要再用**。
+    /// </summary>
     public string AiModel { get; set; } = "";
-    public string AiExtraPrompt { get; set; } = "";
-    public List<string> AiJury { get; set; } = new();
-    public bool AiJuryOn { get; set; }
-    // 走 Pi sidecar（pi-ai 处理中转协议 / 推理内容 / 工具循环）。
-    // sidecar 起不来会自动退回内置的 OpenAI.NET 客户端。
-    public bool AiUseSidecar { get; set; } = true;
 
     /// <summary>是否允许把完整本地路径发给外部 AI。默认关（只发脱敏路径）。</summary>
     public bool AiSendFullPaths { get; set; }
 
     /// <summary>
-    /// 批量用途判定（结构化判定通道）用哪个供应商。
-    /// 留空时自动退到**第一个声明了 decisions 协议的供应商** ——
-    /// 用户只要在供应商列表里加一条、协议选「结构化判定」就能用，不用再来这里挑一次。
+    /// 判定通道用哪个供应商。留空时自动退到**第一个配了地址的供应商** ——
+    /// v3.0 起所有供应商都是判定端点（协议概念随聊天通道一起删了）。
     /// </summary>
     public string AiDecisionProviderId { get; set; } = "";
 
     /// <summary>判定用的模型 id。留空时退到该供应商模型列表的第一个。</summary>
     public string AiDecisionModel { get; set; } = "";
 
+    // 旧单供应商结构的迁移字段（老 settings.json 里就一个 name/baseUrl/protocol/models）。
     public string AiName { get; set; } = "";
     public string AiBaseUrl { get; set; } = "";
     public string AiProtocol { get; set; } = "completions";
@@ -84,7 +87,10 @@ public sealed class AppSettings
         return AiProviders.FirstOrDefault(p => p.Id == AiActiveId) ?? AiProviders[0];
     }
 
-    /// <summary>批量用途判定走哪个供应商。显式指定优先，否则挑第一个声明了 decisions 协议的。</summary>
+    /// <summary>
+    /// 判定通道用哪个供应商：显式指定优先，否则第一个配了地址的。
+    /// （v3.0 起没有「协议」这个概念了 —— 聊天通道删掉之后，供应商只可能是判定端点。）
+    /// </summary>
     public AiProviderCfg? DecisionProvider()
     {
         Migrate();
@@ -94,7 +100,8 @@ public sealed class AppSettings
             var byId = AiProviders.FirstOrDefault(p => p.Id == AiDecisionProviderId);
             if (byId != null) return byId;
         }
-        return AiProviders.FirstOrDefault(p => AiProtocols.IsDecision(p.Protocol));
+        return AiProviders.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.BaseUrl))
+               ?? AiProviders[0];
     }
 
     public string DecisionModelId()
@@ -122,7 +129,6 @@ public sealed class AppSettings
             Id = "default",
             Name = string.IsNullOrWhiteSpace(AiName) ? "default" : AiName,
             BaseUrl = AiBaseUrl ?? "",
-            Protocol = AiProtocol ?? "completions",
             ApiKey = AiApiKey ?? "",
             Models = (AiModels ?? new()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
         };
@@ -130,6 +136,11 @@ public sealed class AppSettings
             p.Models.Insert(0, AiModel);
         AiProviders.Add(p);
         AiActiveId = p.Id;
+
+        // v3.0：聊天通道删掉之后，老的「全局聊天模型」就是唯一的模型 ——
+        // 搬进判定模型，否则老用户升级后会看到模型是空的，以为配置丢了。
+        if (string.IsNullOrWhiteSpace(AiDecisionModel) && !string.IsNullOrWhiteSpace(AiModel))
+            AiDecisionModel = AiModel.Trim();
     }
 
     public static AppSettings Load()

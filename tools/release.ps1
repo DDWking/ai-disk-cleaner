@@ -85,11 +85,8 @@ if (-not $SkipPublish) {
     if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
 }
 
-# 4) sidecar reminder (optional by design: AI falls back to the built-in HTTP path).
-$sidecar = Join-Path $out 'sidecar\AiSidecar.exe'
-if (-not (Test-Path $sidecar)) {
-    Write-Warning 'No sidecar\AiSidecar.exe in the package (AI uses the built-in fallback).'
-}
+# 4) v3.0: no sidecar any more — the Node chat sidecar was removed and the decisions
+#    channel is a plain in-process HTTP call, so the package is self-contained by design.
 
 # 5) hash check: shipped DLL must equal the acceptance-build DLL.
 $pubDll = Join-Path $out 'AiDiskCleaner.dll'

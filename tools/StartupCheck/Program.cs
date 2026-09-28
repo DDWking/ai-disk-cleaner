@@ -123,7 +123,8 @@ public static class Program
             foreach (var n in new[]
                      {
                          "AlertText", "Overlay", "OrganizeGrid", "OrganizeCounts",
-                         "CleanSelectAllBtn", "AiChip",
+                         "CleanSelectAllBtn",
+                         // AiChip（顶栏 AI 胶囊）随聊天通道一起移除，不在这份清单里了
                          // ColOrgAction（「操作」列）已整体移除，不在这份清单里了
                          "ColAppInstallDate", "TabCleanBtn", "TabOrganizeBtn",
                      })
@@ -699,8 +700,8 @@ public static class Program
             typeof(MainWindow).GetMethod("InvalidateItemAiAfterScan",
                 BindingFlags.Instance | BindingFlags.NonPublic) == null);
 
-        // ---------- 8.7 用途缓存与请求计数只随「真换扫描」复位 ----------
-        // 先用一个**本地就能判定**的目录把缓存喂起来（allowAi:false ⇒ 绝不联网）
+        // ---------- 8.7 用途缓存只随「真换扫描」复位 ----------
+        // 先用一个**本地就能判定**的目录把缓存喂起来（本地路径绝不联网）
         var svc = Fld<FolderPurposeService>(win, "_folderPurpose");
         var nmDir = MakeDir("node_modules", @"X:\nodeproj\node_modules", 900_000, null);
         FileEntry? nmFile = new FileEntry
@@ -709,12 +710,12 @@ public static class Program
             Kind = EntryKind.File, Size = 10, Parent = nmDir,
         };
         nmDir.Children.Add(nmFile);
-        var nmRes = svc.RecognizeAsync(nmDir, new FolderId(nmDir.FullPath, 1), 1, "node_modules",
-            allowAi: false, provider: null, model: null, sendFullPath: false,
-            configSignature: "cfg", ct: CancellationToken.None).GetAwaiter().GetResult();
+        var nmRes = svc.Recognize(nmDir, new FolderId(nmDir.FullPath, 1), 1, "node_modules", "cfg");
         Check("本地能判定的目录进了用途缓存（且没联网）",
             nmRes.HasConclusion && svc.CacheCount > 0, svc.CacheCount.ToString());
-        Check("本地结论不消耗请求预算", svc.AiRequestsUsed == 0, svc.AiRequestsUsed.ToString());
+        // v3.0：本地路径根本不经过通道，所以「不消耗请求预算」升级成「一次请求都没发」。
+        Check("本地识别全程 0 次出站请求（真实出站计数）", AiGateway.SentCount == 0,
+            AiGateway.SentCount.ToString());
 
         int cacheBefore = svc.CacheCount;
         // 原来这里调 InvalidateItemAiAfterScan 来模拟「重复检测完成后的分层重建」，

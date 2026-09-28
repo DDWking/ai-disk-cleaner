@@ -33,7 +33,7 @@ public static class Program
         RedactionTests();
         PathRedactionTests();
         ApiKeyEncryptionTests();
-        AiGatewayTests();
+        DecisionChannelTests();
         StagedDuplicateTests();
         CoordinatorTests();
         WorkStateTests();
@@ -545,100 +545,113 @@ public static class Program
         }
     }
 
-    static void AiGatewayTests()
+    /// <summary>
+    /// 判定通道的唯一出口：重试 / 取消 / 节流 / 状态 / 出站计数。
+    ///
+    /// v3.0 之前这里测的是聊天通道的选路与 sidecar fallback；聊天连同 sidecar 一起删掉后，
+    /// 这四件事（限流、瞬时重试、取消语义、出站计数）仍然是网关的责任，所以断言保留，
+    /// 只是把假通道从 <c>IAiGateway</c> 换成了 <see cref="AiGateway.DecisionsSender"/>。
+    /// </summary>
+    static void DecisionChannelTests()
     {
-        Section("AI 通道统一入口");
+        Section("判定通道统一入口（重试 / 取消 / 节流 / 计数）");
 
-        // 离线测试：整条换成假通道，默认不开 sidecar
-        var fake = new FakeGatewayProvider { SidecarEnabled = false };
-        AiGateway.Provider = fake;
-
-        // 瞬时错误重试后成功
-        FakeGateway flaky = null!;
-        flaky = new FakeGateway("http", (_, _) =>
-        {
-            if (flaky.Calls < 3) throw new System.Net.Http.HttpRequestException("connection reset");
-            return Task.FromResult(new AiReply { Text = "ok" });
-        });
-        fake.Direct = flaky;
-        var ok = AiGateway.SendAsync(new AiRequest { Timeout = TimeSpan.FromSeconds(10) },
-            null, CancellationToken.None).GetAwaiter().GetResult();
-        Check("瞬时故障会重试并最终成功", ok.Text == "ok");
-        Check("重试次数符合预期", flaky.Calls == 3, $"calls={flaky.Calls}");
-
-        // 401 不该重试
-        var denied = new FakeGateway("http", (_, _) =>
-            throw new System.Net.Http.HttpRequestException("unauthorized",
-                null, System.Net.HttpStatusCode.Unauthorized));
-        fake.Direct = denied;
+        var savedSender = AiGateway.DecisionsSender;
         try
         {
-            AiGateway.SendAsync(new AiRequest { Timeout = TimeSpan.FromSeconds(10) },
-                null, CancellationToken.None).GetAwaiter().GetResult();
-            Check("401 会失败", false);
+            // 瞬时错误重试后成功
+            int calls = 0;
+            AiGateway.DecisionsSender = (_, _) =>
+            {
+                calls++;
+                if (calls < 3) throw new System.Net.Http.HttpRequestException("connection reset");
+                return Task.FromResult(new AiDecisionReply { Model = "m" });
+            };
+            var ok = AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult();
+            Check("瞬时故障会重试并最终成功", ok.Model == "m");
+            Check("重试次数符合预期", calls == 3, $"calls={calls}");
+
+            // 401 不该重试
+            calls = 0;
+            AiGateway.DecisionsSender = (_, _) =>
+            {
+                calls++;
+                throw new System.Net.Http.HttpRequestException(
+                    "unauthorized", null, System.Net.HttpStatusCode.Unauthorized);
+            };
+            try
+            {
+                AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult();
+                Check("401 会失败", false);
+            }
+            catch { Check("401 会失败", true); }
+            Check("401 只尝试一次（重试没意义）", calls == 1, $"calls={calls}");
+
+            // 用户取消要原样抛出，不被当成超时/故障
+            AiGateway.DecisionsSender = async (_, ct) =>
+            {
+                await Task.Delay(5000, ct);
+                return new AiDecisionReply();
+            };
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            bool canceledOk = false;
+            try { AiGateway.DecideAsync(SimpleRequest(), cts.Token).GetAwaiter().GetResult(); }
+            catch (OperationCanceledException) { canceledOk = true; }
+            Check("用户取消原样抛出", canceledOk);
+
+            // 限流：连续两次请求之间至少间隔 MinInterval
+            var stamp = new List<DateTime>();
+            AiGateway.DecisionsSender = (_, _) =>
+            {
+                stamp.Add(DateTime.UtcNow);
+                return Task.FromResult(new AiDecisionReply());
+            };
+            AiGateway.MinInterval = TimeSpan.FromMilliseconds(150);
+            AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult();
+            AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult();
+            Check("两次请求之间有节流间隔",
+                stamp.Count == 2 && (stamp[1] - stamp[0]).TotalMilliseconds >= 120,
+                stamp.Count == 2 ? (stamp[1] - stamp[0]).TotalMilliseconds.ToString("0") + "ms" : "n/a");
+            AiGateway.MinInterval = TimeSpan.FromMilliseconds(250);
+
+            Check("状态记录的是判定通道", AiGateway.LastStatus.Channel == "decisions",
+                AiGateway.LastStatus.Channel);
+            Check("记录通道与耗时", AiGateway.LastStatus.Ok && AiGateway.LastStatus.ElapsedMs >= 0);
+
+            // 出站计数：**每一次尝试**都算一次出站（含失败与重试前那一次）——
+            // 「扫描/切页/展开 = 0 次请求」那条不变量就是靠它守的。
+            AiGateway.ResetSentCountForTest();
+            calls = 0;
+            AiGateway.DecisionsSender = (_, _) =>
+            {
+                calls++;
+                throw new System.Net.Http.HttpRequestException("connection reset");
+            };
+            try { AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult(); }
+            catch { /* 预期失败 */ }
+            Check("出站计数含重试与失败那几次", AiGateway.SentCount == calls && calls == AiGateway.MaxAttempts,
+                $"sent={AiGateway.SentCount} calls={calls}");
+            AiGateway.ResetSentCountForTest();
+
+            // 未接线时要明确报错，而不是静默什么都不发
+            AiGateway.DecisionsSender = null;
+            try
+            {
+                AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult();
+                Check("判定通道未接线时明确报错", false, "没有抛异常");
+            }
+            catch (InvalidOperationException ex)
+            {
+                Check("判定通道未接线时明确报错", ex.Message.Contains("decisions channel", StringComparison.Ordinal));
+            }
         }
-        catch { Check("401 会失败", true); }
-        Check("401 只尝试一次（重试没意义）", denied.Calls == 1, $"calls={denied.Calls}");
-
-        // 用户取消要原样抛出，不被当成超时/故障
-        var slow = new FakeGateway("http", async (_, ct) =>
+        finally
         {
-            await Task.Delay(5000, ct);
-            return new AiReply { Text = "late" };
-        });
-        fake.Direct = slow;
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        bool canceledOk = false;
-        try
-        {
-            AiGateway.SendAsync(new AiRequest { Timeout = TimeSpan.FromSeconds(30) }, null, cts.Token)
-                .GetAwaiter().GetResult();
+            AiGateway.DecisionsSender = savedSender;
+            AiGateway.MinInterval = TimeSpan.FromMilliseconds(250);
+            AiGateway.ResetSentCountForTest();
         }
-        catch (OperationCanceledException) { canceledOk = true; }
-        Check("用户取消原样抛出", canceledOk);
-
-        // sidecar 挂了要能自动落到内置 HTTP
-        var brokenSidecar = new FakeGateway("sidecar", (_, _) =>
-            throw new InvalidOperationException("sidecar unavailable"));
-        var healthyHttp = new FakeGateway("http", (_, _) => Task.FromResult(new AiReply { Text = "from-http" }));
-        fake.SidecarEnabled = true;
-        fake.Sidecar = brokenSidecar;
-        fake.Direct = healthyHttp;
-        var fell = AiGateway.SendAsync(new AiRequest { Timeout = TimeSpan.FromSeconds(10) },
-            null, CancellationToken.None).GetAwaiter().GetResult();
-        Check("sidecar 失败自动 fallback 到 HTTP", fell.Text == "from-http" && healthyHttp.Calls == 1);
-
-        // sidecar 成功就不该碰 HTTP
-        var goodSidecar = new FakeGateway("sidecar", (_, _) => Task.FromResult(new AiReply { Text = "from-sidecar" }));
-        var untouchedHttp = new FakeGateway("http", (_, _) => Task.FromResult(new AiReply { Text = "nope" }));
-        fake.Sidecar = goodSidecar;
-        fake.Direct = untouchedHttp;
-        var viaSidecar = AiGateway.SendAsync(new AiRequest { Timeout = TimeSpan.FromSeconds(10) },
-            null, CancellationToken.None).GetAwaiter().GetResult();
-        Check("sidecar 可用时优先走 sidecar",
-            viaSidecar.Text == "from-sidecar" && untouchedHttp.Calls == 0);
-        Check("状态记录的是 sidecar 通道", AiGateway.LastStatus.Channel == "sidecar");
-
-        // 记录耗时
-        Check("记录通道与耗时", AiGateway.LastStatus.Ok && AiGateway.LastStatus.ElapsedMs >= 0);
-
-        // 限流：连续两次请求之间至少间隔 MinInterval
-        var stamp = new List<DateTime>();
-        var timed = new FakeGateway("http", (_, _) =>
-        {
-            stamp.Add(DateTime.UtcNow);
-            return Task.FromResult(new AiReply { Text = "x" });
-        });
-        fake.SidecarEnabled = false;
-        fake.Direct = timed;
-        AiGateway.MinInterval = TimeSpan.FromMilliseconds(150);
-        AiGateway.SendAsync(new AiRequest { Timeout = TimeSpan.FromSeconds(10) }, null, CancellationToken.None).GetAwaiter().GetResult();
-        AiGateway.SendAsync(new AiRequest { Timeout = TimeSpan.FromSeconds(10) }, null, CancellationToken.None).GetAwaiter().GetResult();
-        Check("两次请求之间有节流间隔",
-            stamp.Count == 2 && (stamp[1] - stamp[0]).TotalMilliseconds >= 120,
-            stamp.Count == 2 ? (stamp[1] - stamp[0]).TotalMilliseconds.ToString("0") + "ms" : "n/a");
-        AiGateway.MinInterval = TimeSpan.FromMilliseconds(250);
 
         // 瞬时判定
         Check("连接失败算瞬时", AiGateway.IsTransient(new System.Net.Http.HttpRequestException("x")));
@@ -646,10 +659,13 @@ public static class Program
         Check("503 算瞬时", AiGateway.IsTransient(new System.Net.Http.HttpRequestException("x", null, System.Net.HttpStatusCode.ServiceUnavailable)));
         Check("400 不算瞬时", !AiGateway.IsTransient(new System.Net.Http.HttpRequestException("x", null, System.Net.HttpStatusCode.BadRequest)));
         Check("解析错误不算瞬时", !AiGateway.IsTransient(new System.Text.Json.JsonException("bad")));
-
-        // 收尾：把假提供者摘掉，别影响后面的检查
-        AiGateway.Provider = null;
     }
+
+    static AiDecisionRequest SimpleRequest() => new()
+    {
+        State = "s",
+        Questions = { ["q"] = new AiDecisionQuestion { Type = "noul", Instructions = "是连接测试吗？" } },
+    };
 
     // ---------------------------------------------------------------- 重复文件分阶段哈希
 

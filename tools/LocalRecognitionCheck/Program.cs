@@ -376,9 +376,8 @@ public static class Program
             $"{sysRes.PurposeName}/{sysRes.Source}/{sysRes.NeedsConfirm}");
 
         // 经注入的服务透传（整理页 LocalRecognize 现在走的正是这条证据）
-        var viaService = svc.RecognizeAsync(appDir, new FolderId(appDir.FullPath, 1), 0, @"C:\Program Files\AppA",
-            allowAi: false, provider: null, model: null, sendFullPath: false,
-            configSignature: "cfg", ct: CancellationToken.None).GetAwaiter().GetResult();
+        var viaService = svc.Recognize(appDir, new FolderId(appDir.FullPath, 1), 0,
+            @"C:\Program Files\AppA", configSignature: "cfg");
         Check("FolderPurposeService 透传：命中安装目录给产品结论",
             viaService.HasConclusion && viaService.PurposeName == "AppA", viaService.PurposeName);
     }
@@ -422,17 +421,13 @@ public static class Program
         // 默认证据 + FolderPurposeService 透传
         var svc = new FolderPurposeService(evidence);
         var id = new FolderId(@"D:\Studio\A", 1);
-        var viaService = svc.RecognizeAsync(Dir(@"D:\Studio\A"), id, 0, @"D:\Studio\A",
-            allowAi: false, provider: null, model: null, sendFullPath: false,
-            configSignature: "cfg", ct: CancellationToken.None).GetAwaiter().GetResult();
+        var viaService = svc.Recognize(Dir(@"D:\Studio\A"), id, 0, @"D:\Studio\A", configSignature: "cfg");
         Check("FolderPurposeService 把证据透传到本地识别",
             viaService.HasConclusion && viaService.PurposeName == "AppA", viaService.PurposeName);
 
         // 用户纠正优先于本地证据
         svc.SetUserCorrection(id, "我的资料", "文档");
-        var corrected = svc.RecognizeAsync(Dir(@"D:\Studio\A"), id, 0, @"D:\Studio\A",
-            allowAi: false, provider: null, model: null, sendFullPath: false,
-            configSignature: "cfg", ct: CancellationToken.None).GetAwaiter().GetResult();
+        var corrected = svc.Recognize(Dir(@"D:\Studio\A"), id, 0, @"D:\Studio\A", configSignature: "cfg");
         Check("用户纠正优先于安装位置识别",
             corrected.Source == PurposeSource.User && corrected.PurposeName == "我的资料",
             $"{corrected.Source}/{corrected.PurposeName}");

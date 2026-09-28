@@ -145,7 +145,7 @@ public static class LayeredCleanTests
         var cSum = FolderPurposeRules.Summarize(proj, new FolderId(proj.FullPath, 1), 0, proj.FullPath);
         check("未缓存时取不到", svc.TryGetCached(cSum.Id, cSum, "cfg") == null);
         svc.ResetForScan();
-        check("重置后缓存为空", svc.CacheCount == 0 && svc.AiRequestsUsed == 0);
+        check("重置后缓存为空", svc.CacheCount == 0);
 
         // ---- 9) 用户纠正优先，且不被重扫清掉 ----
         var uid = new FolderId(@"D:\mine", 1);
@@ -157,30 +157,34 @@ public static class LayeredCleanTests
         check("重扫不清除用户纠正",
             svc.TryGetUserCorrection(uid)?.PurposeName == "我的资料");
 
-        // ---- 10) AI 解析：只认约定格式，认不出就没有结论 ----
-        var aiOk = FolderPurposeRules.ParseAi("PURPOSE: Steam 游戏库\nCATEGORY: 游戏\nBASIS: 有 steamapps", uid, FolderKind.Container);
-        check("合规回复解析出结论", aiOk.PurposeName == "Steam 游戏库" && aiOk.Source == PurposeSource.Ai);
-        check("AI 结论默认需要确认", aiOk.NeedsConfirm && aiOk.State == PurposeState.NeedsConfirm);
-        check("空回复不产生结论",
-            !FolderPurposeRules.ParseAi("", uid, FolderKind.Unknown).HasConclusion);
-        check("答非所问不产生结论",
-            !FolderPurposeRules.ParseAi("这个目录很安全可以删", uid, FolderKind.Unknown).HasConclusion);
-        check("格式错误不产生结论",
-            !FolderPurposeRules.ParseAi("{\"purpose\":\"x\"}", uid, FolderKind.Unknown).HasConclusion);
+        // ---- 10) 本地识别：认得出来就给结论，认不出来如实说「没有结论」 ----
+        // （v3.0 删掉了「一个目录一次聊天请求 + 按 用途:/依据: 行解析」那条路：
+        //   自由文本解析没了，改成结构化判定通道批量归类，见 AiPurposeTests / JevDecisionTests。）
+        var localOk = FolderPurposeRules.RecognizeLocally(proj, cSum);
+        check("本地规则给出结论并标来源为本地",
+            localOk.HasConclusion && localOk.Source == PurposeSource.Local, localOk.PurposeName);
+        // 本地结论按**证据强度**分两档：有证据的（签名 / 平台容器 / 系统路径）是事实、不需确认；
+        // 只看目录形状的推测（开发项目结构）明确要确认，见 RecognizeLocally 的 d) 分支。
+        check("本地有证据的结论不需要确认，直接算已识别",
+            !sRes.NeedsConfirm && sRes.State == PurposeState.Recognized, sRes.State.ToString());
+        check("本地只看结构的推测要标待确认，不当成事实",
+            localOk.HasConclusion && localOk.NeedsConfirm
+            && localOk.State == PurposeState.NeedsConfirm, localOk.State.ToString());
+        // 第二个「说不清」的目录（与上面 D:\mystery 是不同路径）：换个变量名，不与上面的 mystery 撞名
+        var mystery2 = DirNode("mystery", @"D:\mystery-8f21", 4096);
+        var mysterySum = FolderPurposeRules.Summarize(mystery2, new FolderId(mystery2.FullPath, 1), 0, mystery2.FullPath);
+        var noIdea = FolderPurposeRules.RecognizeLocally(mystery2, mysterySum);
+        check("本地说不清时如实返回「没有结论」，不编一个",
+            !noIdea.HasConclusion && noIdea.PurposeName.Length == 0);
 
         // ---- 11) 来源不伪装 ----
         check("本地结论来源是本地", pRes.SourceText == Loc.PurposeFromLocal);
-        check("AI 结论来源是 AI 推测", aiOk.SourceText == Loc.PurposeFromAi);
+        check("本地结论的来源不是 AI", localOk.SourceText == Loc.PurposeFromLocal);
         check("没有结论时不显示来源", mRes.SourceText.Length == 0);
         check("没有结论时不能算已识别",
             mRes.State != PurposeState.Recognized);
 
-        // ---- 12) 预算：输入长度受限、请求数有上限 ----
-        string aiInput = FolderPurposeRules.BuildAiInput(bSum, false, FolderPurposeRules.MaxSamples);
-        check("发给模型的输入有长度上限",
-            aiInput.Length <= FolderPurposeService.MaxInputChars + 200, aiInput.Length.ToString());
-        check("整次任务的请求数上限是有限值",
-            FolderPurposeService.MaxAiRequests > 0 && FolderPurposeService.MaxAiRequests <= 100);
+        // ---- 12) 探索深度有上限（输入长度与请求数上限已随聊天路径一起删除） ----
         check("探索深度上限是有限值",
             FolderPurposeService.MaxDepth > 0 && FolderPurposeService.MaxDepth <= 8);
 
@@ -417,15 +421,12 @@ public static class LayeredCleanTests
         check("用户纠正来源是「你确认的」",
             svc.TryGetUserCorrection(corrId)?.Source == PurposeSource.User);
 
-        // ---- 11) AI 解析：说「未知」不算结论 ----
-        var aiUnknown = FolderPurposeRules.ParseAi("PURPOSE: 未知\nCATEGORY: 未知\nBASIS: 资料不足",
-            corrId, FolderKind.Unknown);
-        check("模型回「未知」时没有结论（不冒充识别成功）", !aiUnknown.HasConclusion);
-        check("模型回 unknown（英文）也不算结论",
-            !FolderPurposeRules.ParseAi("PURPOSE: unknown", corrId, FolderKind.Unknown).HasConclusion);
-        check("答非所问 / 空回复都不算结论",
-            !FolderPurposeRules.ParseAi("", corrId, FolderKind.Unknown).HasConclusion
-            && !FolderPurposeRules.ParseAi("这个可以删", corrId, FolderKind.Unknown).HasConclusion);
+        // ---- 11) 本地认不出来时：没有结论，不冒充识别成功 ----
+        var mysteryDir = DirNode("myst", @"D:\zz-mystery-4a19", 8192);
+        var mysterySm = FolderPurposeRules.Summarize(mysteryDir, new FolderId(mysteryDir.FullPath, 1), 0, mysteryDir.FullPath);
+        var mysteryRes = FolderPurposeRules.RecognizeLocally(mysteryDir, mysterySm);
+        check("本地说不清时没有结论（不冒充识别成功）", !mysteryRes.HasConclusion);
+        check("没有结论时不编用途名", mysteryRes.PurposeName.Length == 0);
 
         // ---- 12) 状态不伪装：排队时不能显示成功结论 ----
         var stNode = new OrganizeNode(cRoot, cId, 0, "cache");
@@ -438,8 +439,8 @@ public static class LayeredCleanTests
         check("处理中显示的是处理中", stNode.PurposeText == Loc.PurposeRunning);
         stNode.ClearState();
         check("清掉流程态后落回未识别", stNode.State == PurposeState.Unrecognized);
-        stNode.Apply(FolderPurposeRules.ParseAi("PURPOSE: 我的项目\nCATEGORY: 开发\nBASIS: 有源码",
-            cId, FolderKind.Concrete));
+        stNode.Apply(new FolderPurposeResult(cId, "我的项目", "开发", "有源码",
+            PurposeSource.Ai, NeedsConfirm: true, FolderKind.Concrete, Model: ""));
         check("AI 结论来源标为 AI 且需要确认",
             stNode.Source == PurposeSource.Ai && stNode.NeedsConfirm
             && stNode.State == PurposeState.NeedsConfirm && stNode.IsPending);
@@ -685,33 +686,23 @@ public static class LayeredCleanTests
             !FolderOrganize.IsInCurrentFolderScope(@"D:\Other", steamLib.FullPath)
             && !FolderOrganize.IsInCurrentFolderScope(@"D:\Gameklll\steamX", steamLib.FullPath));
 
-        // ---- 4) 当前文件夹的计划：范围 / 数量 / 请求预算同源 ----
-        var plan = FolderOrganize.PlanFor("steam", steamLib.FullPath, 2, 3);
-        check("计划里带层级与直接子目录数",
-            plan.HasTarget && plan.Level == 2 && plan.DirectChildTotal == 3 && plan.QueuedCount == 3);
-        check("请求预算 = 直接子目录数（被总上限卡住）",
-            plan.RequestBudget == 3 && FolderOrganize.RequestBudgetFor(0) == 0
-            && FolderOrganize.RequestBudgetFor(10_000) == FolderPurposeService.MaxAiRequests);
-        var deepPlan = FolderOrganize.PlanFor("common", common.FullPath, 4, 12);
-        check("三级及更深的计划标注为手动层", deepPlan.ManualOnly);
-        check("二级的计划不是手动层", !plan.ManualOnly);
-        check("没有目标时计划为空", !FolderOrganize.PlanFor(null, null, 0, 0).HasTarget);
+        // ---- 4) 当前文件夹的范围判定：只含直接子目录，不扩散 ----
+        check("层级是有限值", FolderOrganize.MaxRows > 0 && OrganizeLevelPolicy.AutoChildLevel == 2);
 
-        // ---- 5) 关键安全断言：全路径 / 完整清单默认不发出 ----
-        var sum = FolderPurposeRules.Summarize(steamLib, new FolderId(steamLib.FullPath, 1), 2,
-            @"Gameklll\steam");
-        string payload = FolderPurposeRules.BuildAiInput(sum, sendFullPath: false,
-            FolderPurposeService.MaxInputChars, SnippetSet.Empty);
-        check("默认发送的是脱敏相对路径",
-            !payload.Contains(@"D:\Gameklll", StringComparison.OrdinalIgnoreCase)
-            && payload.Contains("steam"), payload.Split('\n')[2]);
-        check("不发送完整文件清单（只有少量代表样本）",
-            !payload.Contains("VolleyBall") || sum.SampleNames.Count <= FolderPurposeRules.MaxSamples);
-        check("输入长度有硬上限",
-            payload.Length <= FolderPurposeService.MaxInputChars
-            && FolderPurposeService.MaxInputChars <= 4000, payload.Length.ToString());
-        check("输入自检通过（没有残留密钥/用户路径）",
-            FolderPurposeRules.IsSafeOutbound(payload));
+        // ---- 5) 出站安全：默认脱敏、且只发受控内容 ----
+        // v3.0 起出站的不再是「逐目录摘要 + README 白名单片段」（那条随聊天通道一起删了），
+        // 而是「脱敏路径 + 类型化问题」。安全性由两处守：
+        //   · PathRedactor.Outbound 默认脱敏（本段断言）；
+        //   · 判定域必须走 PathRedactor.Outbound（AiPurposeTests 的源码级断言）。
+        string userPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "ubuntu.iso");
+        string outbound = PathRedactor.Outbound(userPath);
+        check("出站路径把用户目录换成占位符",
+            outbound.Contains(PathRedactor.UserProfileToken, StringComparison.Ordinal), outbound);
+        check("出站路径里不再出现真实用户名",
+            !outbound.Contains(Environment.UserName, StringComparison.OrdinalIgnoreCase), outbound);
+        check("出站路径通过自检", PathRedactor.IsRedacted(outbound));
+        check("脱敏保留了可判定的目录名", outbound.Contains("ubuntu.iso", StringComparison.OrdinalIgnoreCase));
 
         // ---- 6) 脱敏：密钥 / Token / 账号 / 私钥 / 连接串 ----
         const string dirty = """
@@ -804,12 +795,18 @@ public static class LayeredCleanTests
             // AI 输入里带上片段，并且仍然不超长
             var sum2 = FolderPurposeRules.Summarize(steamLib, new FolderId(steamLib.FullPath, 1), 2,
                 @"Gameklll\steam");
-            string withSnips = FolderPurposeRules.BuildAiInput(sum2, false,
-                FolderPurposeService.MaxInputChars, set);
+            // BuildAiInput 仍然存在，而且仍然把「字符上限」当**调用方参数**：
+            // 生产上的 MaxInputChars=1800 随逐目录聊天路径一起删除了（判定通道改按条数分批，
+            // 见 FolderPurposeDecisionSet 的每批 80 条），所以这里用同一个数字当调用方上限，
+            // 测的是「截断契约」本身，而不是那个已经不存在的常量。
+            const int maxInputChars = 1800;
+            string withSnips = FolderPurposeRules.BuildAiInput(sum2, false, maxInputChars, set);
             check("片段会进 AI 输入", withSnips.Contains("README.md", StringComparison.Ordinal));
             check("带片段的输入仍然不超长",
-                withSnips.Length <= FolderPurposeService.MaxInputChars, withSnips.Length.ToString());
-            check("带片段的输入自检通过", FolderPurposeRules.IsSafeOutbound(withSnips));
+                withSnips.Length <= maxInputChars, withSnips.Length.ToString());
+            // IsSafeOutbound 删除后，出站自检的**两个半边都还在**：路径已脱敏 + 文本自检干净。
+            check("带片段的输入自检通过（路径已脱敏 + 内容自检干净）",
+                PathRedactor.IsRedacted(withSnips) && SourceSnippetReader.LooksClean(withSnips));
             check("片段被截断时如实标注",
                 new SourceSnippet("a.md", new string('x', 10), true).Label.EndsWith("…"));
         }
@@ -843,44 +840,28 @@ public static class LayeredCleanTests
         check("配置签名变化让缓存失效",
             svc.TryGetCached(id1, baseSum, "cfg2") == null);
         svc.ResetForScan();
-        check("重扫清空缓存与计数",
-            svc.CacheCount == 0 && svc.AiRequestsUsed == 0);
+        // 请求计数（AiRequestsUsed）随逐目录聊天路径删除：重扫只剩「清缓存」这一件事，
+        // 计数归零这件事本身已经不存在（服务不再是出站方）。
+        check("重扫清空缓存（服务已不持有请求计数）",
+            svc.CacheCount == 0
+            && typeof(FolderPurposeService).GetProperty("AiRequestsUsed") == null);
 
-        // ---- 10) 预算与并发：全部是硬上限 ----
-        check("请求总量与并发都有上限",
-            FolderPurposeService.MaxAiRequests > 0 && FolderPurposeService.MaxAiRequests <= 200
-            && FolderPurposeService.MaxConcurrent is > 0 and <= 8,
-            $"{FolderPurposeService.MaxAiRequests}/{FolderPurposeService.MaxConcurrent}");
-        check("单次超时有限（不会无限等）",
-            FolderPurposeService.Timeout > TimeSpan.Zero
-            && FolderPurposeService.Timeout <= TimeSpan.FromMinutes(2));
-        check("两次请求之间有最小间隔（批量时不过载）",
-            FolderPurposeService.MinRequestGap > TimeSpan.Zero
-            && FolderPurposeService.MinRequestGap <= TimeSpan.FromSeconds(5));
-        check("服务里有请求间隔实现",
-            ReadSource("FolderPurposeService.cs").Contains("Task.Delay(gap, ct)", StringComparison.Ordinal));
+        // ---- 10) 请求预算：随「一个目录一次请求」的聊天路径整体删除 ----
+        // 请求总量 / 并发 / 超时 / 最小间隔都是那条路才需要的节流器（一次请求一个目录）。
+        // 那条路没了以后，攒批与节流归判定层：批大小自适应（下限 AdaptiveMin），
+        // 上限由各判定域的 MaxPerRequest 给（文件夹判定域是每批 80 条）。
+        check("分批预算改由判定层持有（自适应批下限 5）", DecisionRunner.AdaptiveMin == 5);
+        check("用途服务里不再有出站节流器（预算不在这一层）",
+            !ReadSource("FolderPurposeService.cs").Contains("MaxAiRequests", StringComparison.Ordinal)
+            && !ReadSource("FolderPurposeService.cs").Contains("Task.Delay(gap", StringComparison.Ordinal));
 
-        // ---- 11) AI 覆盖范围 / 失败不写入结论 ----
-        var aiUnknown = FolderPurposeRules.ParseAi("PURPOSE: 未知", id1, FolderKind.Unknown);
-        check("模型说未知不算结论", !aiUnknown.HasConclusion);
-        check("空响应不算结论",
-            !FolderPurposeRules.ParseAi("", id1, FolderKind.Unknown).HasConclusion
-            && !FolderPurposeRules.ParseAi("   \n  ", id1, FolderKind.Unknown).HasConclusion);
-        var aiOk = FolderPurposeRules.ParseAi("PURPOSE: 游戏安装目录\nCATEGORY: 游戏\nBASIS: 结构",
-            id1, FolderKind.Concrete);
-        check("有结论时来源标为 AI 且需要确认",
-            aiOk.HasConclusion && aiOk.Source == PurposeSource.Ai && aiOk.NeedsConfirm);
-        check("AI 结论对象里没有删除/风险/选择字段",
-            !aiOk.GetType().GetProperties().Any(p =>
-                p.Name.Contains("Delete") || p.Name.Contains("Risk") || p.Name.Contains("Selected")));
+        // ---- 11) 只有拿到结论才写入：不假装成功、也不留脏缓存 ----
+        // ParseAi（把自由文本按「用途:/依据:」行解析）随聊天路径删除，那几条断言随之消失；
+        // 「AI 结论对象里没有删除/风险/选择字段」在上面已按 typeof(FolderPurposeResult) 断言，
+        // 覆盖更广（对任何来源的结论都成立）。留下来的这条口径仍然由真代码守住：
         var svcText = ReadSource("FolderPurposeService.cs");
-        check("失败/取消的结果不进缓存（只缓存有结论的）",
-            svcText.Contains("if (ai.HasConclusion) Store(", StringComparison.Ordinal));
-        check("取消与异常都落回「待确认」，不假装成功",
-            svcText.Contains("catch (OperationCanceledException)", StringComparison.Ordinal)
-            && svcText.Contains("with { NeedsConfirm = true }", StringComparison.Ordinal));
-        check("只有拿到结论才增加请求计数（超时/取消不浪费预算）",
-            svcText.Contains("lock (_lock) _aiUsed++;", StringComparison.Ordinal));
+        check("没有结论的结果不进缓存（只缓存有结论的）",
+            svcText.Contains("if (local.HasConclusion) Store(", StringComparison.Ordinal));
 
         // ---- 12) 识别绝不碰清理字段 / 不移动 / 不提权 ----
         var orgText = ReadSource("MainWindow.Organize.cs");
@@ -910,9 +891,18 @@ public static class LayeredCleanTests
         var locText = ReadSource("Loc.cs");
         check("界面文案里没有「最近使用」",
             !locText.Contains("最近使用", StringComparison.Ordinal));
+        // 原先这里的 payload/sum 来自已经删掉的「逐目录聊天输入」块；现在用仍然存在的
+        // BuildAiInput 自己造一份摘要输入，断言口径不变：只写「最后修改」这个时间事实。
+        var timeDir = DirNode("timed", @"D:\timed", 1024);
+        FileNode("a.bin", @"D:\timed\a.bin", 512, timeDir);
+        timeDir.Modified = new DateTime(2024, 5, 6, 7, 8, 9);
+        var timeSum = FolderPurposeRules.Summarize(timeDir, new FolderId(timeDir.FullPath, 1), 0, "timed");
+        string payload = FolderPurposeRules.BuildAiInput(timeSum, sendFullPath: false, 1800, null);
         check("摘要里写的是最后修改时间",
             payload.Contains("last modified", StringComparison.OrdinalIgnoreCase)
-            || sum.Modified == default);
+            && payload.Contains("2024-05-06", StringComparison.Ordinal)
+            && !payload.Contains("last used", StringComparison.OrdinalIgnoreCase),
+            timeSum.Modified.ToString("yyyy-MM-dd"));
 
         // ---- 14) 海量目录：层级计算与范围判定是常数开销，不卡死 ----
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -939,10 +929,15 @@ public static class LayeredCleanTests
         check("顶层与子层的材料化预算分开",
             FolderOrganize.AutoMaterializeBudget(true) == FolderOrganize.MaterializeBudget
             && FolderOrganize.AutoMaterializeBudget(false) == FolderOrganize.MaxMaterializePerNode);
-        check("一批 60 个子目录：识别目标数 != 显示的 24 条",
-            FolderOrganize.RequestBudgetFor(60) == Math.Min(60, FolderPurposeService.MaxAiRequests)
-            && FolderOrganize.RequestBudgetFor(60) != FolderOrganize.ChildBudget,
-            FolderOrganize.RequestBudgetFor(60).ToString());
+        // 「一批 60 条要发几次请求」这种按目录请求预算（RequestBudgetFor / PlanFor / OrganizeWorkPlan /
+        // MaxAiRequests）随聊天路径整体删除：攒批与批大小归判定层（DecisionRunner 自适应，
+        // 见 FolderPurposeTests 里的下限断言）。「识别目标数 != 显示的 24 条」这件事本身
+        // 由下面「材料化预算内 60 个子目录全部拿到」继续守住。
+        check("工作区不再持有按目录的请求预算（那一整套 API 已删除）",
+            typeof(FolderOrganize).GetMethod("RequestBudgetFor") == null
+            && typeof(FolderOrganize).GetMethod("PlanFor") == null
+            && typeof(FolderOrganize).GetProperty("MaxAiRequests") == null
+            && typeof(FolderOrganize).Assembly.GetType("AiDiskCleaner.Services.OrganizeWorkPlan") == null);
 
         // 未列出的条目必须如实标注「未列出 / 未识别」，不能算已识别
         var wide = DirNode("wide", @"D:\wide", 500_000_000);
@@ -1053,8 +1048,10 @@ public static class LayeredCleanTests
             level2Targets.All(n => n.IsAutoLevel
                 && FolderOrganize.ShouldAutoIdentify(
                     new OrganizeLevelPolicy(n.Level, n.Size, n.FileCount), false, true)));
-        check("三级对象要用户显式点识别才会处理（工作区目标就是它）",
-            deepTargets.All(n => FolderOrganize.PlanFor(n.Name, n.FullPath, n.Level, 2).ManualOnly));
+        // PlanFor 的 ManualOnly 就是「层级比 AutoChildLevel 深」这一条规则；
+        // 那个记录（OrganizeWorkPlan）删掉后，规则本身仍然活在 OrganizeLevelPolicy.IsManualOnly 上。
+        check("三级对象要用户显式点识别才会处理（层级策略里三级是手动层）",
+            deepTargets.All(n => new OrganizeLevelPolicy(n.Level, n.Size, n.FileCount).IsManualOnly));
 
         // ---- 19) 取消 / 重扫：旧结果不能覆盖新列表 ----
         check("服务暴露重置入口（重扫清缓存与计数）",
@@ -1064,8 +1061,9 @@ public static class LayeredCleanTests
         genSvc.ResetForScan();
         check("重扫后用户纠正仍然保留（不被换代次清掉）",
             genSvc.TryGetUserCorrection(new FolderId(@"D:\kept", 99))?.PurposeName == "我的资料");
-        check("重扫后缓存清空、请求计数归零",
-            genSvc.CacheCount == 0 && genSvc.AiRequestsUsed == 0);
+        check("重扫后缓存清空、用户纠正留下（服务不再持有请求计数）",
+            genSvc.CacheCount == 0 && genSvc.UserCorrectionCount == 1
+            && typeof(FolderPurposeService).GetProperty("AiRequestsUsed") == null);
         check("每次重建都推进代次（旧结果据此作废）",
             orgText.Contains("_organizeGeneration++", StringComparison.Ordinal));
         check("整理页不再有批量识别任务（没有任务代次/任务号这回事）",
@@ -1387,20 +1385,24 @@ public static class LayeredCleanTests
                     new OrganizeLevelPolicy(1, d.Size, d.FileCount), n.HasConclusion, true));
         }
 
-        // ---- 5) 无模型 / 失败 / 取消：状态各自如实 ----
+        // ---- 5) 本地说不清 / 失败 / 取消：状态各自如实 ----
+        // （「没有模型」这个态随聊天路径删除：现在的本地识别是同步的，没有 allowAi / provider /
+        //   model 这些参数；说不清就是「未识别」，由批量归类通道另行处理。）
         var svc = new FolderPurposeService();
         var unknownDir = DirNode("mystery", @"D:\mystery", 900_000);
         DirNode("sub1", @"D:\mystery\sub1", 10, unknownDir);
         var uId = new FolderId(unknownDir.FullPath, 1);
-        var noModel = svc.RecognizeAsync(unknownDir, uId, 1, "mystery", allowAi: false,
-            provider: null, model: null, sendFullPath: false, configSignature: "c",
-            ct: CancellationToken.None).GetAwaiter().GetResult();
-        check("没有模型 ⇒ 没有结论、标待确认，绝不假装成功",
-            !noModel.HasConclusion && noModel.NeedsConfirm && !noModel.Failed
+        var noModel = svc.Recognize(unknownDir, uId, 1, "mystery", "c");
+        check("本地说不清 ⇒ 没有结论、状态是未识别，绝不假装成功",
+            !noModel.HasConclusion && !noModel.Failed
+            && noModel.State == PurposeState.Unrecognized
             && noModel.State != PurposeState.Recognized,
             noModel.State.ToString());
-        check("没有模型时不会消耗请求预算", svc.AiRequestsUsed == 0, svc.AiRequestsUsed.ToString());
-        check("没有模型时不写缓存（不会把「待确认」缓存成结论）",
+        check("说不清的条目仍然算「待确认」（进待确认集合，不算已识别）",
+            new OrganizeNode(unknownDir, uId, 1, "mystery") is { IsPending: true, IsResolved: false });
+        check("用途服务不再持有请求计数（出站不由这一层节流）",
+            typeof(FolderPurposeService).GetProperty("AiRequestsUsed") == null);
+        check("没有结论时不写缓存（不会把「待确认」缓存成结论）",
             svc.TryGetCached(uId, FolderPurposeRules.Summarize(unknownDir, uId, 1, "mystery"), "c") == null);
 
         var failed = FolderPurposeResult.Failure(uId);
@@ -1502,12 +1504,19 @@ public static class LayeredCleanTests
         var nDir = DirNode("nn", @"D:\nn", 1_000_000);
         var nSum = FolderPurposeRules.Summarize(nDir, new FolderId(nDir.FullPath, 1), 1, "nn");
         check("失败结果没有结论", !FolderPurposeResult.Failure(sid).HasConclusion);
-        check("失败结果不写缓存（重试不会命中失败）",
-            ReadSource("FolderPurposeService.cs").Contains("if (ai.HasConclusion) Store(", StringComparison.Ordinal));
-        check("超时与取消分开报（超时=失败，取消=回到未识别）",
-            ReadSource("FolderPurposeService.cs").Contains("bool timedOut = !ct.IsCancellationRequested", StringComparison.Ordinal));
-        check("异常路径返回 Failure",
-            ReadSource("FolderPurposeService.cs").Contains("return FolderPurposeResult.Failure(id, local.Kind);", StringComparison.Ordinal));
+        // 写缓存的两道闸都还在：进 Store 前要求「有结论」，落盘前再要求一次。
+        // （原来这条是在聊天路径上钉的，口径不变，只是换到本地识别这一路。）
+        check("失败/无结论的结果不写缓存（重试不会命中失败）",
+            ReadSource("FolderPurposeService.cs").Contains("if (local.HasConclusion) Store(", StringComparison.Ordinal)
+            && ReadSource("FolderPurposeService.cs").Contains("if (r.HasConclusion)", StringComparison.Ordinal));
+        // 「超时=失败 / 取消=回到未识别」是聊天路径才有的两种终结方式：那条路删掉后，
+        // 本地识别是同步的（没有 ct、也没有超时），出站失败与取消归判定通道 + 页面。
+        check("用途服务不再有超时/取消分支（同步本地识别，出站与取消归判定通道）",
+            !ReadSource("FolderPurposeService.cs").Contains("CancellationToken", StringComparison.Ordinal)
+            && !ReadSource("FolderPurposeService.cs").Contains("timedOut", StringComparison.Ordinal));
+        check("出站失败改由判定通道抛错、页面出声（服务不再落 Failure）",
+            !ReadSource("FolderPurposeService.cs").Contains("FolderPurposeResult.Failure", StringComparison.Ordinal)
+            && ReadSource("MainWindow.Organize.cs").Contains("Loc.AiPurposeBatchFailed", StringComparison.Ordinal));
 
         // ---- 海量文件：摘要与容量统计不受识别深度影响 ----
         var bulk = DirNode("bigset", @"D:\bigset", 123_456_789_000);
@@ -1535,9 +1544,11 @@ public static class LayeredCleanTests
             && !cleaned.Contains("Sup3rS3cret!", StringComparison.Ordinal)
             && !cleaned.Contains("ghp_0123456789abcdefghijklmnopqrstuvwx", StringComparison.Ordinal),
             cleaned);
+        // IsSafeOutbound 删除后，它原来做的两半自检**都还在**：路径已脱敏 + 文本自检干净。
+        // 「挡住未脱敏文本」= 这两个自检里至少有一个不通过。
         check("出站自检能挡住未脱敏文本",
-            !FolderPurposeRules.IsSafeOutbound(secrets)
-            && FolderPurposeRules.IsSafeOutbound(cleaned));
+            !(PathRedactor.IsRedacted(secrets) && SourceSnippetReader.LooksClean(secrets))
+            && PathRedactor.IsRedacted(cleaned) && SourceSnippetReader.LooksClean(cleaned));
     }
 
     /// <summary>定位源码文件（测试与源码同仓库，路径相对仓库根）。</summary>
@@ -1943,34 +1954,39 @@ public static class LayeredCleanTests
 
     // ------------------------------------------------------------------ AI 不得改选择
 
+    /// <summary>
+    /// 「AI 不得修改选择」这条不变量在 v3.0 换了一种守法的**理由**，但没换守法本身。
+    ///
+    /// 以前它守的是「工具循环里那两个会改状态的工具被拒绝、清单里没有它们」——
+    /// 那条路随聊天通道（工具循环 + <c>DiskAnalyst</c>）整体删掉了，工具面**已经不存在**，
+    /// 所以断言从「工具被拒绝」升级成「工具面不存在」：更彻底，也没有能绕过去的地方。
+    ///
+    /// 另一半（AI 写不进勾选）不靠这里是靠结构：整理树的对象根本没有 Selected / CanDelete /
+    /// Risk 这些槽位，见 <c>AiPurposeTests</c> 的反射断言。
+    /// </summary>
     static void AiCannotSelectTests(CheckFn check, Action<string> section)
     {
-        section("AI 不得修改选择（工具面已关闭）");
+        section("AI 不得修改选择（工具面已整体不存在）");
 
-        // 这两个工具即便被调用，也必须什么都不做
-        var host = new NullHost();
-        string r1 = DiskAnalyst.Run("set_checked", "{\"paths\":[\"C:\\\\x\"],\"checked\":true}", host);
-        string r2 = DiskAnalyst.Run("suggest", "{\"items\":[{\"path\":\"C:\\\\x\",\"note\":\"n\"}]}", host);
-        check("set_checked 已被拒绝", r1.Contains("removed"), r1);
-        check("suggest 已被拒绝", r2.Contains("removed"), r2);
+        // 本类自己有 File(string, long) 辅助方法，所以这里必须写全 System.IO.File / System.IO.Directory
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !System.IO.File.Exists(Path.Combine(dir.FullName, "Directory.Build.targets"))) dir = dir.Parent;
+        check("找到仓库根", dir != null);
+        if (dir == null) return;
 
-        // 工具清单里不能再出现这两个会改状态的名字
-        var tools = DiskAnalyst.Tools(AiProtocol.Completions);
-        string json = System.Text.Json.JsonSerializer.Serialize(tools);
-        check("工具清单不含 set_checked", !json.Contains("set_checked"));
-        check("工具清单不含 suggest", !json.Contains("\"suggest\""));
-        check("工具清单保留只读工具 search_clean", json.Contains("search_clean"));
-
-        // 宿主接口本身也不该再暴露任何写入选择的方法
-        var methods = typeof(IAnalystHost).GetMethods().Select(m => m.Name).ToList();
-        check("IAnalystHost 不再有 OnChecksChanged", !methods.Contains("OnChecksChanged"));
-        check("IAnalystHost 不再有 OnSuggest", !methods.Contains("OnSuggest"));
-    }
-
-    sealed class NullHost : IAnalystHost
-    {
-        public FileEntry? Root => null;
-        public CleanReport? Report => null;
+        string root = dir.FullName;
+        check("AI 工具循环（DiskAnalyst）已删除",
+            !System.IO.File.Exists(Path.Combine(root, "src", "AiDiskCleaner", "Services", "DiskAnalyst.cs")));
+        // sidecar/ 目录本身还在工作区（只剩 build 产物：node_modules、AiSidecar.exe、日志），
+        // 所以断言的是「会转发工具调用的那层源码与清单」已经删干净，而不是目录存在性。
+        check("Node 侧车（会转发工具调用的那层）已删除",
+            !System.IO.File.Exists(Path.Combine(root, "sidecar", "src", "toolClient.js"))
+            && !System.IO.File.Exists(Path.Combine(root, "sidecar", "src", "agent.js"))
+            && !System.IO.File.Exists(Path.Combine(root, "sidecar", "src", "protocol.js"))
+            && !System.IO.File.Exists(Path.Combine(root, "sidecar", "package.json")));
+        check("工具回调宿主接口（IAnalystHost）已删除",
+            !System.IO.File.ReadAllText(Path.Combine(root, "src", "AiDiskCleaner", "MainWindow.xaml.cs"))
+                 .Contains("IAnalystHost", StringComparison.Ordinal));
     }
 
 

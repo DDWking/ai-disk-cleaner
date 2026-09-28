@@ -55,60 +55,6 @@ public static class AppRecommendationService
         return applied;
     }
 
-    public static async Task<List<AppRecommendation>> AnalyzeRemoteAsync(
-        IList<AppUninstallItem> apps,
-        CancellationToken ct)
-    {
-        if (!AiConfigured()) return new();
-
-        var candidates = apps
-            .Where(x => x.CanUninstall)
-            .OrderByDescending(x => x.ActualSizeBytes)
-            .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Take(300)
-            .ToList();
-        if (candidates.Count == 0) return new();
-
-        var remoteCandidates = candidates
-            .Select((app, index) => new RemoteCandidate(app, "app-" + (index + 1).ToString("D3")))
-            .ToList();
-        string payload = JsonSerializer.Serialize(remoteCandidates.Select(x => new
-        {
-            appId = x.RemoteId,
-            name = x.App.Name,
-            publisher = x.App.Publisher,
-            version = x.App.Version,
-            size = x.App.ActualSizeText,
-            installDate = x.App.InstallDateText,
-            runningState = x.App.RunningState switch
-            {
-                AppRunningState.Running => "running",
-                AppRunningState.NotRunning => "not-running",
-                _ => "unknown",
-            },
-            startup = x.App.HasStartup,
-        }));
-
-        var turns = new List<AiMsg>
-        {
-            new() { Role = "user", Text = Loc.AiAppsPrompt(payload) },
-        };
-        string text = await AiClient.ChatAsync(Loc.AiAppsSystem, turns, ct);
-        var results = Parse(text);
-        var localIds = remoteCandidates.ToDictionary(
-            x => x.RemoteId,
-            x => x.App.AppId,
-            StringComparer.OrdinalIgnoreCase);
-        foreach (var result in results)
-        {
-            if (localIds.TryGetValue(result.AppId, out var appId))
-                result.AppId = appId;
-            else
-                result.AppId = "";
-        }
-        return results;
-    }
-
     private static readonly object UsageCacheGate = new();
     private static string _usageCacheKey = "";
     private static List<AppUsage>? _usageCache;
@@ -471,13 +417,6 @@ public static class AppRecommendationService
     internal static string NormalizePath(string? path)
         => (path ?? "").Trim().Trim('"').Replace('/', '\\').TrimEnd('\\');
 
-    static bool AiConfigured()
-    {
-        var p = App.Settings.CurrentProvider();
-        return p != null && !string.IsNullOrWhiteSpace(p.BaseUrl)
-            && !string.IsNullOrWhiteSpace(App.Settings.AiModel);
-    }
-
     static ProcessSnapshot GetProcessPaths()
     {
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -629,86 +568,9 @@ public static class AppRecommendationService
     static AppRecommendation Keep(double confidence, string reason, string warning = "")
         => new() { Decision = AppRecommendationDecision.Keep, Confidence = confidence, Reason = reason, DataWarning = warning };
 
-    static List<AppRecommendation> Parse(string text)
-    {
-        string json = ExtractJson(text);
-        if (json.Length == 0) return new();
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            JsonElement items = doc.RootElement;
-            if (doc.RootElement.ValueKind == JsonValueKind.Object
-                && doc.RootElement.TryGetProperty("items", out var listed))
-                items = listed;
-            if (items.ValueKind != JsonValueKind.Array) return new();
-
-            var result = new List<AppRecommendation>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var item in items.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.Object) continue;
-                string decision = GetString(item, "decision").ToLowerInvariant();
-                string appId = GetString(item, "appId");
-                if (string.IsNullOrWhiteSpace(appId) || !seen.Add(appId)) continue;
-                var parsed = decision switch
-                {
-                    "recommend" or "uninstall" or "remove" => AppRecommendationDecision.Recommend,
-                    "keep" or "retain" => AppRecommendationDecision.Keep,
-                    _ => AppRecommendationDecision.Consider,
-                };
-                result.Add(new AppRecommendation
-                {
-                    AppId = appId,
-                    Decision = parsed,
-                    Confidence = GetDouble(item, "confidence"),
-                    Reason = LimitText(GetString(item, "reason")),
-                    DataWarning = LimitText(GetString(item, "dataWarning")),
-                });
-            }
-            return result;
-        }
-        catch
-        {
-            return new();
-        }
-    }
-
-    static string ExtractJson(string text)
-    {
-        string value = (text ?? "").Trim();
-        if (value.StartsWith("```", StringComparison.Ordinal))
-        {
-            int first = value.IndexOf('\n');
-            int last = value.LastIndexOf("```", StringComparison.Ordinal);
-            if (first >= 0 && last > first) value = value[(first + 1)..last].Trim();
-        }
-        int start = value.IndexOfAny(['{', '[']);
-        if (start < 0) return "";
-        char close = value[start] == '{' ? '}' : ']';
-        int end = value.LastIndexOf(close);
-        return start >= 0 && end > start ? value[start..(end + 1)] : "";
-    }
-
-    static string GetString(JsonElement item, string name)
-        => item.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? ""
-            : "";
-
-    static double GetDouble(JsonElement item, string name)
-        => item.TryGetProperty(name, out var value) && value.TryGetDouble(out var number)
-            ? number
-            : 0;
-
-    static string LimitText(string value)
-    {
-        string normalized = (value ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
-        return normalized.Length <= 180 ? normalized : normalized[..177] + "...";
-    }
-
     private readonly record struct FileUsage(string Path, long Bytes);
     private readonly record struct AppLocation(AppUninstallItem App, string Location);
     private readonly record struct ProcessSnapshot(HashSet<string> Paths, bool IsComplete);
-    private readonly record struct RemoteCandidate(AppUninstallItem App, string RemoteId);
 }
 
 /// <summary>

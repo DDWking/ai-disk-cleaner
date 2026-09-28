@@ -616,12 +616,6 @@ public static class FolderPurposeRules
     }
 
     /// <summary>
-    /// 给模型看的**有上限**摘要。不列整盘清单，不含完整私人路径（交由调用方脱敏）。
-    /// </summary>
-    public static string BuildAiInput(FolderSummary sum, bool sendFullPath, int maxChars)
-        => BuildAiInput(sum, sendFullPath, maxChars, null);
-
-    /// <summary>
     /// 给模型看的**有上限**摘要，外加**经白名单与脱敏筛选**的 README / 项目配置 / 清单片段。
     ///
     /// 默认口径（安全要求，不是可选项）：
@@ -663,58 +657,6 @@ public static class FolderPurposeRules
             return combined[..maxChars];
         }
         return body.Length <= maxChars ? body : body[..maxChars];
-    }
-
-    /// <summary>
-    /// 送出去之前自检：还有没有漏掉的密钥 / 完整用户路径。
-    /// 返回 false 时调用方应当**不发**（宁可不识别也不外泄）。
-    /// </summary>
-    public static bool IsSafeOutbound(string? payload)
-    {
-        if (string.IsNullOrEmpty(payload)) return true;
-        if (!PathRedactor.IsRedacted(payload)) return false;
-        // 我们自己的占位符不算泄漏；其余情况必须与脱敏结果完全一致
-        return SourceSnippetReader.LooksClean(payload);
-    }
-
-    /// <summary>
-    /// 解析模型回复：只接受约定的四行，认不出就是没有结论（不编造）。
-    /// </summary>
-    public static FolderPurposeResult ParseAi(string? text, FolderId id, FolderKind kind)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return FolderPurposeResult.None(id, kind);
-        string raw = text.Length > 2000 ? text[..2000] : text;
-        string name = "", cat = "", basis = "";
-        foreach (var line in raw.Replace("\r\n", "\n").Split('\n'))
-        {
-            string l = line.Trim().TrimStart('-', '*', ' ');
-            int c = l.IndexOf(':');
-            int f = l.IndexOf('：');
-            if (c < 0 || (f >= 0 && f < c)) c = f;
-            if (c <= 0) continue;
-            string k = l[..c].Trim().ToLowerInvariant();
-            string v = Clip(l[(c + 1)..].Trim());
-            switch (k)
-            {
-                case "purpose" or "用途": name = v; break;
-                case "category" or "类别": cat = v; break;
-                case "basis" or "依据": basis = v; break;
-            }
-        }
-        if (name.Length == 0) return FolderPurposeResult.None(id, kind);
-        // 提示词明确允许模型写「未知」：那**不是**结论，不能被当成识别成功。
-        if (IsNoAnswer(name)) return FolderPurposeResult.None(id, kind);
-        return new FolderPurposeResult(id, name,
-            cat.Length > 0 ? cat : Loc.PurposeUnknownCategory,
-            basis, PurposeSource.Ai, NeedsConfirm: true, kind, Model: "");
-    }
-
-    /// <summary>模型说「不知道」的各种写法 —— 都不算结论。</summary>
-    public static bool IsNoAnswer(string? name)
-    {
-        string s = (name ?? "").Trim().Trim('.', '。', '!', '！').ToLowerInvariant();
-        return s is "unknown" or "unclear" or "n/a" or "na" or "none" or "undetermined"
-            or "未知" or "不确定" or "不清楚" or "无法判断" or "不知道" or "无法确定";
     }
 
     static string Clip(string s) => s.Length <= 40 ? s : s[..39] + "…";

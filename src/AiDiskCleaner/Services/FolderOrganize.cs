@@ -45,20 +45,6 @@ public readonly record struct OrganizeLevelPolicy(int Level, long LevelBytes, in
     public static OrganizeLevelPolicy None => new(int.MaxValue, 0, 0);
 }
 
-/// <summary>当前「文件夹工作区」的识别计划 —— 界面上的范围、数量、请求预算都从这里来，不另写一套口径。</summary>
-public sealed record OrganizeWorkPlan(
-    string Path,
-    string Name,
-    int Level,
-    int DirectChildTotal,
-    int QueuedCount,
-    int RequestBudget,
-    bool ManualOnly)
-{
-    public static OrganizeWorkPlan Empty { get; } = new("", "", 0, 0, 0, 0, false);
-    public bool HasTarget => Path.Length > 0;
-}
-
 /// <summary>顶层对象集合。系统入口解析不到就跳过（不报错、也不提权）。</summary>
 public sealed record OrganizeRootSet(
     IReadOnlyList<FileEntry> Roots,
@@ -196,25 +182,6 @@ public static class FolderOrganize
         string rest = c[(p.Length + 1)..];
         return rest.Length > 0 && rest.IndexOf('\\') < 0;
     }
-
-    /// <summary>
-    /// 当前文件夹的单次请求预算：直接子目录数就是候选人，再被总预算卡住。
-    /// 界面用同一个函数算「这次最多发几次」，避免界面与执行两套口径。
-    /// </summary>
-    public static int RequestBudgetFor(int directChildTotal)
-    {
-        int n = directChildTotal <= 0 ? 0 : directChildTotal;
-        return Math.Min(n, MaxAiRequests);
-    }
-
-    /// <summary>给界面用的识别计划（范围 / 数量 / 请求预算一起算，不重复实现）。</summary>
-    public static OrganizeWorkPlan PlanFor(string? name, string? path, int level, int directChildTotal)
-        => new(path ?? "", name ?? "", level, Math.Max(0, directChildTotal),
-            Math.Max(0, directChildTotal), RequestBudgetFor(directChildTotal),
-            level > OrganizeLevelPolicy.AutoChildLevel);
-
-    /// <summary>给模型的请求总量沿用服务里的硬上限，这里只是别名，避免两处口径漂移。</summary>
-    public static int MaxAiRequests => FolderPurposeService.MaxAiRequests;
 
     static string Norm(string? p) => CleanListSnapshot.NormPath(p);
 
