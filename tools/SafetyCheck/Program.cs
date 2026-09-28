@@ -33,6 +33,7 @@ public static class Program
         RedactionTests();
         PathRedactionTests();
         ApiKeyEncryptionTests();
+        SettingsMigrationTests();
         DecisionChannelTests();
         StagedDuplicateTests();
         CoordinatorTests();
@@ -552,6 +553,120 @@ public static class Program
     /// 这四件事（限流、瞬时重试、取消语义、出站计数）仍然是网关的责任，所以断言保留，
     /// 只是把假通道从 <c>IAiGateway</c> 换成了 <see cref="AiGateway.DecisionsSender"/>。
     /// </summary>
+    /// <summary>
+    /// 老配置的升级路径（v3.0 删掉了「协议」这个概念、也删掉了聊天模型字段）。
+    ///
+    /// 三种老文件都必须**能读、不能丢配置**：
+    /// <list type="number">
+    /// <item>单供应商的老结构（顶层 AiBaseUrl / AiModel / AiProtocol / AiModels）；</item>
+    /// <item>带已删字段的（AiUseSidecar / AiJury / AiExtraPrompt）—— 未知字段要被忽略，
+    ///   而不是让整份设置变成默认值；</item>
+    /// <item>**真机上那份**：两个提供方，其中一个存的是 <c>"Protocol": "completions"</c>。
+    ///   协议概念删掉之后，所有提供方都按判定端点用 —— 老配置不该因为
+    ///   存着一个已经不存在的协议名就用不了。</item>
+    /// </list>
+    /// 尤其是模型：聊天通道没了之后，老的「全局聊天模型」就是唯一的模型，
+    /// 不搬进判定模型的话，老用户升级后会看到模型是空的，以为配置丢了。
+    /// </summary>
+    static void SettingsMigrationTests()
+    {
+        Section("设置迁移：老配置不丢（协议字段删掉之后）");
+
+        string? oldOverride = AppPaths.OverrideDirectory;
+        string dir = Path.Combine(Path.GetTempPath(), "dashao-settings-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(dir);
+            AppPaths.OverrideDirectory = dir;
+            Check("配置目录确实被隔离到临时目录（不碰真实用户配置）",
+                AppPaths.SettingsFile.StartsWith(dir, StringComparison.OrdinalIgnoreCase),
+                AppPaths.SettingsFile);
+
+            // ---- 1) 单供应商老结构 + 已删字段（键名是 PascalCase：真实文件就是这么写的）----
+            File.WriteAllText(AppPaths.SettingsFile, """
+                {
+                  "Lang": 0,
+                  "AiBaseUrl": "https://openrouter.ai/api/alpha",
+                  "AiModel": "typesafe/jev-1.13",
+                  "AiProtocol": "decisions",
+                  "AiModels": ["typesafe/jev-1.13", "typesafe/jev-1.12"],
+                  "AiName": "老配置",
+                  "AiUseSidecar": true,
+                  "AiJuryOn": true,
+                  "AiJury": ["a", "b"],
+                  "AiExtraPrompt": "随便写点什么"
+                }
+                """);
+            var s = AppSettings.Load();
+
+            Check("带已删字段的老文件仍然读得进来（不是退回默认值）",
+                s.AiProviders.Count == 1, s.AiProviders.Count.ToString());
+            Check("老的单供应商结构被搬成一个提供方",
+                s.AiProviders.Count == 1
+                && s.AiProviders[0].BaseUrl == "https://openrouter.ai/api/alpha"
+                && s.AiProviders[0].Name == "老配置",
+                s.AiProviders.Count == 1 ? s.AiProviders[0].BaseUrl : "(none)");
+            Check("老的「全局聊天模型」被搬进判定模型（不然界面上模型是空的）",
+                s.DecisionModelId() == "typesafe/jev-1.13", s.DecisionModelId());
+            Check("判定通道判定为「已配置」（地址 + 模型都有）", s.DecisionConfigured());
+            Check("老模型表保留下来（没有显式指定时还能回退到第一个）",
+                s.AiProviders[0].Models.Contains("typesafe/jev-1.12"));
+
+            // ---- 2) 真机那份：两个提供方，一个存着已经不存在的协议名 ----
+            File.WriteAllText(AppPaths.SettingsFile, """
+                {
+                  "AiActiveId": "pjev1",
+                  "AiDecisionProviderId": "pjev1",
+                  "AiDecisionModel": "typesafe/jev-1.13",
+                  "AiModel": "typesafe/jev-1.13",
+                  "AiProviders": [
+                    { "Id": "pchat", "Name": "中转", "BaseUrl": "https://relay.example/v1",
+                      "Protocol": "completions", "Models": ["grok-4.5"] },
+                    { "Id": "pjev1", "Name": "紧", "BaseUrl": "https://openrouter.ai/api/alpha",
+                      "Protocol": "decisions", "Models": ["typesafe/jev-1.13"] }
+                  ]
+                }
+                """);
+            var s2 = AppSettings.Load();
+            Check("多供应商结构仍然可读", s2.AiProviders.Count == 2, s2.AiProviders.Count.ToString());
+            Check("显式指定的判定模型优先", s2.DecisionModelId() == "typesafe/jev-1.13", s2.DecisionModelId());
+            Check("显式指定的判定提供方优先（老配置里那个 decisions 的）",
+                s2.DecisionProvider()?.Id == "pjev1", s2.DecisionProvider()?.Id ?? "(none)");
+            Check("供应商上的旧 Protocol 字段被忽略（协议概念已删）",
+                s2.AiProviders.All(p => p.GetType().GetProperty("Protocol") == null));
+            Check("判定通道仍判定为「已配置」", s2.DecisionConfigured());
+
+            // 没有显式指定判定提供方时：第一个配了地址的就能用 —— **哪怕它存的是 completions**。
+            // 这是老配置能不能继续用的关键：协议名已经不存在了，不该拿它当门槛。
+            File.WriteAllText(AppPaths.SettingsFile, """
+                {
+                  "AiProviders": [
+                    { "Id": "pold", "Name": "老的", "BaseUrl": "https://relay.example/v1",
+                      "Protocol": "completions", "Models": ["typesafe/jev-1.13"] }
+                  ]
+                }
+                """);
+            var s3 = AppSettings.Load();
+            Check("没显式指定判定提供方时，老配置（Protocol=completions）照常可用",
+                s3.DecisionProvider()?.Id == "pold" && s3.DecisionConfigured(),
+                $"{s3.DecisionProvider()?.Id ?? "(none)"} configured={s3.DecisionConfigured()}");
+
+            // ---- 3) 坏文件不能让程序起不来 ----
+            File.WriteAllText(AppPaths.SettingsFile, "{ 这不是 json");
+            var s4 = AppSettings.Load();
+            Check("设置文件坏了退回默认设置，不抛异常", s4.AiProviders.Count == 0);
+        }
+        catch (Exception ex)
+        {
+            Check("设置迁移测试本身不抛异常", false, ex.Message);
+        }
+        finally
+        {
+            AppPaths.OverrideDirectory = oldOverride;
+            try { Directory.Delete(dir, true); } catch { /* 清理失败不影响结论 */ }
+        }
+    }
+
     static void DecisionChannelTests()
     {
         Section("判定通道统一入口（重试 / 取消 / 节流 / 计数）");
