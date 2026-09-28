@@ -189,6 +189,28 @@ namespace AiDiskCleaner.Services
         public static string AiPurposeUnsureName(string name) => $"Not sure, maybe {name}";
         public static string AiPurposeForget => "Forget AI labels";
         public static string AiPurposeForgot(int n) => $"Forgot {n} AI label(s)";
+
+        // 重复文件「留哪一个」。桩的文案**刻意和真文案形状一致**：
+        // 断言里要检查的正是「建议那句话长什么样、前缀是什么、和基线一致时会不会重复写路径」，
+        // 如果桩写成另一套形状，测的就不是真逻辑了。
+        public static string DupKeepAction(int groups) => $"Ask which copy to keep ({groups} group(s))";
+        public static string DupKeepAsking => "Asking...";
+        public static string DupKeepTip => "sends redacted paths; never ticks or deletes anything";
+        public static string DupKeepProgress(int done, int total) => $"dups {done}/{total}";
+        public static string DupKeepNotConfigured => "needs the structured decision channel";
+        public static string DupKeepNothing => "no duplicate group needs asking";
+        public static string DupKeepSummary(int suggested, int unsure, int groups, int calls, double cost)
+            => $"suggested={suggested} unsure={unsure} groups={groups} calls={calls} cost={cost:0.0000}";
+        public static string DupKeepFailed(string why) => "ask failed: " + why;
+        public static string DupKeepGroupSummary(int members, long bytes)
+            => $"{members} identical copies, {FileEntry.FormatSize(bytes)} each";
+        public static string DupKeepQuestion(int groupNo, int members)
+            => $"Group {groupNo}: these {members} files have identical content. Which one should be kept?";
+        public static string DupKeepSameAsBaseline(double confidence)
+            => $"keeping this one (p={confidence:0.00})";
+        public static string DupKeepDifferent(string redactedPath, double confidence)
+            => $"keeping {redactedPath} instead (p={confidence:0.00})";
+        public static string DupKeepNoteMarker => " · AI suggests ";
         public static string OrganizeDetailWhat => "What it is: ";
         public static string OrganizeDetailWhy => "Why: ";
         public static string OrganizeDetailKind(int folders, int files, string types)

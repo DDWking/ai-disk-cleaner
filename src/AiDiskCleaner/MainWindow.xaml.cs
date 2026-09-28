@@ -163,6 +163,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _scanCts;
     private CancellationTokenSource? _analyzeCts;
     private CancellationTokenSource? _dupCts;
+    /// <summary>「问一下留哪一份」的取消源。和扫描的取消分开：它只取消这一次判定请求。</summary>
+    private CancellationTokenSource? _dupAskCts;
     private CancellationTokenSource? _snapshotCts;
     private CancellationTokenSource? _uninstallCts;
     private CancellationTokenSource? _aiConfigCts;
@@ -1686,6 +1688,72 @@ public partial class MainWindow : Window
         // 走既有的选择刷新链路（同步统计、底部栏、范围提示），不另起一套
         RefreshAfterSelectionChange();
         SetAiStatus(Loc.SelectAdded(added, FileEntry.FormatSize(bytes)));
+    }
+
+    /// <summary>
+    /// 重复组：「问一下留哪一份」。
+    ///
+    /// <b>这是判定通道的第二个用途，而且只能由用户点。</b>
+    /// 它不在扫描流程里 —— 「扫描 / 切页 / 展开 / 筛选 = 0 次请求」是软件对外的承诺，
+    /// 而且那条承诺是用真实出站计数（<see cref="AiGateway.SentCount"/>）断言的。
+    /// 跟着扫描顺手问一轮，等于在用户不知情的时候花钱。
+    ///
+    /// 一组一道题（<c>choice</c>，选项 = 组内成员 m1..mN）。回写**只落在
+    /// 保留项那一行的说明文字上**：不碰 Selected / CanDelete / Risk，
+    /// 也不改 keep/extra 的归属 —— 本地基线（路径最短者为保留项）永远是基线。
+    /// 把握不够（&lt; <see cref="DecisionThresholds.DuplicateKeep"/>）就什么都不建议。
+    /// </summary>
+    public async void DupAskKeep_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not CleanLocationNode loc) return;
+        if (loc.DupAskBusy) return;
+
+        if (!App.Settings.DecisionConfigured())
+        {
+            ShowAlert(Loc.DupKeepAction(1), Loc.DupKeepNotConfigured);
+            return;
+        }
+
+        var provider = App.Settings.DecisionProvider();
+        if (provider == null)
+        {
+            ShowAlert(Loc.DupKeepAction(1), Loc.DupKeepNotConfigured);
+            return;
+        }
+
+        // 只问这一组。用户点的是哪一行就问哪一行 —— 不顺手把别的组也问了（那是替用户花钱）。
+        var targets = new List<CleanLocationNode> { loc };
+        if (DuplicateKeepDecisionSet.SelectTargets(targets).Count == 0) return;
+
+        loc.DupAskBusy = true;
+        try
+        {
+            using var op = StartOperation(ref _dupAskCts, "DupAskKeep");
+            var set = new DuplicateKeepDecisionSet();
+            var outcome = await DecisionRunner.RunAsync(
+                set, targets, provider, App.Settings.DecisionModelId(),
+                stillCurrent: () => _report != null && _report.Duplicates.Contains(loc.Items[0]),
+                progress: new Progress<string>(SetAiStatus),
+                ct: op.Token);
+
+            // 说明文字改完了，通知绑定刷新（Reason 在 CleanItem 上，位置行显示的是它）
+            loc.RefreshReasonFromItems();
+            RefreshAfterSelectionChange();
+            SetAiStatus(Loc.DupKeepSummary(outcome.Applied, outcome.Unsure, targets.Count, outcome.Calls, outcome.Cost));
+            op.Done("dup-keep", outcome.Applied);
+        }
+        catch (OperationCanceledException)
+        {
+            SetAiStatus(Loc.PurposeCancelled);
+        }
+        catch (Exception ex)
+        {
+            SetAiStatus(Loc.DupKeepFailed(AppError.From(ex, "dup-keep").UserMessage));
+        }
+        finally
+        {
+            loc.DupAskBusy = false;
+        }
     }
 
 

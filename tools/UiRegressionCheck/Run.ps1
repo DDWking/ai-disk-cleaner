@@ -640,6 +640,40 @@ Assert-True 'the chat tool loop and its sidecar are gone (no tool can touch the 
      -not (Test-Path -LiteralPath (Join-Path $repo 'build-sidecar.ps1')) -and
      -not (Test-Path -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\SidecarClient.cs')))
 
+# ---- 重复文件「留哪一个」：判定通道的第二个用途 ----
+# 这些断言守的是**架构约束**，不是行为细节（行为细节在 SafetyCheck 的 DupKeepDecisionTests 里）：
+#   · 入口必须由用户点（扫描流程里不许出现判定调用，否则「扫描 = 0 请求」就破了）；
+#   · 回写只碰说明文字（AI 永远不写 Selected / CanDelete / Risk / Evidence）。
+$dupkeep = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\DuplicateKeepDecisionSet.cs') -Raw -Encoding UTF8
+Assert-True 'duplicate keep-advice exists and asks one choice per group' `
+    ($dupkeep -match 'IDecisionSet<CleanLocationNode>' -and
+     $dupkeep -match 'Type = "choice"' -and
+     $dupkeep -match 'MaxMembers = 12')
+Assert-True 'the duplicate entry point is a click handler, not part of the scan' `
+    ($cs -match 'DupAskKeep_Click' -and
+     $xaml -match 'Click="DupAskKeep_Click"' -and
+     $cs -match 'DataContext is not CleanLocationNode loc')
+# 扫描阶段（RunDuplicateStageAsync）里不许出现判定调用 —— 这是「扫描 = 0 请求」的结构保证
+$dupStageBody = [regex]::Match($cs, '(?s)private async Task RunDuplicateStageAsync.*?\r?\n    \}').Value
+Assert-True 'the scan stage never calls the decision channel' `
+    ($dupStageBody.Length -gt 0 -and
+     $dupStageBody -notmatch 'DecisionRunner' -and
+     $dupStageBody -notmatch 'DuplicateKeepDecisionSet' -and
+     $dupStageBody -notmatch 'AiGateway\.')
+Assert-True 'duplicate advice only ever writes display text (never selection / deletability / risk)' `
+    ($dupkeep -match 'baseline\.Reason = baseline\.Reason \+' -and
+     $dupkeep -notmatch '\.Selected\s*=' -and
+     $dupkeep -notmatch '\.CanDelete\s*=' -and
+     $dupkeep -notmatch '\.Risk\s*=' -and
+     $dupkeep -notmatch '\.Evidence\s*=')
+Assert-True 'duplicate advice is below-threshold silent, and the threshold is shared' `
+    ($dupkeep -match 'confidence < DecisionThresholds\.DuplicateKeep' -and
+     $dupkeep -match 'DecisionWriteBack\.Unsure')
+Assert-True 'duplicate paths are redacted before leaving the process' `
+    ($dupkeep -match 'PathRedactor\.Outbound')
+Assert-True 'the duplicate chip appears without expanding the row' `
+    ($xaml -match 'ShowDupAskRowChip' -and $nodes -match 'ShowDupAskRowChip')
+
 # ---- 清理候选 + 默认不勾选 ----
 Assert-True 'the safe tier is renamed to 清理候选' `
     ($loc -match '"清理候选"' -and $cs -notmatch '"建议清理"')

@@ -859,6 +859,8 @@
               <ColumnDefinition Width="32"/>
               <ColumnDefinition Width="*"/>
               <ColumnDefinition Width="Auto"/>
+              <!-- 重复组的「问一下留哪一份」（只在重复组的保留项那一行出现） -->
+              <ColumnDefinition Width="Auto"/>
               <ColumnDefinition Width="Auto"/>
               <ColumnDefinition Width="Auto"/>
               <ColumnDefinition Width="Auto"/>
@@ -892,8 +894,18 @@
               <TextBlock Text="{Binding SizeText}" FontSize="13.5" HorizontalAlignment="Right"
                          Foreground="{DynamicResource Accent}"/>
             </StackPanel>
+            <!-- 重复组专用：**不用先展开就能看见**的「问一下留哪一份」。
+                 放在行上而不是藏在展开区里 —— 「该留哪一个」正是用户看着这一行时会问的问题，
+                 藏起来等于没有这个能力。点它只问这一组，问过就自己消失。 -->
+            <Button Grid.Column="3" Style="{StaticResource ChipButton}"
+                    Padding="8,2" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center"
+                    Content="{Binding DupAskText}" Click="DupAskKeep_Click"
+                    IsEnabled="{Binding DupAskBusy, Converter={StaticResource InvertBool}}"
+                    ToolTip="{Binding DupAskTip}"
+                    AutomationProperties.Name="{Binding DupAskText}"
+                    Visibility="{Binding ShowDupAskRowChip, Converter={StaticResource BoolToVisible}}"/>
             <!-- 在资源管理器中打开：文件夹图标，Tooltip 说清动作 -->
-            <Button Grid.Column="3" Style="{StaticResource IconButton}" Width="28" Height="28"
+            <Button Grid.Column="4" Style="{StaticResource IconButton}" Width="28" Height="28"
                     Margin="0,0,4,0" Click="LocationReveal_Click"
                     ToolTip="在资源管理器中打开"
                     AutomationProperties.Name="在资源管理器中打开">
@@ -901,7 +913,7 @@
                     Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
             </Button>
             <!-- 就地展开这一处的候选文件：矢量箭头，不换页面 -->
-            <Button Grid.Column="5" Style="{StaticResource ChevronButton}"
+            <Button Grid.Column="6" Style="{StaticResource ChevronButton}"
                     VerticalAlignment="Center" Click="LocationViewFiles_Click"
                     ToolTip="{Binding FilesToggleText}"
                     AutomationProperties.Name="{Binding FilesToggleText}">
@@ -923,6 +935,17 @@
                       ToolTip="只勾选符合本地清理资格的项，之后仍会走清理确认"
                       AutomationProperties.Name="选择这些文件"
                       Visibility="{Binding ShowLocalSelectChip, Converter={StaticResource BoolToVisible}}"/>
+              <!-- 重复组专用：问判定通道「这一组留哪一份」。
+                   **必须由用户点** —— 扫描流程里顺手问一轮会在用户不知情的时候花钱，
+                   而「扫描 / 切页 / 展开 / 筛选 = 0 次请求」是用真实出站计数断言的承诺。
+                   问过之后这个芯片自己消失（不重复付钱问同一组）。 -->
+              <Button DockPanel.Dock="Right" Style="{StaticResource ChipButton}"
+                      Padding="10,3" FontSize="11.5" Margin="10,0,0,0"
+                      Content="{Binding DupAskText}" Click="DupAskKeep_Click"
+                      IsEnabled="{Binding DupAskBusy, Converter={StaticResource InvertBool}}"
+                      ToolTip="{Binding DupAskTip}"
+                      AutomationProperties.Name="{Binding DupAskText}"
+                      Visibility="{Binding ShowDupAskChip, Converter={StaticResource BoolToVisible}}"/>
               <TextBlock Text="{Binding FilesNote}" FontSize="11"
                          Foreground="{DynamicResource TextDim}" TextWrapping="Wrap"
                          VerticalAlignment="Center"/>

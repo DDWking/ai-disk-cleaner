@@ -43,6 +43,7 @@ public static class Program
         ReviewFixesTests.Run(Check, Section);
         AiPurposeTests.Run(Check, Section);
         JevDecisionTests.Run(Check, Section);
+        DupKeepDecisionTests.Run(Check, Section);
         ErrorClassificationTests();
         DiagnosticsTests();
 

@@ -191,6 +191,19 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
         set { if (_reason == value) return; _reason = value; OnPropertyChanged(); }
     }
 
+    /// <summary>
+    /// 从代表项重新读一次说明文字。
+    ///
+    /// 用在「判定通道给重复组补了一句建议」之后：那一句写在**条目**的
+    /// <see cref="CleanItem.Reason"/> 上（因为缓存与预检都按条目走），
+    /// 而位置行显示的是这里的这一份快照，所以要显式同步一次。
+    /// </summary>
+    public void RefreshReasonFromItems()
+    {
+        if (Items.Count > 0) Reason = Items[0].Reason;
+        OnPropertyChanged(nameof(RowSubText));
+    }
+
     /// <summary>清理影响。</summary>
     public string Impact { get; set; } = "";
 
@@ -243,6 +256,64 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
     /// 不依赖识别、不是 AI 意见；整理树没有这个入口。
     /// </summary>
     public bool ShowLocalSelectChip => IsFilesOpen && HasCleanableItems;
+
+    private bool _dupAskBusy;
+    /// <summary>这一组正在问判定通道（按钮转圈并禁用，防止重复付钱问同一组）。</summary>
+    public bool DupAskBusy
+    {
+        get => _dupAskBusy;
+        set
+        {
+            if (_dupAskBusy == value) return;
+            _dupAskBusy = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ShowDupAskChip));
+            OnPropertyChanged(nameof(ShowDupAskRowChip));
+            OnPropertyChanged(nameof(DupAskText));
+        }
+    }
+
+    /// <summary>
+    /// 展开这一处时显示的「问一下留哪一份」芯片。
+    ///
+    /// 三条准入：**这一处是重复组**（别的用途没有「留哪一个」这回事）、
+    /// **这一行是保留项那一半**（多余项那一行问的是同一个问题，问两遍付两次钱）、
+    /// 而且**还没问过**（问过就不再显示，避免重复花钱）。
+    /// </summary>
+    public bool ShowDupAskChip
+        => IsFilesOpen
+           && Purpose == CleanPurpose.Duplicate
+           && Key.Contains("dup-keep", StringComparison.Ordinal)
+           && Items.Count >= 2
+           && !AlreadySuggested;
+
+    /// <summary>
+    /// 位置行上（不需要展开）显示同一个入口。
+    ///
+    /// 为什么要在行上也放一个：**「该留哪一个」正是用户看着这一行时会问的问题**，
+    /// 藏在展开区里等于这个能力不存在。两者共用同一个处理器、同一份忙碌状态，
+    /// 展开之后两个都在，点哪个都一样。
+    /// </summary>
+    public bool ShowDupAskRowChip
+        => Purpose == CleanPurpose.Duplicate
+           && Key.Contains("dup-keep", StringComparison.Ordinal)
+           && Items.Count >= 2
+           && !AlreadySuggested;
+
+    /// <summary>
+    /// 这一组的保留项说明里是不是已经有判定通道给的建议了。
+    ///
+    /// 用**文案前缀**判断，不引入额外状态字段：建议本身写在
+    /// <see cref="CleanItem.Reason"/> 里，多一个布尔位就多一处可能和文案不一致的状态。
+    /// 判断放在模型这一侧（而不是判定层）：界面要显示「问不问」，模型得先能自己回答，
+    /// 否则每个链接了本文件的检查工程都要把判定层一起链进来。
+    /// </summary>
+    public bool AlreadySuggested
+        => Items.Count > 0
+           && Items[0].Reason.Contains(Loc.DupKeepNoteMarker, StringComparison.Ordinal);
+
+    public string DupAskText => DupAskBusy ? Loc.DupKeepAsking : Loc.DupKeepAction(1);
+    public string DupAskTip => Loc.DupKeepTip;
 
     /// <summary>技术细节（命中了哪条签名、风险词等）。术语留在悬停里，不进标题。</summary>
     public string Tech { get; set; } = "";
@@ -348,6 +419,8 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
         OnPropertyChanged(nameof(HasHiddenFiles));
         OnPropertyChanged(nameof(VisibleFiles));
         OnPropertyChanged(nameof(ShowLocalSelectChip));
+        OnPropertyChanged(nameof(ShowDupAskChip));
+        OnPropertyChanged(nameof(ShowDupAskRowChip));
         RaiseSelectionChanged();
     }
 

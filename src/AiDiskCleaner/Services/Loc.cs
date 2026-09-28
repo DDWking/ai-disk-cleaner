@@ -1,4 +1,4 @@
-﻿using AiDiskCleaner.Models;
+using AiDiskCleaner.Models;
 using UninstallTools.Junk.Confidence;
 // 别名是必须的：Loc 自己有一个叫 CleanRules 的**字符串属性**（分析步骤文案），
 // 在类内部写 CleanRules.AiPurposeKind 会解析到那个属性上。
@@ -736,6 +736,56 @@ public static class Loc
     public static string AiPurposeBatchFailed(string why)
         => IsEn ? "Classification failed: " + why : "归类失败：" + why;
     public static string OtherFilesTitle => IsEn ? "Other files" : "其它文件";
+
+    // ---- 重复文件「留哪一个」（判定通道的第二个用途） ----
+    //
+    // 基线永远是本地规则算出来的那个保留项（路径最短/最浅）。这里的每一句都只在
+    // **保留项那一行的说明**后面追加，不碰勾选、不碰可删除性、不改 keep/extra 归属。
+    /// <summary>这一组里建议留哪一个。按钮文案，带组数 —— 用户点之前就知道要问几组。</summary>
+    public static string DupKeepAction(int groups) => IsEn
+        ? $"Ask which copy to keep ({groups:N0} group(s))"
+        : $"问一下留哪一份（{groups:N0} 组）";
+    /// <summary>正在问这一组时的按钮文案。</summary>
+    public static string DupKeepAsking => IsEn ? "Asking…" : "正在问…";
+    public static string DupKeepTip => IsEn
+        ? "Sends the redacted paths of each duplicate group so the model can suggest which copy to keep. It never ticks or deletes anything."
+        : "把这些重复组的**脱敏路径**发给判定通道，让它建议每组留哪一份。它不会替你勾选，也不会删任何东西。";
+    public static string DupKeepProgress(int done, int total)
+        => IsEn ? $"Asking about duplicates {done:N0} / {total:N0}" : $"正在问重复文件 {done:N0} / {total:N0}";
+    public static string DupKeepNotConfigured => IsEn
+        ? "Asking about duplicates needs the structured decision channel. Add it in Settings."
+        : "问重复文件需要「结构化判定」通道，请先在设置里配好。";
+    public static string DupKeepNothing => IsEn
+        ? "No duplicate group needs asking right now."
+        : "现在没有需要问的重复组。";
+    /// <summary>结果短句。**必须把「没把握所以没建议」如实报出来** —— 静默少几条最容易被当成没问。</summary>
+    public static string DupKeepSummary(int suggested, int unsure, int groups, int calls, double cost) => IsEn
+        ? $"Suggested for {suggested:N0} group(s); {unsure:N0} it wasn't sure about (no suggestion given). {groups:N0} group(s), {calls} request(s), about ${cost:0.0000}."
+        : $"给了 {suggested:N0} 组建议；{unsure:N0} 组它没把握（**没有给建议**）。共 {groups:N0} 组，{calls} 次请求，约 ${cost:0.0000}。";
+    public static string DupKeepFailed(string why)
+        => IsEn ? "Could not ask about duplicates: " + why : "问重复文件失败：" + why;
+    /// <summary>组摘要行（进 state）：几个副本、共多大。</summary>
+    public static string DupKeepGroupSummary(int members, long bytes) => IsEn
+        ? $"{members:N0} identical copies, {FileEntry.FormatSize(bytes)} each"
+        : $"内容完全相同的 {members:N0} 份，每份 {FileEntry.FormatSize(bytes)}";
+    /// <summary>出题句。说清「这些是同一份内容的副本，指出最该留下的那一份」。</summary>
+    public static string DupKeepQuestion(int groupNo, int members) => IsEn
+        ? $"Group {groupNo}: these {members:N0} files have identical content. Which one should be kept (the others are the redundant copies)? Answer with the option key."
+        : $"第 {groupNo} 组：这 {members:N0} 个文件内容完全相同。应该留下哪一个（其余是多余的副本）？用选项键回答。";
+    /// <summary>建议和本地基线一致：一句话确认，不重复路径。</summary>
+    public static string DupKeepSameAsBaseline(double confidence) => IsEn
+        ? $"keeping this one (p={confidence:0.00})"
+        : $"留这一份（把握 {confidence:0.00}）";
+    /// <summary>建议和本地基线不一致：**必须把路径写出来**，否则用户不知道该留哪个。</summary>
+    public static string DupKeepDifferent(string redactedPath, double confidence) => IsEn
+        ? $"keeping {redactedPath} instead (p={confidence:0.00})"
+        : $"改留 {redactedPath}（把握 {confidence:0.00}）";
+    /// <summary>
+    /// 建议文案的固定前缀。用它判断「这一组已经问过了」——
+    /// 不需要额外的状态字段，也不会和规则原本的说明混淆。
+    /// **必须足够独特**：早先想用「 · 」当标记，那等于把所有说明都判成「已问过」。
+    /// </summary>
+    public static string DupKeepNoteMarker => IsEn ? " · AI suggests " : " · AI 建议";
 
     // ---- 文件夹整理（工作区，不是说明页） ----
     public static string OrganizeColName => IsEn ? "Folder" : "名称";

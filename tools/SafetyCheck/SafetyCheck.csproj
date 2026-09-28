@@ -17,6 +17,7 @@
     <Compile Include="ReviewFixesTests.cs" />
     <Compile Include="AiPurposeTests.cs" />
     <Compile Include="JevDecisionTests.cs" />
+    <Compile Include="DupKeepDecisionTests.cs" />
 
     <Compile Include="..\..\src\AiDiskCleaner\Models\DeletionModels.cs" Link="DeletionModels.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" Link="FileEntry.cs" />
@@ -50,6 +51,8 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\DecisionRunner.cs" Link="Decisions\DecisionRunner.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevLimits.cs" Link="Decisions\JevLimits.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevLog.cs" Link="Decisions\JevLog.cs" />
+    <!-- 重复文件「留哪一个」域：回写纯净性 / 阈值 / 挑组 / 脱敏都要按真代码断言 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\DuplicateKeepDecisionSet.cs" Link="Decisions\DuplicateKeepDecisionSet.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleContracts.cs" Link="CleanRuleContracts.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanItemFactory.cs" Link="CleanItemFactory.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleEligibility.cs" Link="CleanRuleEligibility.cs" />
