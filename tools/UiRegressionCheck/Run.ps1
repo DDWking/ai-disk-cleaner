@@ -613,7 +613,7 @@ Assert-True 'opening a folder is still reachable from the context menu' `
     ($xaml -match 'OrganizeOpen_Click')
 Assert-True 'classification only runs when the user clicks the one button' `
     ($orgsrc -match 'private void OrganizeClassify_Click' -and
-     $orgsrc -match '_organizeRows\.Where\(n => n\.NeedsPurposeClassification\)' -and
+     $orgsrc -match 'n\.NeedsPurposeClassification \|\| n\.State == PurposeState\.Failed' -and
      $orgsrc -notmatch '_autoClassifyTimer' -and
      $xaml -match 'Click="OrganizeClassify_Click"')
 Assert-True 'AI labels persist after classify and can be forgotten without a model call' `

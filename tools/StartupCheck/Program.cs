@@ -980,6 +980,11 @@ public static class Program
             && runner.Contains("int floor = Math.Min(AdaptiveMin, set.AdaptiveStart)", StringComparison.Ordinal));
         Check("判定请求的硬限制在发出去之前校验（选项数 / 档位数 / 字符预算）",
             runner.Contains("JevLimits.Validate(request)", StringComparison.Ordinal));
+        // 失败必须出声、且和「认不出来」分开：这一批要标 Failed，
+        // 而且下次点按钮时它们还得是候选（否则「可重试」是句空话）。
+        Check("归类失败把这一批标成「失败」，并让它们下次仍是候选",
+            org.Contains("foreach (var n in targets) n.SetState(PurposeState.Failed);", StringComparison.Ordinal)
+            && org.Contains("n.NeedsPurposeClassification || n.State == PurposeState.Failed", StringComparison.Ordinal));
         // 反复追问同一条 = 无限请求。没结论的条目必须被标记成「问过了」。
         Check("问过的条目不再入选（否则再点一次会把同一批重问）",
             orgNode.Contains("MarkBatchAsked", StringComparison.Ordinal));

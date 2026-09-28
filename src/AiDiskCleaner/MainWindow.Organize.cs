@@ -462,7 +462,9 @@ public partial class MainWindow
         OrganizeCounts.Text = line;
         // 按钮上的数字 = **这一屏真正会问的条数**，不是全局还没识别的条数。
         // 写成全局那个数会出现「按钮说 2,517 项、实际只问了 83 条」——标签和动作对不上。
-        UpdateOrganizeClassifyButton(_organizeRows.Count(x => x.NeedsPurposeClassification));
+        // 「上次失败」的也算：它们会被重试，所以必须计入这个数字。
+        UpdateOrganizeClassifyButton(_organizeRows.Count(
+            x => x.NeedsPurposeClassification || x.State == PurposeState.Failed));
         // 面板跟着当前这一屏走：展开/收起/重扫之后它显示的还是「这一屏分成了哪几类」。
         RefreshOrganizeResult();
     }
@@ -622,7 +624,12 @@ public partial class MainWindow
     {
         if (_organizeClassifying) return;
 
-        var targets = _organizeRows.Where(n => n.NeedsPurposeClassification).ToList();
+        // 目标 = 还没问过的 + **上次失败的**。
+        // 失败的那些 NeedsPurposeClassification 为假（它们不是「还不知道」，是「问挂了」），
+        // 但用户再点一次按钮时，它们正是最该重试的一批。
+        var targets = _organizeRows
+            .Where(n => n.NeedsPurposeClassification || n.State == PurposeState.Failed)
+            .ToList();
         if (targets.Count == 0)
         {
             ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNothing);
@@ -662,6 +669,10 @@ public partial class MainWindow
             }
             catch (Exception ex)
             {
+                // **失败必须出声，而且要和「认不出来」分开。**
+                // 把这一批标成 Failed：页头的「失败 N」、每行的重试提示才是真的；
+                // 下次再点按钮时它们又是候选（上面 targets 的第二个条件）。
+                foreach (var n in targets) n.SetState(PurposeState.Failed);
                 failMsg = Loc.AiPurposeBatchFailed(AppError.From(ex, "organize classify").UserMessage);
                 op.Fail(ex, "organize classify");
             }
