@@ -16,9 +16,9 @@ public enum AppErrorKind
     Permission,
     /// <summary>路径不存在、过长、非法。</summary>
     Path,
-    /// <summary>网络 / sidecar 连不上。</summary>
+    /// <summary>网络连不上（判定端点不可达 / DNS / 超时）。</summary>
     Network,
-    /// <summary>数据解析失败（AI 返回格式不对等）。</summary>
+    /// <summary>数据解析失败（端点返回的结构不符合约定）。</summary>
     Parse,
     /// <summary>磁盘 IO 失败。</summary>
     Io,
