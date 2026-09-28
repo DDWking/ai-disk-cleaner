@@ -119,30 +119,6 @@ public sealed class DetailGroupExpandedConverter : IValueConverter
 }
 
 
-public sealed class AppGroupConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-    {
-        int key = 0, n = 0;
-        if (value is CollectionViewGroup g)
-        {
-            key = g.Name is int i ? i : 0;
-            n = g.ItemCount;
-        }
-        else if (value is int i) key = i;
-        return key switch
-        {
-            0 => Loc.UninstallGroupRecommend(n),
-            1 => Loc.UninstallGroupConsider(n),
-            2 => Loc.UninstallGroupKeep(n),
-            _ => Loc.UninstallGroupNeutral(n),
-        };
-    }
-
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-        => Binding.DoNothing;
-}
-
 /// <summary>空字符串 → Collapsed。用于「有内容才显示」的分隔符/提示。</summary>
 public sealed class EmptyToCollapsedConverter : IValueConverter
 {

@@ -11,11 +11,11 @@
 | 1 | 判断层拆成「域 + 执行器 + 门面」：`Services/Decisions/`（契约 / `IDecisionSet` / `DecisionRunner` / `JevLimits` / `DecisionThresholds` / `JevLog` / `FolderPurposeDecisionSet`）。补上从来没校验过的 255 选项 / 2–10 档 / 字符预算 | `78085c8` |
 | 2 | 删掉整套聊天栈（Node 侧车、OpenAI SDK、协议适配、工具循环、陪审团、聊天控件、336 行文案、两条不可达的聊天调用点），净 −5 962 / +518 行 | `59f3a05` |
 | 3 | 归类失败把这一批标成「失败」并且下次仍可重试（聊天栈删掉后 `Failed` 状态失去了唯一生产者） | `3ccd5f9` |
-| 4 | 卸载页去 AI：删掉没有任何生产调用者的「建议」机制，页面只讲事实 | （见 git log 最后一条） |
-| 6 | 版本 3.0.0 + 打包 + README/notes | `b58718e` |
+| 4 | 卸载页去 AI：删掉没有任何生产调用者的「建议」机制（−388 行），页面只讲事实；`AppRecommendation.cs` → `AppFacts.cs` | `11d7dfd` |
+| 6 | 版本 3.0.0 + 打包 + README/notes；设置迁移断言（老配置不丢） | `b58718e` `f04061e` |
 
-**回归**：10 项离线检查全绿（`SafetyCheck 1059` / `StartupCheck 197` / 其余见 `tools/run-all-checks.ps1`）；
-主工程 0 警告 0 错误。包在 `dist/DashaoHuo-3.0.0-<date>-win-x64`。
+**回归**：10 项离线检查全绿（`SafetyCheck 1072` / `StartupCheck 191` / 其余见 `tools/run-all-checks.ps1`）；
+主工程 0 警告 0 错误。包在 `dist/DashaoHuo-3.0.0-<date>-win-x64`（自包含 189 MB，zip 75 MB，内含 exe 版本 3.0.0.0）。
 
 ## 有意留下没做（下一步）
 

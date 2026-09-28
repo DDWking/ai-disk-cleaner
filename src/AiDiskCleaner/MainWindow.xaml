@@ -19,7 +19,6 @@
   <Window.Resources>
     <local:InvertBoolConverter x:Key="InvertBool"/>
     <local:GroupExpandedConverter x:Key="GroupExpanded"/>
-    <local:AppGroupConverter x:Key="AppGroup"/>
     <local:DetailGroupExpandedConverter x:Key="DetailGroupExpanded"/>
     <local:DetailGroupHeaderConverter x:Key="DetailGroupHeader"/>
     <BooleanToVisibilityConverter x:Key="BoolToVisible"/>

@@ -165,7 +165,6 @@ public static class Loc
         ? $"OK · {ms} ms · {model} · p={confidence:0.00} · ${cost:0.000000}"
         : $"连通 · {ms} 毫秒 · {model} · 把握 {confidence:0.00} · ${cost:0.000000}";    public static string AiTitle => IsEn ? "AI" : "AI 建议";
     public static string AiDelProvider => IsEn ? "Remove" : "删除";
-    public static string AppRecommendationHeader => IsEn ? "Recommendation" : "建议";
     public static string AppScannedSize => IsEn ? "Scanned size" : "扫描占用";
     public static string AppSizeEstimated => IsEn ? " est." : "（估算）";
 
@@ -376,11 +375,9 @@ public static class Loc
         IsEn ? $"Run uninstallers for {n:N0} items, including {features:N0} Windows features? Features use DISM and may need a reboot."
              : $"对 {n:N0} 项运行卸载（含 {features:N0} 个 Windows 功能）？功能走 DISM，可能要重启。";
     public static string UninstallNoWay => IsEn ? "No uninstaller" : "无法卸载";
-    public static string UninstallGroupRecommend(int n) => IsEn ? $"Suggested to uninstall ({n:N0})" : $"建议卸载（{n:N0}）";
-    public static string UninstallGroupConsider(int n) => IsEn ? $"Needs a look ({n:N0})" : $"需要看一下（{n:N0}）";
-    public static string UninstallGroupKeep(int n) => IsEn ? $"Suggested to keep ({n:N0})" : $"建议保留（{n:N0}）";
-    /// <summary>没有足够证据的一档。**中性**：不叫「可以考虑」，也不假装有结论。</summary>
-    public static string UninstallGroupNeutral(int n) => IsEn ? $"Not assessed ({n:N0})" : $"未评估（{n:N0}）";
+    // v3.0：UninstallGroupRecommend/Consider/Keep/Neutral 与 AppRecommendationHeader 已删除 ——
+    // 它们是「按建议分组」那套的文案，而卸载页是**扁平的事实列表**（UiRegressionCheck
+    // 断言了它不分组）。最后一个引用它们的 AppGroupConverter 也一起删掉了。
     // ---- 占用可信度：扫描实测 / 安装记录估计 / 未测得，三者必须一眼分清 ----
     /// <summary>安装记录里的体积（不是实测）。</summary>
     public static string AppSizeFromRecord(string size) =>
