@@ -56,3 +56,10 @@ sidecar/AiSidecar.exe
 sidecar/install.log
 sidecar/run.log
 sidecar/.bun-cache/
+
+# ===== 会话/工具产生的临时物（不属于产品代码）=====
+_session_restore/
+_session_extract/
+$null
+scan-timing.log
+ui-timing.log
