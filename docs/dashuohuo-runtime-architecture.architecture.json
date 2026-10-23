@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "大扫货 · AI 磁盘清理运行时架构",
+    "locale": "zh-CN",
+    "output": "dashuohuo-runtime-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/DDWking/ai-disk-cleaner",
+      "provider": "github",
+      "revision": "60f85ff26848c1d1f4dc27e443281c7e87794cf7"
+    }
+  },
+  "components": [
+    {
+      "id": "ui", "type": "frontend", "label": "WPF 桌面外壳", "sublabel": "清理中心 · 目录树", "tag": ".NET 8 WPF",
+      "pos": [40, 290], "size": [130, 72],
+      "sources": [{ "path": "src/AiDiskCleaner/MainWindow.xaml.cs", "label": "MainWindow" }]
+    },
+    {
+      "id": "scan", "type": "backend", "label": "扫描引擎", "sublabel": "读 $MFT / 递归降级", "tag": "NTFS",
+      "pos": [260, 290], "size": [130, 72],
+      "sources": [
+        { "path": "src/AiDiskCleaner/Services/ScanCoordinator.cs" },
+        { "path": "src/AiDiskCleaner/Services/MftScanService.cs" },
+        { "path": "src/AiDiskCleaner/Native/NtfsNative.cs" }
+      ]
+    },
+    {
+      "id": "rules", "type": "backend", "label": "清理规则引擎", "sublabel": "8 条规则 + 重复检测", "tag": "CleanAnalyzer",
+      "pos": [480, 290], "size": [130, 72],
+      "sources": [
+        { "path": "src/AiDiskCleaner/Services/CleanAnalyzer.cs" },
+        { "path": "src/AiDiskCleaner/Services/CleanRules/CleanRules.cs" }
+      ]
+    },
+    {
+      "id": "guard", "type": "security", "label": "删除预检与保护闸", "sublabel": "硬拦截 · 身份复核", "tag": "ProtectedPaths",
+      "pos": [700, 290], "size": [130, 72],
+      "sources": [
+        { "path": "src/AiDiskCleaner/Services/DeletionPreflight.cs" },
+        { "path": "src/AiDiskCleaner/Services/ProtectedPaths.cs" }
+      ]
+    },
+    {
+      "id": "recycle", "type": "backend", "label": "回收站执行器", "sublabel": "逐项执行 · 可取消", "tag": "FOF_ALLOWUNDO",
+      "pos": [920, 290], "size": [130, 72],
+      "sources": [
+        { "path": "src/AiDiskCleaner/Services/DeletionExecutor.cs" },
+        { "path": "src/AiDiskCleaner/Services/RecycleService.cs" }
+      ]
+    },
+    {
+      "id": "shell", "type": "external", "label": "Windows 回收站", "sublabel": "Windows Shell", "tag": "shell32",
+      "pos": [1140, 290], "size": [130, 72],
+      "sources": [{ "path": "src/AiDiskCleaner/Native/ShellNative.cs" }]
+    },
+    {
+      "id": "bcu", "type": "external", "label": "卸载引擎", "sublabel": "注册表 · Store", "tag": "BCUninstaller",
+      "pos": [40, 455], "size": [130, 72],
+      "sources": [{ "path": "src/AiDiskCleaner/Services/BcuUninstallService.cs" }]
+    },
+    {
+      "id": "local", "type": "backend", "label": "本地识别", "sublabel": "用途 · 已装位置", "tag": "FolderPurpose",
+      "pos": [260, 455], "size": [130, 72],
+      "sources": [
+        { "path": "src/AiDiskCleaner/Services/LocalEvidenceService.cs" },
+        { "path": "src/AiDiskCleaner/Services/FolderPurposeService.cs" }
+      ]
+    },
+    {
+      "id": "aigw", "type": "backend", "label": "AI 网关", "sublabel": "选路 · 重试 · 降级", "tag": "AiGateway",
+      "pos": [480, 455], "size": [130, 72],
+      "sources": [
+        { "path": "src/AiDiskCleaner/Services/AiGateway.cs" },
+        { "path": "src/AiDiskCleaner/Services/AiClient.cs" }
+      ]
+    },
+    {
+      "id": "sidecar", "type": "backend", "label": "AI 侧车进程", "sublabel": "Node + pi-ai", "tag": "AiSidecar.exe",
+      "pos": [480, 620], "size": [130, 72],
+      "sources": [
+        { "path": "sidecar/src/server.js" },
+        { "path": "sidecar/src/agent.js" },
+        { "path": "sidecar/src/providers.js" }
+      ]
+    },
+    {
+      "id": "model", "type": "cloud", "label": "模型服务", "sublabel": "OpenAI / Anthropic", "tag": "HTTPS",
+      "pos": [700, 620], "size": [130, 72]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "主进程 · requireAdministrator",
+      "wraps": ["ui", "scan", "rules", "guard", "recycle", "bcu", "local", "aigw"]
+    },
+    {
+      "kind": "security-group",
+      "label": "侧车进程 · 继承管理员令牌",
+      "wraps": ["sidecar"]
+    },
+    {
+      "kind": "region",
+      "label": "出网边界",
+      "wraps": ["model"]
+    }
+  ],
+  "connections": [
+    { "id": "ui-scan", "from": "ui", "to": "scan", "label": "扫描", "variant": "emphasis" },
+    { "id": "scan-rules", "from": "scan", "to": "rules", "label": "文件树" },
+    { "id": "rules-guard", "from": "rules", "to": "guard", "label": "候选项" },
+    { "id": "guard-recycle", "from": "guard", "to": "recycle", "label": "确认后删" },
+    { "id": "recycle-shell", "from": "recycle", "to": "shell", "label": "入回收站" },
+    { "id": "ui-bcu", "from": "ui", "to": "bcu", "label": "列出与卸载", "labelAt": [105, 409] },
+    { "id": "bcu-local", "from": "bcu", "to": "local", "label": "已装清单" },
+    { "id": "local-aigw", "from": "local", "to": "aigw", "label": "兜底问 AI", "variant": "dashed" },
+    { "id": "rules-aigw", "from": "rules", "to": "aigw", "label": "待解释条目", "variant": "dashed", "labelAt": [545, 409] },
+    { "id": "aigw-sidecar", "from": "aigw", "to": "sidecar", "label": "POST /chat · 只读工具回调", "variant": "security", "labelAt": [545, 574] },
+    { "id": "sidecar-model", "from": "sidecar", "to": "model", "label": "HTTPS" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "主路径：扫描 → 判定 → 回收站",
+      "items": [
+        "以管理员身份启动（UAC requireAdministrator），直读卷上 $MFT，秒级出文件树",
+        "MFT 不可用时自动降级递归扫描，降级原因带到界面",
+        "本地规则判定清理候选 → 预检 → 用户确认 → 逐项移入回收站"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "信任边界",
+      "items": [
+        "主进程持管理员令牌：可读原始卷、可删除任意路径，删除前一律走保护闸与预检",
+        "主进程 ↔ 侧车走 127.0.0.1 动态端口，无鉴权令牌，侧车继承管理员令牌",
+        "AI 出网默认只发脱敏路径；API Key 经 DPAPI 落盘（secrets.dat）"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "AI 只读与降级",
+      "items": [
+        "AI 工具只有 list_folder / search_clean / report_finding，全部只读",
+        "勾选、风险与可删性由规则和用户决定，AI 只写说明",
+        "侧车起不来或返回为空时，网关降级到内置 HTTP 通道"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "大扫货：本地优先的 AI 磁盘治理架构",
+    "locale": "zh-CN",
+    "subtitle": "事实由本地扫描与规则建立，Jev 只补充未知解释，删除始终由用户确认并经过预检",
+    "output": "docs/architecture.html",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "repository": { "url": "https://github.com/DDWking/ai-disk-cleaner", "revision": "a058d8aeeb2bf6a825bdbd1627089e37ac14e68b", "link_mode": "local-only" }
+  },
+  "layout": { "mode": "grid", "cols": 4, "origin": [40, 40], "gapX": 70, "gapY": 70, "cellW": 300, "cellH": 120 },
+  "components": [
+    { "id": "ui", "type": "frontend", "label": "WPF 用户工作区", "sublabel": "", "row": 0, "col": 1, "sources": [{ "path": "src/AiDiskCleaner/MainWindow.xaml", "label": "UI" }] },
+    { "id": "scan", "type": "backend", "label": "扫描协调层", "sublabel": "MFT / 递归", "row": 1, "col": 0, "sources": [{ "path": "src/AiDiskCleaner/Services/ScanCoordinator.cs", "label": "Coordinator" }] },
+    { "id": "mft", "type": "backend", "label": "NTFS / MFT 发现", "sublabel": "文件树与容量", "row": 2, "col": 0, "sources": [{ "path": "src/AiDiskCleaner/Services/MftScanService.cs", "label": "MFT" }] },
+    { "id": "rules", "type": "backend", "label": "本地规则与证据", "sublabel": "本地清理规则", "row": 1, "col": 1, "sources": [{ "path": "src/AiDiskCleaner/Services/CleanAnalyzer.cs", "label": "Rules" }] },
+    { "id": "organize", "type": "backend", "label": "用途与展示模型", "sublabel": "用途 / 风险 / 选择", "row": 1, "col": 2, "sources": [{ "path": "src/AiDiskCleaner/Models/CleanItem.cs", "label": "Models" }] },
+    { "id": "decision", "type": "backend", "label": "Jev 判定编排", "sublabel": "问题 / 置信度", "row": 2, "col": 2, "sources": [{ "path": "src/AiDiskCleaner/Services/Decisions/DecisionRunner.cs", "label": "Runner" }] },
+    { "id": "gateway", "type": "security", "label": "AI 出站闸门", "sublabel": "脱敏 / 限流 / 重试", "row": 2, "col": 3, "sources": [{ "path": "src/AiDiskCleaner/Services/AiGateway.cs", "label": "Gateway" }] },
+    { "id": "jev", "type": "external", "label": "Jev 结构化判定端点", "sublabel": "无删除权限", "row": 3, "col": 3 },
+    { "id": "delete", "type": "security", "label": "删除安全流程", "sublabel": "预检 → 回收站", "row": 3, "col": 1, "sources": [{ "path": "src/AiDiskCleaner/Services/DeletionCoordinator.cs", "label": "Delete" }] },
+    { "id": "windows", "type": "external", "label": "Windows 文件系统", "sublabel": "NTFS / 回收站", "row": 4, "col": 1 },
+    { "id": "bcu", "type": "external", "label": "BCUninstaller 引擎", "sublabel": "卸载引擎", "row": 2, "col": 1 }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "本地可信域：事实、规则、保护与用户选择", "wraps": ["ui", "scan", "mft", "rules", "organize", "decision", "gateway", "delete"], "pad": 28 }
+  ],
+  "connections": [
+    { "id": "c1", "from": "ui", "to": "scan", "label": "启动扫描", "variant": "emphasis", "route": "orthogonal-v" },
+    { "id": "c2", "from": "scan", "to": "mft", "label": "主扫描 / 失败降级", "variant": "emphasis", "route": "orthogonal-v" },
+    { "id": "c3", "from": "mft", "to": "rules", "label": "FileEntry 树", "variant": "emphasis", "route": "orthogonal-h" },
+    { "id": "c4", "from": "rules", "to": "organize", "label": "本地分类与证据", "variant": "emphasis", "route": "orthogonal-h" },
+    { "id": "c5", "from": "organize", "to": "decision", "label": "用户主动识别未知", "variant": "default", "route": "orthogonal-v" },
+    { "id": "c6", "from": "decision", "to": "gateway", "label": "结构化请求", "variant": "default", "route": "orthogonal-h" },
+    { "id": "c7", "from": "gateway", "to": "jev", "label": "脱敏后出站", "variant": "default", "route": "orthogonal-v" },
+    { "id": "c8", "from": "jev", "to": "decision", "label": "答案 / 置信度", "variant": "default", "route": "orthogonal-v" },
+    { "id": "c9", "from": "organize", "to": "delete", "label": "用户勾选并确认", "variant": "emphasis", "route": "auto" },
+    { "id": "c10", "from": "delete", "to": "windows", "label": "预检后送回收站", "variant": "emphasis", "route": "orthogonal-v" }
+  ]
+}
