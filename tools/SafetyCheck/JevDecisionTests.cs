@@ -28,6 +28,7 @@ public static class JevDecisionTests
         public string Key = "";
         public string Path = "";
         public int Asked;
+        public int Applied;
     }
 
     sealed class Set : IDecisionSet<Item>
@@ -35,6 +36,9 @@ public static class JevDecisionTests
         public string Name => "fake";
         public int MaxPerRequest { get; init; } = 8;
         public int AdaptiveStart { get; init; } = 2;
+
+        /// <summary>接口默认 1（串行）；并发测试显式调大。</summary>
+        public int MaxConcurrency { get; init; } = 1;
 
         /// <summary>这一批实际发出去时每条占多少（用来断言分批与拆半）。</summary>
         public readonly List<int> ChunkSizes = new();
@@ -137,6 +141,7 @@ public static class JevDecisionTests
         BatchingTests(check, section);
         GuardTests(check, section);
         AccountingTests(check, section);
+        ConcurrencyTests(check, section);
         PurityTests(check, section);
     }
 
@@ -502,6 +507,143 @@ public static class JevDecisionTests
                 check("provider / model 原样带给通道", req.Model == "m" && req.Provider?.Id == "t");
                 return true;
             }).GetAwaiter().GetResult();
+    }
+
+    // ------------------------------------------------------------ 并发
+
+    /// <summary>
+    /// 并发执行器（<see cref="IDecisionSet{TItem}.MaxConcurrency"/> &gt; 1）的离线断言。
+    ///
+    /// 这里守的是三件事：
+    /// <list type="number">
+    /// <item>**每一条恰好被回写一次**（不重不漏）；</item>
+    /// <item>计数与遥测正确（并发下累加不丢）；</item>
+    /// <item>确实并发了（不是排成串行）—— 用一个会阻塞的 sender 量峰值重叠数。</item>
+    /// </list>
+    /// 离线环境**没有 SynchronizationContext**：await 之后的续体落在线程池上，
+    /// 计数/分布/进度全靠锁保护 —— 这正是要测的场景。
+    /// </summary>
+    static void ConcurrencyTests(CheckFn check, Action<string> section)
+    {
+        section("判定层：并发跑批（MaxConcurrency > 1）");
+
+        // 60 条、每条一批（MaxPerRequest=1）、并发 8。
+        // sender 里 sleep 一小会儿并记录峰值重叠，逼出真正的并发。
+        var saved = AiGateway.DecisionsSender;
+        int inFlight = 0, peak = 0;
+        var sent = new List<AiDecisionRequest>();
+        var seenGate = new object();
+        AiGateway.DecisionsSender = async (req, _) =>
+        {
+            lock (seenGate) sent.Add(req);
+            int now = Interlocked.Increment(ref inFlight);
+            lock (seenGate) if (now > peak) peak = now;
+            try
+            {
+                await Task.Delay(20);
+                return AnswerAll(req, _ => Applied());
+            }
+            finally { Interlocked.Decrement(ref inFlight); }
+        };
+        try
+        {
+            var set = new Set { AdaptiveStart = 1, MaxPerRequest = 1, MaxConcurrency = 8 };
+            set.ApplyFn = (item, answer) =>
+            {
+                if (answer == null) return DecisionApplied.NoAnswer;
+                Interlocked.Increment(ref item.Applied);
+                return new DecisionApplied(DecisionWriteBack.Applied, "ok", answer.Confidence);
+            };
+            var items = Items(60);
+            var outcome = DecisionRunner.RunAsync(set, items, Provider(), "m", null, null, default)
+                .GetAwaiter().GetResult();
+
+            check("并发：每一条恰好回写一次（不重不漏）",
+                items.All(x => x.Applied == 1),
+                string.Join(",", items.Where(x => x.Applied != 1).Select(x => x.Applied)));
+            check("并发：每一条恰好标一次「问过了」",
+                items.All(x => x.Asked == 1),
+                string.Join(",", items.Where(x => x.Asked != 1).Select(x => x.Asked)));
+            check("并发：计数与条数一致（累加不丢）",
+                outcome.Applied == 60 && outcome.Asked == 60,
+                $"applied={outcome.Applied} asked={outcome.Asked}");
+            check("并发：每条一批（60 次请求）", outcome.Calls == 60, "calls=" + outcome.Calls);
+            check("并发：确实并发了（峰值重叠 > 1）", peak > 1, "peak=" + peak);
+            check("并发：没有超过声明的并发度 8", peak <= 8, "peak=" + peak);
+            check("并发：请求体是 1 题 1 条（一个请求只问一条）",
+                sent.All(r => r.Questions.Count == 1), "n=" + sent.Count);
+        }
+        finally { AiGateway.DecisionsSender = saved; }
+
+        // 并发 + 换代守卫：跑到中途换代 → 结果不写、也不再取新块。
+        var saved2 = AiGateway.DecisionsSender;
+        AiGateway.DecisionsSender = async (req, _) =>
+        {
+            await Task.Delay(10);
+            return AnswerAll(req, _ => Applied());
+        };
+        try
+        {
+            var set = new Set { AdaptiveStart = 1, MaxPerRequest = 1, MaxConcurrency = 4 };
+            set.ApplyFn = (item, answer) =>
+            {
+                Interlocked.Increment(ref item.Applied);
+                return new DecisionApplied(DecisionWriteBack.Applied, "ok", 0.9);
+            };
+            int checks = 0;
+            var items = Items(40);
+            var outcome = DecisionRunner.RunAsync(
+                set, items, Provider(), "m",
+                // 前 8 次说「还在」，之后换代 —— 在飞的那几批回来时不写，也不再取新块。
+                // 具体卡在第几条不确定（并发），但下面两条不变量必须成立。
+                () => Interlocked.Increment(ref checks) <= 8,
+                null, default).GetAwaiter().GetResult();
+
+            check("并发 + 换代：没有一条被回写两次",
+                items.All(x => x.Applied <= 1),
+                string.Join(",", items.Where(x => x.Applied > 1).Select(x => x.Applied)));
+            check("并发 + 换代：计数与实际回写条数一致",
+                outcome.Applied == items.Count(x => x.Applied > 0),
+                $"outcome={outcome.Applied} written={items.Count(x => x.Applied > 0)}");
+            check("并发 + 换代：确实提前停了（没有问完 40 条）",
+                outcome.Calls < 40, "calls=" + outcome.Calls);
+        }
+        finally { AiGateway.DecisionsSender = saved2; }
+
+        // 并发 + 本地超限：异常冒出来，且不继续发。
+        var saved3 = AiGateway.DecisionsSender;
+        AiGateway.DecisionsSender = (req, _) => Task.FromResult(AnswerAll(req, _ => Applied()));
+        int savedChars = JevLimits.MaxRequestChars;
+        try
+        {
+            JevLimits.MaxRequestChars = 1;
+            var set = new Set { AdaptiveStart = 1, MaxPerRequest = 1, MaxConcurrency = 4 };
+            try
+            {
+                DecisionRunner.RunAsync(set, Items(20), Provider(), "m", null, null, default)
+                    .GetAwaiter().GetResult();
+                check("并发 + 本地超限：抛 DecisionLimitException（不冒充网络失败）", false, "没有抛异常");
+            }
+            catch (DecisionLimitException)
+            {
+                check("并发 + 本地超限：抛 DecisionLimitException（不冒充网络失败）", true);
+            }
+        }
+        finally
+        {
+            JevLimits.MaxRequestChars = savedChars;
+            AiGateway.DecisionsSender = saved3;
+        }
+
+        // 默认并发度是 1：不声明就是串行（DuplicateKeepDecisionSet 依赖这一点）
+        check("接口默认并发度是 1（串行）",
+            ((IDecisionSet<Item>)new Set()).MaxConcurrency == 1);
+        check("文件夹用途域声明并发 8",
+            ((IDecisionSet<AiDiskCleaner.Models.OrganizeNode>)new FolderPurposeDecisionSet())
+                .MaxConcurrency == 8);
+        check("重复文件域不声明并发（保持串行）",
+            ((IDecisionSet<CleanLocationNode>)new DuplicateKeepDecisionSet())
+                .MaxConcurrency == 1);
     }
 
     // ------------------------------------------------------------ 执行器纯度

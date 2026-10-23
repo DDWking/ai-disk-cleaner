@@ -187,6 +187,10 @@ namespace AiDiskCleaner.Services
         public static string OrganizeCoveredTag => "already inside an item above";
         public static string PurposeDetailUnsure => "AI guess - low confidence";
         public static string AiPurposeUnsureName(string name) => $"Not sure, maybe {name}";
+        public static string AiPurposeBatchProgress(int done, int total) => $"classified {done}/{total}";
+        // 参数取 object：这个桩被多个检查工程共享，有的工程没有链接 AiPurposeCriteria.cs
+        // （真实现是强类型的 AiPurposeKind，但离线断言只关心「有这句文案」）。
+        public static string AiPurposeDisplayName(object kind) => kind.ToString() ?? "";
         public static string AiPurposeForget => "Forget AI labels";
         public static string AiPurposeForgot(int n) => $"Forgot {n} AI label(s)";
 

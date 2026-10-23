@@ -56,6 +56,7 @@ $decisions = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Servic
 $decisionset = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\FolderPurposeDecisionSet.cs') -Raw -Encoding UTF8
 $limits = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\JevLimits.cs') -Raw -Encoding UTF8
 $redactor = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\PathRedactor.cs') -Raw -Encoding UTF8
+$workflow = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanupWorkflowService.cs') -Raw -Encoding UTF8
 
 $fail = 0
 function Assert-True([string]$name, [bool]$ok) {
@@ -400,7 +401,7 @@ Assert-True 'recognised platforms keep their inner game entries' `
     ($forg -match 'KeepsObjectEntries' -and $forg -match 'IsObjectContainer')
 Assert-True 'exploration, requests and rows all have hard budgets' `
     ($forg -match 'ChildBudget = 24' -and $forg -match 'UnknownProbeBudget' -and
-     $forg -match 'MaxRows = 4000' -and $decisionset -match 'MaxPerRequest = 80' -and
+     $forg -match 'MaxRows = 4000' -and $decisionset -match 'MaxPerRequest = 1' -and
      $decisions -match 'AdaptiveMin = 5')
 Assert-True 'reparse points / links are skipped, not followed' `
     ($forg -match 'c\.IsReparsePoint \|\| c\.IsFilesGroup' -and $forg -match 'skipped\+\+')
@@ -433,8 +434,9 @@ Assert-True 'stale results are guarded by a generation counter' `
     ($cs -match '_scanGeneration' -and $cs -match '_analyzeGeneration' -and $cs -match '_uninstallGeneration')
 
 # --- 6. deletion always goes through preflight ------------------------------
-Assert-True 'deletion goes through DeletionCoordinator' `
-    ($cs -match '_deleteCoordinator\.Plan\(' -and $cs -match '_deleteCoordinator\.Execute\(')
+$deletionBoundaryOk = ($cs -match '_cleanupWorkflow\.PlanDeletion\(' -and
+    $workflow -match 'coordinator\.Plan\(' -and $workflow -match 'DeletionTarget')
+Assert-True 'deletion goes through DeletionCoordinator' $deletionBoundaryOk
 Assert-True 'no direct RecycleService call in the delete paths' `
     ($cs -notmatch 'RecycleService\.SendToRecycle')
 
@@ -581,7 +583,7 @@ Assert-True 'preflight page has 返回修改 / 确认清理' `
 Assert-True 'confirm on preflight reuses the existing preflight+execute chain' `
     ($cs -match '(?s)private void PreflightConfirm_Click.*?RunCleanFor\(')
 Assert-True 'RunCleanFor keeps the delete preflight + confirm step' `
-    ($cs -match '(?s)private void RunCleanFor.*?_deleteCoordinator\.Plan\(' -and
+    ($cs -match '(?s)private void RunCleanFor.*?_cleanupWorkflow\.PlanDeletion\(' -and
      $cs -match '(?s)private void RunCleanFor.*?AskConfirm\(')
 Assert-True 'executing shows 正在清理 and a stop path' `
     ($cs -match 'Loc\.CleaningNow' -and $cs -match 'CleanActionState\.Running')
@@ -627,7 +629,19 @@ Assert-True 'AI labels persist after classify and can be forgotten without a mod
      $xaml -match 'x:Name="OrganizeForgetAiBtn"' -and
      $xaml -match 'Click="OrganizeForgetAi_Click"')
 Assert-True 'a batch that overflows the model context is split, not failed' `
-    ($batchsvc -match 'IsTooLargeForModel' -and $batchsvc -match 'MaxPerRequest = 80')
+    ($batchsvc -match 'IsTooLargeForModel' -and $decisionset -match 'MaxPerRequest = 1')
+Assert-True 'one folder per request: the state is that folder''s own summary' `
+    ($decisionset -match 'MaxPerRequest = 1' -and $decisionset -match 'AdaptiveStart = 1' -and
+     $decisionset -match 'BuildDecisionState' -and
+     $decisionset -notmatch 'string\.Join\(Environment\.NewLine, chunk\.Select')
+Assert-True 'model-facing text is English constants, not UI language' `
+    ($decisionset -match 'AiPurposeCriteria\.QuestionInstructions' -and
+     $decisionset -match 'AiPurposeCriteria\.Descriptions' -and
+     $decisionset -notmatch 'Loc\.AiPurposeQuestion' -and
+     $decisionset -notmatch 'Loc\.AiPurposeOptions')
+Assert-True 'the folder domain declares concurrency and the runner limits it' `
+    ($decisionset -match 'MaxConcurrency => 8' -and
+     $decisions -match 'SemaphoreSlim' -and $decisions -match 'set\.MaxConcurrency > 1')
 Assert-True 'the classify service still never writes risk / selection' `
     ($batchsvc -notmatch '\.Risk\s*=' -and $batchsvc -notmatch '\.CanDelete\s*=' -and
      $batchsvc -notmatch '\.Selected\s*=')

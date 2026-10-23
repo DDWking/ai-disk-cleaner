@@ -156,7 +156,7 @@ public partial class MainWindow : Window
     private readonly IScanService _scanner = new MftScanService();
     private readonly IScanService _fallback = new RecursiveScanService();
     // 协调模块：窗口只管 UI 绑定和事件转发，流程都在这些类里（可独立测试）
-    private readonly ScanCoordinator _scanCoordinator;
+    private readonly CleanupWorkflowService _cleanupWorkflow;
     private readonly DeletionCoordinator _deleteCoordinator = new();
     private FileEntry _root = null!;
     private List<FileEntry> _allFiles = new(); // 缓存：根目录下所有文件（避免重复递归收集）
@@ -208,11 +208,12 @@ public partial class MainWindow : Window
     private long _volumeUsed;
     /// <summary>设置页「测试判定通道」在跑（防重入 + 忙状态行）。</summary>
     private bool _aiBusy;
+    private bool _aiPresetLoading;
 
     public MainWindow()
     {
         InitializeComponent();
-        _scanCoordinator = new ScanCoordinator(_scanner, _fallback);
+        _cleanupWorkflow = new CleanupWorkflowService(_scanner, _fallback);
         // 启动时**只建立一次**系统 KnownFolder 快照（重定向下载/桌面/图片等），之后只查内存；
         // 已安装清单在卸载页清点软件后（ListApps 结果处）再叠到**同一个**证据服务上。
         _systemPathSnapshot = SystemPathSnapshot.Capture();
@@ -369,6 +370,17 @@ public partial class MainWindow : Window
         LangEnBtn.Content = Loc.LangEn;
         AiSectionLabel.Text = Loc.AiSection;
         AiSectionHint.Text = Loc.AiSectionHint;
+        if (AiSetupTitle != null) AiSetupTitle.Text = Loc.AiSetupTitle;
+        if (AiSetupHint != null) AiSetupHint.Text = Loc.AiSetupHint;
+        if (AiPresetLabel != null) AiPresetLabel.Text = Loc.AiPresetLabel;
+        if (AiPresetHint != null) AiPresetHint.Text = Loc.AiPresetHint;
+        if (AiAdvancedLabel != null) AiAdvancedLabel.Text = Loc.AiAdvancedLabel;
+        if (AiAdvancedHint != null) AiAdvancedHint.Text = Loc.AiAdvancedHint;
+        if (AiPresetBox != null && AiPresetBox.Items.Count == 0)
+        {
+            AiPresetBox.ItemsSource = AiConfigurationService.Presets;
+            AiPresetBox.DisplayMemberPath = nameof(AiSetupPresetInfo.Name);
+        }
         if (AiFullPathBox != null)
         {
             AiFullPathBox.Content = Loc.AiSendFullPaths;
@@ -600,7 +612,7 @@ public partial class MainWindow : Window
         {
             string drive = DriveBox.SelectedItem.ToString()!;
             // onFallback 让「MFT 不可用，正在用兼容扫描」立刻显示，而不是等扫完
-            var outcome = await _scanCoordinator.RunAsync(drive, progress, ct, reason =>
+            var outcome = await _cleanupWorkflow.ScanAsync(drive, progress, ct, reason =>
             {
                 _scanUsedFallback = true;
                 _scanFallbackReason = reason;
@@ -747,8 +759,6 @@ public partial class MainWindow : Window
         using var stage = _work.Begin(StageNames.Analyze, WorkPhase.Analyzing);
         UpdateStopButton();
 
-        string drive = root.FullPath;
-
         var analyzeProgress = new Progress<ScanProgress>(p =>
         {
             // 旧任务的进度回调不能动新任务的进度条
@@ -761,13 +771,9 @@ public partial class MainWindow : Window
         try
         {
             // 快照读取 + 文件清单收集 + 规则分析，全部在后台
-            var (files, previous, report) = await Task.Run(() =>
-            {
-                var prev = ScanSnapshot.Load(drive);
-                var all = CollectFiles(root);
-                var rep = CleanAnalyzer.Analyze(root, prev, ct, analyzeProgress, includeDuplicates: false);
-                return (all, prev, rep);
-            }, ct);
+            var analysis = await _cleanupWorkflow.AnalyzeAsync(root, ct, analyzeProgress, includeDuplicates: false);
+            var files = analysis.Files;
+            var report = analysis.Report;
 
             if (!ReferenceEquals(_root, root) || myGeneration != _analyzeGeneration) return null;
             _allFiles = files;
@@ -807,7 +813,6 @@ public partial class MainWindow : Window
         using var stage = _work.Begin(StageNames.Duplicates, WorkPhase.Duplicates);
         UpdateStopButton();
 
-        var service = new DuplicateScanService();
         var progress = new Progress<DuplicateProgress>(p =>
         {
             if (myGeneration != _dupGeneration) return;
@@ -818,7 +823,7 @@ public partial class MainWindow : Window
         try
         {
             var files = _allFiles;
-            var outcome = await Task.Run(() => service.Run(files, ct, progress), ct);
+            var outcome = await _cleanupWorkflow.FindDuplicatesAsync(files, ct, progress);
             // 代次/根节点任一变化（新扫描、又一轮重复检测）就整批丢弃
             if (!ReferenceEquals(_root, root) || myGeneration != _dupGeneration) return;
             var report = _report;
@@ -1404,6 +1409,13 @@ public partial class MainWindow : Window
         AiNameBox.Text = p?.Name ?? "";
         AiUrlBox.Text = p?.BaseUrl ?? "";
         UpdateDecisionsHint();
+        if (AiPresetBox != null)
+        {
+            _aiPresetLoading = true;
+            AiPresetBox.SelectedIndex = FindPresetIndex(p?.BaseUrl, App.Settings.DecisionModelId(), p?.Protocol);
+            _aiPresetLoading = false;
+            UpdatePresetHint();
+        }
         AiKeyBox.Password = p?.ApiKey ?? "";
         // 显示**实际会用**的模型：DecisionModelId() 在没有显式指定时会退到该供应商模型表的第一个，
         // 让用户看见真值，而不是一个空框 + 一个看不见的回退。
@@ -1415,6 +1427,41 @@ public partial class MainWindow : Window
                 : (p?.HasStoredKey == true ? Loc.AiKeyStored : Loc.AiKeyMissing) + "  ·  " + Loc.AiKeyStoreHint;
         }
         if (AiKeyClearBtn != null) AiKeyClearBtn.Content = Loc.AiKeyClear;
+    }
+
+    private int FindPresetIndex(string? url, string? model, string? protocol = null)
+    {
+        string u = (url ?? "").Trim().TrimEnd('/');
+        string m = (model ?? "").Trim();
+        for (int i = 0; i < AiConfigurationService.Presets.Count; i++)
+        {
+            var preset = AiConfigurationService.Presets[i];
+            if (preset.BaseUrl.Length > 0 && string.Equals(u, preset.BaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)
+                && string.Equals(m, preset.Model, StringComparison.OrdinalIgnoreCase)
+                && (string.IsNullOrWhiteSpace(protocol) || string.Equals(protocol, preset.Protocol, StringComparison.OrdinalIgnoreCase))) return i;
+        }
+        return AiConfigurationService.Presets.Count > 2 ? 2 : Math.Max(0, AiConfigurationService.Presets.Count - 1);
+    }
+
+    private void UpdatePresetHint()
+    {
+        if (AiPresetHint == null) return;
+        if (AiPresetBox?.SelectedItem is AiSetupPresetInfo preset)
+            AiPresetHint.Text = preset.Description;
+        else
+            AiPresetHint.Text = Loc.AiPresetHint;
+    }
+
+    private void AiPreset_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        UpdatePresetHint();
+        if (_aiPresetLoading || AiPresetBox?.SelectedItem is not AiSetupPresetInfo preset) return;
+        if (App.Settings.CurrentProvider() is { } active) active.Protocol = preset.Protocol;
+        // 模板只给空白新配置填默认值，不能覆盖用户已经填写的第三方中转地址。
+        if (string.IsNullOrWhiteSpace(AiUrlBox.Text)) AiUrlBox.Text = preset.BaseUrl;
+        if (string.IsNullOrWhiteSpace(AiDecisionModelBox.Text)) AiDecisionModelBox.Text = preset.Model;
+        AiTestHint.Text = "";
+        AiDiagnosticNext.Text = "";
     }
 
     void SaveAiFields()
@@ -1500,6 +1547,8 @@ public partial class MainWindow : Window
         p.Name = AiNameBox.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(p.Name)) p.Name = p.Id;
         p.BaseUrl = AiUrlBox.Text?.Trim() ?? "";
+        p.Protocol = (AiPresetBox?.SelectedItem as AiSetupPresetInfo)?.Protocol ?? p.Protocol;
+        if (p.Protocol != "systemone") p.Protocol = "decisions";
         p.ApiKey = AiKeyBox.Password ?? "";
 
         string model = AiDecisionModelBox.Text?.Trim() ?? "";
@@ -1541,48 +1590,45 @@ public partial class MainWindow : Window
         RefreshAiLamp();
         AiTestBtn.IsEnabled = false;
         AiTestHint.Text = Loc.AiWorking;
+        AiDiagnosticNext.Text = "";
         using var op = StartOperation(ref _aiConfigCts, "AiConfig");
         var ct = op.Token;
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            var request = new AiDecisionRequest
+            var provider = App.Settings.DecisionProvider();
+            var model = App.Settings.DecisionModelId();
+            if (provider == null || string.IsNullOrWhiteSpace(provider.BaseUrl) || string.IsNullOrWhiteSpace(model))
             {
-                Provider = App.Settings.DecisionProvider(),
-                Model = App.Settings.DecisionModelId(),
-                State = Loc.IsEn ? "This is a connection test." : "这是一次连接测试。",
-                Questions =
-                {
-                    ["ok"] = new AiDecisionQuestion
-                    {
-                        Type = "noul",
-                        Instructions = Loc.IsEn
-                            ? "Does this text say it is a connection test?"
-                            : "这段话是不是在说这是一次连接测试？",
-                    },
-                },
-            };
-            if (request.Provider == null || string.IsNullOrWhiteSpace(request.Model))
-                throw new InvalidOperationException(Loc.AiNeedConfig);
-            // 本地硬限制先过一遍：配置填错时给的是「哪道题哪里不对」，不是端点的 400
-            JevLimits.Validate(request);
+                var missing = AiConfigurationService.Missing(Loc.IsEn);
+                AiTestHint.Text = missing.Summary;
+                AiDiagnosticNext.Text = missing.NextStep;
+                return;
+            }
 
+            var request = AiConfigurationService.BuildProbe(provider, model, Loc.IsEn);
+            JevLimits.Validate(request);
             var reply = await AiGateway.DecideAsync(request, ct);
+            AiConfigurationService.ValidateProbe(reply, Loc.IsEn);
             sw.Stop();
-            reply.Answers.TryGetValue("ok", out var answer);
-            AiTestHint.Text = Loc.AiTestOk(
-                sw.ElapsedMilliseconds, reply.Model, answer?.Noul ?? answer?.Confidence ?? 0, reply.Cost);
-            op.Done("decisions test ok");
+            var answer = reply.Answers["ok"];
+            AiTestHint.Text = Loc.AiTestSuccess + " · " + Loc.AiTestModel(reply.Model.Length > 0 ? reply.Model : model, sw.ElapsedMilliseconds);
+            AiDiagnosticNext.Text = Loc.AiTestOk(sw.ElapsedMilliseconds, reply.Model, answer.Noul ?? 0, reply.Cost);
+            op.Done("jev capability check ok");
         }
         catch (OperationCanceledException)
         {
             AiTestHint.Text = Loc.Aborted;
-            op.Canceled("ai test canceled");
+            AiDiagnosticNext.Text = "";
+            op.Canceled("ai capability check canceled");
         }
         catch (Exception ex)
         {
-            AiTestHint.Text = AppError.From(ex, "ai test").UserMessage;
-            op.Fail(ex, "ai test");
+            sw.Stop();
+            var diagnosis = AiConfigurationService.Diagnose(ex, sw.ElapsedMilliseconds, Loc.IsEn);
+            AiTestHint.Text = diagnosis.Summary;
+            AiDiagnosticNext.Text = diagnosis.NextStep + "\n" + AppError.Trim("technical", ex);
+            op.Fail(ex, "ai capability check");
         }
         finally
         {
@@ -3485,7 +3531,7 @@ public partial class MainWindow : Window
         scanOp.Stage("post-uninstall", drive);
         try
         {
-            var outcome = await _scanCoordinator.RunAgainAsync(drive, null, ct, reason =>
+            var outcome = await _cleanupWorkflow.ScanAsync(drive, null, ct, reason =>
             {
                 _scanUsedFallback = true;
                 _scanFallbackReason = reason;
@@ -3705,7 +3751,8 @@ public partial class MainWindow : Window
         int locations = CountLocationsOf(picked);
         int sensitive = picked.Count(x => x.Risk != CleanRisk.Safe);
 
-        var plan = _deleteCoordinator.Plan(ToTargets(picked));
+        bool exactSnapshot = _scanQuality?.Source == ScanSource.Recursive;
+        var plan = _cleanupWorkflow.PlanDeletion(picked, exactSnapshot, _deleteCoordinator);
         string message = Loc.DeleteScopeConfirm(locations, picked.Count, FileEntry.FormatSize(bytes), sensitive)
             + DeletionCoordinator.PlanNote(plan);
 
@@ -3817,28 +3864,6 @@ public partial class MainWindow : Window
         // 重建分层（后台）——计数与总计随之更新
         if (_root != null) _ = RebuildLayersAsync(_root, null, "after-delete");
         RefreshCleanUi();
-    }
-
-    /// <summary>把清理列表条目转成删除目标，带上扫描时的身份快照。</summary>
-    private List<DeletionTarget> ToTargets(IEnumerable<CleanItem> items)
-    {
-        bool exact = _scanQuality?.Source == ScanSource.Recursive;
-        var list = new List<DeletionTarget>();
-        foreach (var x in items)
-        {
-            list.Add(new DeletionTarget
-            {
-                Path = x.FullPath,
-                Label = x.Name,
-                IsDirectory = x.IsDirectory,
-                // 目录的 Size 是聚合值，和磁盘上的目录项对不上，不参与比对
-                ExpectedSize = x.IsDirectory ? -1 : x.Size,
-                ExpectedModified = x.Entry?.Modified ?? default,
-                SnapshotIsExact = exact,
-                Source = x,
-            });
-        }
-        return list;
     }
 
     /// <summary>把真正删掉的项从报告里摘掉，并刷新树。</summary>

@@ -13,7 +13,12 @@ public sealed class AiProviderCfg
     public string Name { get; set; } = "";
     public string BaseUrl { get; set; } = "";
 
-    // v3.0 删掉了 Protocol 字段：聊天通道（completions / responses / anthropic）连同
+    /// <summary>Jev 接口形状：官方 Decisions API 或 TypeSafe System One API。</summary>
+    public string Protocol { get; set; } = "decisions";
+
+    // v3.0 删掉了聊天协议字段；现在保留的是 Jev 的两种官方结构化 API。旧配置中的 Protocol
+    // 若是 completions 等聊天值，会在迁移时归一为 decisions。 </summary>
+    // 聊天通道（completions / responses / anthropic）连同
     // 协议下拉一起下线，供应商只可能是判定端点。老配置里那个字段留在 json 里没关系，
     // 反序列化会忽略未知成员。
 
@@ -121,26 +126,50 @@ public sealed class AppSettings
 
     public void Migrate()
     {
-        if (AiProviders.Count > 0) return;
-        if (string.IsNullOrWhiteSpace(AiBaseUrl) && string.IsNullOrWhiteSpace(AiModel) && string.IsNullOrWhiteSpace(AiApiKey))
-            return;
-        var p = new AiProviderCfg
+        if (AiProviders.Count == 0)
         {
-            Id = "default",
-            Name = string.IsNullOrWhiteSpace(AiName) ? "default" : AiName,
-            BaseUrl = AiBaseUrl ?? "",
-            ApiKey = AiApiKey ?? "",
-            Models = (AiModels ?? new()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-        };
-        if (!string.IsNullOrWhiteSpace(AiModel) && !p.Models.Contains(AiModel, StringComparer.OrdinalIgnoreCase))
-            p.Models.Insert(0, AiModel);
-        AiProviders.Add(p);
-        AiActiveId = p.Id;
+            bool hasLegacy = !string.IsNullOrWhiteSpace(AiBaseUrl)
+                             || !string.IsNullOrWhiteSpace(AiModel)
+                             || !string.IsNullOrWhiteSpace(AiApiKey);
+            if (hasLegacy)
+            {
+                var p = new AiProviderCfg
+                {
+                    Id = "default",
+                    Name = string.IsNullOrWhiteSpace(AiName) ? "default" : AiName,
+                    BaseUrl = AiBaseUrl ?? "",
+                    ApiKey = AiApiKey ?? "",
+                    Models = (AiModels ?? new()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                };
+                if (!string.IsNullOrWhiteSpace(AiModel) && !p.Models.Contains(AiModel, StringComparer.OrdinalIgnoreCase))
+                    p.Models.Insert(0, AiModel);
+                AiProviders.Add(p);
+                AiActiveId = p.Id;
 
-        // v3.0：聊天通道删掉之后，老的「全局聊天模型」就是唯一的模型 ——
-        // 搬进判定模型，否则老用户升级后会看到模型是空的，以为配置丢了。
-        if (string.IsNullOrWhiteSpace(AiDecisionModel) && !string.IsNullOrWhiteSpace(AiModel))
-            AiDecisionModel = AiModel.Trim();
+                // v3.0：聊天通道删掉之后，老的「全局聊天模型」就是唯一的模型 ——
+                // 搬进判定模型，否则老用户升级后会看到模型是空的，以为配置丢了。
+                if (string.IsNullOrWhiteSpace(AiDecisionModel) && !string.IsNullOrWhiteSpace(AiModel))
+                    AiDecisionModel = AiModel.Trim();
+            }
+        }
+
+        NormalizeProtocols();
+    }
+
+    /// <summary>
+    /// 把供应商上的 <see cref="AiProviderCfg.Protocol"/> 收敛到两种 Jev 接口形状。
+    ///
+    /// 旧配置里存的是聊天协议（completions / responses / anthropic）。那套已经下线，
+    /// 但字段还留在 json 里 —— 如果继续拿它当门槛，老用户升级后会「看起来配好了却不能用」。
+    /// 只认 systemone，其余一律当 decisions。
+    /// </summary>
+    private void NormalizeProtocols()
+    {
+        foreach (var p in AiProviders)
+        {
+            if (!string.Equals(p.Protocol, "systemone", StringComparison.OrdinalIgnoreCase))
+                p.Protocol = "decisions";
+        }
     }
 
     public static AppSettings Load()

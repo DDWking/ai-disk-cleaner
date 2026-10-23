@@ -1,6 +1,8 @@
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Security;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 
@@ -39,8 +41,67 @@ public static class AiClient
             {
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
             },
+            // 系统 DNS 被污染时的兜底：用 DoH 拿真实地址再连。
+            // TLS 仍按**原主机名**校验，所以这条路径不降低任何安全性（见 DohResolver）。
+            ConnectCallback = ConnectAsync,
         };
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(90) };
+    }
+
+    /// <summary>
+    /// 建立 TCP 连接。默认用 DoH 解析（正常网络也返回正确结果），
+    /// DoH 不可用时退回系统 DNS —— 企业内网域名因此不会被这条路径打断。
+    /// </summary>
+    static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken ct)
+    {
+        var endpoint = context.DnsEndPoint;
+        string host = endpoint.Host;
+
+        // 字面量地址（含代理端点）不需要解析。
+        if (IPAddress.TryParse(host, out var literal))
+            return await OpenSocketAsync(new IPEndPoint(literal, endpoint.Port), ct);
+
+        var candidates = await DohResolver.ResolveAsync(host, ct);
+        if (candidates.Count == 0)
+        {
+            var system = await Dns.GetHostAddressesAsync(host, ct);
+            candidates = system.Where(x => x.AddressFamily == AddressFamily.InterNetwork).ToList();
+            if (candidates.Count == 0) candidates = system.ToList();
+        }
+
+        Exception? last = null;
+        foreach (var ip in candidates)
+        {
+            try
+            {
+                return await OpenSocketAsync(new IPEndPoint(ip, endpoint.Port), ct);
+            }
+            catch (Exception ex) when (ex is SocketException or IOException)
+            {
+                // 某个地址不通就试下一个：被污染的答案往往是「能连但证书不对」或干脆黑洞。
+                last = ex;
+            }
+        }
+
+        throw last ?? new SocketException((int)SocketError.HostUnreachable);
+    }
+
+    static async ValueTask<Stream> OpenSocketAsync(IPEndPoint endpoint, CancellationToken ct)
+    {
+        var socket = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+        {
+            NoDelay = true,
+        };
+        try
+        {
+            await socket.ConnectAsync(endpoint, ct);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
     }
 
     static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -57,9 +118,11 @@ public static class AiClient
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(model))
             throw new InvalidOperationException(Loc.AiNeedConfig);
 
-        string url = baseUrl.EndsWith("/decisions", StringComparison.OrdinalIgnoreCase)
+        bool systemOne = string.Equals(p?.Protocol, "systemone", StringComparison.OrdinalIgnoreCase);
+        string suffix = systemOne ? "/v1/systemone" : "/decisions";
+        string url = baseUrl.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
             ? baseUrl
-            : baseUrl + "/decisions";
+            : baseUrl + suffix;
 
         var payload = new Dictionary<string, object?>
         {

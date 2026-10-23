@@ -10,17 +10,25 @@ namespace AiDiskCleaner.Services;
 /// 清理中心的候选项由 8 条规则产出，而**每条规则都声明了具体用途**，不会留下
 /// 「认不出来」的堆积；真正堆积未知的是文件夹树。
 ///
-/// 三条实测得来的硬约束，别随手改：
+/// 四条实测得来的硬约束，别随手改：
 ///
 /// <list type="number">
-/// <item><b>路径必须写进问题里，不能让它「数第几行」。</b>
-/// 48 项、每条路径重复三次的自检里，行号引用只有 8/16 一致 ——
-/// 而且失败模式是系统性的：前 16 行答得又准又对，后面整片塌成同一个答案。
-/// 把路径直接写进 instructions 之后，48 项 15/16、176 项 15/16 一致，token 只多 5%。</item>
+/// <item><b>一个请求只问一个目录。</b>以前是「一批 80 条路径 + 每题问一条」，
+/// 结果是准确率塌方：模型看不到任何目录内容（state 只有一串路径），
+/// 而且 80 个互不相关的目录挤在同一份 state 里会互相串味 ——
+/// 问的是某一个路径，模型却要在一坨无关路径里定位它。
+/// 现在一次请求 = 一个目录，state 是它自己的结构化摘要
+/// （<see cref="FolderPurposeRules.BuildDecisionState"/>：路径、大小、文件数、
+/// 类型分布、最大文件、子目录名、已知产品、最后修改）。</item>
 ///
-/// <item><b>一批 80 条。</b>条数上限跟着**每项 token 数**走，而那个数由选项表规模决定
-/// （10 类 304 / 放宽 keep 后 362 / 拆开「别删」成 13 类后 488）。
-/// 取 80 让单批输入稳定在 64K 的六成左右。</item>
+/// <item><b>模型面文案一律英文常量，不跟界面语言走。</b>
+/// 题面在 <see cref="AiPurposeCriteria.QuestionInstructions"/>，选项描述在
+/// <see cref="AiPurposeCriteria.Descriptions"/>。旧实现从 <c>Loc</c> 取题面与选项，
+/// 界面是中文时就发中文 —— 而 Jev 在英文上最准。选项**只描述「这是什么数据」**，
+/// 不再夹「别删」「只有在…才选这个」这类建议与元指令（那会把分类题答成建议题）。</item>
+///
+/// <item><b>自适应步长起点也是 1。</b>既然一批只有一条，起点自然等于上限；
+/// 步长那套逻辑照常跑（只是不再翻倍），撑爆时也不会再拆（单条无从拆起）。</item>
 ///
 /// <item><b>出站路径一律走 <see cref="PathRedactor.Outbound"/>。</b>
 /// 默认脱敏（<c>&lt;UserProfile&gt;</c> / <c>&lt;User&gt;</c> / <c>&lt;PC&gt;</c>），
@@ -34,34 +42,31 @@ namespace AiDiskCleaner.Services;
 public sealed class FolderPurposeDecisionSet : IDecisionSet<OrganizeNode>
 {
     /// <summary>
-    /// 一次请求最多问多少条。
+    /// 一次请求最多问几条。**1**：一个目录一次请求。
     ///
-    /// 这个数字跟着**每项 token 数**走，而每项 token 数由选项表规模决定：
-    ///
-    /// <code>
-    /// 选项表                每项 token   单批   单批输入   占 64K
-    /// 10 类（原来）            304       160    48,640      76%
-    /// 10 类 + 放宽 keep        362       160    57,920      90%  ← 真机撞 max tokens
-    /// 10 类 + 放宽 keep        362       100    36,200      57%
-    /// 13 类（拆开「别删」）     488        80    39,040      61%  ← 现在
-    /// </code>
-    ///
-    /// 稳定在六成左右：路径长短有个体差异，留够余量才不会被某一批特别长的顶爆。
-    /// 花费不变（同样的条数、同样的单价），只是多几次小请求；
-    /// 而且 <see cref="DecisionRunner"/> 里那层「太大就拆两半」还会兜底。
+    /// 这不是省 token 的取舍，是准确率的取舍。旧值 80 的前提是「每项 token 很小、
+    /// 靠条数摊薄 state」—— 那个前提本身就错了：模型看不到目录内容，
+    /// 而 80 条无关路径共享一份 state 会让定位失效。现在每条 state 是一份
+    /// 约几百字符的结构化摘要，单条就远低于 <see cref="JevLimits.MaxRequestChars"/>。
     /// </summary>
-    public const int MaxPerRequest = 80;
+    public const int MaxPerRequest = 1;
 
     /// <summary>
-    /// 自适应步长的**起点**。故意小：别人可能填 32k 上下文的端点，
-    /// 一上来发 80 条会整批 400；从 20 条起步只多花几次往返。
-    /// 成功一次就翻倍，很快长到 <see cref="MaxPerRequest"/>。
+    /// 自适应步长的**起点**。跟上限一样是 1：一批一条，不存在「先小批试再放大」。
+    /// 步长逻辑本身保留（见 <see cref="DecisionRunner"/>），只是不再翻倍。
     /// </summary>
-    public const int AdaptiveStart = 20;
+    public const int AdaptiveStart = 1;
 
     string IDecisionSet<OrganizeNode>.Name => "folder-purpose";
     int IDecisionSet<OrganizeNode>.MaxPerRequest => MaxPerRequest;
     int IDecisionSet<OrganizeNode>.AdaptiveStart => AdaptiveStart;
+
+    /// <summary>
+    /// 并发度：每条 state 是一份独立摘要、每题一份选项表，请求之间没有共享状态，
+    /// 所以可以并行发。Jev 端点是 ~1200 req/min、延迟通常 &lt;0.5s，
+    /// 串行问几百个目录会把界面卡很久。
+    /// </summary>
+    int IDecisionSet<OrganizeNode>.MaxConcurrency => 8;
 
     string IDecisionSet<OrganizeNode>.ProgressText(int done, int total)
         => Loc.AiPurposeBatchProgress(done, total);
@@ -79,13 +84,25 @@ public sealed class FolderPurposeDecisionSet : IDecisionSet<OrganizeNode>
         => new()
         {
             Type = "choice",
-            // 路径写进问题本身 —— 不让模型去数行号（见类型注释第 1 条）
-            Instructions = Loc.AiPurposeQuestion(PathRedactor.Outbound(item.FullPath)),
+            // 模型面题面是**英文常量**：不跟界面语言走（Jev 在英文上最准）。
+            // 路径不写进题面 —— 一个请求只问一个目录，路径在 state 的 path: 行里。
+            Instructions = AiPurposeCriteria.QuestionInstructions,
             Criteria = Criteria(),
         };
 
     string IDecisionSet<OrganizeNode>.StateFor(IReadOnlyList<OrganizeNode> chunk)
-        => string.Join(Environment.NewLine, chunk.Select(x => PathRedactor.Outbound(x.FullPath)));
+    {
+        // 一次请求只问一个目录（MaxPerRequest = 1），但这里仍按 chunk 遍历：
+        // 万一调用方绕过批大小直接塞多条，也不会只发第一条而让答案错位。
+        var parts = new string[chunk.Count];
+        for (int i = 0; i < chunk.Count; i++)
+        {
+            var node = chunk[i];
+            var sum = FolderPurposeRules.Summarize(node.Dir, node.Id, node.Depth, node.RelativePath);
+            parts[i] = FolderPurposeRules.BuildDecisionState(sum, PathRedactor.Outbound(node.FullPath));
+        }
+        return string.Join(Environment.NewLine, parts);
+    }
 
     DecisionApplied IDecisionSet<OrganizeNode>.Apply(OrganizeNode item, AiDecisionAnswer? answer)
     {
@@ -116,12 +133,15 @@ public sealed class FolderPurposeDecisionSet : IDecisionSet<OrganizeNode>
 
     static string KeyOf(int index) => "p" + (index + 1);
 
-    /// <summary>选项表。每题一份（API 强制：criteria 挂在问题上，放进 state 会被校验拒掉）。</summary>
+    /// <summary>
+    /// 选项表。每题一份（API 强制：criteria 挂在问题上，放进 state 会被校验拒掉）。
+    /// 文案是**英文常量**（<see cref="AiPurposeCriteria.Descriptions"/>），不跟界面语言走。
+    /// </summary>
     static Dictionary<string, string> Criteria()
     {
-        var options = Loc.AiPurposeOptions;
-        var criteria = new Dictionary<string, string>(options.Length, StringComparer.Ordinal);
-        foreach (var (key, text) in options) criteria[key] = text;
+        var criteria = new Dictionary<string, string>(AiPurposeCriteria.Keys.Length, StringComparer.Ordinal);
+        foreach (var key in AiPurposeCriteria.Keys)
+            criteria[key] = AiPurposeCriteria.Descriptions.TryGetValue(key, out var text) ? text : "";
         return criteria;
     }
 }

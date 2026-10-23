@@ -44,6 +44,9 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\SecretProtector.cs" Link="SecretProtector.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AiGateway.cs" Link="AiGateway.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AiConfigurationService.cs" Link="AiConfigurationService.cs" />
+    <!-- DNS 污染兜底：DoH 应答解析是纯函数，必须离线断言（非 A 记录 / 失败状态 / 劫持页都要挡住） -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\DohResolver.cs" Link="DohResolver.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevContracts.cs" Link="Decisions\JevContracts.cs" />
     <!-- 判定层：阈值表 + 分批执行器 + 硬限制。全部离线可测（假 sender），不联网 -->
     <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\DecisionThresholds.cs" Link="Decisions\DecisionThresholds.cs" />
@@ -53,6 +56,8 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevLog.cs" Link="Decisions\JevLog.cs" />
     <!-- 重复文件「留哪一个」域：回写纯净性 / 阈值 / 挑组 / 脱敏都要按真代码断言 -->
     <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\DuplicateKeepDecisionSet.cs" Link="Decisions\DuplicateKeepDecisionSet.cs" />
+    <!-- 文件夹用途域：一请求一目录的 state 摘要、英文常量选项表、并发度都要按真代码断言 -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\FolderPurposeDecisionSet.cs" Link="Decisions\FolderPurposeDecisionSet.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleContracts.cs" Link="CleanRuleContracts.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanItemFactory.cs" Link="CleanItemFactory.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleEligibility.cs" Link="CleanRuleEligibility.cs" />
@@ -81,6 +86,9 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\ScanSnapshot.cs" Link="ScanSnapshot.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\RecursiveScanService.cs" Link="RecursiveScanService.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\ScanCoordinator.cs" Link="ScanCoordinator.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanupWorkflowService.cs" Link="CleanupWorkflowService.cs" />
+    <!-- 工作流服务要调 CleanAnalyzer；少了它整个检查项目编译不过（-SkipBuild 会掩盖这一点） -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanAnalyzer.cs" Link="CleanAnalyzer.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\DeletionCoordinator.cs" Link="DeletionCoordinator.cs" />
     <!-- 真 AI 工具面：用来断言「AI 不能改选择」 -->
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanReport.cs" Link="CleanReport.cs" />

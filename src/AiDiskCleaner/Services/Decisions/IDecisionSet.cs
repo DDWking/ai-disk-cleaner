@@ -45,6 +45,15 @@ public interface IDecisionSet<TItem>
     /// <summary>自适应步长的起点。故意小：别人可能填 32k 上下文的端点。</summary>
     int AdaptiveStart { get; }
 
+    /// <summary>
+    /// 最多同时发几个请求。默认 **1**（串行）—— 保持既有行为不变。
+    ///
+    /// 只有「每批各自独立、state 与选项表互不共享」的域才该调大它。
+    /// 执行器在 &gt;1 时用 <see cref="System.Threading.SemaphoreSlim"/> 限流并发，
+    /// 并发下计数/分布/进度全部加锁；=1 时走原来的串行路径，行为逐字节不变。
+    /// </summary>
+    int MaxConcurrency => 1;
+
     /// <summary>进度文案（域自己写，因为「在认什么」只有它知道）。</summary>
     string ProgressText(int done, int total);
 

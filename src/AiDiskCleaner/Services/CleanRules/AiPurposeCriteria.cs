@@ -44,21 +44,27 @@ public enum AiPurposeKind
 }
 
 /// <summary>
-/// 用途判定的选项表、回写映射与置信度阈值。
+/// 用途判定的选项表、模型面文案、回写映射与置信度阈值。
 ///
-/// 三条设计约束（都有实测依据，别随手改）：
+/// 四条设计约束（都有实测依据，别随手改）：
 ///
 /// <list type="number">
-/// <item><b>只留一个「别删」出口。</b>把「用户数据 / 系统文件 / 开发项目」拆成三类时，
-/// 边界立刻模糊：实测同一批路径里，用户视频被判成「项目」、Windows 更新缓存的置信度
-/// 从中等的 0.43 变成「系统 0.84」（更容易误导）。合并成一个出口后，
-/// 视频 / 程序本体 / 游戏存档全部正确落进 keep。</item>
+/// <item><b>「别删」拆成四个具体出口。</b>原来只有一个 keep 出口，实测它成了垃圾桶：
+/// <c>$WinREAgent</c>（更新残留）、<c>$Extend</c>（NTFS 元数据）、<c>Recovery</c>（恢复环境）、
+/// <c>msys64</c>（开发工具本体）全显示成同一句话「你的数据或软件自己的数据」——
+/// 说了等于没说。拆成 userdata / system / appdata / devtools 之后说法具体了，
+/// 置信度反而更高（<c>$WinREAgent</c> 0.79→1.00、<c>msys64</c> 0.84→devtools 0.99）。</item>
+///
+/// <item><b>模型面文案一律英文常量。</b>题面是 <see cref="QuestionInstructions"/>，
+/// 选项描述是 <see cref="Descriptions"/>。Jev 在英文上最准，而界面语言是中文时旧实现
+/// 会把中文题面和中文选项发出去。选项**只描述「这是什么数据」**，
+/// 不夹「别删」「只有在…才选这个」这类建议与元指令。</item>
 ///
 /// <item><b>选项集越小越准。</b>实测每项 token：6 类 293、9 类 232、10 类 304、
-/// 13 类 337——类别越多不光更贵，准确率还下降。</item>
+/// 13 类 337——类别越多不光更贵，准确率还下降。所以加类别要拿数据说话。</item>
 ///
 /// <item><b>置信度阈值按「判错的代价」分档。</b>说「这是缓存」说错了会误导用户去删；
-/// 说「别删」说错了只是少清一个东西。所以前者阈值高、后者低。</item>
+/// 说「别删」说错了只是少清一个东西。所以前者阈值高、后者低（见 <see cref="ThresholdFor"/>）。</item>
 /// </list>
 ///
 /// <b>安全不变量：这一整套结果永远不改 Risk / CanDelete / Selected。</b>
@@ -72,8 +78,7 @@ public static class AiPurposeCriteria
     /// 选项键的**规范列表**（顺序即展示顺序）。
     ///
     /// 键是稳定契约：它进请求体、也是以后做结果缓存时的缓存键 —— <b>不要改</b>。
-    /// 文案（双语）在 <c>Loc.AiPurposeOptions</c> 里；键放这里是为了让离线回归
-    /// 不用碰 Loc 就能断言「选项表是闭合的、正好这 13 个」。
+    /// 键放这里是为了让离线回归不用碰 Loc 就能断言「选项表是闭合的、正好这 13 个」。
     /// </summary>
     public static readonly string[] Keys =
     {
@@ -82,6 +87,42 @@ public static class AiPurposeCriteria
         "userdata", "system", "appdata", "devtools",
         "unknown",
     };
+
+    /// <summary>
+    /// 发给模型的那道题（**英文常量，不跟界面语言走**）。
+    ///
+    /// 模型面一律英文：Jev 在英文上最准，而界面语言是中文时旧实现会把中文题面和
+    /// 中文选项发出去。路径不进题面 —— 一个请求只问一个目录，路径在 state 的
+    /// <c>path:</c> 行里（见 <see cref="FolderPurposeRules.BuildDecisionState"/>）。
+    /// </summary>
+    public const string QuestionInstructions =
+        "What kind of data does the folder described in the state mainly contain?";
+
+    /// <summary>
+    /// 选项键 → 英文描述。**只描述「这是什么数据」** ——
+    /// 不写「别删」「只有在…才选这个」这类建议与元指令：那会把「是什么」和「该怎么办」
+    /// 混进同一个选项里，实测会让模型把分类题当成建议题来答。
+    ///
+    /// 键与 <see cref="Keys"/> 一一对应；描述是**模型面**文案，不含 CJK。
+    /// 用户看到的短名仍然是 <c>Loc.AiPurposeDisplayName</c>（那边保持双语）。
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> Descriptions =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["temp"] = "Temporary files that programs create and discard when done",
+            ["browsercache"] = "A web browser's cached pages, images and scripts",
+            ["appcache"] = "An application's cache, which the app can rebuild by itself",
+            ["devcache"] = "Component or package cache downloaded by a developer tool",
+            ["applog"] = "Log files written by applications",
+            ["dump"] = "Crash dump files",
+            ["installer"] = "Downloaded installer packages",
+            ["model"] = "Large downloaded assets such as AI model weights or game data",
+            ["userdata"] = "The user's own files: documents, photos, videos, music, game saves, chat history, keys",
+            ["system"] = "Folders owned by Windows or the PC vendor: recovery environment, driver backups, NTFS metadata, update leftovers",
+            ["appdata"] = "An application's own persistent data: settings, accounts, plugins, databases",
+            ["devtools"] = "An installed developer tool itself: compiler, runtime, SDK",
+            ["unknown"] = "Cannot tell whose data this is or what it is for",
+        };
 
     /// <summary>Jev 返回的键 → 大类。认不出的键一律当 <see cref="AiPurposeKind.Unknown"/>。</summary>
     public static AiPurposeKind Parse(string? key) => (key ?? "").Trim().ToLowerInvariant() switch

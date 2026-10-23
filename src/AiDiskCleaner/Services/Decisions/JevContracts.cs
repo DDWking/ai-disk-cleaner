@@ -33,7 +33,11 @@ public sealed class AiDecisionRequest
     public AiProviderCfg? Provider { get; set; }
     public string? Model { get; set; }
 
-    /// <summary>要评估的内容。这里的实现按「一行一个路径」拼纯文本。</summary>
+    /// <summary>
+    /// 要评估的内容。由各判定域的 <c>StateFor</c> 拼纯文本：
+    /// 文件夹用途域是**该目录自己的英文结构化摘要**（一行一个字段），
+    /// 重复文件域是**每组一段成员清单**。
+    /// </summary>
     public string State { get; set; } = "";
 
     public Dictionary<string, AiDecisionQuestion> Questions { get; set; } = new();

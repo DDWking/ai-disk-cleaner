@@ -58,15 +58,44 @@ public static class AiPurposeTests
             actual.Where(k => k != "unknown").All(k => AiPurposeCriteria.Parse(k) != AiPurposeKind.Unknown),
             string.Join(",", actual.Where(k => k != "unknown" && AiPurposeCriteria.Parse(k) == AiPurposeKind.Unknown)));
 
-        // 键是契约，文案只是展示：两边不许漂移
-        string locSrc = ReadSource("src/AiDiskCleaner/Services/Loc.cs");
-        check("Loc 的选项表包含全部规范键",
-            actual.All(k => locSrc.Contains($"(\"{k}\"", StringComparison.Ordinal)),
-            string.Join(",", actual.Where(k => !locSrc.Contains($"(\"{k}\"", StringComparison.Ordinal))));
+        // 键是契约，模型面文案是英文常量：键与描述必须一一对应（两边不许漂移）。
+        // 文案**不再从 Loc 取** —— 界面语言不能影响发给模型的东西。
+        check("模型面选项描述覆盖全部规范键",
+            actual.All(k => AiPurposeCriteria.Descriptions.ContainsKey(k)),
+            string.Join(",", actual.Where(k => !AiPurposeCriteria.Descriptions.ContainsKey(k))));
+        check("模型面选项描述里没有多余的键",
+            AiPurposeCriteria.Descriptions.Keys.All(k => actual.Contains(k)),
+            string.Join(",", AiPurposeCriteria.Descriptions.Keys.Where(k => !actual.Contains(k))));
+        // 模型面一律英文：描述与题面都不许含 CJK（否则界面是中文时又会发中文）
+        check("选项描述不含 CJK 字符",
+            AiPurposeCriteria.Descriptions.Values.All(v => !HasCjk(v)),
+            string.Join(" | ", AiPurposeCriteria.Descriptions.Values.Where(HasCjk)));
+        check("题面不含 CJK 字符", !HasCjk(AiPurposeCriteria.QuestionInstructions),
+            AiPurposeCriteria.QuestionInstructions);
+        check("题面问的是「这个文件夹主要装什么数据」",
+            AiPurposeCriteria.QuestionInstructions.Contains("kind of data", StringComparison.Ordinal)
+            && AiPurposeCriteria.QuestionInstructions.Contains("folder", StringComparison.Ordinal),
+            AiPurposeCriteria.QuestionInstructions);
+        // 选项只描述「是什么」：不许夹「别删」「只有…才选」这类建议与元指令
+        check("选项描述里没有「别删」这类建议",
+            AiPurposeCriteria.Descriptions.Values.All(v =>
+                !v.Contains("别删", StringComparison.Ordinal)
+                && !v.Contains("do not delete", StringComparison.OrdinalIgnoreCase)),
+            string.Join(" | ", AiPurposeCriteria.Descriptions.Values));
+        check("选项描述里没有「只有在…才选这个」这类元指令",
+            AiPurposeCriteria.Descriptions.Values.All(v =>
+                !v.Contains("只有在", StringComparison.Ordinal)
+                && !v.Contains("only choose this", StringComparison.OrdinalIgnoreCase)),
+            string.Join(" | ", AiPurposeCriteria.Descriptions.Values));
+        check("unknown 描述说的是「判断不出这是谁的数据」",
+            AiPurposeCriteria.Descriptions["unknown"].Contains("Cannot tell", StringComparison.Ordinal),
+            AiPurposeCriteria.Descriptions["unknown"]);
 
         // 每个能被采纳的类别都要有一句能看的短名（整理页的用途是自由文本，不是枚举）。
         // 这里按源码断言，而不是调 Loc —— SafetyCheck 用的是 Loc 的桩，
         // 调桩只会测到桩自己，测不到「文案到底加没加」。
+        // **用户面短名仍然是双语的**（模型面文案才是英文常量，见上面的 Descriptions）。
+        string locSrc = ReadSource("src/AiDiskCleaner/Services/Loc.cs");
         check("Loc 里每个类别都写了短名",
             actual.Where(k => k != "unknown").All(k =>
                 locSrc.Contains($"AiPurposeKind.{AiPurposeCriteria.Parse(k)} =>", StringComparison.Ordinal)),
@@ -428,11 +457,78 @@ public static class AiPurposeTests
             !src.Contains("AiPurposeQuestion(chunk[i].FullPath", StringComparison.Ordinal)
             && !src.Contains("x => x.FullPath", StringComparison.Ordinal));
 
-        // 路径必须写进问题里：行号引用在 48 项时就 8/16 自相矛盾（实测）
-        string loc = ReadSource("src/AiDiskCleaner/Services/Loc.cs");
-        check("问题里带路径（不让模型数行号）", loc.Contains("AiPurposeQuestion"));
-        check("题目文案里嵌了路径参数",
-            loc.Contains("What is this path: {path}") || loc.Contains("这个路径是什么：{path}"));
+        // 新设计：一次请求只问一个目录，state 是该目录的英文结构化摘要。
+        // 旧的「80 条路径拼一份 state」已经删掉 —— 那是准确率塌方的根因之一。
+        check("一个请求只问一个目录（MaxPerRequest / AdaptiveStart 都是 1）",
+            setSrc.Contains("MaxPerRequest = 1", StringComparison.Ordinal)
+            && setSrc.Contains("AdaptiveStart = 1", StringComparison.Ordinal));
+        check("state 用单目录摘要（FolderPurposeRules.BuildDecisionState）",
+            setSrc.Contains("BuildDecisionState", StringComparison.Ordinal));
+        check("旧的一坨路径 state 已经删掉（不再 newline-join 全批路径）",
+            !setSrc.Contains("string.Join(Environment.NewLine, chunk.Select", StringComparison.Ordinal));
+        // 模型面题面来自英文常量，不再从 Loc 取（界面语言不能影响发给模型的东西）
+        string criteria = ReadSource("src/AiDiskCleaner/Services/CleanRules/AiPurposeCriteria.cs");
+        check("题面来自英文常量（不再走 Loc.AiPurposeQuestion）",
+            setSrc.Contains("AiPurposeCriteria.QuestionInstructions", StringComparison.Ordinal)
+            && !setSrc.Contains("Loc.AiPurposeQuestion", StringComparison.Ordinal));
+        check("选项表来自英文常量（不再走 Loc.AiPurposeOptions）",
+            setSrc.Contains("AiPurposeCriteria.Descriptions", StringComparison.Ordinal)
+            && !setSrc.Contains("Loc.AiPurposeOptions", StringComparison.Ordinal));
+        check("判定域声明了并发度 8（独立摘要可以并行发）",
+            setSrc.Contains("MaxConcurrency => 8", StringComparison.Ordinal));
+        check("题面常量是英文", criteria.Contains("What kind of data", StringComparison.Ordinal));
+
+        // state 摘要本身：英文、带 path 与 file types、不含 CJK。
+        var sum = new FolderSummary(
+            new FolderId(@"C:\Temp\x", 1), "x", "x", 1, 4096, 10, 3000, 2,
+            new[] { ".tmp×2100", ".dat×900" }, new[] { "a.bin" }, new[] { "sub" },
+            "", new DateTime(2026, 1, 2), false);
+        string state = FolderPurposeRules.BuildDecisionState(sum, @"<UserProfile>\Temp\x");
+        check("state 是英文摘要：带 path 行", state.Contains("path: <UserProfile>\\Temp\\x", StringComparison.Ordinal), state);
+        check("state 带文件类型行", state.Contains("file types: .tmp x2100, .dat x900", StringComparison.Ordinal), state);
+        check("state 带文件数与直接子目录数", state.Contains("files: 3000 (direct subfolders: 2)", StringComparison.Ordinal), state);
+        check("state 带最大文件与子目录名",
+            state.Contains("largest files: a.bin", StringComparison.Ordinal)
+            && state.Contains("subfolders: sub", StringComparison.Ordinal), state);
+        check("state 带最后修改日期", state.Contains("last modified: 2026-01-02", StringComparison.Ordinal), state);
+        check("state 不含 CJK", !HasCjk(state), state);
+        // 空字段省略
+        var bare = new FolderSummary(new FolderId(@"D:\x", 1), "x", "x", 1, 0, 0, 0, 0,
+            Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), "", default, false);
+        string bareState = FolderPurposeRules.BuildDecisionState(bare, @"D:\x");
+        check("空字段被省略（没有 file types / largest files / known product / last modified）",
+            !bareState.Contains("file types", StringComparison.Ordinal)
+            && !bareState.Contains("largest files", StringComparison.Ordinal)
+            && !bareState.Contains("known product", StringComparison.Ordinal)
+            && !bareState.Contains("last modified", StringComparison.Ordinal), bareState);
+        // 长度上限
+        var huge = new FolderSummary(new FolderId(@"D:\x", 1), "x", "x", 1, 0, 0, 0, 0,
+            new[] { new string('t', 9000) }, Array.Empty<string>(), Array.Empty<string>(), "", default, false);
+        check("state 被截到字符上限",
+            FolderPurposeRules.BuildDecisionState(huge, @"D:\x").Length <= FolderPurposeRules.MaxDecisionStateChars);
+
+        // 无扩展名的标签是固定英文常量，不跟界面语言走（它进 state，也进缓存键）
+        check("无扩展名标签是固定英文常量",
+            FolderPurposeRules.NoExtensionLabel == "(no extension)"
+            && !HasCjk(FolderPurposeRules.NoExtensionLabel));
+
+        // 执行器并发：默认 1（行为不变），>1 时走 SemaphoreSlim 限流。
+        check("执行器并发用 SemaphoreSlim 限流",
+            runner.Contains("SemaphoreSlim", StringComparison.Ordinal)
+            && runner.Contains("MaxConcurrency", StringComparison.Ordinal));
+        check("并发路径不用 ConfigureAwait(false)（Apply 要回到调用方上下文）",
+            !runner.Contains(".ConfigureAwait(false)", StringComparison.Ordinal));
+        check("接口默认并发度是 1（不声明就是串行）",
+            ReadSource("src/AiDiskCleaner/Services/Decisions/IDecisionSet.cs")
+                .Contains("int MaxConcurrency => 1;", StringComparison.Ordinal));
+    }
+
+    /// <summary>是不是含 CJK 字符（模型面文案必须全英文）。</summary>
+    static bool HasCjk(string s)
+    {
+        foreach (char c in s)
+            if (c >= 0x4E00 && c <= 0x9FFF) return true;
+        return false;
     }
 
     /// <summary>从 bin 往上找到仓库根，读源文件。</summary>

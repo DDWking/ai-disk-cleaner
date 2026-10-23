@@ -24,7 +24,15 @@ public sealed record AiGatewayStatus(
 /// </summary>
 public static class AiGateway
 {
-    /// <summary>两次请求之间的最小间隔，避免把中转打挂。</summary>
+    /// <summary>
+    /// 两次请求之间的最小间隔，避免把中转打挂。
+    ///
+    /// <b>只约束「串行」流量。</b>已经有别的请求在飞时（并发流水线，见
+    /// <see cref="ThrottleAsync"/>）不再按这个间隔串行化启动 —— 否则
+    /// <see cref="DecisionRunner"/> 的并发域会被这把闸拉回「每 250ms 发一个」，
+    /// 8 路并发等于白开。并发时真正的上界是调用方声明的并发度，
+    /// 而 Jev 端点本身允许 ~1200 req/min（≈20/s），远高于这里的默认并发度。
+    /// </summary>
     public static TimeSpan MinInterval { get; set; } = TimeSpan.FromMilliseconds(250);
 
     /// <summary>瞬时故障最多重试几次。</summary>
@@ -32,6 +40,9 @@ public static class AiGateway
 
     private static readonly object Gate = new();
     private static DateTime _lastStart = DateTime.MinValue;
+
+    /// <summary>当前在飞的请求数。用来区分「串行」与「并发流水线」两种限流口径。</summary>
+    private static int _inFlight;
 
     /// <summary>
     /// 判定通道的发送实现。组合根（<see cref="AiGateways.Register"/>）在生产接线、
@@ -82,6 +93,8 @@ public static class AiGateway
             // 计数点在这里（不是函数入口）：一次「尝试」才算一次出站，
             // 重试了 3 次就该记 3 次 —— 这条计数存在的意义就是衡量真的往外发了多少。
             Interlocked.Increment(ref _sentCount);
+            // 在飞计数：限流据此区分「串行」与「并发流水线」（见 ThrottleAsync）。
+            Interlocked.Increment(ref _inFlight);
             try
             {
                 await ThrottleAsync(timeoutCts.Token);
@@ -106,6 +119,10 @@ public static class AiGateway
                 if (!IsTransient(ex) || attempt >= MaxAttempts) break;
                 AppLog.Warn("Ai", $"decisions transient failure (attempt {attempt}/{MaxAttempts}): {AppError.From(ex).Kind}");
                 await DelayAsync(attempt, ct);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _inFlight);
             }
         }
 
@@ -148,9 +165,19 @@ public static class AiGateway
         await Task.Delay(ms, ct);
     }
 
-    /// <summary>简单限流：两次请求启动之间至少 <see cref="MinInterval"/>。</summary>
+    /// <summary>
+    /// 简单限流：两次请求启动之间至少 <see cref="MinInterval"/>。
+    ///
+    /// <b>已经有请求在飞时不排队</b>（<see cref="_inFlight"/> &gt; 1）：那种情况下调用方
+    /// 自己声明了并发度（<see cref="IDecisionSet{TItem}.MaxConcurrency"/>），
+    /// 再按 250ms 串行化启动会把并发完全抵消掉。保留串行路径的间隔是为了
+    /// 「一次一条」的域不至于把中转打挂。
+    /// </summary>
     private static async Task ThrottleAsync(CancellationToken ct)
     {
+        // 并发流水线：让调用方的并发度说话，这里不再额外串行化。
+        if (Volatile.Read(ref _inFlight) > 1) return;
+
         TimeSpan wait;
         lock (Gate)
         {

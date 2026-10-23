@@ -612,8 +612,9 @@ public partial class MainWindow
     /// <summary>
     /// 把这一屏里**还认不出用途的**交给结构化判定通道（TypeSafe Jev 这类）。
     ///
-    /// 范围 = 列表里当前这一屏的对象（<c>_organizeRows</c>），一次最多
-    /// <see cref="AiPurposeBatchService.MaxPerRequest"/> 条，超了自动分批。
+    /// 范围 = 列表里当前这一屏的对象（<c>_organizeRows</c>）。
+    /// **一个请求只问一个目录**（<see cref="AiPurposeBatchService.MaxPerRequest"/> 现在是 1，
+    /// 因为 state 要带该目录自己的内容摘要），并发度由判定域声明。
     /// 问过的不再问（<see cref="OrganizeNode.BatchAsked"/>），所以再点一次只会补问新露出来的。
     ///
     /// 写入只落在 <see cref="OrganizeNode.BatchPurpose"/> 这一个展示字段上：

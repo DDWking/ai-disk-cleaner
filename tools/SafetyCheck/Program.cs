@@ -633,8 +633,15 @@ public static class Program
             Check("显式指定的判定模型优先", s2.DecisionModelId() == "typesafe/jev-1.13", s2.DecisionModelId());
             Check("显式指定的判定提供方优先（老配置里那个 decisions 的）",
                 s2.DecisionProvider()?.Id == "pjev1", s2.DecisionProvider()?.Id ?? "(none)");
-            Check("供应商上的旧 Protocol 字段被忽略（协议概念已删）",
-                s2.AiProviders.All(p => p.GetType().GetProperty("Protocol") == null));
+            // Protocol 现在回来了，但含义变了：它只表达 Jev 的**接口形状**
+            // （decisions / systemone），不再是聊天协议。旧配置里的 completions
+            // 这类聊天值必须被收敛成 decisions —— 否则「协议」会再次变成使用门槛。
+            Check("旧聊天协议值被收敛为 decisions（协议不再当门槛）",
+                s2.AiProviders.All(p =>
+                    p.Protocol is "decisions" or "systemone"
+                    && !string.Equals(p.Protocol, "completions", StringComparison.OrdinalIgnoreCase)));
+            Check("显式声明的 decisions 供应商保持 decisions",
+                s2.AiProviders.First(p => p.Id == "pjev1").Protocol == "decisions");
             Check("判定通道仍判定为「已配置」", s2.DecisionConfigured());
 
             // 没有显式指定判定提供方时：第一个配了地址的就能用 —— **哪怕它存的是 completions**。
@@ -997,6 +1004,75 @@ public static class Program
         try { coord3.RunAsync("C:\\", null, CancellationToken.None).GetAwaiter().GetResult(); }
         catch (OperationCanceledException) { canceled = true; }
         Check("取消不触发降级", canceled && shouldNotRun.Calls == 0);
+
+        // ---- Jev setup probe：must verify a typed answer, not just HTTP success ----
+        var probeRequest = AiConfigurationService.BuildProbe(new AiProviderCfg { BaseUrl = "https://example.invalid" }, "jev-test", english: false);
+        Check("Jev 能力测试只含固定无敏感文本", probeRequest.State.Contains("无敏感") && !probeRequest.State.Contains("C:\\"));
+        Check("Jev 能力测试检查题使用结构化协议", probeRequest.Questions.ContainsKey("ok") && probeRequest.Questions["ok"].Type == "noul");
+        bool probeRejectsMissingAnswer = false;
+        try { AiConfigurationService.ValidateProbe(new AiDecisionReply(), english: false); }
+        catch (DecisionLimitException) { probeRejectsMissingAnswer = true; }
+        Check("Jev 能力测试拒绝空答案", probeRejectsMissingAnswer);
+        var probeReply = new AiDecisionReply();
+        probeReply.Answers["ok"] = new AiDecisionAnswer { Noul = 0.75 };
+        AiConfigurationService.ValidateProbe(probeReply, english: false);
+        Check("Jev 能力测试接受合法概率", probeReply.Answers["ok"].Noul == 0.75);
+        Check("Jev 配置错误可分类为引导信息", AiConfigurationService.Diagnose(new System.Net.Http.HttpRequestException("offline"), 10, false).Kind == AiDiagnosticKind.Network);
+
+        // ---- DoH 兜底：DNS 被污染时拿真实地址 -------------------------------------------------
+        // 真机故障：系统 DNS 把 openrouter.ai 解析到伪造 IP，连过去证书不受信任
+        // （SEC_E_UNTRUSTED_ROOT）或直接挂到超时，界面却只显示「连接超时」。
+        var dohAli = "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"Answer\":[" +
+                     "{\"name\":\"openrouter.ai.\",\"TTL\":51,\"type\":1,\"data\":\"104.18.2.115\"}," +
+                     "{\"name\":\"openrouter.ai.\",\"TTL\":51,\"type\":1,\"data\":\"104.18.3.115\"}]}";
+        var aliIps = DohResolver.ParseAddresses(dohAli);
+        Check("DoH 能解析出真实 IPv4", aliIps.Count == 2 && aliIps[0].ToString() == "104.18.2.115");
+
+        // 只要 A 记录：AAAA（type=28）不能被当成可用地址，否则只有 v4 出口的网络会连不上。
+        var dohMixed = "{\"Status\":0,\"Answer\":[{\"type\":28,\"data\":\"2606:4700::6812:373\"}," +
+                       "{\"type\":1,\"data\":\"104.18.3.115\"}]}";
+        var mixedIps = DohResolver.ParseAddresses(dohMixed);
+        Check("DoH 忽略 AAAA、只取 A 记录", mixedIps.Count == 1 && mixedIps[0].ToString() == "104.18.3.115");
+
+        // NXDOMAIN / SERVFAIL 不能被当成有效答案；门户劫持页会返回 HTML，不能因此抛异常。
+        Check("DoH 拒绝失败状态", DohResolver.ParseAddresses("{\"Status\":3,\"Answer\":[]}").Count == 0);
+        Check("DoH 容忍非 JSON 劫持页", DohResolver.ParseAddresses("<html>login</html>").Count == 0);
+        Check("DoH 容忍空应答", DohResolver.ParseAddresses("").Count == 0);
+        Check("DoH 拒绝畸形地址", DohResolver.ParseAddresses("{\"Status\":0,\"Answer\":[{\"type\":1,\"data\":\"not-an-ip\"}]}").Count == 0);
+
+        // 代理端点 / 内网服务不该被送去公网 DoH。
+        Check("DoH 跳过回环与内网地址",
+            DohResolver.IsLocalOrPrivate(System.Net.IPAddress.Parse("127.0.0.1"))
+            && DohResolver.IsLocalOrPrivate(System.Net.IPAddress.Parse("192.168.1.12"))
+            && !DohResolver.IsLocalOrPrivate(System.Net.IPAddress.Parse("104.18.3.115")));
+
+        // 证书故障必须报「被拦截」，而不是「网络连不上」—— 否则用户会一直去换密钥。
+        var certFailure = new System.Net.Http.HttpRequestException("send failed",
+            new System.Security.Authentication.AuthenticationException("SEC_E_UNTRUSTED_ROOT"));
+        Check("证书失败能被识别", AiConfigurationService.IsCertificateFailure(certFailure));
+        Check("被拦截的连接归类为 TlsInterception",
+            AiConfigurationService.Diagnose(certFailure, 100, false).Kind == AiDiagnosticKind.TlsInterception);
+        Check("普通网络故障不会被误报成拦截",
+            AiConfigurationService.Diagnose(new System.Net.Http.HttpRequestException("offline"), 10, false).Kind == AiDiagnosticKind.Network);
+
+        // ---- CleanupWorkflowService：删除目标转换仍保留身份与快照安全信息 ----
+        var workflow = new CleanupWorkflowService(new ScanCoordinator(
+            new FakeScan("mft", _ => new ScanResult(new FileEntry { FullPath = "C:\\", Kind = EntryKind.Directory }, null)),
+            new FakeScan("recursive", _ => throw new InvalidOperationException("不该被调用"))));
+        var source = new CleanItem
+        {
+            Name = "a.tmp",
+            FullPath = @"C:\Temp\a.tmp",
+            Size = 100,
+            IsDirectory = false,
+            Entry = new FileEntry { FullPath = @"C:\Temp\a.tmp", Modified = new DateTime(2026, 1, 2) },
+        };
+        var workflowPlan = workflow.PlanDeletion(new[] { source }, snapshotIsExact: true, coordinator: new DeletionCoordinator());
+        var workflowTarget = workflowPlan.Preflight.Items[0].Target;
+        Check("工作流目标保留路径", workflowTarget.Path == source.FullPath);
+        Check("工作流目标保留大小", workflowTarget.ExpectedSize == source.Size);
+        Check("工作流目标保留修改时间", workflowTarget.ExpectedModified == source.Entry.Modified);
+        Check("工作流目标保留精确快照标记", workflowTarget.SnapshotIsExact);
 
         // ---- DeletionCoordinator：计划 → 确认 → 执行 → 汇总 ----
         var probe = new FakeProbe();

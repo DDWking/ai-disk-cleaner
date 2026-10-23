@@ -183,6 +183,17 @@ public static class FolderPurposeRules
     public const int MaxTypeMix = 3;
     public const int MaxSamples = 8;
 
+    /// <summary>
+    /// 没有扩展名的文件在类型分布里的标签。
+    /// **必须是固定英文常量，不能走 Loc** —— 这个摘要既给模型看，也参与缓存键
+    /// （<see cref="FolderSummary.KindSignature"/>），跟着界面语言变会让同一份目录
+    /// 在中英文下算出两个不同的缓存键。
+    /// </summary>
+    public const string NoExtensionLabel = "(no extension)";
+
+    /// <summary>发给模型的单目录摘要的字符上限（见 <see cref="BuildDecisionState"/>）。</summary>
+    public const int MaxDecisionStateChars = 4000;
+
     /// <summary>一个目录至少有这么多「像独立对象」的直接子目录，才算收纳目录。</summary>
     public const int ContainerMinChildren = 4;
 
@@ -426,7 +437,7 @@ public static class FolderPurposeRules
         foreach (var f in childFiles)
         {
             string ext = System.IO.Path.GetExtension(f.Name ?? "").ToLowerInvariant();
-            if (ext.Length == 0) ext = Loc.PurposeNoExt;
+            if (ext.Length == 0) ext = NoExtensionLabel;
             mix[ext] = mix.TryGetValue(ext, out int n) ? n + 1 : 1;
         }
         var typeMix = mix.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal)
@@ -657,6 +668,51 @@ public static class FolderPurposeRules
             return combined[..maxChars];
         }
         return body.Length <= maxChars ? body : body[..maxChars];
+    }
+
+    /// <summary>
+    /// 判定通道的 state：**一个目录一段英文摘要**（一行一个字段，空字段省略）。
+    ///
+    /// 与 <see cref="BuildAiInput"/> 的分工：那个是旧的逐目录聊天输入（带片段、带 header），
+    /// 这个是结构化判定专用的 —— 一次请求只问一个目录，所以路径直接写成 <c>path:</c> 行，
+    /// 不再把 80 条路径拼成一坨（那样模型既看不到内容，又会把无关目录串味）。
+    ///
+    /// 三条约束：
+    /// <list type="bullet">
+    /// <item>**英文、不含 CJK**：Jev 在英文上最准，而且 state 会进缓存键；</item>
+    /// <item>路径走 <see cref="PathRedactor.Outbound"/>，默认脱敏（只有用户明确允许才发全路径）；</item>
+    /// <item>总长截到 <see cref="MaxDecisionStateChars"/>，别让一个超长目录名顶爆上下文。</item>
+    /// </list>
+    /// </summary>
+    /// <param name="sum">有上限的本地摘要（见 <see cref="Summarize"/>）。</param>
+    /// <param name="outboundPath">已经过脱敏策略的出站路径。</param>
+    public static string BuildDecisionState(FolderSummary sum, string outboundPath)
+    {
+        var sb = new System.Text.StringBuilder(256);
+
+        sb.Append("path: ").Append(outboundPath ?? "").Append('\n');
+        sb.Append("size: ").Append(FileEntry.FormatSize(sum.Size)).Append('\n');
+        sb.Append("files: ").Append(sum.FileCount)
+          .Append(" (direct subfolders: ").Append(sum.DirectFolderCount).Append(")\n");
+
+        // TypeMix 里的「无扩展名」标签已经是固定英文（NoExtensionLabel），不会跟界面语言漂。
+        // 计数分隔符换成英文更易读的 " x"（摘要内部仍用 ×，缓存键 KindSignature 不受影响）。
+        if (sum.TypeMix.Count > 0)
+            sb.Append("file types: ")
+              .Append(string.Join(", ", sum.TypeMix.Select(t => t.Replace("×", " x", StringComparison.Ordinal))))
+              .Append('\n');
+        if (sum.SampleNames.Count > 0)
+            sb.Append("largest files: ").Append(string.Join(", ", sum.SampleNames)).Append('\n');
+        if (sum.SampleDirs.Count > 0)
+            sb.Append("subfolders: ").Append(string.Join(", ", sum.SampleDirs)).Append('\n');
+        if (sum.ProductHint.Length > 0)
+            sb.Append("known product: ").Append(sum.ProductHint).Append('\n');
+        // 时间事实：只写「最后修改」，不推断「最近使用」—— 我们确实没有使用记录。
+        if (sum.Modified != default)
+            sb.Append("last modified: ").Append(sum.Modified.ToString("yyyy-MM-dd")).Append('\n');
+
+        string body = sb.ToString().TrimEnd('\n');
+        return body.Length <= MaxDecisionStateChars ? body : body[..MaxDecisionStateChars];
     }
 
     static string Clip(string s) => s.Length <= 40 ? s : s[..39] + "…";

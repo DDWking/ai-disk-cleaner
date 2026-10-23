@@ -30,7 +30,7 @@ public sealed record AiPurposeBatchOutcome(
 /// </summary>
 public static class AiPurposeBatchService
 {
-    /// <summary>一次请求最多问多少条。真值在判定域里，这里保留转发是为了让界面文案能引用它。</summary>
+    /// <summary>一次请求最多问多少条。真值在判定域里（现在是 1：一个目录一次请求），这里保留转发是为了让界面文案能引用它。</summary>
     public static int MaxPerRequest => FolderPurposeDecisionSet.MaxPerRequest;
 
     /// <summary>自适应步长的起点。真值在判定域里。</summary>

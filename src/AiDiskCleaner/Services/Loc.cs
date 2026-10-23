@@ -150,15 +150,33 @@ public static class Loc
     public static string AiSendFullPathsHint => IsEn
         ? "Off by default: paths go out as <UserProfile>\\AppData\\... so usernames stay local."
         : "默认关闭：路径会以 <UserProfile>\\AppData\\… 的形式发出，用户名不出本机。";
-    public static string AiTest => IsEn ? "Test" : "测试连接";
+    public static string AiTest => IsEn ? "Test Jev capability" : "测试 Jev 能力";
+    public static string AiSetupTitle => IsEn ? "Connect a Jev service" : "连接 Jev 服务";
+    public static string AiSetupHint => IsEn
+        ? "Choose a template, then test it."
+        : "选择模板，然后点击测试。";
+    public static string AiPresetLabel => IsEn ? "Service template" : "服务模板";
+    public static string AiPresetHint => IsEn
+        ? "Use the template that matches your service."
+        : "选择与你的服务匹配的模板。";
+    public static string AiPrivacyTitle => IsEn ? "Privacy: redacted by default" : "隐私：默认脱敏";
+    public static string AiPrivacyBody => IsEn
+        ? "Folder summaries only. No file contents."
+        : "只发送文件夹摘要，不发送文件内容。";
+    public static string AiAdvancedLabel => IsEn ? "Privacy and technical details" : "隐私与技术详情";
+    public static string AiAdvancedHint => IsEn
+        ? "Keys are encrypted when supported by Windows. Full paths are off by default."
+        : "系统支持时，密钥会使用 Windows 加密保存。完整路径默认关闭。";
+    public static string AiProtocol(string protocol) => IsEn
+        ? (protocol == "systemone" ? "System One API" : "Decisions API")
+        : (protocol == "systemone" ? "System One API" : "Decisions API");
+    public static string AiTestSuccess => IsEn ? "Jev protocol verified" : "Jev 协议验证通过";
+    public static string AiTestModel(string model, long ms) => IsEn
+        ? $"Model {model} · {ms} ms" : $"模型 {model} · {ms} 毫秒";
     public static string AiDecisionsModel => IsEn ? "Model for decisions" : "判定用的模型";
     public static string AiDecisionsHint => IsEn
-        ? "Structured decisions (TypeSafe Jev and friends) is a separate channel — its URL is not /v1. "
-          + "For OpenRouter use https://openrouter.ai/api/alpha and model typesafe/jev-1.13. "
-          + "It powers batch classification: the app asks it what the items it cannot recognise actually are."
-        : "「结构化判定」（TypeSafe Jev 这类）是单独一条通道，地址不走 /v1。"
-          + "走 OpenRouter 的话填 https://openrouter.ai/api/alpha，模型填 typesafe/jev-1.13。"
-          + "它只用于批量归类：把本地规则认不出用途的那批一次性问清楚是什么。";
+        ? "Endpoint and model from the selected template."
+        : "接口地址和模型已按模板填写。";
     public static string AiNeedConfig => IsEn ? "Set base URL and model first." : "先填接口地址和模型。";
     public static string AiWorking => IsEn ? "Asking the model…" : "正在问模型…";
     public static string AiTestOk(long ms, string model, double confidence, double cost) => IsEn
@@ -643,53 +661,6 @@ public static class Loc
     public static string PurposeAiHeader => IsEn
         ? "Identify ONE folder's purpose from this bounded summary. Do not read file contents."
         : "根据下面这份有上限的摘要判断**一个**目录的用途。不要读取文件内容。";
-    public static (string Key, string Text)[] AiPurposeOptions => IsEn
-        ? new[]
-        {
-            ("temp",        "Temporary files — apps throw these away when done"),
-            ("browsercache","Browser cache"),
-            ("appcache",    "App cache — the app rebuilds it by itself"),
-            ("devcache",    "Component cache downloaded by a developer tool"),
-            ("applog",      "Application logs"),
-            ("dump",        "Crash dumps"),
-            ("installer",   "Installer you downloaded"),
-            ("model",       "Large asset such as an AI model or game data — deleting means downloading it again"),
-            // 「别删」原来只有一个 keep 出口。合并的代价后来在真机上暴露了：它成了垃圾桶，
-            // $WinREAgent / $Extend / Recovery / msys64 全显示成同一句话，用户直接说
-            // 「太笼统、没什么帮助」。拆成四类之后实测（18 条系统/厂商目录）不光说法具体了，
-            // 置信度还更高（$WinREAgent 0.79→1.00、msys64 0.84→devtools 0.99）——
-            // **选项说清楚了，模型反而更确定。**
-            ("userdata",    "别删：你自己的东西 —— 文档 / 照片 / 视频 / 音乐 / 游戏存档 / 聊天记录 / 密钥"),
-            ("system",      "别删（多半是）：Windows 或电脑厂商自己的目录 —— 恢复环境 / 驱动备份 / NTFS 元数据 / 更新残留这种"),
-            ("appdata",     "别删：某个软件自己的数据 —— 它的设置 / 账号 / 插件 / 数据库"),
-            ("devtools",    "别删：装好的开发工具本体（编译器 / 运行时 / SDK），不是缓存"),
-            ("unknown",     "只有在连「这是谁的数据」都判断不出来时才选这个"),
-        }
-        : new[]
-        {
-            ("temp",        "临时文件，程序用完就丢"),
-            ("browsercache","浏览器缓存"),
-            ("appcache",    "软件缓存，软件会自己重建"),
-            ("devcache",    "开发工具下载的组件缓存，可以重新下载"),
-            ("applog",      "软件日志"),
-            ("dump",        "崩溃转储"),
-            ("installer",   "下载的安装包，装完就没用了"),
-            ("model",       "AI 模型或游戏素材这种大文件，删了要重新下载"),
-            // 同上：拆分之后说法具体了，模型的置信度反而更高
-            ("userdata",    "别删：你自己的东西 —— 文档 / 照片 / 视频 / 音乐 / 游戏存档 / 聊天记录 / 密钥"),
-            ("system",      "别删（多半是）：Windows 或电脑厂商自己的目录 —— 恢复环境 / 驱动备份 / NTFS 元数据 / 更新残留这种"),
-            ("appdata",     "别删：某个软件自己的数据 —— 它的设置 / 账号 / 插件 / 数据库"),
-            ("devtools",    "别删：装好的开发工具本体（编译器 / 运行时 / SDK），不是缓存"),
-            ("unknown",     "只有在连「这是谁的数据」都判断不出来时才选这个"),
-        };
-
-    /// <summary>
-    /// 每道题都把路径写进问题本身。
-    /// <b>不要改成「第 N 行」</b> —— 实测那会让模型去数行号，48 项时 8/16 自相矛盾，
-    /// 而且后面整片塌成同一个答案。
-    /// </summary>
-    public static string AiPurposeQuestion(string path)
-        => IsEn ? $"What is this path: {path}" : $"这个路径是什么：{path}";
     public static string AiPurposeUnsureName(string name)
         => IsEn ? $"Not sure, maybe {name}" : $"拿不准：可能是{name}";
     /// <summary>拿不准那一批的次行说明。</summary>

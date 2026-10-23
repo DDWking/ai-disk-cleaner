@@ -797,7 +797,7 @@ public static class LayeredCleanTests
                 @"Gameklll\steam");
             // BuildAiInput 仍然存在，而且仍然把「字符上限」当**调用方参数**：
             // 生产上的 MaxInputChars=1800 随逐目录聊天路径一起删除了（判定通道改按条数分批，
-            // 见 FolderPurposeDecisionSet 的每批 80 条），所以这里用同一个数字当调用方上限，
+            // 见 FolderPurposeDecisionSet —— 现在是**一个请求一个目录**），所以这里用同一个数字当调用方上限，
             // 测的是「截断契约」本身，而不是那个已经不存在的常量。
             const int maxInputChars = 1800;
             string withSnips = FolderPurposeRules.BuildAiInput(sum2, false, maxInputChars, set);
@@ -849,7 +849,7 @@ public static class LayeredCleanTests
         // ---- 10) 请求预算：随「一个目录一次请求」的聊天路径整体删除 ----
         // 请求总量 / 并发 / 超时 / 最小间隔都是那条路才需要的节流器（一次请求一个目录）。
         // 那条路没了以后，攒批与节流归判定层：批大小自适应（下限 AdaptiveMin），
-        // 上限由各判定域的 MaxPerRequest 给（文件夹判定域是每批 80 条）。
+        // 上限由各判定域的 MaxPerRequest 给（文件夹判定域是**一次一个目录**，所以是 1）。
         check("分批预算改由判定层持有（自适应批下限 5）", DecisionRunner.AdaptiveMin == 5);
         check("用途服务里不再有出站节流器（预算不在这一层）",
             !ReadSource("FolderPurposeService.cs").Contains("MaxAiRequests", StringComparison.Ordinal)

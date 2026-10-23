@@ -961,23 +961,42 @@ public static class Program
             org.Contains("scanGen == _scanGeneration", StringComparison.Ordinal));
         Check("归类发请求前先确认通道已配置（不会往错地址发）",
             org.Contains("DecisionConfigured()", StringComparison.Ordinal));
-        // 一批太大不能整批失败：模型的上下文上限是硬的（criteria 是每题一份，实测每项 362 token）
+        // 一批太大不能整批失败：模型的上下文上限是硬的。
         // 判定层拆成「域」+「执行器」之后，这几条要分两个文件看：
         //   批的大小与起点是域的参数；拆半与步长在执行器里。
+        // v3.1 起文件夹用途域改成**一个请求只问一个目录**（旧的一批 80 条路径拼一份 state
+        // 是准确率塌方的根因：模型看不到目录内容，80 条无关路径还会互相串味），
+        // 所以上限与起点都是 1，撑爆拆半那层只对多条的域（重复文件）仍然有效。
         var decisionSet = ReadSource("src/AiDiskCleaner/Services/Decisions/FolderPurposeDecisionSet.cs");
         var runner = ReadSource("src/AiDiskCleaner/Services/Decisions/DecisionRunner.cs");
         Check("一批撑爆上下文时会拆两半重试，而不是整批失败",
             runner.Contains("IsTooLargeForModel", StringComparison.Ordinal)
             && runner.Contains("GetRange(0, half)", StringComparison.Ordinal));
-        Check("单批条数留了足够余量（不再贴着 64K 上限）",
-            decisionSet.Contains("MaxPerRequest = 80", StringComparison.Ordinal));
+        Check("文件夹用途域一个请求只问一个目录（MaxPerRequest / AdaptiveStart 都是 1）",
+            decisionSet.Contains("MaxPerRequest = 1", StringComparison.Ordinal)
+            && decisionSet.Contains("AdaptiveStart = 1", StringComparison.Ordinal));
+        Check("state 是该目录的英文结构化摘要（不再是一坨路径）",
+            decisionSet.Contains("BuildDecisionState", StringComparison.Ordinal)
+            && !decisionSet.Contains("string.Join(Environment.NewLine, chunk.Select", StringComparison.Ordinal));
         // 别人可能填自己的端点（可能只有 32k 上下文）。**先小批试、成功了再放大** ——
-        // 一上来就发最大批，遇到小端点会整批 400。
-        Check("分批是自适应的：先小批试，成功了放大，撞上限减半",
-            decisionSet.Contains("AdaptiveStart = 20", StringComparison.Ordinal)
-            && runner.Contains("Math.Min(set.MaxPerRequest, size * 2)", StringComparison.Ordinal)
+        // 一上来就发最大批，遇到小端点会整批 400。步长逻辑本身保留（只是文件夹域不再翻倍）。
+        Check("分批仍是自适应的：先小批试，成功了放大，撞上限减半",
+            runner.Contains("Math.Min(set.MaxPerRequest, size * 2)", StringComparison.Ordinal)
             && runner.Contains("Math.Max(floor, size / 2)", StringComparison.Ordinal)
             && runner.Contains("int floor = Math.Min(AdaptiveMin, set.AdaptiveStart)", StringComparison.Ordinal));
+        // 并发：文件夹域声明 8（独立摘要可以并行发），执行器用 SemaphoreSlim 限流。
+        Check("文件夹用途域声明并发度 8",
+            decisionSet.Contains("MaxConcurrency => 8", StringComparison.Ordinal));
+        Check("执行器用 SemaphoreSlim 限流，且默认并发度是 1（串行行为不变）",
+            runner.Contains("SemaphoreSlim", StringComparison.Ordinal)
+            && runner.Contains("set.MaxConcurrency > 1", StringComparison.Ordinal)
+            && ReadSource("src/AiDiskCleaner/Services/Decisions/IDecisionSet.cs")
+                .Contains("int MaxConcurrency => 1;", StringComparison.Ordinal));
+        Check("模型面文案是英文常量（题面 / 选项都不跟界面语言走）",
+            decisionSet.Contains("AiPurposeCriteria.QuestionInstructions", StringComparison.Ordinal)
+            && decisionSet.Contains("AiPurposeCriteria.Descriptions", StringComparison.Ordinal)
+            && !decisionSet.Contains("Loc.AiPurposeQuestion", StringComparison.Ordinal)
+            && !decisionSet.Contains("Loc.AiPurposeOptions", StringComparison.Ordinal));
         Check("判定请求的硬限制在发出去之前校验（选项数 / 档位数 / 字符预算）",
             runner.Contains("JevLimits.Validate(request)", StringComparison.Ordinal));
         // 失败必须出声、且和「认不出来」分开：这一批要标 Failed，
