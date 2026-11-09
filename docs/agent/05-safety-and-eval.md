@@ -28,7 +28,7 @@ S4  EvidenceRef 校验失败 → 该条建议丢弃
 S5  folderId 不在索引中 → OUT_OF_SCOPE，不执行
 S6  reclaimableBytes ≤ 卡片 size，超出截断
 S7  报告 action 只有 select/keep/ask，没有 delete/execute
-S8  「加入清理」只写勾选状态；删除必须再走确认对话框
+S8  报告动作只能切页 + 定位/高亮文件夹，**不改勾选**；删除必须由用户勾选并再走确认对话框
 S9  预算耗尽后不再发起新请求，只允许本地收尾
 S10 取消后不再有任何 UI 回调生效（generation 校验）
 ```

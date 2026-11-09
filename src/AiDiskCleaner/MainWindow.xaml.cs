@@ -341,6 +341,7 @@ public partial class MainWindow : Window
             AiReportBtnText.Text = Loc.AiReportBtn;
             AiReportBtn.ToolTip = Loc.AiReportBtnTip;
             System.Windows.Automation.AutomationProperties.SetName(AiReportBtn, Loc.AiReportBtn);
+            UpdateAiReportButton();
         }
         // 底部「全选」是单个切换按钮：文字恒为 Loc.SelectAll，状态（幽灵 / 主按钮、
         // 提示、可访问名称、可用性）统一由 ApplySelectAllButton 维护，ApplyUi 之后
@@ -558,6 +559,7 @@ public partial class MainWindow : Window
         // 否则「旧列表还挂在界面上」，用户可能照着过期清单去勾选删除。
         _report = null;
         CancelAgentReport();
+        UpdateAiReportButton();
         _dupIncomplete = 0;
         _layerGeneration++;
         ClearCleanLayers();
@@ -657,6 +659,7 @@ public partial class MainWindow : Window
         finally
         {
             _scanning = false;
+            UpdateAiReportButton();
             // 注意：这里**不再**无条件藏停止按钮。
             // 扫描阶段自己会通过 using 注销；如果后续的分析/重复检测阶段还在跑，
             // 按钮必须继续留着 —— 以前就是在这里被藏掉，导致「分析还在跑却没有停止入口」。
@@ -679,6 +682,7 @@ public partial class MainWindow : Window
         // 让出一拍再干重活：进度条 / 阶段切换先画出来，避免看起来像卡死
         await Task.Yield();
         _root = root;
+        UpdateAiReportButton();
         // 新一次扫描 = 新的占用口径，软件占用缓存必须丢
         AppRecommendationService.InvalidateUsageCache();
 
@@ -1839,8 +1843,9 @@ public partial class MainWindow : Window
     private void RefreshCleanUi()
     {
         if (CleanPageTitle == null) return;
-        // AI 分析以扫描结果为前提：没报告时按钮不可点（点了也没东西可分析）
-        if (AiReportBtn != null) AiReportBtn.IsEnabled = _report != null;
+        // AI 分析按钮只属于「按文件夹删除」页，状态由扫描结果决定（UpdateAiReportButton），
+        // 与清理列表是否有内容无关。
+        UpdateAiReportButton();
         if (_report == null)
         {
             ClearCleanLayers();

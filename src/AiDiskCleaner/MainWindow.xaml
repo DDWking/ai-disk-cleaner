@@ -1232,12 +1232,25 @@
                  所以这里不再有识别/忘掉按钮，整理树也不会再被模型写入。 -->
             <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
                     Padding="16,10,16,10">
-              <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
-                <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
-                           FontSize="11.5" TextTrimming="CharacterEllipsis"/>
-                <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
-                           FontSize="11" TextTrimming="CharacterEllipsis"/>
-              </StackPanel>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
+                  <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
+                             FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
+                             FontSize="11" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <!-- AI 分析：这一页唯一的模型入口。显式发起、只读；
+                     报告只负责定位到文件夹行，勾选仍由用户自己点。 -->
+                <Button x:Name="AiReportBtn" Grid.Column="1" Style="{StaticResource ChipButton}"
+                        VerticalAlignment="Center" Click="AiReport_Click"
+                        AutomationProperties.Name="AI 分析">
+                  <TextBlock x:Name="AiReportBtnText" FontSize="11.5" VerticalAlignment="Center"/>
+                </Button>
+              </Grid>
             </Border>
 
 
@@ -1546,15 +1559,8 @@
                   </StackPanel>
                 </StackPanel>
                 <WrapPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                  <!-- 这里**没有**批量归类入口：清理中心的候选项由 8 条规则产出，
-                       每条规则都声明了具体用途，不会有「认不出来」的堆积。
-                       批量归类放在「按文件夹删除」页 —— 未知堆积在那里。 -->
-                  <!-- AI 分析：显式发起、只读、只出建议；点一下才开始调模型（不自动花钱）。 -->
-                  <Button x:Name="AiReportBtn" Style="{StaticResource ChipButton}" Margin="0,0,6,0"
-                          Click="AiReport_Click"
-                          AutomationProperties.Name="AI 分析">
-                    <TextBlock x:Name="AiReportBtnText" FontSize="11.5" VerticalAlignment="Center"/>
-                  </Button>
+                  <!-- 这里**没有** AI 分析入口：AI 建议只服务「按文件夹删除」页，
+                       报告里的建议也只会定位到那边的文件夹行。 -->
                   <!-- 扫描详情 / 更多：辅助操作用图标按钮，语义靠 ToolTip + 可访问名称 -->
                   <Button x:Name="ScanDetailsBtn" Style="{StaticResource IconButton}" Margin="0,0,4,0"
                           Click="ScanDetails_Click" ToolTip="扫描信息（来源、权限、耗时、跳过项）"

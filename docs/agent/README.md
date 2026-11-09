@@ -40,7 +40,7 @@
 |---|---|
 | `src/AiDiskCleaner/Services/Agent/Chat/` | `ChatModels` / `OpenAiCompatChatModel` / `ChatModelFactory`（OpenAI 兼容 chat completions，JSON 模式 + SSE） |
 | `src/AiDiskCleaner/Services/Agent/` | `PromptBuilder`（`cleanup-report-v1`）/ `ReportParser` / `ReportAssembler` / `AgentReportService`（L1 分批编排） |
-| `src/AiDiskCleaner/MainWindow.AgentReport.cs` | 「AI 分析」入口 + 可交互报告：加入清理 / 只看这个目录 / 证据与风险标签；删除仍走原有预检 |
+| `src/AiDiskCleaner/MainWindow.AgentReport.cs` | 「按文件夹删除」页页头的「AI 分析」入口 + 可交互报告；条目只有「去处理」：切到文件夹页并定位高亮，**不改勾选、不删除** |
 | `src/AiDiskCleaner/Services/AiConfigurationService.cs` | 设置页改为聊天配置：DeepSeek / OpenAI 兼容 / Ollama 模板 + 真实连通性测试 |
 | 删除 | Jev 判定通道整条移除（`AiClient`/`AiGateway*`/`AiPurposeBatchService`/`DecisionRunner`/`Jev*`/`AiPurposeCriteria` 及对应 UI 与测试） |
 | `tools/AgentReportCheck/` | 53 条离线检查（提示词脱敏、解析校验、组装、编排、失败降级），已接入 runner |
@@ -69,7 +69,7 @@
 | C2 | 隐私默认接受「相对路径 + 用户名脱敏 + 文件名样本出站」 | 03 号文档 §3.4 的 `relative` 模式即默认 |
 | C3 | Jev 整条删除 | 删除范围约 1900 行：`AiClient` 判定通道、`AiConfigurationService` 预设、`AiGateway`/`AiGateways`、`AiPurposeBatchService`、`DecisionRunner`/`DecisionThresholds`/`Jev*`、设置页 AI 区块；`AiClient` 由新的 chat 客户端替代 |
 | C4 | 运行时底座与语言选型 | **确认走 A：C# 内进程**。不引入 Node/Pi sidecar，不换语言，不做整体重构 |
-| C5 | 报告形态 | **可交互**：报告条目带按钮，可跳转到清理页并定位/勾选对应项，再走原有预检与删除流程 |
+| C5 | 报告形态 | **可交互**：报告只有「去处理」按钮 —— 切到「按文件夹删除」页并定位/高亮该文件夹；勾选由用户自己点，再走原有预检与删除流程 |
 | C6 | `peek_files` | **首版不实现**，只留接口位；等评测证明需要再开 |
 
 ## 三个阶段的边界

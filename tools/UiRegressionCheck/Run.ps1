@@ -5,8 +5,9 @@
 #   - the file-browser sidebar is gone; the cleanup range stays an in-memory filter
 #   - folder tidy-up is local-only: it never reaches the model and never auto-classifies
 #   - AI is an "analysis + report" assistant: no Jev decision channel, no auto delete
-#   - the AI report is interactive (加入清理 / 只看这个目录) but deletion still goes
-#     through preflight + user confirmation + Recycle Bin
+#   - the AI report lives on the folder page and only LOCATES/highlights a folder;
+#     checking a folder is always a user click, deletion still goes through preflight +
+#     confirmation + Recycle Bin
 #   - 3.0: the uninstall page is FACT-ONLY (name / install date / purpose / footprint / actions)
 #
 # Run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/UiRegressionCheck/Run.ps1
@@ -181,24 +182,35 @@ Assert-True 'the Jev decision channel is gone from source and composition root' 
 Assert-True 'historical protocol values normalize to chat' `
     ($settings -match 'NormalizeProtocols' -and $settings -match 'ChatProtocol')
 
-# --- 6. AI report is an interactive suggestion sheet ------------------------
-Assert-True 'the clean page has an AI analysis button' `
+# --- 6. AI report is an interactive suggestion sheet (folder page only) ------
+$iOrgPane = $xaml.IndexOf('x:Name="OrganizePane"', [StringComparison]::Ordinal)
+$iReportBtn = $xaml.IndexOf('x:Name="AiReportBtn"', [StringComparison]::Ordinal)
+$iCleanPane = $xaml.IndexOf('x:Name="CleanPane"', [StringComparison]::Ordinal)
+Assert-True 'the folder-delete page (not the clean page) has the AI analysis button' `
     ($xaml -match 'x:Name="AiReportBtn"' -and $xaml -match 'Click="AiReport_Click"' -and
-     $loc -match 'AiReportBtn')
+     $loc -match 'AiReportBtn' -and
+     $iOrgPane -gt 0 -and $iReportBtn -gt $iOrgPane -and $iCleanPane -gt $iReportBtn)
 Assert-True 'the report renders inside the dialog card' `
     ($xaml -match 'x:Name="ReportBody"' -and $xaml -match 'x:Name="ReportContent"' -and
      $agent -match 'ReportBody\.Visibility = Visibility\.Visible' -and
      $agent -match 'DialogCard\.Width = 940')
-Assert-True 'the report has add-to-cleanup and jump-to-folder actions' `
-    ($agent -match 'AddReportItemToCleanup' -and $agent -match 'JumpToReportFolder' -and
-     $agent -match 'Selected = true' -and $loc -match 'AiReportAdd' -and $loc -match 'AiReportJump')
+Assert-True 'the report only locates the folder (never checks it, never deletes)' `
+    ($agent -match 'RevealReportFolder' -and $agent -match 'ShowRightTab\(RightTab\.Organize\)' -and
+     $agent -match 'RevealOrganizeFolder' -and
+     $agent -notmatch 'AddReportItemToCleanup' -and $agent -notmatch 'JumpToReportFolder' -and
+     $agent -notmatch '\.Selected = true' -and $agent -notmatch 'IsChecked' -and
+     $orgsrc -match 'RevealOrganizeFolder' -and $orgsrc -match 'ScrollIntoView' -and
+     $loc -match 'AiReportJump')
 Assert-True 'the report is built from groups and evidence, not free text' `
     ($agent -match 'BuildReportItem' -and $agent -match 'MakeBadge' -and
      $loc -match 'AiReportEvidence' -and $loc -match 'AiReportRisk')
 Assert-True 'the report never deletes or moves anything itself' `
     ($agent -notmatch 'SendToRecycle|File\.Delete|Directory\.Delete|DeletionExecutor|RecycleService')
 Assert-True 'closing the report restores the normal dialog width' `
-    ($cs -match 'DialogCard\.Width = 520' -and $cs -match 'AiReportBtn\.IsEnabled = _report != null')
+    ($cs -match 'DialogCard\.Width = 520' -and
+     $agent -match 'UpdateAiReportButton' -and $cs -match 'UpdateAiReportButton')
+Assert-True 'the AI button only enables after a scan, and not while busy' `
+    ($agent -match 'AiReportBtn\.IsEnabled = _root != null' -and $agent -match '_agentBusy')
 Assert-True 'starting a scan cancels and clears any running report' `
     ($cs -match '_report = null;' -and $cs -match 'CancelAgentReport\(\)')
 Assert-True 'the report pipeline is budgeted (candidates / batches / tokens)' `
@@ -228,9 +240,9 @@ Assert-True 'clean action bar has a single 全选 toggle' `
 Assert-True 'selection summary still counts selected and total' `
     ($xaml -match 'x:Name="CleanSelectionSummary"' -and
      $cs -match 'Loc\.SelectionSummary\(' -and $cs -match 'Loc\.ViewSelectedSub')
-Assert-True 'the AI report adds candidates only through the existing selection path' `
-    ($agent -match 'CleanListSnapshot\.UnderPrefix' -and
-     $agent -match 'RefreshAfterSelectionChange\(\)')
+Assert-True 'the AI report never changes the selection (locate only)' `
+    ($agent -notmatch 'UnderPrefix' -and $agent -notmatch 'RefreshAfterSelectionChange' -and
+     $agent -notmatch 'Selected = true')
 
 # --- 8. no long-running operation left without a token ----------------------
 Assert-True 'no CancellationToken.None left in the window' ($cs -notmatch 'CancellationToken\.None')

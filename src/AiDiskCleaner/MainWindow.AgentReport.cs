@@ -10,11 +10,11 @@ using AiDiskCleaner.Services.Agent;
 namespace AiDiskCleaner;
 
 /// <summary>
-/// 「AI 分析」入口与报告弹层。
+/// 「AI 分析」入口与报告弹层（只服务「按文件夹删除」页）。
 ///
 /// L1 单发报告：本地选候选 → 证据卡 → 一次/少量批次问模型 → 本地校验 → 可交互报告。
-/// 这里**只读**：不改勾选、不碰文件；「加入清理」只是替用户勾上已有的候选项，
-/// 「只看这个目录」只是切清理页的范围，两者之后都还要用户自己按确认删除。
+/// 这里**只读**：不改勾选、不碰文件。报告里的「去处理」只切到文件夹页并把目标文件夹
+/// 定位/高亮出来，勾选与删除仍然全部由用户自己操作。
 /// </summary>
 public partial class MainWindow
 {
@@ -26,32 +26,32 @@ public partial class MainWindow
 
     private CancellationTokenSource? _agentCts;
 
-    /// <summary>报告弹层顶部的临时状态行（加入清理后的反馈写这里）。</summary>
+    /// <summary>报告弹层顶部的临时状态行。</summary>
     private TextBlock? _reportStatusText;
-
-    private const string AiReportIdleHint = "";
 
     // ==================== 入口 ====================
 
+    /// <summary>
+    /// 入口按钮在「按文件夹删除」页页头：有扫描结果才可点；没配置模型时先打开设置。
+    /// </summary>
     private async void AiReport_Click(object sender, RoutedEventArgs e)
     {
         if (_agentBusy) return;
-        if (_root == null || _report == null)
+        if (_root == null)
         {
-            SetAiStatus(Loc.AiReportNeedScan);
+            SetOrganizeNote(Loc.AiReportNeedScan);
             return;
         }
         if (!AiConfigured())
         {
-            // 没配置时直接把设置面板打开：用户不用自己找入口。
-            SetAiStatus(Loc.AiReportNotConfigured);
+            SetOrganizeNote(Loc.AiReportNotConfigured);
             OpenOverlay(Loc.SettingsTitle, settings: true);
             return;
         }
 
         _agentBusy = true;
-        AiReportBtn.IsEnabled = false;
-        SetAiStatus(Loc.AiReportBusy);
+        UpdateAiReportButton();
+        SetOrganizeNote(Loc.AiReportBusy);
         var sw = Stopwatch.StartNew();
         try
         {
@@ -59,7 +59,7 @@ public partial class MainWindow
             var modelId = App.Settings.DecisionModelId();
             if (provider == null || string.IsNullOrWhiteSpace(modelId))
             {
-                SetAiStatus(Loc.AiReportNotConfigured);
+                SetOrganizeNote(Loc.AiReportNotConfigured);
                 return;
             }
 
@@ -75,17 +75,18 @@ public partial class MainWindow
             var service = new AgentReportService(model);
             var progress = new Progress<AgentReportProgress>(p =>
             {
-                if (p.Total > 0) SetAiStatus($"{Loc.AiReportBusy} {Math.Min(p.Completed, p.Total)}/{p.Total}");
+                if (p.Total > 0)
+                    AiReportBtnText.Text = Loc.AiReportProgress(Math.Min(p.Completed, p.Total), p.Total);
             });
 
             var result = await service.AnalyzeAsync(_agentSession, progress, cts.Token);
             if (!result.Ok || result.Report == null)
             {
-                SetAiStatus(Loc.AiReportFailed(result.Error ?? ""));
+                SetOrganizeNote(Loc.AiReportFailed(result.Error ?? ""));
                 return;
             }
 
-            SetAiStatus(Loc.AiReportMeta(modelId, result.Report.AllItems.Count(),
+            SetOrganizeNote(Loc.AiReportMeta(modelId, result.Report.AllItems.Count(),
                 FileEntry.FormatSize(result.Report.TotalReclaimableBytes)));
             ShowAgentReport(result.Report);
             AppLog.Write(new LogEntry(DateTime.UtcNow, LogLevel.Debug, "AI", "",
@@ -93,18 +94,26 @@ public partial class MainWindow
         }
         catch (OperationCanceledException)
         {
-            SetAiStatus(Loc.AiReportNeedScan);
+            SetOrganizeNote(Loc.AiReportNeedScan);
         }
         catch (Exception ex)
         {
-            SetAiStatus(Loc.AiReportFailed(AppError.From(ex, "ai-report").UserMessage));
+            SetOrganizeNote(Loc.AiReportFailed(AppError.From(ex, "ai-report").UserMessage));
         }
         finally
         {
             _agentBusy = false;
             _agentCts = null;
-            AiReportBtn.IsEnabled = true;
+            if (AiReportBtnText != null) AiReportBtnText.Text = Loc.AiReportBtn;
+            UpdateAiReportButton();
         }
+    }
+
+    /// <summary>按钮可用性只由「有没有扫描结果 + 是否在扫描/分析」决定，与清理列表无关。</summary>
+    private void UpdateAiReportButton()
+    {
+        if (AiReportBtn == null) return;
+        AiReportBtn.IsEnabled = _root != null && !_scanning && !_agentBusy;
     }
 
     /// <summary>重扫/关窗时取消正在跑的 AI 分析，避免回调打到旧根上。</summary>
@@ -159,7 +168,7 @@ public partial class MainWindow
         ReportContent.Children.Add(AddText(Loc.AiReportMeta(report.Model, report.AllItems.Count(), FileEntry.FormatSize(report.TotalReclaimableBytes)),
             11, "TextDim", FontWeights.Normal, new Thickness(0, 0, 0, 8)));
 
-        _reportStatusText = AddText(AiReportIdleHint, 11, "Accent", FontWeights.Normal, new Thickness(0, 0, 0, 8));
+        _reportStatusText = AddText("", 11, "TextMuted", FontWeights.Normal, new Thickness(0, 0, 0, 8));
         _reportStatusText.Visibility = Visibility.Collapsed;
         ReportContent.Children.Add(_reportStatusText);
 
@@ -206,7 +215,8 @@ public partial class MainWindow
     }
 
     private Border BuildReportItem(ReportItem item)
-    {        var card = new Border
+    {
+        var card = new Border
         {
             BorderBrush = ThemeService.Brush("Border"),
             BorderThickness = new Thickness(1),
@@ -280,30 +290,8 @@ public partial class MainWindow
             AddText(Loc.AiReportRisk(item.Risk), 10.5, "TextMuted", FontWeights.Normal,
                 new Thickness(0, 0, 0, 4), body);
 
-        // 按钮：加入清理 / 只看这个目录（都不执行删除）
+        // 唯一的动作：切到文件夹页并定位高亮 —— 不勾选、不删除。
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
-        var addBtn = new Button
-        {
-            Content = Loc.AiReportAdd,
-            Style = FindResource("GhostButton") as Style,
-            Padding = new Thickness(10, 3, 10, 3),
-            FontSize = 11,
-            Margin = new Thickness(0, 0, 8, 0),
-        };
-        addBtn.Click += (_, _) =>
-        {
-            var (count, bytes) = AddReportItemToCleanup(item);
-            if (count <= 0)
-            {
-                SetReportStatus(Loc.AiReportAddNothing, muted: true);
-                return;
-            }
-            SetReportStatus(Loc.AiReportAdded(count, FileEntry.FormatSize(bytes)));
-            addBtn.Content = Loc.AiReportAdded(count, "");
-            addBtn.IsEnabled = false;
-        };
-        buttons.Children.Add(addBtn);
-
         var jumpBtn = new Button
         {
             Content = Loc.AiReportJump,
@@ -312,7 +300,7 @@ public partial class MainWindow
             FontSize = 11,
             ToolTip = Loc.AiReportJumpTip,
         };
-        jumpBtn.Click += (_, _) => JumpToReportFolder(item);
+        jumpBtn.Click += (_, _) => RevealReportFolder(item);
         buttons.Children.Add(jumpBtn);
         body.Children.Add(buttons);
 
@@ -368,39 +356,28 @@ public partial class MainWindow
         _reportStatusText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    // ==================== 动作（都只改「显示/勾选」，不执行删除） ====================
+    // ==================== 动作（只切页 + 定位，不勾选、不删除） ====================
 
-    /// <summary>把报告项对应目录下的已有候选项勾上；返回本次新勾选的数量与字节。</summary>
-    private (int Count, long Bytes) AddReportItemToCleanup(ReportItem item)
+    /// <summary>关掉报告，切到「按文件夹删除」页，定位并高亮这个文件夹行。</summary>
+    private void RevealReportFolder(ReportItem item)
     {
         var folder = ResolveReportFolder(item.FolderId);
-        if (folder == null) return (0, 0);
-
-        var prefix = CleanListSnapshot.FolderPrefix(folder.FullPath ?? "");
-        int count = 0;
-        long bytes = 0;
-        foreach (var candidate in _layered.AllItems)
+        if (folder == null)
         {
-            if (!candidate.CanDelete || candidate.Selected) continue;
-            if (!CleanListSnapshot.UnderPrefix(candidate.FullPath, prefix)) continue;
-            candidate.Selected = true;
-            count++;
-            bytes += candidate.Size;
+            SetReportStatus(Loc.AiReportNotInTree, muted: true);
+            return;
         }
-        if (count > 0) RefreshAfterSelectionChange();
-        return (count, bytes);
-    }
-
-    /// <summary>切到清理页，并把范围限定到这个目录（不改任何勾选）。</summary>
-    private void JumpToReportFolder(ReportItem item)
-    {
-        var folder = ResolveReportFolder(item.FolderId);
-        if (folder == null) return;
 
         HideOverlay();
-        ShowRightTab(RightTab.Clean);
-        _cleanScopeRoot = folder;
-        ApplyCleanScope();
+        ShowRightTab(RightTab.Organize);
+        var result = RevealOrganizeFolder(folder);
+        string note = result.Kind switch
+        {
+            OrganizeRevealKind.Located when result.Node != null => Loc.AiReportJumped(result.Node.Name),
+            OrganizeRevealKind.Partial => Loc.AiReportJumpPartial(result.Node?.Name ?? folder.Name),
+            _ => Loc.AiReportNotInTree,
+        };
+        SetOrganizeNote(note);
     }
 
     private FileEntry? ResolveReportFolder(string folderId)
@@ -409,4 +386,3 @@ public partial class MainWindow
         return _agentSession.Index.TryGet(folderId, out var folder) ? folder : null;
     }
 }
-

@@ -573,6 +573,111 @@ public partial class MainWindow
             + $"rows={_organizeRows.Count}");
     }
 
+    // ==================== 定位（供 AI 报告里的「去处理」使用） ====================
+
+    private enum OrganizeRevealKind { Located, Partial, NotFound }
+
+    private readonly record struct OrganizeRevealResult(OrganizeRevealKind Kind, OrganizeNode? Node);
+
+    /// <summary>
+    /// 把整理列表定位到一个真实目录：展开祖先、选中并滚动到该行。
+    /// **只改视图** —— 不写 <see cref="OrganizeNode.IsChecked"/>、不触发识别、不碰任何清理字段；
+    /// 目标不在列表里（受保护 / 超出层级 / 对象预算）时退回到最近的上级并如实返回 Partial。
+    /// </summary>
+    private OrganizeRevealResult RevealOrganizeFolder(FileEntry folder)
+    {
+        if (folder == null || _organizeRoots.Count == 0 || OrganizeGrid == null)
+            return new OrganizeRevealResult(OrganizeRevealKind.NotFound, null);
+
+        // 对象已经建过：直接找回它在树里的链，不需要再材料化一遍
+        if (_organizeByDir.TryGetValue(folder, out var known))
+        {
+            var knownChain = new List<OrganizeNode>();
+            foreach (var r in _organizeRoots)
+                if (TryFindOrganizeChain(r, known, knownChain)) break;
+            if (knownChain.Count > 0)
+            {
+                ExpandOrganizeAncestors(knownChain);
+                return SelectOrganizeRow(knownChain[^1]);
+            }
+        }
+
+        // 还没建过：从最深的根开始逐级材料化，直到走到目标目录
+        OrganizeNode? root = null;
+        foreach (var r in _organizeRoots)
+        {
+            if (!OrganizePathIsUnder(folder.FullPath, r.FullPath)) continue;
+            if (root == null || r.FullPath.Length > root.FullPath.Length) root = r;
+        }
+        if (root == null) return new OrganizeRevealResult(OrganizeRevealKind.NotFound, null);
+
+        var chain = new List<OrganizeNode> { root };
+        var current = root;
+        for (int guard = 0; guard < 64 && !OrganizePathIsSame(current.FullPath, folder.FullPath); guard++)
+        {
+            Materialize(current, FolderOrganize.ChildBudget, null, autoExpand: false);
+            OrganizeNode? next = null;
+            foreach (var c in current.Children)
+            {
+                if (!OrganizePathIsUnder(folder.FullPath, c.FullPath)) continue;
+                next = c;
+                break;
+            }
+            if (next == null)
+            {
+                // 因为对象预算/去重没有挂在下面：停在最近的上级
+                ExpandOrganizeAncestors(chain);
+                return SelectOrganizeRow(current) with { Kind = OrganizeRevealKind.Partial };
+            }
+            chain.Add(next);
+            current = next;
+        }
+
+        ExpandOrganizeAncestors(chain);
+        return SelectOrganizeRow(current);
+    }
+
+    private static bool TryFindOrganizeChain(OrganizeNode node, OrganizeNode target, List<OrganizeNode> chain)
+    {
+        chain.Add(node);
+        if (ReferenceEquals(node, target)) return true;
+        foreach (var c in node.Children)
+            if (TryFindOrganizeChain(c, target, chain)) return true;
+        chain.RemoveAt(chain.Count - 1);
+        return false;
+    }
+
+    private static void ExpandOrganizeAncestors(IReadOnlyList<OrganizeNode> chain)
+    {
+        for (int i = 0; i < chain.Count - 1; i++) chain[i].Expand();
+    }
+
+    private OrganizeRevealResult SelectOrganizeRow(OrganizeNode node)
+    {
+        RefreshOrganizeRows();
+        if (!_organizeRows.Contains(node))
+            return new OrganizeRevealResult(OrganizeRevealKind.Partial, node);
+        OrganizeGrid.SelectedItem = node;
+        OrganizeGrid.ScrollIntoView(node);
+        OrganizeGrid.Focus();
+        return new OrganizeRevealResult(OrganizeRevealKind.Located, node);
+    }
+
+    private static string OrganizeNormalizePath(string? path) => (path ?? "").TrimEnd('\\');
+
+    private static bool OrganizePathIsSame(string? a, string? b) =>
+        string.Equals(OrganizeNormalizePath(a), OrganizeNormalizePath(b), StringComparison.OrdinalIgnoreCase);
+
+    private static bool OrganizePathIsUnder(string? path, string? ancestor)
+    {
+        string p = OrganizeNormalizePath(path);
+        string a = OrganizeNormalizePath(ancestor);
+        if (p.Length == 0 || a.Length == 0) return false;
+        if (string.Equals(p, a, StringComparison.OrdinalIgnoreCase)) return true;
+        return p.Length > a.Length && p[a.Length] == '\\'
+            && p.StartsWith(a, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// 点用途文字：展开 / 收起这一行的说明（这是什么 · 为什么这么判断 · 来源）。
     /// **只改展示**：不触发识别、不动结论、不碰任何清理字段。

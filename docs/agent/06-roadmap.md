@@ -72,7 +72,7 @@ src/AiDiskCleaner/Services/Agent/
 
 **落地状态：** 聊天客户端（`Services/Agent/Chat/ChatModels.cs`、`OpenAiCompatChatModel.cs`、`ChatModelFactory.cs`）、L1 编排（`PromptBuilder.cs`/`ReportParser.cs`/`ReportAssembler.cs`/`AgentReportService.cs`）、可交互报告（`MainWindow.AgentReport.cs` + XAML 的 `AiReportBtn`/`ReportBody`）、设置页聊天化（DeepSeek / OpenAI 兼容 / Ollama 模板）全部完成；Jev 判定通道整条删除；`tools/AgentReportCheck` 53 条检查全绿；全量 12 项离线检查绿。
 
-**与计划的差异：** 报告没有做独立窗口，直接复用 `DialogCard` 弹层并加宽到 940px（`ReportBody`/`ReportContent`），这样「加入清理 / 只看这个目录」能直接操作当前清理页的选择与范围；`find_duplicates` 等其余 5 个工具仍未实现（工具层首版只读 4 个）。
+**与计划的差异：** 报告没有做独立窗口，直接复用 `DialogCard` 弹层并加宽到 940px（`ReportBody`/`ReportContent`）；入口在「按文件夹删除」页页头，报告动作只有「去处理」= 切页 + 定位/高亮文件夹（不改勾选、不删除）；`find_duplicates` 等其余 5 个工具仍未实现（工具层首版只读 4 个）。
 
 ### 3.1 新增文件
 
@@ -104,13 +104,12 @@ src/AiDiskCleaner/
 ```text
 [可回收 1.2 GB]  浏览器缓存 · 2 个目录
 原因：Chrome/Edge 缓存目录，可安全重建          置信度 高
-[查看证据]  [加入清理]  [跳到清理页]
+[查看证据]  [去处理]
 ```
 
-- 「查看证据」→ 侧栏展开该目录的卡片字段 + 命中的本地规则；
-- 「加入清理」→ 对应 `CleanItem.Selected = true`（不删除）；
-- 「跳到清理页」→ 切页 + 滚动定位 + 高亮该行（**不自动勾选**，见 04 Q5）；
-- 报告页顶部有「全部采用」/「全部忽略」，但都是勾选级操作。
+- 入口在「按文件夹删除」页页头统计行右侧（AI 只服务这个页面，清理中心不再放入口）；
+- 「查看证据」→ 卡片内联展开该目录的字段 + 命中的本地规则；
+- 「去处理」→ 切到「按文件夹删除」页，展开祖先并滚动定位/高亮该文件夹；**不改勾选、不删除**（见 04 Q5），勾选始终由用户自己点。
 
 ### 3.4 验收
 

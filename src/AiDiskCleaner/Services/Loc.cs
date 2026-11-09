@@ -204,17 +204,22 @@ public static class Loc
     public static string AiReportKeep => IsEn ? "Suggested to keep" : "建议保留";
     public static string AiReportEvidence => IsEn ? "Evidence: " : "依据：";
     public static string AiReportRisk(string risk) => IsEn ? $"Risk: {risk}" : $"风险：{risk}";
-    public static string AiReportAdd => IsEn ? "Add to cleanup" : "加入清理";
-    public static string AiReportAdded(int items, string size) => IsEn
-        ? $"Added {items} item(s) ({size}) to the selection."
-        : $"已加入 {items} 项（{size}）到勾选。";
-    public static string AiReportAddNothing => IsEn
-        ? "Nothing under this folder is selectable for cleanup."
-        : "这个目录下没有可加入的清理项。";
-    public static string AiReportJump => IsEn ? "Show only this folder" : "只看这个目录";
+    public static string AiReportJump => IsEn ? "Open" : "去处理";
     public static string AiReportJumpTip => IsEn
-        ? "Switch to the cleanup page scoped to this folder"
-        : "跳到清理页，并只显示这个目录的清理项";
+        ? "Jump to the folder page and highlight this folder; you still decide what to check"
+        : "跳到「按文件夹删除」页并定位这个文件夹；勾选仍由你自己点";
+    public static string AiReportJumped(string name) => IsEn
+        ? $"Located “{name}”. Whether to check it is still up to you."
+        : $"已定位到「{name}」，勾选仍由你决定。";
+    public static string AiReportJumpPartial(string name) => IsEn
+        ? $"Could only reach the nearest parent “{name}” — deeper levels are not listed."
+        : $"只能定位到最近的上级「{name}」，更深一层没有列出来。";
+    public static string AiReportNotInTree => IsEn
+        ? "This folder is not in the folder list (protected or beyond the displayed levels)."
+        : "这个目录不在「按文件夹删除」列表里（可能受保护或超出显示层级）。";
+    public static string AiReportProgress(int done, int total) => IsEn
+        ? $"Analyzing {done}/{total}"
+        : $"分析中 {done}/{total}";
     public static string AiReportDegraded(string reason) => IsEn
         ? $"Partial result ({reason})"
         : $"部分结果不可用（{reason}）";
