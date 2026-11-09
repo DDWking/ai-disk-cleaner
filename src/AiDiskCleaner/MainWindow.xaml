@@ -2425,8 +2425,62 @@
                        TextWrapping="Wrap" Margin="0,0,0,10"/>
             <TextBlock x:Name="AiDecisionsModelLabel" Foreground="{DynamicResource TextMuted}" FontSize="11"
                        Margin="0,0,0,4"/>
-            <TextBox x:Name="AiDecisionModelBox" Style="{StaticResource TermTextBox}"
-                     Height="28" Margin="0,0,0,10" Tag="typesafe/jev-1.13"/>
+            <Grid Margin="0,0,0,4">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBox x:Name="AiDecisionModelBox" Style="{StaticResource TermTextBox}"
+                       Height="28" Margin="0,0,8,0" Tag="deepseek-chat"/>
+              <Button x:Name="AiFetchModelsBtn" Grid.Column="1" Style="{StaticResource GhostButton}"
+                      Padding="10,4" FontSize="11" Click="AiFetchModels_Click"/>
+            </Grid>
+            <Popup x:Name="AiModelsPopup" PlacementTarget="{Binding ElementName=AiDecisionModelBox}"
+                   Placement="Bottom" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+              <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}"
+                      BorderThickness="1" MaxHeight="240"
+                      Width="{Binding ActualWidth, ElementName=AiDecisionModelBox}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                  <ListBox x:Name="AiModelsList" Background="Transparent" BorderThickness="0"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                           SelectionChanged="AiModelsList_SelectionChanged">
+                    <ListBox.ItemContainerStyle>
+                      <Style TargetType="ListBoxItem">
+                        <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Padding" Value="10,6"/>
+                        <Setter Property="Template">
+                          <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                              <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                      Padding="{TemplateBinding Padding}">
+                                <ContentPresenter/>
+                              </Border>
+                              <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                                </Trigger>
+                              </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                          </Setter.Value>
+                        </Setter>
+                      </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding}" FontSize="12" TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource Text}"/>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </ScrollViewer>
+              </Border>
+            </Popup>
+            <TextBlock x:Name="AiModelsHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                       TextWrapping="Wrap" Margin="0,0,0,10"/>
             <TextBlock x:Name="AiKeyLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
             <Grid Margin="0,0,0,4">
               <PasswordBox x:Name="AiKeyBox" Height="28" Padding="8,0"

@@ -206,6 +206,7 @@ public partial class MainWindow : Window
     private long _volumeUsed;
     /// <summary>设置页「测试判定通道」在跑（防重入 + 忙状态行）。</summary>
     private bool _aiBusy;
+    private bool _modelsBusy;
     private bool _aiPresetLoading;
 
     /// <summary>设置页正在编辑哪一家。与「AI 分析使用哪家」分开，编辑 B 不会偷偷切换当前供应商。</summary>
@@ -399,6 +400,7 @@ public partial class MainWindow : Window
         AiUrlLabel.Text = Loc.AiBaseUrl;
         AiKeyLabel.Text = Loc.AiApiKey;
         AiTestBtn.Content = Loc.AiTest;
+        if (AiFetchModelsBtn != null) AiFetchModelsBtn.Content = Loc.AiFetchModels;
         AiNameBox.Tag = Loc.AiNameHint;
         AiUrlBox.Tag = Loc.AiUrlHint;
         AiAddProvBtn.Content = Loc.AiAddCustom;
@@ -1494,6 +1496,7 @@ public partial class MainWindow : Window
         DialogTitle.Text = Loc.AiEditTitle;
         ShowProv(p);
         AiTestHint.Text = "";
+        ResetModelCatalog();
         RefreshAiLamp();
     }
 
@@ -1611,6 +1614,81 @@ public partial class MainWindow : Window
     /// 「清除密钥」：把当前供应商的密钥从内存和加密仓库里都去掉，并立刻落盘。
     /// 只清当前这家，不动别的提供方。
     /// </summary>
+    private async void AiFetchModels_Click(object sender, RoutedEventArgs e)
+    {
+        if (_modelsBusy) return;
+        string url = AiUrlBox.Text?.Trim() ?? "";
+        if (url.Length == 0 || !Uri.TryCreate(url, UriKind.Absolute, out _))
+        {
+            SetModelsHint(Loc.AiModelsNeedUrl, "#E0B050");
+            return;
+        }
+        // 正在编辑的 key 优先；没改过就用这一家已存的那把。
+        string key = AiKeyBox.Password;
+        if (key.Length == 0) key = _provEditTarget?.ApiKey ?? "";
+
+        _modelsBusy = true;
+        AiFetchModelsBtn.IsEnabled = false;
+        AiFetchModelsBtn.Content = Loc.AiModelsLoading;
+        SetModelsHint(Loc.AiModelsLoading, "#8A8A8A");
+        try
+        {
+            var list = await ChatModelCatalog.FetchAsync(url, key);
+            if (!list.Ok)
+            {
+                SetModelsHint(Loc.AiModelsFailed(list.Error ?? ""), "#E0B050");
+                return;
+            }
+            AiModelsList.ItemsSource = list.Models;
+            AiModelsPopup.IsOpen = true;
+            SetModelsHint(Loc.AiModelsCount(list.Models.Count), "#3ECF6A");
+        }
+        catch (OperationCanceledException)
+        {
+            SetModelsHint(Loc.AiModelsTimeout, "#E0B050");
+        }
+        catch (Exception ex)
+        {
+            SetModelsHint(Loc.AiModelsFailed(AppError.Trim("technical", ex)), "#E0B050");
+        }
+        finally
+        {
+            _modelsBusy = false;
+            AiFetchModelsBtn.IsEnabled = true;
+            AiFetchModelsBtn.Content = Loc.AiFetchModels;
+        }
+    }
+
+    private void AiModelsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (AiModelsList.SelectedItem is not string model) return;
+        AiDecisionModelBox.Text = model;
+        AiDecisionModelBox.CaretIndex = model.Length;
+        AiModelsPopup.IsOpen = false;
+        SetModelsHint(Loc.AiModelsPicked(model), "#3ECF6A");
+        AiModelsList.SelectedItem = null;
+    }
+
+    /// <summary>顶部状态条/模型提示共用的小调色板（不引入新的主题资源）。</summary>
+    void SetModelsHint(string text, string color)
+    {
+        if (AiModelsHint == null) return;
+        AiModelsHint.Text = text;
+        AiModelsHint.Foreground = AiStatusBrush(color);
+    }
+
+    /// <summary>切换供应商/模板后旧列表就过期了，直接清掉，避免点错别家的模型。</summary>
+    void ResetModelCatalog()
+    {
+        if (AiModelsPopup != null) AiModelsPopup.IsOpen = false;
+        if (AiModelsList != null) AiModelsList.ItemsSource = null;
+        if (AiModelsHint != null)
+        {
+            AiModelsHint.Text = "";
+            AiModelsHint.Foreground = AiStatusBrush("#8A8A8A");
+        }
+    }
+
     private void AiKeyClear_Click(object sender, RoutedEventArgs e)
     {
         var p = _provEditTarget ?? App.Settings.DecisionProvider();
@@ -1659,6 +1737,7 @@ public partial class MainWindow : Window
         var p = NewProv();
         App.Settings.AiProviders.Add(p);
         _provEditTarget = p;
+        ResetModelCatalog();
         // 一家都还没配时，新建的这家直接成为当前；已有当前的不抢。
         if (App.Settings.DecisionProvider() == null)
             App.Settings.SetActiveProvider(p.Id);

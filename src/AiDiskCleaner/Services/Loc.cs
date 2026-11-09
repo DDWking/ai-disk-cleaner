@@ -183,6 +183,23 @@ public static class Loc
     public static string AiDecisionsHint => IsEn
         ? "Fill the address up to /v1; /chat/completions is added automatically."
         : "地址填到 /v1 为止，程序会自动补 /chat/completions。";
+    public static string AiFetchModels => IsEn ? "Fetch models" : "获取模型";
+    public static string AiModelsLoading => IsEn ? "Fetching models…" : "正在获取模型…";
+    public static string AiModelsCount(int count) => IsEn
+        ? $"{count} models found - pick one or keep typing"
+        : $"取回 {count} 个模型，点一个填入（也可以继续手动输入）";
+    public static string AiModelsPicked(string model) => IsEn
+        ? $"Selected {model}"
+        : $"已填入 {model}";
+    public static string AiModelsNeedUrl => IsEn
+        ? "Fill the API address first."
+        : "先填 API 地址。";
+    public static string AiModelsFailed(string why) => IsEn
+        ? $"Could not fetch models: {why}. You can still type the model name."
+        : $"获取失败：{why}。仍可手动输入模型名。";
+    public static string AiModelsTimeout => IsEn
+        ? "Timed out after 15s; type the model name manually."
+        : "获取超时（15 秒），仍可手动输入模型名。";
     public static string AiNeedConfig => IsEn ? "Set base URL and model first." : "先填接口地址和模型。";
     public static string AiWorking => IsEn ? "Asking the model…" : "正在问模型…";
     public static string AiTestOk(long ms, string model) => IsEn

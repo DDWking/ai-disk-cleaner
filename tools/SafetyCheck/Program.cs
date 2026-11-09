@@ -34,6 +34,7 @@ public static class Program
         PathRedactionTests();
         ApiKeyEncryptionTests();
         SettingsMigrationTests();
+        ModelCatalogTests();
         StagedDuplicateTests();
         CoordinatorTests();
         WorkStateTests();
@@ -693,6 +694,47 @@ public static class Program
             AppPaths.OverrideDirectory = oldOverride;
             try { Directory.Delete(dir, true); } catch { /* 清理失败不影响结论 */ }
         }
+    }
+
+    // ---------------------------------------------------------------- 模型列表（不连网）
+
+    static void ModelCatalogTests()
+    {
+        Section("模型列表：地址换算与解析");
+
+        Check("基址到 /v1 时补 /models",
+            ChatModelCatalog.ModelsEndpoint("https://api.deepseek.com/v1") == "https://api.deepseek.com/v1/models",
+            ChatModelCatalog.ModelsEndpoint("https://api.deepseek.com/v1"));
+        Check("带尾斜杠也补对",
+            ChatModelCatalog.ModelsEndpoint("https://api.deepseek.com/v1/") == "https://api.deepseek.com/v1/models",
+            ChatModelCatalog.ModelsEndpoint("https://api.deepseek.com/v1/"));
+        Check("填了完整聊天地址也能反推模型地址",
+            ChatModelCatalog.ModelsEndpoint("https://x.example/v1/chat/completions") == "https://x.example/v1/models",
+            ChatModelCatalog.ModelsEndpoint("https://x.example/v1/chat/completions"));
+        Check("已经是 /models 时不重复拼",
+            ChatModelCatalog.ModelsEndpoint("https://x.example/v1/models") == "https://x.example/v1/models");
+
+        var wrapped = ChatModelCatalog.Parse(
+            """{"data":[{"id":"deepseek-reasoner"},{"id":"deepseek-chat"},{"id":"deepseek-chat"}]}""");
+        Check("OpenAI 风格 data 列表可解析、去重、按字母排序",
+            wrapped.Ok && wrapped.Models.Count == 2
+            && wrapped.Models[0] == "deepseek-chat" && wrapped.Models[1] == "deepseek-reasoner",
+            string.Join(",", wrapped.Models));
+
+        var bare = ChatModelCatalog.Parse("""["z-model","a-model"]""");
+        Check("裸数组也可解析并排序",
+            bare.Ok && bare.Models[0] == "a-model" && bare.Models[1] == "z-model",
+            string.Join(",", bare.Models));
+
+        var empty = ChatModelCatalog.Parse("""{"data":[]}""");
+        Check("空列表算失败，而不是「成功但没模型」",
+            !empty.Ok && (empty.Error ?? "").Length > 0, empty.Error);
+
+        var bad = ChatModelCatalog.Parse("<html>gateway</html>");
+        Check("非 JSON 返回可读错误，不抛异常", !bad.Ok && bad.Error == "返回内容不是 JSON", bad.Error);
+
+        var errorBody = ChatModelCatalog.Parse("""{"error":{"message":"invalid api key"}}""");
+        Check("错误体不会被误当成模型列表", !errorBody.Ok, errorBody.Error);
     }
 
     // ---------------------------------------------------------------- 重复文件分阶段哈希

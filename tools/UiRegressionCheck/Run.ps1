@@ -47,6 +47,7 @@ $toolhost = Read-Text 'src\AiDiskCleaner\Services\Agent\ToolHost.cs'
 $chat = Read-Text 'src\AiDiskCleaner\Services\Agent\Chat\ChatModelFactory.cs'
 $aiconfig = Read-Text 'src\AiDiskCleaner\Services\AiConfigurationService.cs'
 $settings = Read-Text 'src\AiDiskCleaner\Services\AppSettings.cs'
+$catalog = Read-Text 'src\AiDiskCleaner\Services\Agent\Chat\ChatModelCatalog.cs'
 
 $fail = 0
 function Assert-True([string]$name, [bool]$ok) {
@@ -197,6 +198,15 @@ Assert-True 'the model travels with each provider (no shared global model write)
      $cs -notmatch 'AiDecisionModel\s*=')
 Assert-True 'switching provider cancels an in-flight report from the old provider' `
     ($cs -match 'private void AiUseProv_Click' -and $cs -match 'CancelAgentReport\(\)')
+Assert-True 'the model field can fetch the upstream model list' `
+    ($xaml -match 'x:Name="AiFetchModelsBtn"' -and $xaml -match 'x:Name="AiModelsPopup"' -and
+     $xaml -match 'x:Name="AiModelsList"' -and $xaml -match 'x:Name="AiModelsHint"' -and
+     $cs -match 'AiFetchModels_Click' -and $cs -match 'ChatModelCatalog\.FetchAsync' -and
+     $catalog -match 'ModelsEndpoint')
+Assert-True 'a failed model fetch keeps manual entry and only shows a hint' `
+    ($cs -match 'SetModelsHint\(Loc\.AiModelsFailed' -and
+     $loc -match 'AiModelsFailed' -and
+     $cs -notmatch 'throw new InvalidOperationException\(Loc\.AiModelsFailed')
 
 # --- 6. AI report is an interactive suggestion sheet (folder page only) ------
 $iOrgPane = $xaml.IndexOf('x:Name="OrganizePane"', [StringComparison]::Ordinal)

@@ -43,6 +43,9 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\AiConfigurationService.cs" Link="AiConfigurationService.cs" />
     <!-- 聊天契约：连接向导的探针与诊断都按这套类型断言 -->
     <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\Chat\ChatModels.cs" Link="Agent\Chat\ChatModels.cs" />
+    <!-- 模型列表：地址换算与解析是纯函数，离线断言（不连网） -->
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\Chat\ChatModelCatalog.cs" Link="Agent\Chat\ChatModelCatalog.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AiHttp.cs" Link="AiHttp.cs" />
     <!-- DNS 污染兜底：DoH 应答解析是纯函数，必须离线断言（非 A 记录 / 失败状态 / 劫持页都要挡住） -->
     <Compile Include="..\..\src\AiDiskCleaner\Services\DohResolver.cs" Link="DohResolver.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleContracts.cs" Link="CleanRuleContracts.cs" />
