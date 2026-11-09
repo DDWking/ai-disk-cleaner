@@ -792,23 +792,8 @@ public static class LayeredCleanTests
             check("权限/读取异常被吞掉并计数",
                 !SourceSnippetCollector.Collect(tmp, _ => throw new UnauthorizedAccessException()).Any);
 
-            // AI 输入里带上片段，并且仍然不超长
-            var sum2 = FolderPurposeRules.Summarize(steamLib, new FolderId(steamLib.FullPath, 1), 2,
-                @"Gameklll\steam");
-            // BuildAiInput 仍然存在，而且仍然把「字符上限」当**调用方参数**：
-            // 生产上的 MaxInputChars=1800 随逐目录聊天路径一起删除了（判定通道改按条数分批，
-            // 见 FolderPurposeDecisionSet —— 现在是**一个请求一个目录**），所以这里用同一个数字当调用方上限，
-            // 测的是「截断契约」本身，而不是那个已经不存在的常量。
-            const int maxInputChars = 1800;
-            string withSnips = FolderPurposeRules.BuildAiInput(sum2, false, maxInputChars, set);
-            check("片段会进 AI 输入", withSnips.Contains("README.md", StringComparison.Ordinal));
-            check("带片段的输入仍然不超长",
-                withSnips.Length <= maxInputChars, withSnips.Length.ToString());
-            // IsSafeOutbound 删除后，出站自检的**两个半边都还在**：路径已脱敏 + 文本自检干净。
-            check("带片段的输入自检通过（路径已脱敏 + 内容自检干净）",
-                PathRedactor.IsRedacted(withSnips) && SourceSnippetReader.LooksClean(withSnips));
-            check("片段被截断时如实标注",
-                new SourceSnippet("a.md", new string('x', 10), true).Label.EndsWith("…"));
+            // AI 分析已改为「本地证据卡 + 报告」，不再把 README 片段拼进请求：
+            // 片段读取器本身仍在（用于识别缓存脱敏），断言只保留读取行为。
         }
         catch (Exception ex)
         {
@@ -847,10 +832,8 @@ public static class LayeredCleanTests
             && typeof(FolderPurposeService).GetProperty("AiRequestsUsed") == null);
 
         // ---- 10) 请求预算：随「一个目录一次请求」的聊天路径整体删除 ----
-        // 请求总量 / 并发 / 超时 / 最小间隔都是那条路才需要的节流器（一次请求一个目录）。
-        // 那条路没了以后，攒批与节流归判定层：批大小自适应（下限 AdaptiveMin），
-        // 上限由各判定域的 MaxPerRequest 给（文件夹判定域是**一次一个目录**，所以是 1）。
-        check("分批预算改由判定层持有（自适应批下限 5）", DecisionRunner.AdaptiveMin == 5);
+        // 那条路没了以后，攒批与节流由 AI 分析服务（AgentReportService）持有，
+        // 用途服务只负责本地识别，不做出站。
         check("用途服务里不再有出站节流器（预算不在这一层）",
             !ReadSource("FolderPurposeService.cs").Contains("MaxAiRequests", StringComparison.Ordinal)
             && !ReadSource("FolderPurposeService.cs").Contains("Task.Delay(gap", StringComparison.Ordinal));
@@ -891,17 +874,14 @@ public static class LayeredCleanTests
         var locText = ReadSource("Loc.cs");
         check("界面文案里没有「最近使用」",
             !locText.Contains("最近使用", StringComparison.Ordinal));
-        // 原先这里的 payload/sum 来自已经删掉的「逐目录聊天输入」块；现在用仍然存在的
-        // BuildAiInput 自己造一份摘要输入，断言口径不变：只写「最后修改」这个时间事实。
+        // 「最近修改」只能作为时间事实出现，不许写成「最近使用」：摘要保留原始 Modified，
+        // 报告卡的时间字段也只用本地时钟之外的扫描时刻换算年龄。
         var timeDir = DirNode("timed", @"D:\timed", 1024);
         FileNode("a.bin", @"D:\timed\a.bin", 512, timeDir);
         timeDir.Modified = new DateTime(2024, 5, 6, 7, 8, 9);
         var timeSum = FolderPurposeRules.Summarize(timeDir, new FolderId(timeDir.FullPath, 1), 0, "timed");
-        string payload = FolderPurposeRules.BuildAiInput(timeSum, sendFullPath: false, 1800, null);
-        check("摘要里写的是最后修改时间",
-            payload.Contains("last modified", StringComparison.OrdinalIgnoreCase)
-            && payload.Contains("2024-05-06", StringComparison.Ordinal)
-            && !payload.Contains("last used", StringComparison.OrdinalIgnoreCase),
+        check("摘要保留最后修改时间（不推断最近使用）",
+            timeSum.Modified == new DateTime(2024, 5, 6, 7, 8, 9),
             timeSum.Modified.ToString("yyyy-MM-dd"));
 
         // ---- 14) 海量目录：层级计算与范围判定是常数开销，不卡死 ----
@@ -1080,7 +1060,7 @@ public static class LayeredCleanTests
             !orgText.Contains("OrganizeNoModelHonest", StringComparison.Ordinal)
             && !orgText.Contains("OrganizeBudgetLeft", StringComparison.Ordinal));
         check("页头按对象分档统计（不是批量任务的成败统计）",
-            orgText.Contains("Loc.OrganizeCountsLine(local, ai, unknown, failed)", StringComparison.Ordinal)
+            orgText.Contains("Loc.OrganizeCountsLine(local, unknown, failed)", StringComparison.Ordinal)
             && !orgText.Contains("Loc.OrganizeRunSummary", StringComparison.Ordinal));
         check("本地识别不 await 任何请求（同步跑完本地那一遍）",
             orgText.Contains("private void LocalRecognize(OrganizeNode node)", StringComparison.Ordinal)
@@ -1514,9 +1494,8 @@ public static class LayeredCleanTests
         check("用途服务不再有超时/取消分支（同步本地识别，出站与取消归判定通道）",
             !ReadSource("FolderPurposeService.cs").Contains("CancellationToken", StringComparison.Ordinal)
             && !ReadSource("FolderPurposeService.cs").Contains("timedOut", StringComparison.Ordinal));
-        check("出站失败改由判定通道抛错、页面出声（服务不再落 Failure）",
-            !ReadSource("FolderPurposeService.cs").Contains("FolderPurposeResult.Failure", StringComparison.Ordinal)
-            && ReadSource("MainWindow.Organize.cs").Contains("Loc.AiPurposeBatchFailed", StringComparison.Ordinal));
+        check("出站失败不落在用途服务里（服务不再落 Failure）",
+            !ReadSource("FolderPurposeService.cs").Contains("FolderPurposeResult.Failure", StringComparison.Ordinal));
 
         // ---- 海量文件：摘要与容量统计不受识别深度影响 ----
         var bulk = DirNode("bigset", @"D:\bigset", 123_456_789_000);

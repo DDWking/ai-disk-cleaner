@@ -9,9 +9,8 @@ namespace AiDiskCleaner.Services;
 /// <summary>
 /// 全进程共享的出站 HTTP 客户端。
 ///
-/// 两处用到它：判定通道（<see cref="AiClient"/>）和 agent 的聊天通道
-/// （<see cref="Agent.OpenAiCompatChatModel"/>）。TLS 版本、DoH 兜底、
-/// 连接超时只在这里定义一次，避免两条通道的行为悄悄分叉。
+/// 现在只有一个使用者：agent 的聊天通道（<see cref="Agent.OpenAiCompatChatModel"/>）。
+/// TLS 版本、DoH 兜底、连接超时只在这里定义一次。
 ///
 /// DoH 只负责「域名解析成哪个 IP」；TLS 仍按**原始主机名**校验，
 /// 所以 DNS 被污染时这条路径既能把请求送到正确服务器，也不降低安全性。

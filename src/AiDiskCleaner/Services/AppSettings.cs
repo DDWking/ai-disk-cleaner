@@ -13,14 +13,11 @@ public sealed class AiProviderCfg
     public string Name { get; set; } = "";
     public string BaseUrl { get; set; } = "";
 
-    /// <summary>Jev 接口形状：官方 Decisions API 或 TypeSafe System One API。</summary>
-    public string Protocol { get; set; } = "decisions";
+    /// <summary>协议标记。v3.1 起只有 OpenAI 兼容聊天一种，统一写 "chat"。</summary>
+    public string Protocol { get; set; } = "chat";
 
-    // v3.0 删掉了聊天协议字段；现在保留的是 Jev 的两种官方结构化 API。旧配置中的 Protocol
-    // 若是 completions 等聊天值，会在迁移时归一为 decisions。 </summary>
-    // 聊天通道（completions / responses / anthropic）连同
-    // 协议下拉一起下线，供应商只可能是判定端点。老配置里那个字段留在 json 里没关系，
-    // 反序列化会忽略未知成员。
+    // 旧配置里的 decisions / systemone / completions 等值会在 NormalizeProtocols()
+    // 里统一归一为 "chat"；JsonIgnore？不用：留着旧值也不影响，只在内存里改。
 
     /// <summary>
     /// API Key 的**明文**，只在内存里活着。
@@ -51,9 +48,9 @@ public sealed class AppSettings
     public string AiActiveId { get; set; } = "";
 
     /// <summary>
-    /// 旧字段：聊天时代的「全局聊天模型」。v3.0 起整个软件只有判定一条通道，
-    /// 模型统一由 <see cref="AiDecisionModel"/> 表达。保留它只是为了读得懂老配置
-    /// （<see cref="Migrate"/> 会把它搬进判定模型），**新代码不要再用**。
+    /// 旧字段：聊天时代的「全局聊天模型」。现在模型统一由 <see cref="AiDecisionModel"/>
+    /// 表达。保留它只是为了读得懂老配置（<see cref="Migrate"/> 会把它搬进判定模型），
+    /// **新代码不要再用**。
     /// </summary>
     public string AiModel { get; set; } = "";
 
@@ -61,18 +58,18 @@ public sealed class AppSettings
     public bool AiSendFullPaths { get; set; }
 
     /// <summary>
-    /// 判定通道用哪个供应商。留空时自动退到**第一个配了地址的供应商** ——
-    /// v3.0 起所有供应商都是判定端点（协议概念随聊天通道一起删了）。
+    /// 用哪个 AI 供应商。留空时自动退到**第一个配了地址的供应商**。
+    /// 属性名是历史遗留（v3.0 判定时代），语义现在就是「聊天供应商」。
     /// </summary>
     public string AiDecisionProviderId { get; set; } = "";
 
-    /// <summary>判定用的模型 id。留空时退到该供应商模型列表的第一个。</summary>
+    /// <summary>聊天模型 id。留空时退到该供应商模型列表的第一个。</summary>
     public string AiDecisionModel { get; set; } = "";
 
     // 旧单供应商结构的迁移字段（老 settings.json 里就一个 name/baseUrl/protocol/models）。
     public string AiName { get; set; } = "";
     public string AiBaseUrl { get; set; } = "";
-    public string AiProtocol { get; set; } = "completions";
+    public string AiProtocol { get; set; } = "chat";
     public List<string> AiModels { get; set; } = new();
 
     /// <summary>旧字段：以前这里是明文密钥。现在只用于迁移，读写都不落盘。</summary>

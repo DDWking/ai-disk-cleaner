@@ -46,8 +46,8 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\AppPaths.cs" Link="AppPaths.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\SecretProtector.cs" Link="SecretProtector.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AppSettings.cs" Link="AppSettings.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\AiGateway.cs" Link="AiGateway.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevContracts.cs" Link="Decisions\JevContracts.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AiConfigurationService.cs" Link="AiConfigurationService.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\Chat\ChatModels.cs" Link="Agent\Chat\ChatModels.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AppSignatures.cs" Link="AppSignatures.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\KnownPaths.cs" Link="KnownPaths.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\FileClassifier.cs" Link="FileClassifier.cs" />

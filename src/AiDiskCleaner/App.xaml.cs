@@ -49,23 +49,12 @@ public partial class App : Application
 
         Settings = AppSettings.Load();
         Loc.Lang = Settings.Lang;
-        // 组合根：**在这里**把真实通道接上统一入口。
-        //
-        // 不能只靠 AiClient 的静态构造函数去接（它里面确实也调了一次 Register）——
-        // 静态构造只在「有东西碰到 AiClient」时才跑。判定通道走的是 AiProtocols
-        // （刻意做成不碰 AiClient，好让设置页读协议不触发它的静态构造），
-        // 于是从没碰过 AiClient 的进程里 DecisionsSender 一直是 null，
-        // 用户一点「识别用途」就报 "decisions channel is not registered"。
-        AiGateways.Register();
         ThemeService.Apply();
         Resources["SearchHintText"] = Loc.SearchHint;
         base.OnStartup(e);
     }
 
-    /// <summary>
-    /// v3.0：退出时不再需要收拾外部进程 —— Node 侧车（那个会残留的 sidecar）已经删掉了，
-    /// 判定通道只是本进程里的一次 HTTP 调用。
-    /// </summary>
+    /// <summary>v3.0：退出时不需要收拾外部进程 —— 因果链全部在本进程内。</summary>
     protected override void OnExit(ExitEventArgs e)
     {
         base.OnExit(e);

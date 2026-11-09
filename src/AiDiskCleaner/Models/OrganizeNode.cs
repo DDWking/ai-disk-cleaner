@@ -261,126 +261,20 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     private bool _needsConfirm;
     private FolderKind _kind = FolderKind.Unknown;
     private PurposeState? _override;
-    private string _batchPurpose = "";
 
     public string PurposeName => _purposeName;
     public string PurposeCategory => _purposeCategory;
     public string Basis => _basis;
 
     /// <summary>
-    /// 批量归类（结构化判定通道）给出的用途名。
-    ///
-    /// **刻意和逐项 AI 结果分开存**：逐项 AI 的结果还带「删除影响 / 依据 / 缺什么 / 建议档位」，
-    /// 而批量只有一个用途。混进 <see cref="Ai"/> 那个槽位会让界面**假装逐项分析跑过**
-    /// （行内「查看结果」按钮、状态行、建议档位都会被点亮）。
-    ///
-    /// 和逐项 AI 一样：**只影响展示** —— 不 Store、不改 Risk / CanDelete / Selected。
+    /// 展示用来源：本地规则 / 用户确认。没有结论时为空。
     /// </summary>
-    public string BatchPurpose => _batchPurpose;
-
-    /// <summary>
-    /// 展示用来源。本地/用户结论优先；用户点过单项 AI（或跑过批量归类）且给出了用途时，
-    /// 按 AI 推测展示 —— **不写进用途缓存、不改任何清理字段**。
-    /// </summary>
-    public PurposeSource Source => _purposeName.Length > 0
-        ? _source
-        : HasBatchPurpose ? PurposeSource.Ai : _source;
-    public bool NeedsConfirm => _needsConfirm && !HasBatchPurpose;
+    public PurposeSource Source => _source;
+    public bool NeedsConfirm => _needsConfirm;
     public FolderKind Kind => _kind;
 
-    /// <summary>批量归类给过用途。只影响展示。</summary>
-    bool HasBatchPurpose => _batchPurpose.Length > 0;
-
-    private bool _batchAsked;
-
-    /// <summary>
-    /// 这一项**已经问过模型了**（不管最后有没有拿到结论）。
-    ///
-    /// 没有它自动识别会**无限追问**：拿不到结论的条目按 <see cref="HasConclusion"/> 看仍然「没结论」，
-    /// 于是每次可见集合一变就把它重新问一遍，花的还是真金白银。
-    /// 换扫描时节点是重建的，所以这个标记天然跟着换代复位。
-    /// </summary>
-    public bool BatchAsked => _batchAsked;
-
-    /// <summary>标记「问过了」。只有批量服务在真的发出请求之后调用。</summary>
-    public void MarkBatchAsked() => _batchAsked = true;
-
-    /// <summary>
-    /// 这一项还等着被归类：没有任何结论、**没问过**、不是失败态、路径非空。
-    ///
-    /// 这是批量归类的**唯一入选判据**，刻意放在节点自己身上 ——
-    /// 这样离线回归只要连 <see cref="OrganizeNode"/> 就能断言它，
-    /// 不必把整个批量服务（连带 AI 网关 / 设置 / 网络）拖进测试工程。
-    /// </summary>
-    public bool NeedsPurposeClassification =>
-        !HasConclusion && !_batchAsked
-        && State != PurposeState.Failed && !string.IsNullOrWhiteSpace(FullPath);
-
     /// <summary>有结论才算「已识别」—— 没有结论时状态不允许是成功。</summary>
-    public bool HasConclusion => _purposeName.Length > 0 || HasBatchPurpose;
-
-    private bool _batchUnsure;
-
-    /// <summary>
-    /// 这条是模型**说了但没把握**的（低于采纳阈值），不是它的定论。
-    ///
-    /// 官方对这种情况的说法是 *escalate to a human when confidence is low* ——
-    /// **升级给人看，而不是丢掉**。丢掉的话界面只剩「未识别」，用户读到的信息量是零；
-    /// 标一句「拿不准：可能是软件缓存」，他至少知道该往哪边怀疑。
-    /// 这也是「看不出来太多」这个观感的一部分来源。
-    /// </summary>
-    public bool BatchPurposeUnsure => _batchUnsure && HasBatchPurpose;
-
-    /// <summary>
-    /// 批量归类写入用途。**唯一的写入口**，只改 <c>_batchPurpose</c> / <c>_batchUnsure</c>
-    /// 并刷新展示属性；不碰 <c>_source</c> / <c>_needsConfirm</c> / <c>_kind</c>，
-    /// 也不碰任何清理字段。
-    /// </summary>
-    /// <param name="unsure">
-    /// 模型给了答案但没把握（低于阈值）。仍然写进去，只是标出来 —— 见 <see cref="BatchPurposeUnsure"/>。
-    /// </param>
-    public void SetBatchPurpose(string? purpose, bool unsure = false)
-    {
-        string next = purpose ?? "";
-        if (_batchPurpose == next && _batchUnsure == unsure) return;
-        _batchPurpose = next;
-        _batchUnsure = unsure && next.Length > 0;
-        // 沿用 Apply 的口径：有结论就落回结论状态；没有结论才是「未识别」。
-        // 不清 _override 的话，之前 Apply 写下的 Unrecognized 会一直盖住新结论。
-        _override = null;
-        if (!HasConclusion) _override = PurposeState.Unrecognized;
-        RaiseConclusionDisplay();
-    }
-
-    /// <summary>
-    /// 从落盘缓存贴回一条 Jev 归类结果。和 <see cref="SetBatchPurpose"/> 同一条写路径，
-    /// 另外把「问过了」也标上 —— 否则自动/手动归类会把刚恢复的那条再问一遍，白花钱。
-    /// 空名字不贴（那等于没结论）。
-    /// </summary>
-    public void RestoreBatchPurpose(string? purpose, bool unsure)
-    {
-        if (string.IsNullOrWhiteSpace(purpose)) return;
-        SetBatchPurpose(purpose, unsure);
-        _batchAsked = true;
-        Raise(nameof(BatchAsked));
-        Raise(nameof(NeedsPurposeClassification));
-    }
-
-    /// <summary>
-    /// 忘掉这条的 AI 标签。本地规则认出来的用途不动；勾选也不动。
-    /// 「问过了」一并清掉，这样用户点「识别这一屏」会重新问这一条。
-    /// </summary>
-    public void ClearBatchPurpose()
-    {
-        if (_batchPurpose.Length == 0 && !_batchAsked && !_batchUnsure) return;
-        _batchPurpose = "";
-        _batchUnsure = false;
-        _batchAsked = false;
-        _override = HasConclusion ? null : PurposeState.Unrecognized;
-        RaiseConclusionDisplay();
-        Raise(nameof(BatchAsked));
-        Raise(nameof(NeedsPurposeClassification));
-    }
+    public bool HasConclusion => _purposeName.Length > 0;
 
     /// <summary>
     /// 界面状态。排队/处理中只由流程写入（<see cref="SetState"/>），
@@ -411,7 +305,6 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (State is PurposeState.Running) return Loc.PurposeRunning;
             if (State is PurposeState.Failed) return Loc.PurposeFailed;
             if (_purposeName.Length > 0) return _purposeName;
-            if (HasBatchPurpose) return _batchPurpose;
             if (_needsConfirm) return Loc.PurposeUnclear;
             return Loc.PurposeUnrecognized;
         }
@@ -427,10 +320,6 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (State is PurposeState.Failed) return Loc.OrganizeRetryHint;
             if (_purposeName.Length == 0)
             {
-                // 批量归类只给一个用途名，没有依据可写 —— 如实说「来源是 AI 推测」就够。
-                // 拿不准的那批必须说清是「模型也没把握」，不能和它有把握的混成一句。
-                if (BatchPurposeUnsure) return Loc.PurposeDetailUnsure;
-                if (HasBatchPurpose) return Loc.PurposeFromAi;
                 return _needsConfirm ? Loc.PurposeNeedsConfirm : Loc.PurposeIdentify;
             }
             string s = Source == PurposeSource.None ? "" : SourceText;

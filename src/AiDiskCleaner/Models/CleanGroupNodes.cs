@@ -252,89 +252,10 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
     public bool HasCleanableItems => Items.Any(CleanRuleEligibility.IsCleanable);
 
     /// <summary>
-    /// 这一组重复文件的**全部成员**（保留项在前）。
-    ///
-    /// 为什么需要它：清理页把一组重复文件拆成**两行** —— 「保留项」一行、「多余项」一行
-    /// （它们的 <see cref="CleanItem.Handling"/> 不同，所以位置键不同）。于是
-    /// <see cref="CleanGroupNodeBase.Items"/> 在每一行里都只有这一组的**一半**。
-    /// 而「留哪一份」这个问题必须看到整组才问得出来，所以分组时把全组成员一起挂上来。
-    ///
-    /// 非重复组恒为空；界面和判定域都用 <see cref="DupMemberCount"/> 兜底。
-    /// </summary>
-    public IReadOnlyList<CleanItem> DupMembers { get; internal set; } = Array.Empty<CleanItem>();
-
-    /// <summary>这一组的成员总数（拿不到全组时退回本行条数）。</summary>
-    public int DupMemberCount => DupMembers.Count > 0 ? DupMembers.Count : Items.Count;
-
-    /// <summary>
-    /// 一组重复文件里，成员超过这个数就不提供「问一下留哪一份」。
-    ///
-    /// 理由不是 token 而是**人**：十几个长得差不多的路径摆在一起，模型也只能瞎猜，
-    /// 而猜错一句「建议留这份」的代价是用户删错文件。判定域共用这个数字
-    /// （<see cref="Services.DuplicateKeepDecisionSet.MaxMembers"/>），避免两处漂移。
-    /// </summary>
-    public const int DupAskMaxMembers = 12;
-
-    /// <summary>
     /// 展开文件表时显示的本地「选择这些文件」芯片。
     /// 不依赖识别、不是 AI 意见；整理树没有这个入口。
     /// </summary>
     public bool ShowLocalSelectChip => IsFilesOpen && HasCleanableItems;
-
-    private bool _dupAskBusy;
-    /// <summary>这一组正在问判定通道（按钮转圈并禁用，防止重复付钱问同一组）。</summary>
-    public bool DupAskBusy
-    {
-        get => _dupAskBusy;
-        set
-        {
-            if (_dupAskBusy == value) return;
-            _dupAskBusy = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(ShowDupAskChip));
-            OnPropertyChanged(nameof(ShowDupAskRowChip));
-            OnPropertyChanged(nameof(DupAskText));
-        }
-    }
-
-    /// <summary>
-    /// 展开这一处时显示的「问一下留哪一份」芯片。
-    ///
-    /// 三条准入：**这一处是重复组**（别的用途没有「留哪一个」这回事）、
-    /// **这一行是保留项那一半**（多余项那一行问的是同一个问题，问两遍付两次钱）、
-    /// 而且**还没问过**（问过就不再显示，避免重复花钱）。
-    /// </summary>
-    public bool ShowDupAskChip
-        => IsFilesOpen && ShowDupAskRowChip;
-
-    /// <summary>
-    /// 位置行上（不需要展开）显示同一个入口。
-    ///
-    /// 为什么要在行上也放一个：**「该留哪一个」正是用户看着这一行时会问的问题**，
-    /// 藏在展开区里等于这个能力不存在。两者共用同一个处理器、同一份忙碌状态，
-    /// 展开之后两个都在，点哪个都一样。
-    /// </summary>
-    public bool ShowDupAskRowChip
-        => Purpose == CleanPurpose.Duplicate
-           && Key.Contains("dup-keep", StringComparison.Ordinal)
-           && DupMemberCount >= 2
-           && DupMemberCount <= DupAskMaxMembers
-           && !AlreadySuggested;
-
-    /// <summary>
-    /// 这一组的保留项说明里是不是已经有判定通道给的建议了。
-    ///
-    /// 用**文案前缀**判断，不引入额外状态字段：建议本身写在
-    /// <see cref="CleanItem.Reason"/> 里，多一个布尔位就多一处可能和文案不一致的状态。
-    /// 判断放在模型这一侧（而不是判定层）：界面要显示「问不问」，模型得先能自己回答，
-    /// 否则每个链接了本文件的检查工程都要把判定层一起链进来。
-    /// </summary>
-    public bool AlreadySuggested
-        => Items.Count > 0
-           && Items[0].Reason.Contains(Loc.DupKeepNoteMarker, StringComparison.Ordinal);
-
-    public string DupAskText => DupAskBusy ? Loc.DupKeepAsking : Loc.DupKeepAction(1);
-    public string DupAskTip => Loc.DupKeepTip;
 
     /// <summary>技术细节（命中了哪条签名、风险词等）。术语留在悬停里，不进标题。</summary>
     public string Tech { get; set; } = "";
@@ -440,8 +361,6 @@ public sealed class CleanLocationNode : CleanGroupNodeBase
         OnPropertyChanged(nameof(HasHiddenFiles));
         OnPropertyChanged(nameof(VisibleFiles));
         OnPropertyChanged(nameof(ShowLocalSelectChip));
-        OnPropertyChanged(nameof(ShowDupAskChip));
-        OnPropertyChanged(nameof(ShowDupAskRowChip));
         RaiseSelectionChanged();
     }
 

@@ -205,13 +205,6 @@ public static class CleanGroupingService
             list.Add(item);
         }
 
-        // 重复组：一组会被拆成「保留项 / 多余项」两行，每一行只拿到自己那一半。
-        // 「留哪一份」必须看到**整组**，所以这里先按组键把全组成员拢起来，
-        // 再挂到同组的每一行上（保留项在前，和 DuplicateDetector 的顺序一致）。
-        var dupGroups = purpose == CleanPurpose.Duplicate
-            ? BuildDuplicateGroupIndex(items)
-            : new Dictionary<string, List<CleanItem>>(StringComparer.Ordinal);
-
         // 按可删空间降序决定「哪些位置值得建行」——先建大的，被截掉的是最小的那些。
         // 截断只影响显示行数，候选与空间总数始终按全量算。
         order.Sort((a, b) => LocationWeight(map[b]).CompareTo(LocationWeight(map[a])));
@@ -223,11 +216,6 @@ public static class CleanGroupingService
             if (built >= MaxLocationsPerPurpose) break;
             built++;
             var node = BuildLocation(key, map[key], purpose, riskTier, ct);
-            if (dupGroups.Count > 0 && TryDupGroupKey(key, out string groupKey)
-                && dupGroups.TryGetValue(groupKey, out var members))
-            {
-                node.DupMembers = members;
-            }
             nodes.Add(node);
         }
         hidden = Math.Max(0, order.Count - built);
@@ -250,58 +238,6 @@ public static class CleanGroupingService
         foreach (var item in items)
             if (item.CanDelete) sum += Math.Max(0, item.Size);
         return sum;
-    }
-
-    /// <summary>
-    /// 按重复组键把**全组成员**拢起来（保留项在前）。
-    ///
-    /// 组键就是 <see cref="CleanItem.Handling"/> 里 <c>|</c> 之后那一段
-    /// （<c>dup-keep|大小|首路径|末路径</c>），和位置键用的是同一个标识。
-    /// 排序把 <c>dup-keep</c> 那一项放最前 —— 和 <c>DuplicateDetector.FullGroupOrder</c>
-    /// 一致，判定域的第一项就是本地基线算出来的保留项。
-    /// </summary>
-    private static Dictionary<string, List<CleanItem>> BuildDuplicateGroupIndex(List<CleanItem> items)
-    {
-        var groups = new Dictionary<string, List<CleanItem>>(StringComparer.Ordinal);
-        foreach (var item in items)
-        {
-            if (!TryDupGroupKey(item.Handling, out string groupKey)) continue;
-            if (!groups.TryGetValue(groupKey, out var list))
-            {
-                list = new List<CleanItem>();
-                groups[groupKey] = list;
-            }
-            list.Add(item);
-        }
-        foreach (var list in groups.Values)
-        {
-            list.Sort(static (a, b) =>
-            {
-                bool ka = a.Handling.StartsWith("dup-keep", StringComparison.Ordinal);
-                bool kb = b.Handling.StartsWith("dup-keep", StringComparison.Ordinal);
-                if (ka != kb) return ka ? -1 : 1;
-                return string.CompareOrdinal(a.FullPath ?? "", b.FullPath ?? "");
-            });
-        }
-        return groups;
-    }
-
-    /// <summary>
-    /// 从位置键（<c>dup|dup-keep|大小|首|末</c>）或处理方式（<c>dup-keep|大小|首|末</c>）
-    /// 里取出组键（<c>大小|首|末</c>）。不是重复项就返回 false。
-    /// </summary>
-    private static bool TryDupGroupKey(string? handlingOrLocationKey, out string groupKey)
-    {
-        groupKey = "";
-        if (string.IsNullOrEmpty(handlingOrLocationKey)) return false;
-        string s = handlingOrLocationKey;
-        if (s.StartsWith("dup|", StringComparison.Ordinal)) s = s[4..];
-        int bar = s.IndexOf('|');
-        if (bar <= 0) return false;
-        string kind = s[..bar];
-        if (!kind.StartsWith("dup-", StringComparison.Ordinal)) return false;
-        groupKey = s[(bar + 1)..];
-        return groupKey.Length > 0;
     }
 
     /// <summary>

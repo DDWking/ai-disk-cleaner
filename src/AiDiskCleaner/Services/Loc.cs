@@ -1,8 +1,5 @@
 using AiDiskCleaner.Models;
 using UninstallTools.Junk.Confidence;
-// 别名是必须的：Loc 自己有一个叫 CleanRules 的**字符串属性**（分析步骤文案），
-// 在类内部写 CleanRules.AiPurposeKind 会解析到那个属性上。
-using AiPurposeKind = AiDiskCleaner.Services.CleanRules.AiPurposeKind;
 
 namespace AiDiskCleaner.Services;
 
@@ -703,105 +700,7 @@ public static class Loc
     public static string PurposeIdentify => IsEn ? "Identify purpose" : "识别用途";
     public static string PurposeDeepen => IsEn ? "Look deeper" : "深入识别";
     public static string PurposeCorrect => IsEn ? "Correct" : "纠正";
-    public static string PurposeAiHeader => IsEn
-        ? "Identify ONE folder's purpose from this bounded summary. Do not read file contents."
-        : "根据下面这份有上限的摘要判断**一个**目录的用途。不要读取文件内容。";
-    public static string AiPurposeUnsureName(string name)
-        => IsEn ? $"Not sure, maybe {name}" : $"拿不准：可能是{name}";
-    /// <summary>拿不准那一批的次行说明。</summary>
-    public static string PurposeDetailUnsure => IsEn ? "AI guess — low confidence" : "AI 推测 · 拿不准";
-
-    public static string AiPurposeDisplayName(AiPurposeKind kind) => kind switch
-    {
-        AiPurposeKind.Temporary => IsEn ? "Temporary files" : "临时文件",
-        AiPurposeKind.BrowserCache => IsEn ? "Browser cache" : "浏览器缓存",
-        AiPurposeKind.AppCache => IsEn ? "App cache" : "软件缓存",
-        AiPurposeKind.DevCache => IsEn ? "Dev tool cache" : "开发工具缓存",
-        AiPurposeKind.AppLog => IsEn ? "App logs" : "软件日志",
-        AiPurposeKind.Dump => IsEn ? "Crash dumps" : "崩溃转储",
-        AiPurposeKind.Installer => IsEn ? "Installers" : "安装包",
-        AiPurposeKind.Model => IsEn ? "Models / game assets" : "模型 / 游戏素材",
-        // 说得肯定一点：这个功能本来就是在帮用户判断，一句「像是…」等于没主见。
-        // 不确定性交给「AI 推测」那个前缀去表达，不重复在名称里泄气。
-        //
-        // 这四条是把原来那句笼统的「你的数据或软件自己的数据」拆开的结果 ——
-        // 笼统一句话等于没说，用户看不出 $WinREAgent 和 msys64 有什么区别。
-        AiPurposeKind.UserData => IsEn ? "Your own files" : "你自己的文件",
-        AiPurposeKind.SystemOwned => IsEn ? "Windows / vendor's own folder" : "Windows 或厂商的系统目录",
-        AiPurposeKind.AppOwned => IsEn ? "An app's own data" : "某个软件自己的数据",
-        AiPurposeKind.DevTools => IsEn ? "Installed dev tools" : "装好的开发工具",
-        _ => "",
-    };
-    public static string AiPurposeBatchProgress(int done, int total)
-        => IsEn ? $"Classified {done:N0} / {total:N0}" : $"已归类 {done:N0} / {total:N0}";
-    /// <summary>
-    /// 结果短句。**必须把「模型说不出」和「模型说了但没把握」分开报** ——
-    /// 两者在界面上都显示成「未识别」，混成一句用户根本没法判断问题出在哪：
-    /// 前者要改提示词，后者只要放宽阈值。
-    /// </summary>
-    public static string AiPurposeBatchSummary(int applied, int unsure, int unknown, int calls, double cost)
-        => IsEn
-            ? $"Classified {applied:N0}; {unsure:N0} marked \"not sure\" (shown as a guess); {unknown:N0} it couldn't tell. {calls} request(s), about ${cost:0.0000}."
-            : $"认出了 {applied:N0} 个；{unsure:N0} 个标成「拿不准」（行上写成猜测给你看）；{unknown:N0} 个它完全说不出来。共 {calls} 次请求，约 ${cost:0.0000}。";
-    public static string AiPurposeBatchNotConfigured => IsEn
-        ? "Batch classification needs a provider with the “structured decision” protocol. Add one in Settings."
-        : "批量归类需要一条「结构化判定」协议的供应商，请先在设置里添加。";
-    public static string AiPurposeBatchNothing => IsEn
-        ? "Nothing left to classify."
-        : "没有需要归类的条目了。";
-    public static string AiPurposeBatchFailed(string why)
-        => IsEn ? "Classification failed: " + why : "归类失败：" + why;
     public static string OtherFilesTitle => IsEn ? "Other files" : "其它文件";
-
-    // ---- 重复文件「留哪一个」（判定通道的第二个用途） ----
-    //
-    // 基线永远是本地规则算出来的那个保留项（路径最短/最浅）。这里的每一句都只在
-    // **保留项那一行的说明**后面追加，不碰勾选、不碰可删除性、不改 keep/extra 归属。
-    /// <summary>这一组里建议留哪一个。按钮文案，带组数 —— 用户点之前就知道要问几组。</summary>
-    public static string DupKeepAction(int groups) => IsEn
-        ? $"Ask which copy to keep ({groups:N0} group(s))"
-        : $"问一下留哪一份（{groups:N0} 组）";
-    /// <summary>正在问这一组时的按钮文案。</summary>
-    public static string DupKeepAsking => IsEn ? "Asking…" : "正在问…";
-    public static string DupKeepTip => IsEn
-        ? "Sends the redacted paths of each duplicate group so the model can suggest which copy to keep. It never ticks or deletes anything."
-        : "把这些重复组的**脱敏路径**发给判定通道，让它建议每组留哪一份。它不会替你勾选，也不会删任何东西。";
-    public static string DupKeepProgress(int done, int total)
-        => IsEn ? $"Asking about duplicates {done:N0} / {total:N0}" : $"正在问重复文件 {done:N0} / {total:N0}";
-    public static string DupKeepNotConfigured => IsEn
-        ? "Asking about duplicates needs the structured decision channel. Add it in Settings."
-        : "问重复文件需要「结构化判定」通道，请先在设置里配好。";
-    public static string DupKeepNothing => IsEn
-        ? "No duplicate group needs asking right now."
-        : "现在没有需要问的重复组。";
-    /// <summary>结果短句。**必须把「没把握所以没建议」如实报出来** —— 静默少几条最容易被当成没问。</summary>
-    public static string DupKeepSummary(int suggested, int unsure, int groups, int calls, double cost) => IsEn
-        ? $"Suggested for {suggested:N0} group(s); {unsure:N0} it wasn't sure about (no suggestion given). {groups:N0} group(s), {calls} request(s), about ${cost:0.0000}."
-        : $"给了 {suggested:N0} 组建议；{unsure:N0} 组它没把握（**没有给建议**）。共 {groups:N0} 组，{calls} 次请求，约 ${cost:0.0000}。";
-    public static string DupKeepFailed(string why)
-        => IsEn ? "Could not ask about duplicates: " + why : "问重复文件失败：" + why;
-    /// <summary>组摘要行（进 state）：几个副本、共多大。</summary>
-    public static string DupKeepGroupSummary(int members, long bytes) => IsEn
-        ? $"{members:N0} identical copies, {FileEntry.FormatSize(bytes)} each"
-        : $"内容完全相同的 {members:N0} 份，每份 {FileEntry.FormatSize(bytes)}";
-    /// <summary>出题句。说清「这些是同一份内容的副本，指出最该留下的那一份」。</summary>
-    public static string DupKeepQuestion(int groupNo, int members) => IsEn
-        ? $"Group {groupNo}: these {members:N0} files have identical content. Which one should be kept (the others are the redundant copies)? Answer with the option key."
-        : $"第 {groupNo} 组：这 {members:N0} 个文件内容完全相同。应该留下哪一个（其余是多余的副本）？用选项键回答。";
-    /// <summary>建议和本地基线一致：一句话确认，不重复路径。</summary>
-    public static string DupKeepSameAsBaseline(double confidence) => IsEn
-        ? $"keeping this one (p={confidence:0.00})"
-        : $"留这一份（把握 {confidence:0.00}）";
-    /// <summary>建议和本地基线不一致：**必须把路径写出来**，否则用户不知道该留哪个。</summary>
-    public static string DupKeepDifferent(string redactedPath, double confidence) => IsEn
-        ? $"keeping {redactedPath} instead (p={confidence:0.00})"
-        : $"改留 {redactedPath}（把握 {confidence:0.00}）";
-    /// <summary>
-    /// 建议文案的固定前缀。用它判断「这一组已经问过了」——
-    /// 不需要额外的状态字段，也不会和规则原本的说明混淆。
-    /// **必须足够独特**：早先想用「 · 」当标记，那等于把所有说明都判成「已问过」。
-    /// </summary>
-    public static string DupKeepNoteMarker => IsEn ? " · AI suggests " : " · AI 建议";
 
     // ---- 文件夹整理（工作区，不是说明页） ----
     public static string OrganizeColName => IsEn ? "Folder" : "名称";
@@ -936,9 +835,6 @@ public static class Loc
     public static string OrganizeBudgetUsed(int used) => IsEn
         ? $"stopped at the request budget ({used:N0}) — the rest stays to confirm"
         : $"已到本次请求上限（{used:N0} 次），剩下的保持待确认";
-    public static string PurposeAiSnippetHeader => IsEn
-        ? "Filtered snippets (README / project config / manifests only; secrets, tokens and accounts are masked):"
-        : "经过筛选的片段（只有 README / 项目配置 / 清单文件；密钥、Token、账号已脱敏）：";
 
     /// <summary>范围声明：送出前给用户看的口径，和实际发出去的内容同源。</summary>
     public static string OrganizeSendNote => IsEn
@@ -1101,9 +997,9 @@ public static class Loc
         ? $"AI identified {identified:N0} item(s) in {classes:N0} group(s) — tick a group to handle it as a whole"
         : $"AI 认出了 {identified:N0} 项，分成 {classes:N0} 类 · 勾一类就整片处理";
 
-    public static string OrganizeCountsLine(int local, int ai, int unknown, int failed) => IsEn
-        ? $"local {local:N0} · AI {ai:N0} · not looked at yet {unknown:N0} · failed {failed:N0}"
-        : $"本地认出 {local:N0} · AI 认了 {ai:N0} · 还没识别 {unknown:N0} · 失败 {failed:N0}";
+    public static string OrganizeCountsLine(int local, int unknown, int failed) => IsEn
+        ? $"local {local:N0} · not looked at yet {unknown:N0} · failed {failed:N0}"
+        : $"本地认出 {local:N0} · 还没识别 {unknown:N0} · 失败 {failed:N0}";
 
     /// <summary>
     /// 终态短句。**只说页头说不出的事**（未发送 / 失败），
@@ -1536,16 +1432,6 @@ public static class Loc
     public static string AiPerItemHint => IsEn
         ? "Single-item AI analysis lives on the row itself (the ✦ button)"
         : "单项 AI 分析在每一行自己的按钮上（✦）";
-    /// <summary>「更多」菜单里的批量归类入口。</summary>
-    public static string AiBatchClassify => IsEn ? "Classify items AI can't name" : "批量识别用途";
-    public static string AiBatchClassifyScreen(int n) => IsEn
-        ? $"Classify this screen ({n:N0})"
-        : $"识别这一屏（{n:N0} 项）";
-    /// <summary>忘掉 Jev 标过的用途。本地规则认出来的不动。</summary>
-    public static string AiPurposeForget => IsEn ? "Forget AI labels" : "忘掉 AI 标签";
-    public static string AiPurposeForgot(int n) => IsEn
-        ? $"Forgot {n:N0} AI label(s). Classify this screen again to re-ask."
-        : $"已忘掉 {n:N0} 个 AI 标签。再点「识别这一屏」会重新问。";
     public static string EstimateTip => IsEn
         ? "“About” is an estimate, not a promise. Actual free space grows after the Recycle Bin is emptied."
         : "「预计」是估算值，不是承诺。实际可用空间会在回收站清空后才增加。";

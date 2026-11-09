@@ -394,17 +394,14 @@ public static class ReviewFixesTests
         lazyNode.Collapse();
         check("收起后子对象还在（再展开不重复请求）", lazyNode.ChildrenLoaded && lazyNode.Children.Count == 2);
 
-        // (7) 批量归类给出用途之后，用途列替换「未识别」，不再叠「需要确认」
-        //     （这一条原来测的是「点过单项 AI 之后」，逐项 AI 删掉后改测批量归类这个唯一挂点。）
+        // (7) 用途列默认是「未识别」；批量归类与逐项 AI 都已下线，
+        //     未识别只能由本地规则或用户手动给出结论 —— 断言默认态与结论态判据。
         var unknownDir = DirNode("VolleyballBall", @"X:\VolleyballBall", 100);
         var unknownNode = new OrganizeNode(unknownDir, new FolderId(unknownDir.FullPath, 1), 0, "VolleyballBall");
         check("归类前用途是未识别", unknownNode.PurposeText == Loc.PurposeUnrecognized,
             unknownNode.PurposeText);
-        unknownNode.SetBatchPurpose("模型 / 游戏素材");
-        check("归类后用途列换成模型给的用途",
-            unknownNode.PurposeText == "模型 / 游戏素材", unknownNode.PurposeText);
-        check("归类后不再算未识别 / 待确认",
-            unknownNode.HasConclusion && !unknownNode.NeedsConfirm && !unknownNode.IsPending);
+        check("未识别 = 没有结论且待处理",
+            !unknownNode.HasConclusion && unknownNode.IsPending && !unknownNode.IsResolved);
     }
 
     static FileEntry DirNode(string name, string path, long size, FileEntry? parent = null)

@@ -28,23 +28,18 @@ public static class Program
         RecursiveScanQualityTests();
         // 这里原本有 AiOutputConstraintTests（「AI 输出不越权」）：它测的是 AiNoteParser
         // 把「GOTO 路径<TAB>说明」写回 CleanItem.AiNote 的行为，那个解析器和 AiNote 字段
-        // 随逐项 AI 一起删掉了。它守的核心不变量（AI 只写说明、不碰 Risk / CanDelete / Selected）
-        // **没有丢** —— 搬到了 AiPurposeTests.SourceInvariantTests（断言批量归类服务同样不写这几个字段），
-        // 另有一条结构断言：候选条目上已经没有 AI 可写的槽位。
+        // 随逐项 AI 一起删掉了。AI 只写说明、不碰 Risk / CanDelete / Selected 这条不变量
+        // 现在由报告校验链（ReportParser / ReportAssembler）与 AgentToolCheck 的反射断言守。
         RedactionTests();
         PathRedactionTests();
         ApiKeyEncryptionTests();
         SettingsMigrationTests();
-        DecisionChannelTests();
         StagedDuplicateTests();
         CoordinatorTests();
         WorkStateTests();
         CleanListSnapshotTests();
         LayeredCleanTests.Run(Check, Section);
         ReviewFixesTests.Run(Check, Section);
-        AiPurposeTests.Run(Check, Section);
-        JevDecisionTests.Run(Check, Section);
-        DupKeepDecisionTests.Run(Check, Section);
         ErrorClassificationTests();
         DiagnosticsTests();
 
@@ -549,30 +544,23 @@ public static class Program
     }
 
     /// <summary>
-    /// 判定通道的唯一出口：重试 / 取消 / 节流 / 状态 / 出站计数。
-    ///
-    /// v3.0 之前这里测的是聊天通道的选路与 sidecar fallback；聊天连同 sidecar 一起删掉后，
-    /// 这四件事（限流、瞬时重试、取消语义、出站计数）仍然是网关的责任，所以断言保留，
-    /// 只是把假通道从 <c>IAiGateway</c> 换成了 <see cref="AiGateway.DecisionsSender"/>。
-    /// </summary>
+
     /// <summary>
-    /// 老配置的升级路径（v3.0 删掉了「协议」这个概念、也删掉了聊天模型字段）。
+    /// 老配置的升级路径（v3.1 起接入 OpenAI 兼容聊天接口）。
     ///
-    /// 三种老文件都必须**能读、不能丢配置**：
+    /// 老文件都必须**能读、不能丢配置**：
     /// <list type="number">
     /// <item>单供应商的老结构（顶层 AiBaseUrl / AiModel / AiProtocol / AiModels）；</item>
     /// <item>带已删字段的（AiUseSidecar / AiJury / AiExtraPrompt）—— 未知字段要被忽略，
     ///   而不是让整份设置变成默认值；</item>
-    /// <item>**真机上那份**：两个提供方，其中一个存的是 <c>"Protocol": "completions"</c>。
-    ///   协议概念删掉之后，所有提供方都按判定端点用 —— 老配置不该因为
-    ///   存着一个已经不存在的协议名就用不了。</item>
+    /// <item>**真机那份**：两个提供方，协议写的是 decisions / completions 等历史值。
+    ///   协议概念现在只剩 "chat"，老值全部归一，老用户升级后不该「看起来配好了却不能用」。</item>
     /// </list>
-    /// 尤其是模型：聊天通道没了之后，老的「全局聊天模型」就是唯一的模型，
-    /// 不搬进判定模型的话，老用户升级后会看到模型是空的，以为配置丢了。
+    /// 尤其是模型：老的「全局聊天模型」要搬进当前模型字段，不然升级后界面是空的。
     /// </summary>
     static void SettingsMigrationTests()
     {
-        Section("设置迁移：老配置不丢（协议字段删掉之后）");
+        Section("设置迁移：老配置不丢");
 
         string? oldOverride = AppPaths.OverrideDirectory;
         string dir = Path.Combine(Path.GetTempPath(), "dashao-settings-" + Guid.NewGuid().ToString("N"));
@@ -588,10 +576,10 @@ public static class Program
             File.WriteAllText(AppPaths.SettingsFile, """
                 {
                   "Lang": 0,
-                  "AiBaseUrl": "https://openrouter.ai/api/alpha",
-                  "AiModel": "typesafe/jev-1.13",
+                  "AiBaseUrl": "https://api.deepseek.com/v1",
+                  "AiModel": "deepseek-chat",
                   "AiProtocol": "decisions",
-                  "AiModels": ["typesafe/jev-1.13", "typesafe/jev-1.12"],
+                  "AiModels": ["deepseek-chat", "deepseek-reasoner"],
                   "AiName": "老配置",
                   "AiUseSidecar": true,
                   "AiJuryOn": true,
@@ -605,57 +593,53 @@ public static class Program
                 s.AiProviders.Count == 1, s.AiProviders.Count.ToString());
             Check("老的单供应商结构被搬成一个提供方",
                 s.AiProviders.Count == 1
-                && s.AiProviders[0].BaseUrl == "https://openrouter.ai/api/alpha"
+                && s.AiProviders[0].BaseUrl == "https://api.deepseek.com/v1"
                 && s.AiProviders[0].Name == "老配置",
                 s.AiProviders.Count == 1 ? s.AiProviders[0].BaseUrl : "(none)");
-            Check("老的「全局聊天模型」被搬进判定模型（不然界面上模型是空的）",
-                s.DecisionModelId() == "typesafe/jev-1.13", s.DecisionModelId());
-            Check("判定通道判定为「已配置」（地址 + 模型都有）", s.DecisionConfigured());
+            Check("老的「全局聊天模型」被搬进当前模型（不然界面上模型是空的）",
+                s.DecisionModelId() == "deepseek-chat", s.DecisionModelId());
+            Check("模型接口判定为「已配置」（地址 + 模型都有）", s.DecisionConfigured());
             Check("老模型表保留下来（没有显式指定时还能回退到第一个）",
-                s.AiProviders[0].Models.Contains("typesafe/jev-1.12"));
+                s.AiProviders[0].Models.Contains("deepseek-reasoner"));
 
-            // ---- 2) 真机那份：两个提供方，一个存着已经不存在的协议名 ----
+            // ---- 2) 真机那份：两个提供方，协议写的是已经不存在的历史值 ----
             File.WriteAllText(AppPaths.SettingsFile, """
                 {
-                  "AiActiveId": "pjev1",
-                  "AiDecisionProviderId": "pjev1",
-                  "AiDecisionModel": "typesafe/jev-1.13",
-                  "AiModel": "typesafe/jev-1.13",
+                  "AiActiveId": "p2",
+                  "AiDecisionProviderId": "p2",
+                  "AiDecisionModel": "deepseek-chat",
+                  "AiModel": "deepseek-chat",
                   "AiProviders": [
-                    { "Id": "pchat", "Name": "中转", "BaseUrl": "https://relay.example/v1",
+                    { "Id": "p1", "Name": "中转", "BaseUrl": "https://relay.example/v1",
                       "Protocol": "completions", "Models": ["grok-4.5"] },
-                    { "Id": "pjev1", "Name": "紧", "BaseUrl": "https://openrouter.ai/api/alpha",
-                      "Protocol": "decisions", "Models": ["typesafe/jev-1.13"] }
+                    { "Id": "p2", "Name": "紧", "BaseUrl": "https://api.deepseek.com/v1",
+                      "Protocol": "decisions", "Models": ["deepseek-chat"] }
                   ]
                 }
                 """);
             var s2 = AppSettings.Load();
             Check("多供应商结构仍然可读", s2.AiProviders.Count == 2, s2.AiProviders.Count.ToString());
-            Check("显式指定的判定模型优先", s2.DecisionModelId() == "typesafe/jev-1.13", s2.DecisionModelId());
-            Check("显式指定的判定提供方优先（老配置里那个 decisions 的）",
-                s2.DecisionProvider()?.Id == "pjev1", s2.DecisionProvider()?.Id ?? "(none)");
-            // v3.1 起接入的是 OpenAI 兼容聊天接口，旧配置里 decisions / systemone /
-            // completions 这些历史取值全部归一到 chat —— 继续按旧协议名当门槛，
-            // 老用户升级后会「看起来配好了却不能用」。
+            Check("显式指定的模型优先", s2.DecisionModelId() == "deepseek-chat", s2.DecisionModelId());
+            Check("显式指定的提供方优先",
+                s2.DecisionProvider()?.Id == "p2", s2.DecisionProvider()?.Id ?? "(none)");
             Check("历史协议值全部收敛为 chat（协议不再当门槛）",
                 s2.AiProviders.All(p =>
                     string.Equals(p.Protocol, AiConfigurationService.ChatProtocol, StringComparison.OrdinalIgnoreCase)));
             Check("显式声明的旧 decisions 供应商也收敛为 chat",
-                s2.AiProviders.First(p => p.Id == "pjev1").Protocol == AiConfigurationService.ChatProtocol);
-            Check("判定通道仍判定为「已配置」", s2.DecisionConfigured());
+                s2.AiProviders.First(p => p.Id == "p2").Protocol == AiConfigurationService.ChatProtocol);
+            Check("模型接口仍判定为「已配置」", s2.DecisionConfigured());
 
-            // 没有显式指定判定提供方时：第一个配了地址的就能用 —— **哪怕它存的是 completions**。
-            // 这是老配置能不能继续用的关键：协议名已经不存在了，不该拿它当门槛。
+            // 没有显式指定提供方时：第一个配了地址的就能用 —— **哪怕它存的是 completions**。
             File.WriteAllText(AppPaths.SettingsFile, """
                 {
                   "AiProviders": [
                     { "Id": "pold", "Name": "老的", "BaseUrl": "https://relay.example/v1",
-                      "Protocol": "completions", "Models": ["typesafe/jev-1.13"] }
+                      "Protocol": "completions", "Models": ["deepseek-chat"] }
                   ]
                 }
                 """);
             var s3 = AppSettings.Load();
-            Check("没显式指定判定提供方时，老配置（Protocol=completions）照常可用",
+            Check("没显式指定提供方时，老配置（Protocol=completions）照常可用",
                 s3.DecisionProvider()?.Id == "pold" && s3.DecisionConfigured(),
                 $"{s3.DecisionProvider()?.Id ?? "(none)"} configured={s3.DecisionConfigured()}");
 
@@ -674,121 +658,6 @@ public static class Program
             try { Directory.Delete(dir, true); } catch { /* 清理失败不影响结论 */ }
         }
     }
-
-    static void DecisionChannelTests()
-    {
-        Section("判定通道统一入口（重试 / 取消 / 节流 / 计数）");
-
-        var savedSender = AiGateway.DecisionsSender;
-        try
-        {
-            // 瞬时错误重试后成功
-            int calls = 0;
-            AiGateway.DecisionsSender = (_, _) =>
-            {
-                calls++;
-                if (calls < 3) throw new System.Net.Http.HttpRequestException("connection reset");
-                return Task.FromResult(new AiDecisionReply { Model = "m" });
-            };
-            var ok = AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult();
-            Check("瞬时故障会重试并最终成功", ok.Model == "m");
-            Check("重试次数符合预期", calls == 3, $"calls={calls}");
-
-            // 401 不该重试
-            calls = 0;
-            AiGateway.DecisionsSender = (_, _) =>
-            {
-                calls++;
-                throw new System.Net.Http.HttpRequestException(
-                    "unauthorized", null, System.Net.HttpStatusCode.Unauthorized);
-            };
-            try
-            {
-                AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult();
-                Check("401 会失败", false);
-            }
-            catch { Check("401 会失败", true); }
-            Check("401 只尝试一次（重试没意义）", calls == 1, $"calls={calls}");
-
-            // 用户取消要原样抛出，不被当成超时/故障
-            AiGateway.DecisionsSender = async (_, ct) =>
-            {
-                await Task.Delay(5000, ct);
-                return new AiDecisionReply();
-            };
-            using var cts = new CancellationTokenSource();
-            cts.Cancel();
-            bool canceledOk = false;
-            try { AiGateway.DecideAsync(SimpleRequest(), cts.Token).GetAwaiter().GetResult(); }
-            catch (OperationCanceledException) { canceledOk = true; }
-            Check("用户取消原样抛出", canceledOk);
-
-            // 限流：连续两次请求之间至少间隔 MinInterval
-            var stamp = new List<DateTime>();
-            AiGateway.DecisionsSender = (_, _) =>
-            {
-                stamp.Add(DateTime.UtcNow);
-                return Task.FromResult(new AiDecisionReply());
-            };
-            AiGateway.MinInterval = TimeSpan.FromMilliseconds(150);
-            AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult();
-            AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult();
-            Check("两次请求之间有节流间隔",
-                stamp.Count == 2 && (stamp[1] - stamp[0]).TotalMilliseconds >= 120,
-                stamp.Count == 2 ? (stamp[1] - stamp[0]).TotalMilliseconds.ToString("0") + "ms" : "n/a");
-            AiGateway.MinInterval = TimeSpan.FromMilliseconds(250);
-
-            Check("状态记录的是判定通道", AiGateway.LastStatus.Channel == "decisions",
-                AiGateway.LastStatus.Channel);
-            Check("记录通道与耗时", AiGateway.LastStatus.Ok && AiGateway.LastStatus.ElapsedMs >= 0);
-
-            // 出站计数：**每一次尝试**都算一次出站（含失败与重试前那一次）——
-            // 「扫描/切页/展开 = 0 次请求」那条不变量就是靠它守的。
-            AiGateway.ResetSentCountForTest();
-            calls = 0;
-            AiGateway.DecisionsSender = (_, _) =>
-            {
-                calls++;
-                throw new System.Net.Http.HttpRequestException("connection reset");
-            };
-            try { AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult(); }
-            catch { /* 预期失败 */ }
-            Check("出站计数含重试与失败那几次", AiGateway.SentCount == calls && calls == AiGateway.MaxAttempts,
-                $"sent={AiGateway.SentCount} calls={calls}");
-            AiGateway.ResetSentCountForTest();
-
-            // 未接线时要明确报错，而不是静默什么都不发
-            AiGateway.DecisionsSender = null;
-            try
-            {
-                AiGateway.DecideAsync(SimpleRequest(), CancellationToken.None).GetAwaiter().GetResult();
-                Check("判定通道未接线时明确报错", false, "没有抛异常");
-            }
-            catch (InvalidOperationException ex)
-            {
-                Check("判定通道未接线时明确报错", ex.Message.Contains("decisions channel", StringComparison.Ordinal));
-            }
-        }
-        finally
-        {
-            AiGateway.DecisionsSender = savedSender;
-            AiGateway.MinInterval = TimeSpan.FromMilliseconds(250);
-            AiGateway.ResetSentCountForTest();
-        }
-
-        // 瞬时判定
-        Check("连接失败算瞬时", AiGateway.IsTransient(new System.Net.Http.HttpRequestException("x")));
-        Check("429 算瞬时", AiGateway.IsTransient(new System.Net.Http.HttpRequestException("x", null, (System.Net.HttpStatusCode)429)));
-        Check("503 算瞬时", AiGateway.IsTransient(new System.Net.Http.HttpRequestException("x", null, System.Net.HttpStatusCode.ServiceUnavailable)));
-        Check("400 不算瞬时", !AiGateway.IsTransient(new System.Net.Http.HttpRequestException("x", null, System.Net.HttpStatusCode.BadRequest)));
-        Check("解析错误不算瞬时", !AiGateway.IsTransient(new System.Text.Json.JsonException("bad")));
-    }
-
-    static AiDecisionRequest SimpleRequest() => new()
-    {
-        State = "s",
-        Questions = { ["q"] = new AiDecisionQuestion { Type = "noul", Instructions = "是连接测试吗？" } },
-    };
 
     // ---------------------------------------------------------------- 重复文件分阶段哈希
 

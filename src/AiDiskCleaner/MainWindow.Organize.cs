@@ -52,21 +52,6 @@ public partial class MainWindow
     /// </summary>
     private bool _organizePendingOnly;
 
-    /// <summary>
-    /// 批量归类正在跑。同一时刻只允许一个；它也是「再点一次 = 停止」的判据
-    /// （取消源共用 <c>_aiClassifyCts</c>）。
-    ///
-    /// 名字刻意避开旧自动批量识别那个标志（它随整套自动识别一起删掉了）：
-    /// 回归里有一条专门断言它不许回来（`no identification pass is started after a scan`）。
-    /// </summary>
-    private bool _organizeClassifying;
-
-    /// <summary>分类结果面板的数据（一类一行）。</summary>
-    private readonly ObservableCollection<OrganizeBucket> _organizeBuckets = new();
-
-    /// <summary>跑过一次归类、而且用户没把它收起来。收起来之后不再自动弹回来。</summary>
-    private bool _organizeResultShown;
-
     /// <summary>重建代次：展开/重扫会让旧请求的回写作废，绝不覆盖新结果。</summary>
     private int _organizeGeneration;
 
@@ -180,9 +165,6 @@ public partial class MainWindow
 
             if (rs.Skipped > 0) _organizeNote = Loc.OrganizeSkippedNoAccess(rs.Skipped);
             ShowOrganizeState(OrganizeStateKind.None);
-            // 本地规则没命中的行，把上次 Jev 标过的用途贴回来（不发请求）。
-            // LocalRecognize 已经把落盘的本地结论贴过一遍；这里只补 AI 那一半。
-            try { RestoreAiPurposes(); } catch (Exception ex) { AppLog.Record("Organize", ex, "restore ai-purpose"); }
             RefreshOrganizeRows();
             AppLog.Info("Organize", $"op=build roots={_organizeRoots.Count} objects={_organizeAll.Count} "
                 + $"rows={_organizeRows.Count} entries={_organizeEntryPoints.Count} skipped={rs.Skipped} "
@@ -244,7 +226,6 @@ public partial class MainWindow
         node.SetEvidence(sum);
         node.SetKind(local.Kind);
         if (local.HasConclusion) node.Apply(local);
-        else TryRestoreAiPurpose(node);
     }
 
     /// <summary>
@@ -450,254 +431,15 @@ public partial class MainWindow
         // **不把它们混成一句「待确认」** —— 那会让人看不出到底哪一类有多少。
         int local = _organizeAll.Count(x => x.HasConclusion
             && x.Source is PurposeSource.Local or PurposeSource.User);
-        int ai = _organizeAll.Count(x => x.HasConclusion && x.Source == PurposeSource.Ai);
         int unknown = _organizeAll.Count(x => !x.HasConclusion && x.State != PurposeState.Failed);
         int failed = _organizeAll.Count(x => x.State == PurposeState.Failed);
 
         OrganizeSub.Text = Loc.OrganizeTotals(_organizeAll.Count, bytes);
-        string line = Loc.OrganizeCountsLine(local, ai, unknown, failed);
+        string line = Loc.OrganizeCountsLine(local, unknown, failed);
         if (_organizeUnlistedTotal > 0) line += " · " + Loc.OrganizeUnlistedTotal(_organizeUnlistedTotal);
         if (_organizePendingOnly) line += " · " + Loc.OrganizeFilterActive(_organizeRows.Count, _organizeAll.Count);
         if (_organizeNote.Length > 0) line += " · " + _organizeNote;
         OrganizeCounts.Text = line;
-        // 按钮上的数字 = **这一屏真正会问的条数**，不是全局还没识别的条数。
-        // 写成全局那个数会出现「按钮说 2,517 项、实际只问了 83 条」——标签和动作对不上。
-        // 「上次失败」的也算：它们会被重试，所以必须计入这个数字。
-        UpdateOrganizeClassifyButton(_organizeRows.Count(
-            x => x.NeedsPurposeClassification || x.State == PurposeState.Failed));
-        // 面板跟着当前这一屏走：展开/收起/重扫之后它显示的还是「这一屏分成了哪几类」。
-        RefreshOrganizeResult();
-    }
-
-    // ==================== 分类结果面板（「合并」） ====================
-
-    /// <summary>
-    /// 按**当前这一屏**的结论重算面板：一类一行，按容量从大到小。
-    /// 没有结论的那些合成最后一行「还没认出来」，**没有勾选框**。
-    /// </summary>
-    void RefreshOrganizeResult()
-    {
-        if (OrganizeResultPanel == null) return;
-        if (!_organizeResultShown)
-        {
-            OrganizeResultPanel.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        var buckets = new List<OrganizeBucket>();
-        foreach (var g in _organizeRows.Where(n => n.BatchPurpose.Length > 0)
-                                       .GroupBy(n => n.BatchPurpose, StringComparer.Ordinal))
-        {
-            buckets.Add(new OrganizeBucket { Name = g.Key, Members = g.ToList() });
-        }
-        buckets = buckets.OrderByDescending(b => b.Bytes).ToList();
-
-        // 「还没认出来」的判据是**真的一条结论都没有**（本地也没有），不是「没有 AI 结论」。
-        // 用后者会把本地已经认出来的行也扫进来，贴上一个假的「还没认出来」标签。
-        // 本地认出来的那些本来就在列表里有自己的标签，不进这个面板。
-        var left = _organizeRows.Where(n => !n.HasConclusion).ToList();
-        if (left.Count > 0)
-            buckets.Add(new OrganizeBucket
-            {
-                Name = Loc.OrganizeBucketUnnamed,
-                Members = left,
-                // 没有结论 → **不给整片勾选的能力**：那等于送一个
-                // 「一键删掉所有看不出来的」按钮，是最危险的动作。
-                CanSelect = false,
-            });
-
-        OrganizeResultList.ItemsSource = null;
-        _organizeBuckets.Clear();
-        foreach (var b in buckets)
-        {
-            b.SyncFromMembers();
-            _organizeBuckets.Add(b);
-        }
-        OrganizeResultList.ItemsSource = _organizeBuckets;
-
-        OrganizeResultTitle.Text = Loc.OrganizeResultTitle(
-            buckets.Count(b => b.CanSelect), buckets.Where(b => b.CanSelect).Sum(b => b.Count));
-        OrganizeResultHideBtn.Content = Loc.Collapse;
-        OrganizeResultPanel.Visibility = _organizeBuckets.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private void OrganizeResultHide_Click(object sender, RoutedEventArgs e)
-    {
-        _organizeResultShown = false;
-        OrganizeResultPanel.Visibility = Visibility.Collapsed;
-    }
-
-    /// <summary>
-    /// 面板上勾一行 = 勾上它下面所有节点，然后走**现成的**底部执行栏。
-    /// **这是用户动作**，AI 从不预勾 —— <see cref="OrganizeNode.IsChecked"/> 只由人手写。
-    /// 硬拦（Blocked）的节点跳过去，勾不动，和行内复选框同一个规矩。
-    /// </summary>
-    private void OrganizeBucket_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not CheckBox cb || cb.DataContext is not OrganizeBucket bucket) return;
-        if (_folderDeleteService.IsBusy) { bucket.SyncFromMembers(); return; }
-        foreach (var m in bucket.Members)
-        {
-            if (m.IsSelectionProtected) continue;
-            m.IsChecked = bucket.IsChecked;
-        }
-        RefreshFolderDeleteBar();
-    }
-
-    // ==================== 归类（用户点一次，认这一屏） ====================
-
-    /// <summary>
-    /// 归类入口：数量写在按钮上，为 0 就整块隐藏（不留一个点了没反应的按钮）；
-    /// 跑的时候变成「停止」。
-    ///
-    /// **只由用户主动点。** 扫描 / 切页 / 展开 / 筛选一个请求都不发 ——
-    /// 这条不变量有真实出站计数守着（StartupCheck §9.4）。
-    /// （中间试过「翻到哪自动认哪」，两个方向都不合适：只认眼前几行要滚很多次，
-    /// 一次认完整页又撞上模型的上下文上限。回到手点最稳。）
-    /// </summary>
-    void UpdateOrganizeClassifyButton(int onScreen)
-    {
-        if (OrganizeClassifyBtn == null) return;
-        if (_organizeClassifying)
-        {
-            OrganizeClassifyBtn.Content = Loc.Stop;
-            OrganizeClassifyBtn.Visibility = Visibility.Visible;
-            OrganizeClassifyBtn.IsEnabled = true;
-            return;
-        }
-        OrganizeClassifyBtn.Content = Loc.AiBatchClassifyScreen(onScreen);
-        OrganizeClassifyBtn.Visibility = onScreen > 0 ? Visibility.Visible : Visibility.Collapsed;
-        OrganizeClassifyBtn.IsEnabled = onScreen > 0;
-        UpdateOrganizeForgetButton();
-    }
-
-    /// <summary>
-    /// 「忘掉 AI 标签」只在**这一屏已经有 AI 标签**时出现。
-    /// 归类正在跑的时候藏起来，免得一边写一边清。
-    /// </summary>
-    void UpdateOrganizeForgetButton()
-    {
-        if (OrganizeForgetAiBtn == null) return;
-        bool has = !_organizeClassifying
-                   && _organizeRows.Any(n => n.BatchPurpose.Length > 0 || n.BatchAsked);
-        OrganizeForgetAiBtn.Content = Loc.AiPurposeForget;
-        OrganizeForgetAiBtn.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
-        OrganizeForgetAiBtn.IsEnabled = has;
-    }
-
-    /// <summary>
-    /// 忘掉当前树上（以及落盘里）的 Jev 标签。本地认出来的不动，勾选也不动。
-    /// 清完「识别这一屏」会重新出现。
-    /// </summary>
-    private void OrganizeForgetAi_Click(object sender, RoutedEventArgs e)
-    {
-        if (_organizeClassifying) return;
-        int n = ForgetAiPurposes();
-        _organizeResultShown = false;
-        SetOrganizeNote(n > 0 ? Loc.AiPurposeForgot(n) : "");
-        UpdateOrganizeHeader();
-    }
-
-    /// <summary>入口只有一个按钮：空闲时开始，跑着时停止。</summary>
-    private void OrganizeClassify_Click(object sender, RoutedEventArgs e)
-    {
-        if (_organizeClassifying)
-        {
-            CancelQuietly(_aiClassifyCts);
-            return;
-        }
-        _ = OrganizeClassifyRunAsync();
-    }
-
-    /// <summary>
-    /// 把这一屏里**还认不出用途的**交给结构化判定通道（TypeSafe Jev 这类）。
-    ///
-    /// 范围 = 列表里当前这一屏的对象（<c>_organizeRows</c>）。
-    /// **一个请求只问一个目录**（<see cref="AiPurposeBatchService.MaxPerRequest"/> 现在是 1，
-    /// 因为 state 要带该目录自己的内容摘要），并发度由判定域声明。
-    /// 问过的不再问（<see cref="OrganizeNode.BatchAsked"/>），所以再点一次只会补问新露出来的。
-    ///
-    /// 写入只落在 <see cref="OrganizeNode.BatchPurpose"/> 这一个展示字段上：
-    /// 整理树的对象根本没有 Risk / CanDelete / Selected，所以「AI 不会替用户打勾」
-    /// 在这里是结构上成立的。
-    /// </summary>
-    async Task OrganizeClassifyRunAsync()
-    {
-        if (_organizeClassifying) return;
-
-        // 目标 = 还没问过的 + **上次失败的**。
-        // 失败的那些 NeedsPurposeClassification 为假（它们不是「还不知道」，是「问挂了」），
-        // 但用户再点一次按钮时，它们正是最该重试的一批。
-        var targets = _organizeRows
-            .Where(n => n.NeedsPurposeClassification || n.State == PurposeState.Failed)
-            .ToList();
-        if (targets.Count == 0)
-        {
-            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNothing);
-            return;
-        }
-        if (!App.Settings.DecisionConfigured())
-        {
-            ShowAlert(Loc.AiBatchClassify, Loc.AiPurposeBatchNotConfigured);
-            return;
-        }
-
-        _organizeClassifying = true;
-        UpdateOrganizeHeader();
-        string failMsg = "";
-        try
-        {
-            using var op = StartOperation(ref _aiClassifyCts, "OrganizeClassify");
-            var ct = op.Token;
-            // 换代守卫：扫描重来之后旧结果绝不许贴到新树上
-            int scanGen = _scanGeneration;
-            var progress = new Progress<string>(SetOrganizeNote);
-            try
-            {
-                var outcome = await AiPurposeBatchService.RunAsync(
-                    targets, () => scanGen == _scanGeneration, progress, ct);
-                SetOrganizeNote(Loc.AiPurposeBatchSummary(
-                    outcome.Applied, outcome.Unsure, outcome.Unknown, outcome.Calls, outcome.Cost));
-                // 有结论就把「合并」面板摆出来：一类一行，勾一行整片处理
-                if (outcome.Applied > 0) _organizeResultShown = true;
-                // 贴上的同时落盘：下次打开不用再付钱问同一条路径。
-                if (outcome.Applied + outcome.Unsure > 0) PersistAiPurposes(targets);
-                op.Done("organize classify", outcome.Applied);
-            }
-            catch (OperationCanceledException)
-            {
-                op.Canceled("organize classify canceled");
-            }
-            catch (Exception ex)
-            {
-                // **失败必须出声，而且要和「认不出来」分开。**
-                // 把这一批标成 Failed：页头的「失败 N」、每行的重试提示才是真的；
-                // 下次再点按钮时它们又是候选（上面 targets 的第二个条件）。
-                foreach (var n in targets) n.SetState(PurposeState.Failed);
-                failMsg = Loc.AiPurposeBatchFailed(AppError.From(ex, "organize classify").UserMessage);
-                op.Fail(ex, "organize classify");
-            }
-        }
-        catch (Exception ex)
-        {
-            // 前置步骤（取取消源 / 记一次操作）抛了也要出声，不能只留给未观察任务异常
-            failMsg = Loc.AiPurposeBatchFailed(AppError.From(ex, "organize classify").UserMessage);
-            AppLog.Error("OrganizeClassify", failMsg, ex);
-        }
-        finally
-        {
-            _organizeClassifying = false;
-            UpdateOrganizeHeader();
-        }
-
-        if (failMsg.Length > 0)
-        {
-            // **失败必须出声。** 这是用户主动点的动作；只往页头那行小灰字里塞一句，
-            // 用户看到的就是「点了没反应」—— 真机就是这么反馈的：
-            // 日志里连报 4 次 "decisions channel is not registered"，界面一片安静。
-            SetOrganizeNote(failMsg);
-            ShowAlert(Loc.AiBatchClassify, failMsg);
-        }
     }
 
     private void SetOrganizeNote(string text)

@@ -15,9 +15,6 @@
     <Compile Include="Stubs.cs" />
     <Compile Include="LayeredCleanTests.cs" />
     <Compile Include="ReviewFixesTests.cs" />
-    <Compile Include="AiPurposeTests.cs" />
-    <Compile Include="JevDecisionTests.cs" />
-    <Compile Include="DupKeepDecisionTests.cs" />
 
     <Compile Include="..\..\src\AiDiskCleaner\Models\DeletionModels.cs" Link="DeletionModels.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" Link="FileEntry.cs" />
@@ -43,28 +40,14 @@
     <Compile Include="..\..\src\AiDiskCleaner\Services\AppPaths.cs" Link="AppPaths.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\SecretProtector.cs" Link="SecretProtector.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AppSettings.cs" Link="AppSettings.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\AiGateway.cs" Link="AiGateway.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\AiConfigurationService.cs" Link="AiConfigurationService.cs" />
     <!-- 聊天契约：连接向导的探针与诊断都按这套类型断言 -->
     <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\Chat\ChatModels.cs" Link="Agent\Chat\ChatModels.cs" />
     <!-- DNS 污染兜底：DoH 应答解析是纯函数，必须离线断言（非 A 记录 / 失败状态 / 劫持页都要挡住） -->
     <Compile Include="..\..\src\AiDiskCleaner\Services\DohResolver.cs" Link="DohResolver.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevContracts.cs" Link="Decisions\JevContracts.cs" />
-    <!-- 判定层：阈值表 + 分批执行器 + 硬限制。全部离线可测（假 sender），不联网 -->
-    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\DecisionThresholds.cs" Link="Decisions\DecisionThresholds.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\IDecisionSet.cs" Link="Decisions\IDecisionSet.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\DecisionRunner.cs" Link="Decisions\DecisionRunner.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevLimits.cs" Link="Decisions\JevLimits.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\JevLog.cs" Link="Decisions\JevLog.cs" />
-    <!-- 重复文件「留哪一个」域：回写纯净性 / 阈值 / 挑组 / 脱敏都要按真代码断言 -->
-    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\DuplicateKeepDecisionSet.cs" Link="Decisions\DuplicateKeepDecisionSet.cs" />
-    <!-- 文件夹用途域：一请求一目录的 state 摘要、英文常量选项表、并发度都要按真代码断言 -->
-    <Compile Include="..\..\src\AiDiskCleaner\Services\Decisions\FolderPurposeDecisionSet.cs" Link="Decisions\FolderPurposeDecisionSet.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleContracts.cs" Link="CleanRuleContracts.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanItemFactory.cs" Link="CleanItemFactory.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRuleEligibility.cs" Link="CleanRuleEligibility.cs" />
-    <!-- 批量归类的选项表/阈值：闭合性与「AI 不许制造批选资格」都要按真代码断言 -->
-    <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\AiPurposeCriteria.cs" Link="AiPurposeCriteria.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanRuleSelectPreview.cs" Link="CleanRuleSelectPreview.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\DuplicateDetector.cs" Link="DuplicateDetector.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\DuplicateScanService.cs" Link="DuplicateScanService.cs" />

@@ -164,12 +164,9 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _scanCts;
     private CancellationTokenSource? _analyzeCts;
     private CancellationTokenSource? _dupCts;
-    /// <summary>「问一下留哪一份」的取消源。和扫描的取消分开：它只取消这一次判定请求。</summary>
-    private CancellationTokenSource? _dupAskCts;
     private CancellationTokenSource? _snapshotCts;
     private CancellationTokenSource? _uninstallCts;
     private CancellationTokenSource? _aiConfigCts;
-    private CancellationTokenSource? _aiClassifyCts;
     /// <summary>扫描代次。旧任务跑完时如果代次已经不是自己那一代，结果直接丢弃，不覆盖新结果。</summary>
     private int _scanGeneration;
     private int _analyzeGeneration;
@@ -517,7 +514,6 @@ public partial class MainWindow : Window
         CancelQuietly(_dupCts);
         CancelQuietly(_snapshotCts);
         CancelQuietly(_uninstallCts);
-        CancelQuietly(_aiClassifyCts);   // 自动识别用途
         CancelQuietly(_aiConfigCts);
         // 整理页已无批量/自动识别任务：模型请求只由用户对单项发起，走逐项取消按钮
         // 标记「正在取消」：按钮立刻变成不可再点，并给出反馈，不等任务真正退出。
@@ -1667,11 +1663,9 @@ public partial class MainWindow : Window
     bool AiConfigured() => App.Settings.DecisionConfigured();
 
     /// <summary>
-    /// 现在是否有 AI 在跑。两个来源任一为真就算忙：
-    ///  · <c>_aiBusy</c>：设置里的「测试判定通道」；
-    ///  · <c>_organizeClassifying</c>：识别用途在跑。
+    /// 现在是否有 AI 在跑：设置页的「测试连接」。
     /// </summary>
-    bool AiBusyNow => _aiBusy || _organizeClassifying;
+    bool AiBusyNow => _aiBusy;
 
     /// <summary>
     /// AI 忙状态只在清理页那一行状态里表达。
@@ -1761,73 +1755,6 @@ public partial class MainWindow : Window
         RefreshAfterSelectionChange();
         SetAiStatus(Loc.SelectAdded(added, FileEntry.FormatSize(bytes)));
     }
-
-    /// <summary>
-    /// 重复组：「问一下留哪一份」。
-    ///
-    /// <b>这是判定通道的第二个用途，而且只能由用户点。</b>
-    /// 它不在扫描流程里 —— 「扫描 / 切页 / 展开 / 筛选 = 0 次请求」是软件对外的承诺，
-    /// 而且那条承诺是用真实出站计数（<see cref="AiGateway.SentCount"/>）断言的。
-    /// 跟着扫描顺手问一轮，等于在用户不知情的时候花钱。
-    ///
-    /// 一组一道题（<c>choice</c>，选项 = 组内成员 m1..mN）。回写**只落在
-    /// 保留项那一行的说明文字上**：不碰 Selected / CanDelete / Risk，
-    /// 也不改 keep/extra 的归属 —— 本地基线（路径最短者为保留项）永远是基线。
-    /// 把握不够（&lt; <see cref="DecisionThresholds.DuplicateKeep"/>）就什么都不建议。
-    /// </summary>
-    public async void DupAskKeep_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.DataContext is not CleanLocationNode loc) return;
-        if (loc.DupAskBusy) return;
-
-        if (!App.Settings.DecisionConfigured())
-        {
-            ShowAlert(Loc.DupKeepAction(1), Loc.DupKeepNotConfigured);
-            return;
-        }
-
-        var provider = App.Settings.DecisionProvider();
-        if (provider == null)
-        {
-            ShowAlert(Loc.DupKeepAction(1), Loc.DupKeepNotConfigured);
-            return;
-        }
-
-        // 只问这一组。用户点的是哪一行就问哪一行 —— 不顺手把别的组也问了（那是替用户花钱）。
-        var targets = new List<CleanLocationNode> { loc };
-        if (DuplicateKeepDecisionSet.SelectTargets(targets).Count == 0) return;
-
-        loc.DupAskBusy = true;
-        try
-        {
-            using var op = StartOperation(ref _dupAskCts, "DupAskKeep");
-            var set = new DuplicateKeepDecisionSet();
-            var outcome = await DecisionRunner.RunAsync(
-                set, targets, provider, App.Settings.DecisionModelId(),
-                stillCurrent: () => _report != null && _report.Duplicates.Contains(loc.Items[0]),
-                progress: new Progress<string>(SetAiStatus),
-                ct: op.Token);
-
-            // 说明文字改完了，通知绑定刷新（Reason 在 CleanItem 上，位置行显示的是它）
-            loc.RefreshReasonFromItems();
-            RefreshAfterSelectionChange();
-            SetAiStatus(Loc.DupKeepSummary(outcome.Applied, outcome.Unsure, targets.Count, outcome.Calls, outcome.Cost));
-            op.Done("dup-keep", outcome.Applied);
-        }
-        catch (OperationCanceledException)
-        {
-            SetAiStatus(Loc.PurposeCancelled);
-        }
-        catch (Exception ex)
-        {
-            SetAiStatus(Loc.DupKeepFailed(AppError.From(ex, "dup-keep").UserMessage));
-        }
-        finally
-        {
-            loc.DupAskBusy = false;
-        }
-    }
-
 
     /// <summary>
     /// 2.11：目录侧栏（及其右键菜单「问 AI 这是什么」）已整体移除。

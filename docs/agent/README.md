@@ -1,6 +1,6 @@
 # 磁盘清理 Agent 工程设计（草案）
 
-> 状态：**v0.2 草案**。P0（工具层 + 证据层）已实现并通过 118 条离线检查；P1（聊天客户端 + L1 报告）尚未开始。
+> 状态：**v0.3 草案**。P0（工具层 + 证据层）与 P1（聊天客户端 + L1 报告 + 可交互报告页 + 删 Jev）已落地；全量 12 项离线检查绿。
 > 评审方式：每篇末尾有带编号的「待确认问题」，按编号回答即可（例如「Q2 同意，Q4 改成 64KB」）。
 > 起草时间：2026-11-09 ｜ 基线：`main @ 8c6233f`
 
@@ -17,12 +17,12 @@
 
 | 文件 | 内容 | 状态 |
 |---|---|---|
-| [01-architecture.md](01-architecture.md) | 定位、原则、分层、组件、数据流、与现有代码的映射 | **待评审** |
-| [02-tool-contract.md](02-tool-contract.md) | 工具层契约：命名、信封、错误、预算、工具清单（首版 9 个） | **待评审** |
-| [03-evidence-model.md](03-evidence-model.md) | ScanSession / 证据卡 / 候选集 / 模型输出 / 报告卡的数据模型 | **待评审** |
-| [04-agent-loop.md](04-agent-loop.md) | L1/L2 流程、预算、错误恢复、取消、UI 状态机 | **待评审** |
-| [05-safety-and-eval.md](05-safety-and-eval.md) | 安全边界、提示注入、黄金集回放、稳定性指标 | **待评审** |
-| [06-roadmap.md](06-roadmap.md) | 分阶段落地、文件级任务、验收标准 | **待评审** |
+| [01-architecture.md](01-architecture.md) | 定位、原则、分层、组件、数据流、与现有代码的映射 | **已落地（P0/P1 基础）** |
+| [02-tool-contract.md](02-tool-contract.md) | 工具层契约：命名、信封、错误、预算、工具清单（首版 9 个） | **已落地（P0，4 个只读工具）** |
+| [03-evidence-model.md](03-evidence-model.md) | ScanSession / 证据卡 / 候选集 / 模型输出 / 报告卡的数据模型 | **已落地（P0/P1）** |
+| [04-agent-loop.md](04-agent-loop.md) | L1/L2 流程、预算、错误恢复、取消、UI 状态机 | **已落地（L1 / P1）** |
+| [05-safety-and-eval.md](05-safety-and-eval.md) | 安全边界、提示注入、黄金集回放、稳定性指标 | **待评审**（真机评测未跑） |
+| [06-roadmap.md](06-roadmap.md) | 分阶段落地、文件级任务、验收标准 | **P0/P1 已完成** |
 
 ## 已落地（P0，2026-11-09）
 
@@ -33,6 +33,19 @@
 | `tools/AgentToolCheck/` | 118 条离线检查（索引、卡片、候选、信封、工具、安全），已接入 `tools/run-all-checks.ps1` |
 
 验证命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\run-all-checks.ps1 -Only AgentToolCheck`，期望 `PASS 118  FAIL 0`。
+
+## 已落地（P1，2026-11-09）
+
+| 位置 | 内容 |
+|---|---|
+| `src/AiDiskCleaner/Services/Agent/Chat/` | `ChatModels` / `OpenAiCompatChatModel` / `ChatModelFactory`（OpenAI 兼容 chat completions，JSON 模式 + SSE） |
+| `src/AiDiskCleaner/Services/Agent/` | `PromptBuilder`（`cleanup-report-v1`）/ `ReportParser` / `ReportAssembler` / `AgentReportService`（L1 分批编排） |
+| `src/AiDiskCleaner/MainWindow.AgentReport.cs` | 「AI 分析」入口 + 可交互报告：加入清理 / 只看这个目录 / 证据与风险标签；删除仍走原有预检 |
+| `src/AiDiskCleaner/Services/AiConfigurationService.cs` | 设置页改为聊天配置：DeepSeek / OpenAI 兼容 / Ollama 模板 + 真实连通性测试 |
+| 删除 | Jev 判定通道整条移除（`AiClient`/`AiGateway*`/`AiPurposeBatchService`/`DecisionRunner`/`Jev*`/`AiPurposeCriteria` 及对应 UI 与测试） |
+| `tools/AgentReportCheck/` | 53 条离线检查（提示词脱敏、解析校验、组装、编排、失败降级），已接入 runner |
+
+验证命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\run-all-checks.ps1 -Only AgentReportCheck`，期望 `PASS 53  FAIL 0`；全量 `tools\run-all-checks.ps1` 12 项全绿。
 
 ## 已提出的决策（状态≠已定）
 

@@ -1,6 +1,6 @@
 # 06 · 落地路线
 
-> 状态：待评审 ｜ 关联决策：C1–C6 ｜ 依赖：[01](01-architecture.md)–[05](05-safety-and-eval.md)
+> 状态：**P0 已完成 · P1 已完成（2026-11-09）** ｜ 关联决策：C1–C6 ｜ 依赖：[01](01-architecture.md)–[05](05-safety-and-eval.md)
 
 ## 0. 一句话
 
@@ -64,11 +64,15 @@ src/AiDiskCleaner/Services/Agent/
 
 ### 2.4 验收（已完成）
 
-- [x] 新增检查全绿，原有 10 套检查不回归（AgentToolCheck 118 / SafetyCheck 1185）；
+- [x] 新增检查全绿，原有 10 套检查不回归（AgentToolCheck 118 / SafetyCheck 1185，Jev 删除后 SafetyCheck 943）；
 - [x] 不引入新 NuGet 依赖（System.Text.Json 随 .NET 8 自带）；
 - [x] 构建 `dotnet build` 0 警告 0 错误。
 
-## 3. P1：聊天客户端 + L1 报告
+## 3. P1：聊天客户端 + L1 报告（✅ 已完成 2026-11-09）
+
+**落地状态：** 聊天客户端（`Services/Agent/Chat/ChatModels.cs`、`OpenAiCompatChatModel.cs`、`ChatModelFactory.cs`）、L1 编排（`PromptBuilder.cs`/`ReportParser.cs`/`ReportAssembler.cs`/`AgentReportService.cs`）、可交互报告（`MainWindow.AgentReport.cs` + XAML 的 `AiReportBtn`/`ReportBody`）、设置页聊天化（DeepSeek / OpenAI 兼容 / Ollama 模板）全部完成；Jev 判定通道整条删除；`tools/AgentReportCheck` 53 条检查全绿；全量 12 项离线检查绿。
+
+**与计划的差异：** 报告没有做独立窗口，直接复用 `DialogCard` 弹层并加宽到 940px（`ReportBody`/`ReportContent`），这样「加入清理 / 只看这个目录」能直接操作当前清理页的选择与范围；`find_duplicates` 等其余 5 个工具仍未实现（工具层首版只读 4 个）。
 
 ### 3.1 新增文件
 
@@ -138,12 +142,12 @@ src/AiDiskCleaner/
 | 4 | ToolEnvelope + ToolHost | 同上 | 1 | ✅ |
 | 5 | 4 个只读工具 | Tools/* | 3、4 | ✅ |
 | 6 | AgentToolCheck 项目 + 接入 run-all-checks | tools/AgentToolCheck/* | 1–5 | ✅ |
-| 7 | ChatModel + Factory | Services/Agent/* | 无 |
-| 8 | ReportParser + Assembler | 同上 | 2 |
-| 9 | AgentReportService（L1） | 同上 | 6、7、8 |
-| 10 | 报告页 UI + 三个按钮 | AgentReportWindow / MainWindow | 9 |
-| 11 | 删 Jev | 多个 | 7 |
-| 12 | L2 循环 | Services/Agent/* | 9、10 |
+| 7 | ChatModel + Factory | Services/Agent/* | 无 | ✅ |
+| 8 | ReportParser + Assembler | 同上 | 2 | ✅ |
+| 9 | AgentReportService（L1） | 同上 | 6、7、8 | ✅ |
+| 10 | 报告页 UI + 三个按钮 | AgentReportWindow / MainWindow | 9 | ✅（复用 DialogCard + MainWindow.AgentReport.cs） |
+| 11 | 删 Jev | 多个 | 7 | ✅ |
+| 12 | L2 循环 | Services/Agent/* | 9、10 | 未开始 |
 
 ## 7. 风险与对策
 
@@ -167,9 +171,9 @@ src/AiDiskCleaner/
 
 ## 9. 完成定义（DoD）
 
-- [ ] 任一失败路径都不会导致删除或数据丢失；
-- [ ] 报告每条建议都有可点开的本地证据；
-- [ ] 全量离线检查绿；
-- [ ] 真实 key 手测：一次分析 ≤90s，报告可跳转勾选；
-- [ ] 打包 exe 可启动、可分析、可删除（走原有确认流程）；
-- [ ] 文档与代码一致（docs/agent 状态更新）。
+- [x] 任一失败路径都不会导致删除或数据丢失（AI 侧无删除 API，删除仍走 `DeletionCoordinator` 预检 + 回收站）；
+- [x] 报告每条建议都有可点开的本地证据（`ReportEvidence` + evidence chips，校验不过的条目不展示）；
+- [x] 全量离线检查绿（12 项：SafetyCheck 943 / StartupCheck 176 / UiRegressionCheck / AgentToolCheck 118 / AgentReportCheck 53 等）；
+- [ ] 真实 key 手测：一次分析 ≤90s，报告可跳转勾选（需用户环境与 key；离线部分已由 `AgentReportCheck` 覆盖）；
+- [ ] 打包 exe 可启动、可分析、可删除（走原有确认流程）（待发布时手测）；
+- [x] 文档与代码一致（docs/agent 状态更新）。

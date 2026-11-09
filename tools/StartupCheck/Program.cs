@@ -612,14 +612,13 @@ public static class Program
         n2.SetLevel(2); n2.SetChildDirCount(0);
         all2.Add(n1); all2.Add(n2); roots2.Add(n1); roots2.Add(n2);
 
-        AiGateway.ResetSentCountForTest();
         Call(win, "LocalRecognize", n1);
         Call(win, "LocalRecognize", n2);
         Check("本地识别对一级、二级对象都跑（node_modules 被本地认出）",
             n2.HasConclusion && n2.Source == PurposeSource.Local,
             $"has={n2.HasConclusion} source={n2.Source}");
-        Check("本地识别不发任何模型请求（真实出站计数为 0）",
-            AiGateway.SentCount == 0, "SentCount=" + AiGateway.SentCount);
+        Check("进程内已经没有 Jev 出站通道（本地识别不可能发请求）",
+            typeof(MainWindow).Assembly.GetType("AiDiskCleaner.Services.AiGateway") == null);
 
         // 已有结论的对象再跑一次本地识别也不会重复下结论/丢来源
         var before = n2.PurposeName;
@@ -713,9 +712,9 @@ public static class Program
         var nmRes = svc.Recognize(nmDir, new FolderId(nmDir.FullPath, 1), 1, "node_modules", "cfg");
         Check("本地能判定的目录进了用途缓存（且没联网）",
             nmRes.HasConclusion && svc.CacheCount > 0, svc.CacheCount.ToString());
-        // v3.0：本地路径根本不经过通道，所以「不消耗请求预算」升级成「一次请求都没发」。
-        Check("本地识别全程 0 次出站请求（真实出站计数）", AiGateway.SentCount == 0,
-            AiGateway.SentCount.ToString());
+        // v3.1：本地路径根本不经过出站口 —— 出站口这个类型已经被删掉了。
+        Check("本地识别全程 0 次出站请求（进程里已无出站网关）",
+            typeof(MainWindow).Assembly.GetType("AiDiskCleaner.Services.AiGateway") == null);
 
         int cacheBefore = svc.CacheCount;
         // 原来这里调 InvalidateItemAiAfterScan 来模拟「重复检测完成后的分层重建」，
@@ -757,7 +756,7 @@ public static class Program
 
     /// <summary>
     /// 新方向的**行为**验证：默认页、零后台请求、没有批量入口、单项 AI 的作用域。
-    /// 请求次数用 <c>AiGateway.SentCount</c>（真实出站计数），不是搜日志。
+    /// v3.1 起进程里已经没有出站网关，零请求用「类型不存在」做静态断言。
     /// </summary>
     static void ProductDirectionTests(MainWindow win)
     {
@@ -807,62 +806,46 @@ public static class Program
         Check("导航把「清理中心」放在「文件夹整理」前面", iClean > 0 && iOrg > 0 && iClean < iOrg,
             $"clean@{iClean} organize@{iOrg}");
 
-        // ---------- 9.3 批量入口：只有一个，只能用户主动发起，而且只准写在展示字段上 ----------
-        // 4c65dfb 冻结的是「所有批量入口一个都不许有，模型只允许对某一个文件/文件夹主动发起」。
-        // 后来松开了其中一半 ——「一次只能一个」放开了，但另外两条一条都没松：
-        //   ① 必须由用户主动发起（行为证据在 9.4 的真实出站计数）
-        //   ② 不得改 Risk / CanDelete / Selected / 不得改判定（结构证据在 SafetyCheck）
-        //
-        // 入口落在「按文件夹删除」页：清理中心的候选项由 8 条规则产出、每条都声明了用途，
-        // 不会有「认不出来」的堆积；未知堆积在文件夹树里（页头那行分档计数就是它在数）。
+        // ---------- 9.3 整理页不再有批量归类入口（v3.1 已删 Jev 判定通道） ----------
+        // 曾经这里守三条：批量入口只能有一个、必须用户主动点、只能写展示字段。
+        // v3.1 把「AI 自动给文件夹打标签」整条能力删掉了（改成聊天式报告），
+        // 所以对应用户入口、模型字段、落盘槽、出站网关都应当**不存在** —— 改用负向断言钉住。
         string org = ReadSource("src/AiDiskCleaner/MainWindow.Organize.cs");
+        string orgNode = ReadSource("src/AiDiskCleaner/Models/OrganizeNode.cs");
+        string persistSrc = ReadSource("src/AiDiskCleaner/MainWindow.RecognitionPersistence.cs");
         foreach (var bad in new[]
                  {
                      "OrganizeIdentifyAll", "OrganizeIdentifyCurrent", "OrgCtxIdentifyCurrent",
                      "AutoIdentifyTargets", "StartOrganizeAutoIdentify", "RunOrganizeIdentifyAsync",
                      "ProbeUnknownLocally", "OrganizeProgressPanel", "OrganizeScopeBar", "OrganizeStopBtn",
+                     "OrganizeClassifyBtn", "OrganizeClassify_Click", "OrganizeForgetAiBtn",
+                     "OrganizeForgetAi_Click", "OrganizeResultPanel", "AiPurposeBatchService",
                  })
         {
-            Check($"整理页没有旧的批量/本层识别入口：{bad}",
+            Check($"整理页没有旧的批量/本层/Jev 入口：{bad}",
                 !org.Contains(bad, StringComparison.Ordinal) && !xaml.Contains(bad, StringComparison.Ordinal));
         }
-        Check("侧栏不再有「识别用途」按钮（只剩导航）",
-            !scan.Contains("PurposeIdentify_Click", StringComparison.Ordinal)
-            && !scan.Contains("RunPurposeAsync", StringComparison.Ordinal)
-            && !xaml.Contains("CtxPurposeIdentify", StringComparison.Ordinal));
-
-        // **唯一的识别入口就是页头那个按钮**：用户点一次，认这一屏。
-        // 它「只在用户点击时发请求」这件事由 9.4 的真实出站计数守着。
-        Check("按文件夹删除页有识别按钮",
-            xaml.Contains("x:Name=\"OrganizeClassifyBtn\"", StringComparison.Ordinal)
-            && org.Contains("private void OrganizeClassify_Click", StringComparison.Ordinal));
-        Check("忘掉 AI 标签的入口在页头，不发请求",
-            xaml.Contains("x:Name=\"OrganizeForgetAiBtn\"", StringComparison.Ordinal)
-            && org.Contains("private void OrganizeForgetAi_Click", StringComparison.Ordinal)
-            && org.Contains("ForgetAiPurposes()", StringComparison.Ordinal));
-        Check("批量归类仍然不在清理中心（那里没有认不出的堆积）",
-            !scan.Contains("AiPurposeBatchService", StringComparison.Ordinal)
-            && !scan.Contains("CleanClassifyPurposes", StringComparison.Ordinal));
-        int batchCalls = org.Split(new[] { "AiPurposeBatchService.RunAsync" }, StringSplitOptions.None).Length - 1;
-        Check("批量归类全仓只被一处调用", batchCalls == 1, "调用点=" + batchCalls);
-        Check("批量归类复用现有 AI 通道，不新造进度面板/停止按钮",
-            !org.Contains("OrganizeProgressPanel", StringComparison.Ordinal)
-            && !org.Contains("OrganizeStopBtn", StringComparison.Ordinal));
-        // 供下面几节复用的源码文本
-        var orgNode = ReadSource("src/AiDiskCleaner/Models/OrganizeNode.cs");
-
-        // 「合并」面板（一类一行、勾一行整片处理）：
-        //   - 勾选框必须绑在 CanSelect 上 —— 「还没认出来」那一桶没有结论，
-        //     给它整片勾选等于送一个「一键删掉所有看不出来的」按钮，是最危险的动作；
-        //   - 勾完必须回流到底部那个唯一的执行栏，**不另起删除路径**。
-        Check("分类结果面板存在，且勾选框绑在 CanSelect 上",
-            xaml.Contains("x:Name=\"OrganizeResultPanel\"", StringComparison.Ordinal)
-            && xaml.Contains("OrganizeBucket_Click", StringComparison.Ordinal)
-            && xaml.Contains("Visibility=\"{Binding CanSelect", StringComparison.Ordinal));
-        var delSrc = ReadSource("src/AiDiskCleaner/MainWindow.FolderDelete.cs");
-        Check("面板勾选回流到唯一执行栏（不另起删除路径）",
-            org.Contains("RefreshFolderDeleteBar();", StringComparison.Ordinal)
-            && delSrc.Contains("FolderDelete.Refresh(", StringComparison.Ordinal));
+        Check("用途模型里不再有批量归类字段",
+            !orgNode.Contains("BatchPurpose", StringComparison.Ordinal)
+            && !orgNode.Contains("MarkBatchAsked", StringComparison.Ordinal)
+            && !orgNode.Contains("NeedsPurposeClassification", StringComparison.Ordinal));
+        Check("整理页没有 AI 归类/忘掉入口（只剩本地识别与展开）",
+            !org.Contains("RestoreAiPurposes", StringComparison.Ordinal)
+            && !org.Contains("TryRestoreAiPurpose", StringComparison.Ordinal)
+            && !persistSrc.Contains("AiPurpose", StringComparison.Ordinal));
+        Check("落盘层不再有 ai-purpose 槽（只剩 purpose）",
+            !ReadSource("src/AiDiskCleaner/Services/RecognitionStore.cs")
+                .Contains("PutAiPurpose", StringComparison.Ordinal)
+            && !ReadSource("src/AiDiskCleaner/Services/RecognitionStore.cs")
+                .Contains("TryGetAiPurpose", StringComparison.Ordinal));
+        Check("Jev 判定通道类型全部移除（AiGateway / AiClient / DecisionRunner 都不在）",
+            typeof(MainWindow).Assembly.GetType("AiDiskCleaner.Services.AiGateway") == null
+            && typeof(MainWindow).Assembly.GetType("AiDiskCleaner.Services.AiClient") == null
+            && typeof(MainWindow).Assembly.GetType("AiDiskCleaner.Services.Decisions.DecisionRunner") == null);
+        // 「扫描重建 / 展开 / 筛选 / 切页会发请求」曾经用真实出站计数钉死；
+        // v3.1 把出站口整个删掉了，这些路径**在类型层面**就不可能发请求。
+        Check("整理页路径没有模型出站口可接（扫描/展开/筛选/切页不可能发请求）",
+            typeof(MainWindow).Assembly.GetType("AiDiskCleaner.Services.AiGateway") == null);
         // 父子同时上榜（Users / Users\32098 容量一样）时，界面要解释一句：
         // 它们是父子、**勾了两个不会算两遍**（FolderSelectionService 会去重），
         // 但不解释用户会以为自己选了两份空间。
@@ -873,154 +856,6 @@ public static class Program
         Check("整理页仍然没有任何删除实现（删除只在 FolderDelete 合同里）",
             !org.Contains("SHFileOperation", StringComparison.Ordinal)
             && !org.Contains("Directory.Delete", StringComparison.Ordinal));
-
-        // 组合根必须**显式**接线 AI 通道。
-        // 只靠 AiClient 的静态构造函数不行 —— 静态构造只在「有东西碰到 AiClient」时才跑，
-        // 而判定通道走 AiProtocols（刻意做成不碰 AiClient），于是从没碰过 AiClient 的进程里
-        // DecisionsSender 一直是 null，用户一点「识别用途」就报
-        // "decisions channel is not registered"（真机日志里连报 4 次）。
-        var appSrc = ReadSource("src/AiDiskCleaner/App.xaml.cs");
-        Check("组合根在 OnStartup 里显式接线 AI 通道",
-            appSrc.Contains("AiGateways.Register()", StringComparison.Ordinal));
-        AiGateways.Register();
-        Check("Register() 之后判定通道确实可用（接线幂等）",
-            AiGateway.DecisionsSender != null);
-
-        // ---------- 9.4 扫描 / 切页 / 展开 / 筛选 = 0 次模型请求 ----------
-        //
-        // 这条不变量中途被放开过两次（先「翻到哪自动认哪」，再「一次认完整页」），
-        // 两次都回滚了：只认眼前几行要滚很多次；一次认完整页会撞上模型的上下文上限
-        // （criteria 是每题一份，实测每项 362 token，160 项一批就是 57,920）。
-        // **回到「用户点一次、认这一屏」最稳**，所以这条 0 请求的断言也回来了。
-        //
-        // 让「有模型配置」这件事成立，否则零请求没有说服力（没配模型本来就不会发）。
-        var settings = App.Settings;
-        bool hadModel = !string.IsNullOrWhiteSpace(settings.AiModel);
-        string savedModel = settings.AiModel;
-        settings.AiModel = "test-model-not-called";     // 只改名字，不发请求；下面用计数断言
-
-        AiGateway.ResetSentCountForTest();
-        ResetOrganizeCollections(win);
-
-        // 造一棵真树：根 → 两个子目录（深浅各一），让展开/筛选真的有东西可做
-        var root = MakeDir("ZeroRoot", @"X:\ZeroRoot", 4096, null, 1);
-        MakeDir("z1", @"X:\ZeroRoot\z1", 2048, root);
-        var node = new OrganizeNode(root, new FolderId(root.FullPath, 1), 0, "ZeroRoot");
-        node.SetLevel(1);
-        node.SetChildDirCount(1);
-        Fld<List<OrganizeNode>>(win, "_organizeAll").Add(node);
-        Fld<List<OrganizeNode>>(win, "_organizeRoots").Add(node);
-
-        // 1) 扫描完成后的重建（本地识别那一遍）
-        Call(win, "RebuildOrganize");
-        // 2) 展开一个对象（懒加载 + 展开）
-        Call(win, "ToggleOrganize", node);
-        // 3) 收起 / 再展开
-        Call(win, "ToggleOrganize", node);
-        Call(win, "ToggleOrganize", node);
-        // 4) 筛选开 / 关
-        Call(win, "OrganizeFilter_Click", null, ClickArgs());
-        Call(win, "OrganizeFilter_Click", null, ClickArgs());
-        // 5) 切页来回
-        Call(win, "ShowRightTab", Enum.Parse(typeof(MainWindow).GetNestedType("RightTab", BindingFlags.NonPublic)!, "Clean"));
-        Call(win, "ShowRightTab", Enum.Parse(typeof(MainWindow).GetNestedType("RightTab", BindingFlags.NonPublic)!, "Organize"));
-        Call(win, "ShowRightTab", Enum.Parse(typeof(MainWindow).GetNestedType("RightTab", BindingFlags.NonPublic)!, "Uninstall"));
-
-        int sent = AiGateway.SentCount;
-        Check("**关掉自动识别后**：扫描重建 + 展开/收起 + 筛选开关 + 切页 全程 0 次模型请求（真实出站计数）",
-            sent == 0, "SentCount=" + sent);
-        Check("本地识别确实跑了（不是「什么都没做」才 0 请求）",
-            node.ChildrenLoaded || node.HasConclusion || node.IsExpanded,
-            $"loaded={node.ChildrenLoaded} expanded={node.IsExpanded} conclusion={node.HasConclusion}");
-
-        // 上面那条真实出站计数已经把「这些动作不发请求」钉死了。这里再钉住**唯一入口**：
-        // 归类只能是「用户点那一个按钮 → 那一个处理器 → 那一处调用」。
-        // （中间试过「翻到哪自动认哪」：只认眼前几行要滚很多次，一次认完整页又撞上
-        // 模型的上下文上限，两个方向都不合适。回到手点最稳。）
-        Check("整理页识别按钮由用户点一次才发一次",
-            org.Contains("private void OrganizeClassify_Click", StringComparison.Ordinal)
-            && xaml.Contains("x:Name=\"OrganizeClassifyBtn\"", StringComparison.Ordinal)
-            && xaml.Contains("Click=\"OrganizeClassify_Click\"", StringComparison.Ordinal));
-        var persistSrc = ReadSource("src/AiDiskCleaner/MainWindow.RecognitionPersistence.cs");
-        Check("忘掉 AI 标签只清展示，不走模型通道",
-            org.Contains("ForgetAiPurposes()", StringComparison.Ordinal)
-            && persistSrc.Contains("ClearAiPurposes()", StringComparison.Ordinal)
-            && persistSrc.Contains("node.ClearBatchPurpose()", StringComparison.Ordinal)
-            && !persistSrc.Contains("AiPurposeBatchService", StringComparison.Ordinal)
-            && !persistSrc.Contains("DecideAsync", StringComparison.Ordinal)
-            && !org.Substring(
-                    Math.Max(0, org.IndexOf("private void OrganizeForgetAi_Click", StringComparison.Ordinal)),
-                    400)
-                .Contains("AiPurposeBatchService", StringComparison.Ordinal));
-        Check("归类全仓只被一处调用", batchCalls == 1, "调用点=" + batchCalls);
-        Check("没有自动 / 后台识别（防抖计时器与滚动触发都不在）",
-            !org.Contains("_autoClassifyTimer", StringComparison.Ordinal)
-            && !org.Contains("ScheduleAutoClassify", StringComparison.Ordinal)
-            && !org.Contains("ScrollChangedEvent", StringComparison.Ordinal));
-        Check("归类带扫描代次守卫（换代即停写）",
-            org.Contains("scanGen == _scanGeneration", StringComparison.Ordinal));
-        Check("归类发请求前先确认通道已配置（不会往错地址发）",
-            org.Contains("DecisionConfigured()", StringComparison.Ordinal));
-        // 一批太大不能整批失败：模型的上下文上限是硬的。
-        // 判定层拆成「域」+「执行器」之后，这几条要分两个文件看：
-        //   批的大小与起点是域的参数；拆半与步长在执行器里。
-        // v3.1 起文件夹用途域改成**一个请求只问一个目录**（旧的一批 80 条路径拼一份 state
-        // 是准确率塌方的根因：模型看不到目录内容，80 条无关路径还会互相串味），
-        // 所以上限与起点都是 1，撑爆拆半那层只对多条的域（重复文件）仍然有效。
-        var decisionSet = ReadSource("src/AiDiskCleaner/Services/Decisions/FolderPurposeDecisionSet.cs");
-        var runner = ReadSource("src/AiDiskCleaner/Services/Decisions/DecisionRunner.cs");
-        Check("一批撑爆上下文时会拆两半重试，而不是整批失败",
-            runner.Contains("IsTooLargeForModel", StringComparison.Ordinal)
-            && runner.Contains("GetRange(0, half)", StringComparison.Ordinal));
-        Check("文件夹用途域一个请求只问一个目录（MaxPerRequest / AdaptiveStart 都是 1）",
-            decisionSet.Contains("MaxPerRequest = 1", StringComparison.Ordinal)
-            && decisionSet.Contains("AdaptiveStart = 1", StringComparison.Ordinal));
-        Check("state 是该目录的英文结构化摘要（不再是一坨路径）",
-            decisionSet.Contains("BuildDecisionState", StringComparison.Ordinal)
-            && !decisionSet.Contains("string.Join(Environment.NewLine, chunk.Select", StringComparison.Ordinal));
-        // 别人可能填自己的端点（可能只有 32k 上下文）。**先小批试、成功了再放大** ——
-        // 一上来就发最大批，遇到小端点会整批 400。步长逻辑本身保留（只是文件夹域不再翻倍）。
-        Check("分批仍是自适应的：先小批试，成功了放大，撞上限减半",
-            runner.Contains("Math.Min(set.MaxPerRequest, size * 2)", StringComparison.Ordinal)
-            && runner.Contains("Math.Max(floor, size / 2)", StringComparison.Ordinal)
-            && runner.Contains("int floor = Math.Min(AdaptiveMin, set.AdaptiveStart)", StringComparison.Ordinal));
-        // 并发：文件夹域声明 8（独立摘要可以并行发），执行器用 SemaphoreSlim 限流。
-        Check("文件夹用途域声明并发度 8",
-            decisionSet.Contains("MaxConcurrency => 8", StringComparison.Ordinal));
-        Check("执行器用 SemaphoreSlim 限流，且默认并发度是 1（串行行为不变）",
-            runner.Contains("SemaphoreSlim", StringComparison.Ordinal)
-            && runner.Contains("set.MaxConcurrency > 1", StringComparison.Ordinal)
-            && ReadSource("src/AiDiskCleaner/Services/Decisions/IDecisionSet.cs")
-                .Contains("int MaxConcurrency => 1;", StringComparison.Ordinal));
-        Check("模型面文案是英文常量（题面 / 选项都不跟界面语言走）",
-            decisionSet.Contains("AiPurposeCriteria.QuestionInstructions", StringComparison.Ordinal)
-            && decisionSet.Contains("AiPurposeCriteria.Descriptions", StringComparison.Ordinal)
-            && !decisionSet.Contains("Loc.AiPurposeQuestion", StringComparison.Ordinal)
-            && !decisionSet.Contains("Loc.AiPurposeOptions", StringComparison.Ordinal));
-        Check("判定请求的硬限制在发出去之前校验（选项数 / 档位数 / 字符预算）",
-            runner.Contains("JevLimits.Validate(request)", StringComparison.Ordinal));
-        // 失败必须出声、且和「认不出来」分开：这一批要标 Failed，
-        // 而且下次点按钮时它们还得是候选（否则「可重试」是句空话）。
-        Check("归类失败把这一批标成「失败」，并让它们下次仍是候选",
-            org.Contains("foreach (var n in targets) n.SetState(PurposeState.Failed);", StringComparison.Ordinal)
-            && org.Contains("n.NeedsPurposeClassification || n.State == PurposeState.Failed", StringComparison.Ordinal));
-        // 反复追问同一条 = 无限请求。没结论的条目必须被标记成「问过了」。
-        Check("问过的条目不再入选（否则再点一次会把同一批重问）",
-            orgNode.Contains("MarkBatchAsked", StringComparison.Ordinal));
-        var storeSrc = ReadSource("src/AiDiskCleaner/Services/RecognitionStore.cs");
-        Check("归类结果会落盘（下次打开不用再问同一条路径）",
-            org.Contains("PersistAiPurposes(targets)", StringComparison.Ordinal)
-            && org.Contains("TryRestoreAiPurpose(node)", StringComparison.Ordinal)
-            && storeSrc.Contains("Kind = \"ai-purpose\"", StringComparison.Ordinal)
-            && storeSrc.Contains("public void PutAiPurpose", StringComparison.Ordinal)
-            && storeSrc.Contains("public bool TryGetAiPurpose", StringComparison.Ordinal)
-            && storeSrc.Contains("public int ClearAiPurposes", StringComparison.Ordinal));
-        Check("Jev 落盘和本地用途分槽（互不覆盖）",
-            storeSrc.Contains("if (e.Kind != \"purpose\" && e.Kind != \"ai-purpose\") return false;", StringComparison.Ordinal));
-
-        settings.AiModel = hadModel ? savedModel : "";
-        AiGateway.ResetSentCountForTest();
-        ResetOrganizeCollections(win);
 
         // ---------- 9.5 逐项 AI 已整体移除 ----------
         Check("清理页 / 整理页都不再有逐项 AI 按钮",

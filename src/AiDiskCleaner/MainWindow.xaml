@@ -894,16 +894,6 @@
               <TextBlock Text="{Binding SizeText}" FontSize="13.5" HorizontalAlignment="Right"
                          Foreground="{DynamicResource Accent}"/>
             </StackPanel>
-            <!-- 重复组专用：**不用先展开就能看见**的「问一下留哪一份」。
-                 放在行上而不是藏在展开区里 —— 「该留哪一个」正是用户看着这一行时会问的问题，
-                 藏起来等于没有这个能力。点它只问这一组，问过就自己消失。 -->
-            <Button Grid.Column="3" Style="{StaticResource ChipButton}"
-                    Padding="8,2" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center"
-                    Content="{Binding DupAskText}" Click="DupAskKeep_Click"
-                    IsEnabled="{Binding DupAskBusy, Converter={StaticResource InvertBool}}"
-                    ToolTip="{Binding DupAskTip}"
-                    AutomationProperties.Name="{Binding DupAskText}"
-                    Visibility="{Binding ShowDupAskRowChip, Converter={StaticResource BoolToVisible}}"/>
             <!-- 在资源管理器中打开：文件夹图标，Tooltip 说清动作 -->
             <Button Grid.Column="4" Style="{StaticResource IconButton}" Width="28" Height="28"
                     Margin="0,0,4,0" Click="LocationReveal_Click"
@@ -935,17 +925,6 @@
                       ToolTip="只勾选符合本地清理资格的项，之后仍会走清理确认"
                       AutomationProperties.Name="选择这些文件"
                       Visibility="{Binding ShowLocalSelectChip, Converter={StaticResource BoolToVisible}}"/>
-              <!-- 重复组专用：问判定通道「这一组留哪一份」。
-                   **必须由用户点** —— 扫描流程里顺手问一轮会在用户不知情的时候花钱，
-                   而「扫描 / 切页 / 展开 / 筛选 = 0 次请求」是用真实出站计数断言的承诺。
-                   问过之后这个芯片自己消失（不重复付钱问同一组）。 -->
-              <Button DockPanel.Dock="Right" Style="{StaticResource ChipButton}"
-                      Padding="10,3" FontSize="11.5" Margin="10,0,0,0"
-                      Content="{Binding DupAskText}" Click="DupAskKeep_Click"
-                      IsEnabled="{Binding DupAskBusy, Converter={StaticResource InvertBool}}"
-                      ToolTip="{Binding DupAskTip}"
-                      AutomationProperties.Name="{Binding DupAskText}"
-                      Visibility="{Binding ShowDupAskChip, Converter={StaticResource BoolToVisible}}"/>
               <TextBlock Text="{Binding FilesNote}" FontSize="11"
                          Foreground="{DynamicResource TextDim}" TextWrapping="Wrap"
                          VerticalAlignment="Center"/>
@@ -1246,100 +1225,21 @@
                这一页**不复制**清理页的候选空间与执行按钮，也不碰 Risk / CanDelete / Selected。-->
           <DockPanel x:Name="OrganizePane" Grid.Row="1" Visibility="Collapsed">
             <!-- 页头：**没有标题**（Tab 上写的就是「按文件夹删除」，这里不再重复一遍），
-                 第一行可见文字就是统计 —— 「文件夹数 · 容量」，第二行是本地/AI/未知/失败分档。
+                 第一行可见文字就是统计 —— 「文件夹数 · 容量」，第二行是本地/未知/失败分档。
                  这里**没有**筛选胶囊（「未识别」入口已移除）。
 
-                 批量归类入口**在这里**（曾经在 v2.9 被冻结、连行内按钮都只留单项 AI）。
-                 松开的只是「一次只能一个」；「必须由用户主动发起」没有松 ——
-                 扫描 / 切页 / 展开 / 筛选全程 0 次模型请求，那条断言用的是真实出站计数。
-                 写入只落在 OrganizeNode.BatchPurpose 这一个展示字段上：
-                 整理树的对象根本没有 Risk / CanDelete / Selected，所以「AI 不会替用户打勾」
-                 在这里是结构上成立的，不靠提示词约束。 -->
+                 页头只留统计：v3.1 把「AI 批量归类用途」整条能力删掉了（改成聊天式报告），
+                 所以这里不再有识别/忘掉按钮，整理树也不会再被模型写入。 -->
             <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
                     Padding="16,10,16,10">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
-                  <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
-                             FontSize="11.5" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
-                             FontSize="11" TextTrimming="CharacterEllipsis"/>
-                </StackPanel>
-                <!-- 忘掉 AI 标签：只清 Jev 那一半。本地认出来的、勾选、都不动。
-                     没有 AI 标签时整块隐藏，不留一个点了没反应的按钮。 -->
-                <Button x:Name="OrganizeForgetAiBtn" Grid.Column="1" Style="{StaticResource GhostButton}"
-                        Padding="12,5" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,8,0"
-                        Visibility="Collapsed" Click="OrganizeForgetAi_Click"
-                        ToolTip="忘掉 AI 标过的用途。本机已经认出来的、你勾过的，都还在。下次点「识别这一屏」会重新问。"
-                        AutomationProperties.Name="忘掉 AI 标签"/>
-                <!-- 数量写在按钮上，一眼知道值不值得点；跑的时候它变成「停止」。
-                     未识别为 0 时整块隐藏，不留一个点了没反应的按钮。
-                     **请求只由这一次点击发起** —— 扫描 / 切页 / 展开 / 筛选一个都不发。 -->
-                <Button x:Name="OrganizeClassifyBtn" Grid.Column="2" Style="{StaticResource GhostButton}"
-                        Padding="12,5" FontSize="11.5" VerticalAlignment="Center"
-                        Visibility="Collapsed" Click="OrganizeClassify_Click"
-                        ToolTip="把这一屏里认不出用途的文件夹一次性交给 AI 判断是什么（只补用途，不改任何删除相关的东西）"
-                        AutomationProperties.Name="批量识别用途"/>
-              </Grid>
-            </Border>
-
-            <!-- **识别只由上面那个按钮发起**：扫描 / 切页 / 展开 / 筛选都不发请求。
-                 进度写在页头那一行统计里；要关掉自动识别去设置里关。 -->
-
-
-            <!-- ===== 分类结果面板：「合并」的落点 =====
-                 跑完一次归类才出现。一屏 38 行里如果有 12 行都被认成「软件缓存」，
-                 这里就是一行「软件缓存 · 12 个 · 34 G」，勾这一行 = 勾上那 12 个节点，
-                 然后走**现成的**底部执行栏（预览 → 确认 → 回收站），不另起删除路径。
-                 「还没认出来」那一桶**没有勾选框** —— 它没有结论，把它做成可整片勾选
-                 等于送一个「一键删掉所有看不出来的」按钮，那是最危险的动作。 -->
-            <Border x:Name="OrganizeResultPanel" DockPanel.Dock="Top" Visibility="Collapsed"
-                    Background="{DynamicResource PanelRight}"
-                    BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="16,10">
-              <StackPanel>
-                <Grid>
-                  <TextBlock x:Name="OrganizeResultTitle" Foreground="{DynamicResource TextDim}"
-                             FontSize="11.5" VerticalAlignment="Center"/>
-                  <Button x:Name="OrganizeResultHideBtn" Style="{StaticResource GhostButton}"
-                          Padding="10,3" FontSize="11" HorizontalAlignment="Right"
-                          Click="OrganizeResultHide_Click"
-                          AutomationProperties.Name="收起分类结果"/>
-                </Grid>
-                <ItemsControl x:Name="OrganizeResultList" Margin="0,6,0,0">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Grid Margin="0,2">
-                        <Grid.ColumnDefinitions>
-                          <ColumnDefinition Width="26"/>
-                          <ColumnDefinition Width="*"/>
-                          <ColumnDefinition Width="Auto"/>
-                          <ColumnDefinition Width="Auto"/>
-                          <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <CheckBox Grid.Column="0" VerticalAlignment="Center"
-                                  IsChecked="{Binding IsChecked, Mode=TwoWay}"
-                                  Visibility="{Binding CanSelect, Converter={StaticResource BoolToVisible}}"
-                                  Click="OrganizeBucket_Click"
-                                  AutomationProperties.Name="{Binding Name}"/>
-                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="12"
-                                   Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Grid.Column="2" Text="{Binding CountText}" FontSize="11.5" Margin="14,0,0,0"
-                                   Foreground="{DynamicResource TextDim}"/>
-                        <TextBlock Grid.Column="3" Text="{Binding SizeText}" FontSize="11.5" Margin="14,0,0,0"
-                                   Foreground="{DynamicResource AccentDim}"/>
-                        <TextBlock Grid.Column="4" Text="{Binding SelectedText}" FontSize="11" Margin="14,0,0,0"
-                                   Foreground="{DynamicResource TextMuted}"
-                                   Visibility="{Binding SelectedText, Converter={StaticResource EmptyToCollapsed}}"/>
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
+              <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                <TextBlock x:Name="OrganizeSub" Foreground="{DynamicResource TextDim}"
+                           FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="OrganizeCounts" Margin="0,2,0,0" Foreground="{DynamicResource TextMuted}"
+                           FontSize="11" TextTrimming="CharacterEllipsis"/>
               </StackPanel>
             </Border>
+
 
             <!-- 状态：未扫描 / 扫描中 / 空结果 / 未配置模型 / 失败 -->
             <Border x:Name="OrganizeStateBox" DockPanel.Dock="Top" Visibility="Collapsed"

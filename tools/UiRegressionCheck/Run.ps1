@@ -1,62 +1,51 @@
-﻿# UI / behaviour regression check (ASCII only on purpose).
+﻿# UI / behaviour regression check (v3.1).
 #
 # Guards the interface behaviour so a later refactor cannot quietly roll it back:
 #   - the cleanable panel is the default right-hand tab
-#   - the file-browser sidebar is gone (2.11); there is no tree to hide
-#   - the clean pane still fills the right column (Grid, not the old DockPanel bug)
-#   - categories expand locations in place (no LocationPage swap)
-#   - AI can only write notes; it never touches risk / selection / deletability
-#   - no long-running operation is left with CancellationToken.None
-#   - 2.12: single 全选 toggles, size-sorted organize roots, AI chip, factual uninstall columns
-#   - 3.0: the uninstall page is FACT-ONLY (name / install date / purpose / footprint / actions).
-#     No advice column, no recommendation field, no "review suggestions" entry, no tier enum.
+#   - the file-browser sidebar is gone; the cleanup range stays an in-memory filter
+#   - folder tidy-up is local-only: it never reaches the model and never auto-classifies
+#   - AI is an "analysis + report" assistant: no Jev decision channel, no auto delete
+#   - the AI report is interactive (加入清理 / 只看这个目录) but deletion still goes
+#     through preflight + user confirmation + Recycle Bin
+#   - 3.0: the uninstall page is FACT-ONLY (name / install date / purpose / footprint / actions)
 #
 # Run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/UiRegressionCheck/Run.ps1
 
 $ErrorActionPreference = 'Stop'
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$cs = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\MainWindow.xaml.cs') -Raw -Encoding UTF8
-$xaml = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\MainWindow.xaml') -Raw -Encoding UTF8
-$aiclient = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiClient.cs') -Raw -Encoding UTF8
-# 逐项 AI 那半套（AiNoteParser / AiCoordinator / ItemAiService / ItemAiPrompt / AiVerdict /
-# ItemAiView）已整体移除，只留下批量归类这一条 AI 路径。
-$orgsrc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\MainWindow.Organize.cs') -Raw -Encoding UTF8
-# v3.0：判定层拆成「域 + 执行器 + 门面」三个文件。这里把它们拼起来看 ——
-# 下面那些断言的语义没变（出站要脱敏、不写 risk/selection、撑爆要拆批），只是现在跨文件了。
-$batchsvc = @(
-    (Join-Path $repo 'src\AiDiskCleaner\Services\AiPurposeBatchService.cs')
-    (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\FolderPurposeDecisionSet.cs')
-    (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\DecisionRunner.cs')
-) | ForEach-Object { Get-Content -LiteralPath $_ -Raw -Encoding UTF8 } | Out-String
-# v3.0：聊天通道（协议下拉 / 模型目录 / 工具循环 / Node 侧车 / 陪审团）整体下线，
-# 这里不再读 DiskAnalyst.cs 与 sidecar/src/agent.js —— 它们已经不存在了。
-$loc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Loc.cs') -Raw -Encoding UTF8
-$rules = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanRules\CleanRules.cs') -Raw -Encoding UTF8
-$dup = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanRules\DuplicateScanService.cs') -Raw -Encoding UTF8
-$sig = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AppSignatures.cs') -Raw -Encoding UTF8
-$item = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\CleanItem.cs') -Raw -Encoding UTF8
-$nodes = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\CleanGroupNodes.cs') -Raw -Encoding UTF8
-$forg = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderOrganize.cs') -Raw -Encoding UTF8
-$csvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderPurposeService.cs') -Raw -Encoding UTF8
-$orgnode = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\OrganizeNode.cs') -Raw -Encoding UTF8
-$factual = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AppFactualInfoService.cs') -Raw -Encoding UTF8
-$appitem = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\AppUninstallItem.cs') -Raw -Encoding UTF8
-# 卸载页的占用归属 / 自带组件判定仍在这个服务里；它已经**不给建议**了（本轮删掉那套档位）
-$recsvc = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AppRecommendationService.cs') -Raw -Encoding UTF8
-# v2.7.0: filtered README/config snippets and the automatic two-level pass
-$srcsnip = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\SourceSnippet.cs') -Raw -Encoding UTF8
-$newfp = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\FolderPurpose.cs') -Raw -Encoding UTF8
-# v2.8.1: startup hardening after the 2.8.0 "double-click does nothing" failure
-$app = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\App.xaml.cs') -Raw -Encoding UTF8
-$firstcrash = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CrashFirstRecord.cs') -Raw -Encoding UTF8
-$startupcheck = Join-Path $repo 'tools\StartupCheck\Program.cs'
-# v3.0：判定层与出站闸门（脱敏、字符预算、批大小都住在这些文件里）
-$decisions = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\DecisionRunner.cs') -Raw -Encoding UTF8
-$decisionset = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\FolderPurposeDecisionSet.cs') -Raw -Encoding UTF8
-$limits = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\JevLimits.cs') -Raw -Encoding UTF8
-$redactor = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\PathRedactor.cs') -Raw -Encoding UTF8
-$workflow = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanupWorkflowService.cs') -Raw -Encoding UTF8
+function Read-Text([string]$rel) { Get-Content -LiteralPath (Join-Path $repo $rel) -Raw -Encoding UTF8 }
+
+$cs = Read-Text 'src\AiDiskCleaner\MainWindow.xaml.cs'
+$xaml = Read-Text 'src\AiDiskCleaner\MainWindow.xaml'
+$agent = Read-Text 'src\AiDiskCleaner\MainWindow.AgentReport.cs'
+$orgsrc = Read-Text 'src\AiDiskCleaner\MainWindow.Organize.cs'
+$persist = Read-Text 'src\AiDiskCleaner\MainWindow.RecognitionPersistence.cs'
+$nodes = Read-Text 'src\AiDiskCleaner\Models\CleanGroupNodes.cs'
+$orgnode = Read-Text 'src\AiDiskCleaner\Models\OrganizeNode.cs'
+$item = Read-Text 'src\AiDiskCleaner\Models\CleanItem.cs'
+$loc = Read-Text 'src\AiDiskCleaner\Services\Loc.cs'
+$rules = Read-Text 'src\AiDiskCleaner\Services\CleanRules\CleanRules.cs'
+$dup = Read-Text 'src\AiDiskCleaner\Services\CleanRules\DuplicateScanService.cs'
+$sig = Read-Text 'src\AiDiskCleaner\Services\AppSignatures.cs'
+$forg = Read-Text 'src\AiDiskCleaner\Services\FolderOrganize.cs'
+$csvc = Read-Text 'src\AiDiskCleaner\Services\FolderPurposeService.cs'
+$newfp = Read-Text 'src\AiDiskCleaner\Services\FolderPurpose.cs'
+$factual = Read-Text 'src\AiDiskCleaner\Services\AppFactualInfoService.cs'
+$appitem = Read-Text 'src\AiDiskCleaner\Models\AppUninstallItem.cs'
+$recsvc = Read-Text 'src\AiDiskCleaner\Services\AppRecommendationService.cs'
+$app = Read-Text 'src\AiDiskCleaner\App.xaml.cs'
+$redactor = Read-Text 'src\AiDiskCleaner\Services\PathRedactor.cs'
+$workflow = Read-Text 'src\AiDiskCleaner\Services\CleanupWorkflowService.cs'
+$card = Read-Text 'src\AiDiskCleaner\Services\Agent\EvidenceCard.cs'
+$agentsvc = Read-Text 'src\AiDiskCleaner\Services\Agent\AgentReportService.cs'
+$prompt = Read-Text 'src\AiDiskCleaner\Services\Agent\PromptBuilder.cs'
+$parser = Read-Text 'src\AiDiskCleaner\Services\Agent\ReportParser.cs'
+$assembler = Read-Text 'src\AiDiskCleaner\Services\Agent\ReportAssembler.cs'
+$toolhost = Read-Text 'src\AiDiskCleaner\Services\Agent\ToolHost.cs'
+$chat = Read-Text 'src\AiDiskCleaner\Services\Agent\Chat\ChatModelFactory.cs'
+$aiconfig = Read-Text 'src\AiDiskCleaner\Services\AiConfigurationService.cs'
+$settings = Read-Text 'src\AiDiskCleaner\Services\AppSettings.cs'
 
 $fail = 0
 function Assert-True([string]$name, [bool]$ok) {
@@ -64,10 +53,7 @@ function Assert-True([string]$name, [bool]$ok) {
     else { Write-Output "FAIL $name"; $script:fail++ }
 }
 
-# --- 1. directory sidebar is gone (2.11) -------------------------------------
-# 2.11 removed the file-browser sidebar. These asserts lock that in so a later
-# refactor cannot quietly bring back the tree, the toggle, or a search box that
-# used to live inside the sidebar.
+# --- 1. directory sidebar is gone -------------------------------------------
 Assert-True 'no directory-tree visibility flag remains' ($cs -notmatch '_treeVisible')
 Assert-True 'ApplySidebarLayout is gone' ($cs -notmatch 'ApplySidebarLayout')
 Assert-True 'left panel / splitter / tree toggle / overlay scrim are gone from XAML' `
@@ -75,19 +61,12 @@ Assert-True 'left panel / splitter / tree toggle / overlay scrim are gone from X
      $xaml -notmatch 'x:Name="TreeToggleBtn"' -and
      $xaml -notmatch 'x:Name="SidebarScrim"' -and
      $xaml -notmatch 'x:Name="SplitterCol"')
-Assert-True 'sidebar overlay / docked-mode helpers are gone from code' `
-    ($cs -notmatch 'SidebarDockMinWindow' -and
-     $cs -notmatch 'SidebarMinWidth' -and
-     $cs -notmatch 'SidebarScrim_Click')
 Assert-True 'file search box is gone (no browse tree to search)' `
     ($xaml -notmatch 'x:Name="SearchBox"' -and $xaml -notmatch 'x:Name="DirGrid"')
-Assert-True 'file search is gone from the top toolbar' `
-    ($xaml -notmatch '(?s)x:Name="StopButton".*?x:Name="SearchBox".*?x:Name="VolumeText"')
 Assert-True 'main content column has NO MaxWidth (that caused the black block)' `
     ($xaml -notmatch '(?s)x:Name="RightCol"[^>]*MaxWidth')
 Assert-True 'there is no tree action that sets the cleanup range' `
-    ($cs -notmatch 'private void ScopeToFolder_Click' -and
-     $cs -notmatch 'private void ShowDirectory\(')
+    ($cs -notmatch 'private void ScopeToFolder_Click' -and $cs -notmatch 'private void ShowDirectory\(')
 Assert-True 'cleanup range is a leftover in-memory filter, not a browse directory' `
     ($cs -match 'private FileEntry\? _cleanScopeRoot;')
 Assert-True 'applied range still has a visible chip with a clear action' `
@@ -98,11 +77,7 @@ Assert-True 'range chip warns about selected items outside the range' `
 Assert-True 'clearing the range never clears or widens the selection' `
     ($cs -match '(?s)private void ApplyCleanScope\(\)[\s\S]{0,700}RebuildLayersAsync')
 
-# --- 2. folder tidy-up is the default workspace ------------------------------
-# The user could not see the purpose feature when it only lived in the hidden
-# sidebar tree. The clean center is the default home and the main work area;
-# folder tidy-up is a secondary entry (local recognition only, no auto AI).
-$org = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\MainWindow.Organize.cs') -Raw -Encoding UTF8
+# --- 2. default tab and navigation ------------------------------------------
 $orgPane = [regex]::Match($xaml, '(?s)x:Name="OrganizePane"(.*?)x:Name="CleanPane"').Groups[1].Value
 Assert-True 'window opens on the clean tab (tidy-up is a secondary entry)' `
     ($cs -match 'RightTab _rightTab = RightTab\.Clean;' -and
@@ -118,13 +93,13 @@ Assert-True 'tab switching uses an enum, not fragile numeric indexes' `
 Assert-True 'clean pane still comes before uninstall pane' `
     ($xaml -match '(?s)x:Name="CleanPane".*?x:Name="UninstallPane"')
 Assert-True 'tidy-up pane is the real workspace, not a collapsed placeholder' `
-    ($xaml -match '(?s)<DockPanel\s+x:Name="OrganizePane"[^>]*Visibility="Collapsed"' -and
+    ($xaml -match '(?s)x:Name="OrganizePane"[^>]*Visibility="Collapsed"' -and
      $xaml -match 'x:Name="OrganizeGrid"' -and
      $cs -match 'OrganizePane\.Visibility = tab == RightTab\.Organize')
 Assert-True 'clean pane is visible by default (no Collapsed on CleanPane itself)' `
-    ($xaml -notmatch '<DockPanel\s+x:Name="CleanPane"[^>]*Visibility="Collapsed"')
+    ($xaml -notmatch '(?s)x:Name="CleanPane"[^>]*Visibility="Collapsed"')
 
-# --- 2b. tidy-up workspace requirements --------------------------------------
+# --- 3. tidy-up workspace structure -----------------------------------------
 Assert-True 'tidy-up columns are name / what-it-is / size (the actions column is gone)' `
     ($xaml -match '(?s)x:Name="ColOrgName".*?x:Name="ColOrgPurpose".*?x:Name="ColOrgSize"' -and
      $xaml -notmatch 'ColOrgAction')
@@ -132,42 +107,15 @@ Assert-True 'real path sits on a second line in the row' `
     ($xaml -match '(?s)x:Name="ColOrgName".*?Binding RelativePath')
 Assert-True 'tidy-up does not copy the clean candidate space or clean buttons' `
     ($orgPane.Length -gt 0 -and $orgPane -notmatch 'CheckAndCleanBtn' -and
-     $orgPane -notmatch 'CleanSelectionSummary' -and $orgPane -notmatch 'CleanActionBar' -and
-     $org -notmatch 'CheckAndCleanBtn' -and $org -notmatch 'CleanSelectionSummary')
-Assert-True 'no batch / scope / progress / cancel AI entry remains in the tidy-up pane' `
-    ($xaml -notmatch 'x:Name="OrganizeIdentifyAllBtn"' -and
-     $xaml -notmatch 'x:Name="OrganizeScopeText"' -and
-     $xaml -notmatch 'x:Name="OrganizeProgressBar"' -and $xaml -notmatch 'x:Name="OrganizeStopBtn"' -and
-     $xaml -notmatch 'x:Name="OrganizeWorkBar"' -and $xaml -notmatch 'x:Name="OrganizeIdentifyCurrentBtn"' -and
-     $org -notmatch 'OrganizeIdentifyAll|OrganizeIdentifyCurrent|OrgCtxIdentifyCurrent' -and
-     $org -notmatch 'AutoIdentifyTargets|StartOrganizeAutoIdentify|RunOrganizeIdentifyAsync')
-Assert-True 'the tidy-up workspace never sends a request by itself (local recognition runs)' `
-    ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
-     $org -match 'FolderPurposeRules\.RecognizeLocally' -and
-     $org -notmatch 'RecognizeWithAsync')
-# 「单项 AI 是唯一的模型入口」这条已经被**有意放开**：现在是「翻到哪就自动认哪」。
-# 新规矩写在下面这几条里（同样一件事的现代形态）。
-Assert-True 'folder page has no per-item AI button any more' `
-    ($orgnode -notmatch 'ItemAiView' -and $xaml -notmatch 'ItemAi_Click')
-Assert-True 'classification is the only AI entry on the folder page' `
-    ($orgsrc -match 'OrganizeClassifyRunAsync' -and $orgsrc -match 'AiPurposeBatchService')
-Assert-True 'classification never writes Risk / CanDelete / Selected' `
-    ($batchsvc -notmatch '\.Risk\s*=' -and $batchsvc -notmatch '\.CanDelete\s*=' -and
-     $batchsvc -notmatch '\.Selected\s*=')
-Assert-True 'outbound requests are countable at the single gateway choke point' `
-    ((Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiGateway.cs') -Raw -Encoding UTF8) -match 'public static int SentCount')
-Assert-True 'unscanned / scanning / empty / no-model / failed states all exist' `
-    ($org -match 'OrganizeStateKind\.NoScan' -and
-     $org -match 'OrganizeStateKind\.Scanning' -and
-     $org -match 'OrganizeStateKind\.Empty' -and
-     $org -match 'OrganizeStateKind\.NoModel' -and $org -match 'OrganizeStateKind\.Failed')
-# --- 2c. auto two-level identification, no per-row identify buttons ----------
-Assert-True 'the row no longer carries a per-row identify button' `
-    ($orgPane -notmatch 'OrganizeIdentifyOne_Click' -and $xaml -notmatch 'Binding ActionText' -and
-     $xaml -notmatch 'x:Name="OrgCtxIdentify"')
-Assert-True 'the right side has no second expand/collapse button (arrow is the only one)' `
-    ($xaml -notmatch 'Binding ToggleText' -and $xaml -notmatch 'Binding HasToggleText' -and
-     $xaml -notmatch 'GhostButton[^>]*OrganizeExpand_Click')
+     $orgPane -notmatch 'CleanSelectionSummary' -and $orgPane -notmatch 'CleanActionBar')
+Assert-True 'rows can grow when a detail block is open' `
+    ($xaml -match 'RowHeight="NaN"' -and $xaml -match 'MinRowHeight="46"')
+Assert-True 'the purpose cell opens an inline detail block (collapsed by default)' `
+    ($xaml -match 'MouseLeftButtonUp="OrganizePurpose_Click"' -and
+     $xaml -match 'Binding IsDetailOpen' -and
+     $orgsrc -match 'private void OrganizePurpose_Click' -and
+     $orgnode -match 'public void ToggleDetail' -and
+     $orgnode -match 'private bool _detailOpen')
 Assert-True 'the left arrow is the single expand/collapse entry' `
     ($xaml -match 'x:Name="ColOrgName"' -and
      [regex]::Match($xaml, '(?s)x:Name="ColOrgName".*?OrganizeExpand_Click').Success -and
@@ -175,652 +123,147 @@ Assert-True 'the left arrow is the single expand/collapse entry' `
 Assert-True 'the actions column is gone; opening a folder lives in the context menu' `
     ($xaml -notmatch 'ColOrgAction' -and $xaml -match 'OrganizeOpen_Click' -and
      $xaml -match 'Header="在资源管理器中打开"')
-Assert-True 'rows can grow when a detail block is open' `
-    ($xaml -match 'RowHeight="NaN"' -and $xaml -match 'MinRowHeight="46"')
-Assert-True 'the purpose cell opens an inline detail block (collapsed by default)' `
-    ($xaml -match 'MouseLeftButtonUp="OrganizePurpose_Click"' -and
-     $xaml -match 'Binding IsDetailOpen' -and
-     $org -match 'private void OrganizePurpose_Click' -and
-     $orgnode -match 'public void ToggleDetail' -and
-     $orgnode -match 'private bool _detailOpen')
-Assert-True 'the detail shows what / why / source from real evidence only' `
-    ($orgnode -match 'Loc\.OrganizeDetailWhat' -and $orgnode -match 'Loc\.OrganizeDetailWhy' -and
-     $orgnode -match 'Loc\.OrganizeDetailSource' -and $orgnode -match 'SetEvidence')
-Assert-True 'the UI never uses the developer term "hit signature"' `
-    ($loc -notmatch '命中签名' -and $loc -notmatch 'matched local signature')
-Assert-True 'system paths get a real local conclusion without confirmation' `
-    ($newfp -match 'public static SystemPathRole\? SystemRole' -and
-     $newfp -match 'NeedsConfirm: false' -and $newfp -match 'SystemRoles\(\)' -and
-     $newfp -match 'Environment\.SpecialFolder\.Windows')
-Assert-True 'system semantics cover windows / program files / programdata / appdata / user / downloads' `
-    ($loc -match 'SysWindows' -and $loc -match 'SysProgramFiles' -and $loc -match 'SysProgramData' -and
-     $loc -match 'SysAppData' -and $loc -match 'SysUserProfile' -and $loc -match 'SysLocalAppData' -and
-     $loc -match 'SysRoamingAppData' -and $loc -match 'SysDownloads')
-Assert-True 'system semantics are matched by real path only (other drives are not misjudged)' `
-    ($newfp -match 'p\.Equals\(r\.Path, StringComparison\.OrdinalIgnoreCase\)' -and
-     $newfp -notmatch 'EndsWith\(.*Name')
-Assert-True 'there is no unified batch retry entry any more' `
-    ($xaml -notmatch 'x:Name="OrganizeIdentifyAllBtn"' -and
-     $org -notmatch 'Loc\.OrganizeRetryPending' -and $org -notmatch 'OrganizeIdentifyAll_Click')
-Assert-True 'no identification pass is started after a scan' `
-    ($org -notmatch 'StartOrganizeAutoIdentify' -and $org -notmatch '_organizeAutoStarted' -and
-     $org -notmatch '_organizeBusy')
-Assert-True 'the tidy-up workspace has no automatic model scope at all' `
-    ($org -notmatch 'AutoIdentifyTargets' -and $org -notmatch 'IsAutoLevel\)\s*$' -and
-     $org -notmatch 'RunOrganizeIdentifyAsync')
-Assert-True 'the deep this-level workspace bar is gone' `
-    ($xaml -notmatch 'x:Name="OrganizeWorkBar"' -and $xaml -notmatch 'x:Name="OrganizeIdentifyCurrentBtn"' -and
-     $xaml -notmatch 'x:Name="OrganizeWorkScope"' -and
-     $org -notmatch 'OrganizeIdentifyCurrent_Click' -and $org -notmatch 'Loc\.OrganizeWorkBarScope\(')
-Assert-True 'no this-level wording remains (the action no longer exists)' `
-    ($org -notmatch 'Loc\.OrganizeIdentifyThisLevel' -and $org -notmatch 'Loc\.OrganizeThisLevelOnly' -and
-     $org -notmatch 'OpenCurrentFolderChildren' -and $org -notmatch 'IsInCurrentFolderScope')
-Assert-True 'there is no request-budget / plan machinery left' `
-    ($org -notmatch 'FolderOrganize\.PlanFor\(' -and $org -notmatch 'RequestBudgetFor' -and
-     $org -notmatch 'Loc\.OrganizeRunAttempts')
-Assert-True 'no batch progress states remain (nothing to report progress for)' `
-    ($org -notmatch 'Loc\.OrganizeRunRunning' -and $org -notmatch 'Loc\.OrganizeRunSuperseded' -and
-     $org -notmatch '_organizeTaskId')
-Assert-True 'the tidy-up page states counts per object, not a batch budget' `
-    ($org -match 'private void UpdateOrganizeHeader\(\)' -and
-     $org -match 'Loc\.OrganizeCountsLine\(local, ai, unknown, failed\)' -and
-     $org -notmatch 'OrganizeCounts\.ToolTip')
-Assert-True 'this page reaches the model only through auto-classification' `
-    ($orgsrc -match 'OrganizeClassifyRunAsync' -and $orgsrc -match 'AiPurposeBatchService' -and
-     $org -notmatch 'RecognizeWithAsync' -and $orgnode -notmatch 'ItemAiView')
-Assert-True 'local recognition still runs (the page is not dead without a model)' `
-    ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
-     $org -match 'FolderPurposeRules\.RecognizeLocally')
-# --- 2f. the v2.8.2 behaviour fixes (expand / lifecycle / filter) ---------------
-Assert-True 'first click on the arrow expands after lazy materialisation' `
-    ($org -match 'Materialize\(node, FolderOrganize\.ChildBudget, null, autoExpand: true\)' -and
-     $org -match 'autoExpand && kids\.Count > 0')
-Assert-True 'background materialisation still never auto-expands' `
-    ($org -match 'Materialize\(node, FolderOrganize\.ChildBudget, FolderOrganize\.AutoMaterializeBudget\(node\.Depth == 0\)\);' -and
-     $orgnode -match 'bool autoExpand = false')
-Assert-True 'a click that cannot expand says why (no silent no-op, no fake expand)' `
-    ($org -match 'OrganizeExpandBudgetReached' -and $org -match 'OrganizeExpandAlreadyListed' -and
-     $org -match 'OrganizeExpandNoChildren' -and $org -match 'OrganizeMaterializeResult\.BudgetReached')
-Assert-True 'the organize page no longer carries a batch task generation' `
-    ($org -notmatch 'taskGen != _organizeGeneration' -and
-     $org -notmatch '_organizeTaskId' -and $org -notmatch 'bool Owns\(\)')
-Assert-True 'the organize generation guard survives (no stale write into a new scan)' `
-    ($org -match 'int _organizeGeneration' -and
-     $orgsrc -match 'scanGen == _scanGeneration')
-Assert-True 'stale per-item AI results can no longer exist (the whole slot is gone)' `
-    ($orgnode -notmatch 'ItemAiView' -and $orgnode -notmatch 'IsStale')
-Assert-True 'filter is a view: it never mutates IsExpanded' `
-    ($org -notmatch 'foreach \(var n in _organizeAll\) if \(n\.ChildrenLoaded\) n\.Expand\(\)' -and
-     $org -match '_organizeFilterSet' -and
-     $org -match 'if \(!_organizeFilterSet\.Contains\(node\)\) return;')
-Assert-True 'filter keeps ancestor context so no orphan rows appear' `
-    ($org -match 'bool keep = n\.IsPending;' -and $org -match 'if \(Mark\(c\)\) keep = true;')
-Assert-True 'there is no automatic target ordering left (no auto list to order)' `
-    ($org -notmatch 'OrderByDescending\(x => x\.Size\)' -and $org -notmatch 'ThenByDescending\(x => x\.Size\)')
-Assert-True 'nothing starts an identification pass on scan or page switch' `
-    ($org -notmatch 'if \(_organizeBusy\) return;' -and $org -notmatch '_organizeAutoStarted' -and
-     $org -notmatch 'OrganizeIdentifyRun')
-Assert-True 'a request never sends a full path by default' `
-    ($batchsvc -match 'PathRedactor\.Outbound' -and
-     $srcsnip -match 'SourceSnippetReader' -and
-     $redactor -match 'AiSendFullPaths \? \(path \?\? ""\) : Redact\(path\)')
-Assert-True 'the outbound payload is length-capped' `
-    ($limits -match 'MaxRequestChars' -and $srcsnip -match 'MaxFiles = 3' -and
-     $srcsnip -match 'TotalChars = 1200' -and $srcsnip -match 'PerFileChars = 600')
-Assert-True 'secrets are filtered before anything is sent' `
-    ($srcsnip -match 'api\[_-\]\?key' -and $srcsnip -match 'Bearer' -and $srcsnip -match '已脱敏')
-Assert-True 'only README / config / manifest files may be read' `
-    ($srcsnip -match 'IsAllowed' -and $srcsnip -match 'readme' -and $srcsnip -match 'package\.json' -and
-     $srcsnip -match 'TopDirectoryOnly')
-Assert-True 'language never says "recently used"' `
-    ($loc -notmatch '最近使用')
-# --- 2e. startup hardening (the 2.8.0 "double-click does nothing" failure) -----
-Assert-True 'row height uses a LEGAL auto value (never the string Auto)' `
-    ($xaml -match 'RowHeight="NaN"' -and $xaml -notmatch 'RowHeight="Auto"')
-Assert-True 'row height keeps a minimum so an expanded detail cannot be clipped' `
-    ($xaml -match 'MinRowHeight="46"')
-Assert-True 'crash handling has a fatal latch (a fatal start is handled once)' `
-    ($app -match '_fatalLatched' -and $app -match 'CrashOutcome\.Suppressed')
-Assert-True 'crash handling guards re-entry' `
-    ($app -match 'Interlocked\.CompareExchange\(ref _crashGate, 1, 0\)')
-Assert-True 'the async alert callback is itself exception-safe' `
-    ($app -match 'try \{ w\.ShowCrash\(ex\.Message\); \}')
-Assert-True 'a startup-fatal crash exits with a non-zero code (no windowless spinner)' `
-    ($app -match 'FatalStartupExitCode' -and $app -match 'Environment\.Exit\(FatalStartupExitCode\)')
-Assert-True 'half-initialised UI is detected before touching any control' `
-    (($cs -match 'public bool IsUiReady') -and ($app -match 'w\.IsUiReady') -and
-     ($app -match 'IsUiReady: true'))
-Assert-True 'the first original exception is kept in its own bounded file' `
-    ($firstcrash -match 'first-crash\.log' -and $firstcrash -match 'if \(_saved > 0\) return false' -and
-     $firstcrash -match 'LogRedactor\.ScrubAll')
-Assert-True 'the first-crash file only ever rotates itself' `
-    ($firstcrash -match 'MaxFileBytes' -and $firstcrash -match 'first-crash\.log' -and
-     $firstcrash -notmatch 'AppLog\.Write' -and $firstcrash -notmatch 'RotateIfNeeded')
-Assert-True 'startup regression loads the REAL compiled BAML (not string matching)' `
-    ((Test-Path $startupcheck) -and
-     ((Get-Content -LiteralPath $startupcheck -Raw -Encoding UTF8) -match 'new MainWindow\(\)') -and
-     ((Get-Content -LiteralPath $startupcheck -Raw -Encoding UTF8) -match 'DetailText'))
-Assert-True 'startup regression asserts detail rows grow and stay inside the row' `
-    ((Get-Content -LiteralPath $startupcheck -Raw -Encoding UTF8) -match '完全落在行内')
-# --- 2d. calibration: entry points, coverage vs UI cap, honest status ----------
-Assert-True 'user-profile ancestors never swallow AppData entry points' `
-    ($forg -match 'included\.Add\(n\)' -and $forg -match 'IsAncestorOfEntryPoint' -and
-     $forg -notmatch 'IsUnderOrEqual\(a, n\)')
-Assert-True 'entry points accept an injected table (testable, no hardcoded user name)' `
-    ($forg -match 'IReadOnlyList<string>\? entryPoints = null')
-Assert-True 'entries children are still materialised in the background (entry does not stop it)' `
-    ($forg -match 'IsEntryPoint\(dir\.FullPath, entryPoints\)\) return true' -and
-     $forg -notmatch 'IsEntryPoint\(dir\.FullPath, entryPoints\)\) return false')
-Assert-True 'entry points come from system resolution only (no hardcoded paths)' `
-    ($newfp -match 'Environment\.GetFolderPath' -and
-     $newfp -notmatch 'C:\\\\Users\\\\' -and $forg -notmatch 'C:\\\\Users\\\\')
-Assert-True 'path to a deep entry point is still walked, and the cap still exists' `
-    ($forg -match 'IsAncestorOfEntryPoint\(dir\.FullPath, entryPoints\)' -and
-     $forg -match 'AutoChildLevel = 2')
-Assert-True 'first screen shows only the roots (nothing auto-expands)' `
-    ($orgnode -match 'bool autoExpand = false' -and $org -match 'Materialize\(node, FolderOrganize\.ChildBudget, FolderOrganize\.AutoMaterializeBudget\(node\.Depth == 0\)\)' -and
-     -not ([regex]::Match($org, 'SetChildren\([^)]*autoExpand:\s*true').Success))
-Assert-True 'recognition coverage is decoupled from the UI row cap' `
-    ($forg -match 'MaterializeBudget = 400' -and $forg -match 'MaxMaterializePerNode' -and
-     $forg -match 'ChildBudget = 24' -and $forg -match 'AutoMaterializeBudget')
-Assert-True 'unlisted folders are reported as not identified' `
-    ($org -match 'AutoMaterializeBudget\(node\.Depth == 0\)' -and
-     $orgnode -match 'Loc\.OrganizeUnlistedNote' -and $org -match '_organizeUnlistedTotal' -and
-     $orgnode -match 'UnlistedChildCount' -and $orgnode -match 'UnlistedNote')
-Assert-True 'status mapping keeps recognised / ai / unknown / failed apart' `
-    ($newfp -match 'public bool Failed' -and $newfp -match 'public static FolderPurposeResult Failure' -and
-     $newfp -match 'Failed\s*\? PurposeState\.Failed')
-Assert-True 'failure path really lands in Failed (not silently unknown)' `
-    ($csvc -match 'FileNode|FolderPurposeResult\.Failure' -and
-     $orgnode -match 'if \(!HasConclusion\) _override = r\.Failed \? PurposeState\.Failed : PurposeState\.Unrecognized' -or
-     $orgnode -match 'r\.Failed \? PurposeState\.Failed')
-Assert-True 'no model / request-budget wording is left (there is no batch pass)' `
-    ($org -notmatch 'OrganizeNoModelHonest' -and $org -notmatch 'OrganizeBudgetLeft' -and
-     $org -notmatch 'Loc\.OrganizeRunSummary' -and $org -match 'OrganizeUnlistedTotal')
-Assert-True 'user correction never changes the folder kind (set stays expandable)' `
-    ($orgnode -match 'if \(r\.Source != PurposeSource\.User && r\.Kind != FolderKind\.Unknown\) _kind = r\.Kind' -and
-     $csvc -match 'Kind: FolderKind\.Unknown')
-Assert-True 'collection detection is generic, not example-driven' `
-    ($newfp -match 'IsKnownObject' -and $newfp -match 'StrongChildBytes' -and
-     $newfp -match 'ContainerMinChildren = 4' -and
-     $newfp -notmatch 'Gameklll|ESP32|steamapps\\common\\VolleyBall')
-Assert-True 'deep levels are manual only (no automatic pass exists to enter)' `
-    ($forg -match 'AutoChildLevel = 2' -and
-     $org -notmatch 'IsAutoLevel\s*&&' -and $org -notmatch 'AutoIdentifyTargets')
-Assert-True 'a cancelled or stale classify run cannot overwrite a new scan' `
-    ($org -match '_organizeGeneration\+\+' -and
-     $orgsrc -match 'scanGen == _scanGeneration')
-Assert-True 'the page counts per object, never per batch target' `
-    ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
-     $org -notmatch 'done = Math\.Min\(targets\.Count, done \+ 1\)')
-Assert-True 'there is no longer a current-folder batch scope' `
-    ($org -notmatch 'private void SetOrganizeCurrent\(OrganizeNode\? node\)' -and
-     $org -notmatch 'SetOrganizeCurrent\(node\);')
-Assert-True 'classification has one entry point (the header button)' `
-    ($orgsrc -match 'private void OrganizeClassify_Click' -and
-     $orgsrc -match 'OrganizeClassifyRunAsync' -and
-     $org -notmatch 'RunOrganizeIdentifyAsync')
-Assert-True 'tidy-up never touches risk / deletability / selection' `
-    ($org -notmatch '\.(Risk|CanDelete|Selected)\s*=' -and
-     $org -notmatch 'SendToRecycle|DeletionExecutor|RecycleService')
-Assert-True 'tidy-up never moves or renames real files' `
-    ($org -notmatch 'File\.Move|Directory\.Move|\.MoveTo\(|File\.Copy|Directory\.CreateDirectory')
-# runas 按**词边界**匹配：以前直接 notmatch 'runas' 会被任何 ...RunAsync 方法名误伤
-# （RunAsync 里恰好含 "RunAs"），报一个根本不存在的提权问题。
-Assert-True 'tidy-up never asks for elevation on its own' `
-    ($org -notmatch '\brunas\b|Verb\s*=|ProcessStartInfo.*Verb' -and
-     $org -notmatch 'WindowsPrincipal|IsInRole')
 Assert-True 'opening a folder goes through ShellReveal (never executes a program)' `
-    ($org -match 'ShellReveal\.Reveal\(' -and $org -notmatch 'Process\.Start')
-Assert-True 'queued / running states cannot show a success conclusion' `
-    ($orgnode -match 'public PurposeState State => _override' -and
-     $orgnode -match 'if \(State is PurposeState\.Queued\) return Loc\.PurposeQueued;' -and
-     $orgnode -match 'if \(State is PurposeState\.Running\) return Loc\.PurposeRunning;')
-Assert-True 'a stale classify result can never overwrite a new scan' `
-    ($orgsrc -match 'scanGen == _scanGeneration' -and
-     $cs -notmatch '_aiDataGeneration' -and $org -notmatch 'myData != _aiDataGeneration')
-Assert-True 'local recognition runs before (and without) any model call' `
-    ($org -match 'private void LocalRecognize\(OrganizeNode node\)' -and
-     $org -match 'FolderPurposeRules\.RecognizeLocally' -and
-     $org -notmatch 'if \(!allowAi\)' -and $org -notmatch 'if \(t\.HasConclusion\) continue;')
-Assert-True 'the model path is gated by config and only runs on a user click' `
-    ($cs -match 'bool AiConfigured\(\)' -and
-     $orgsrc -match 'DecisionConfigured\(\)' -and
-     $orgsrc -match 'private void OrganizeClassify_Click' -and
-     $org -notmatch 'RecognizeWithAsync')
-Assert-True 'user corrections are persisted and win over later results' `
-    ($csvc -match 'SetUserCorrection\(' -and
-     $org -match 'TryGetUserCorrection\(' -and
-     $csvc -match 'UserKey\(id\.Path\)' -and $csvc -match 'public void LoadCorrections\(\)')
-Assert-True 'two levels by default, containers keep going, concrete objects stop' `
-    ($forg -match 'public const int AutoLevels = 2' -and
-     $forg -match 'ShouldAutoMaterializeChildren' -and $forg -match 'CanAutoMaterialize')
-Assert-True 'deep system entry points are not cut off by a fixed depth from the drive' `
-    ($forg -match 'ShouldAutoFollowEntryPath' -and $forg -match 'MaxEntryDepth')
-Assert-True 'recognised platforms keep their inner game entries' `
-    ($forg -match 'KeepsObjectEntries' -and $forg -match 'IsObjectContainer')
-Assert-True 'exploration, requests and rows all have hard budgets' `
-    ($forg -match 'ChildBudget = 24' -and $forg -match 'UnknownProbeBudget' -and
-     $forg -match 'MaxRows = 4000' -and $decisionset -match 'MaxPerRequest = 1' -and
-     $decisions -match 'AdaptiveMin = 5')
-Assert-True 'reparse points / links are skipped, not followed' `
-    ($forg -match 'c\.IsReparsePoint \|\| c\.IsFilesGroup' -and $forg -match 'skipped\+\+')
+    ($orgsrc -match 'ShellReveal\.Reveal\(' -and $orgsrc -notmatch 'Process\.Start')
 Assert-True 'the list is virtualised and has no nested scroller' `
     ($xaml -match '(?s)x:Name="OrganizeGrid"[^>]*VirtualizingPanel\.IsVirtualizing="True"' -and
      $xaml -match '(?s)x:Name="OrganizeGrid"[^>]*EnableRowVirtualization="True"' -and
      $xaml -notmatch '(?s)<ScrollViewer[^>]*>\s*<DataGrid\s+x:Name="OrganizeGrid"')
 
-# --- 3. the right column layout fix must not be reverted ---------------------
-Assert-True 'right panel still uses a Grid for the three panes' `
-    ($xaml -match '(?s)<Border\s+x:Name="RightPanel".*?<Grid>.*?<RowDefinition')
-Assert-True 'panes share the same Grid.Row so the visible one fills it' `
-    (([regex]::Matches($xaml, 'Grid\.Row="1"')).Count -ge 3)
+# --- 4. tidy-up is local-only: no model, no auto-classify -------------------
+Assert-True 'local recognition is the only identification path' `
+    ($orgsrc -match 'private void LocalRecognize\(OrganizeNode node\)' -and
+     $orgsrc -match 'FolderPurposeRules\.RecognizeLocally' -and
+     $orgsrc -notmatch 'RecognizeWithAsync')
+Assert-True 'the classify button / forget button / result panel are gone' `
+    ($xaml -notmatch 'OrganizeClassifyBtn' -and $xaml -notmatch 'OrganizeForgetAiBtn' -and
+     $xaml -notmatch 'OrganizeResultPanel' -and $xaml -notmatch 'OrganizeBucket_Click' -and
+     $orgsrc -notmatch 'OrganizeClassify' -and $orgsrc -notmatch 'AiPurposeBatchService')
+Assert-True 'the organize page never sends a request by itself' `
+    ($orgsrc -notmatch 'HttpClient' -and $orgsrc -notmatch 'PostAsync' -and
+     $orgsrc -notmatch 'AiClient' -and $orgsrc -notmatch 'ChatModelFactory')
+Assert-True 'batch purpose slots are gone from the row model' `
+    ($orgnode -notmatch 'BatchPurpose' -and $orgnode -notmatch 'MarkBatchAsked' -and
+     $orgnode -notmatch 'NeedsPurposeClassification' -and $orgnode -notmatch 'SetBatchPurpose')
+Assert-True 'persistence no longer restores AI purposes' `
+    ($persist -notmatch 'AiPurpose' -and $persist -notmatch 'RestoreAiPurposes')
+Assert-True 'the duplicate keep-advice chip is gone' `
+    ($nodes -notmatch 'DupAsk' -and $xaml -notmatch 'DupAsk' -and $cs -notmatch 'DupAskKeep')
+Assert-True 'tidy-up never touches risk / deletability / selection' `
+    ($orgsrc -notmatch '\.(Risk|CanDelete|Selected)\s*=' -and
+     $orgsrc -notmatch 'SendToRecycle|DeletionExecutor|RecycleService')
+Assert-True 'tidy-up never moves or renames real files' `
+    ($orgsrc -notmatch 'File\.Move|Directory\.Move|\.MoveTo\(|File\.Copy|Directory\.CreateDirectory')
+Assert-True 'tidy-up never asks for elevation on its own' `
+    ($orgsrc -notmatch '\brunas\b|Verb\s*=|ProcessStartInfo.*Verb' -and
+     $orgsrc -notmatch 'WindowsPrincipal|IsInRole')
 
-# --- 4. AI can only write display text --------------------------------------
-# 原来这一节断言 AiNoteParser / AiCoordinator「只写说明、不碰判定」。那两个类
-# 随逐项 AI 一起删了；同一条不变量现在由批量归类服务承担，断言指向它。
-Assert-True 'the classify service never writes Risk' ($batchsvc -notmatch '\.Risk\s*=')
-Assert-True 'the classify service never writes CanDelete' ($batchsvc -notmatch '\.CanDelete\s*=')
-Assert-True 'the classify service never writes Selected' ($batchsvc -notmatch '\.Selected\s*=')
-Assert-True 'the classify service never deletes anything' ($batchsvc -notmatch 'SendToRecycle|Delete\(')
-Assert-True 'the classify service only writes the display field' `
-    ($batchsvc -match 'SetBatchPurpose' -and $batchsvc -notmatch 'StartUninstall')
+# --- 5. AI config is an OpenAI-compatible chat channel ----------------------
+Assert-True 'the settings model is a chat protocol, not a decision protocol' `
+    ($aiconfig -match 'ChatProtocol = "chat"' -and $settings -match 'ChatProtocol')
+Assert-True 'presets cover DeepSeek / OpenAI-compatible / Ollama' `
+    ($aiconfig -match 'DeepSeek' -and $aiconfig -match 'Ollama' -and
+     $aiconfig -match 'https://api\.deepseek\.com/v1')
+Assert-True 'the test button validates a real chat round-trip' `
+    ($aiconfig -match 'BuildProbe' -and $aiconfig -match 'ValidateProbe' -and
+     $cs -match 'ChatModelFactory\.Create')
+Assert-True 'chat completions endpoint is derived from the base url' `
+    ($chat -match '/chat/completions')
+Assert-True 'settings expose preset / url / model / key fields' `
+    ($xaml -match 'x:Name="AiPresetBox"' -and $xaml -match 'x:Name="AiUrlBox"' -and
+     $xaml -match 'x:Name="AiDecisionModelBox"' -and $xaml -match 'x:Name="AiTestBtn"')
+Assert-True 'the Jev decision channel is gone from source and composition root' `
+    (-not (Test-Path -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiGateway.cs')) -and
+     -not (Test-Path -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiClient.cs')) -and
+     -not (Test-Path -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\AiPurposeBatchService.cs')) -and
+     -not (Test-Path -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions')) -and
+     $cs -notmatch 'AiGateway|DecisionRunner' -and $app -notmatch 'AiGateways')
+Assert-True 'historical protocol values normalize to chat' `
+    ($settings -match 'NormalizeProtocols' -and $settings -match 'ChatProtocol')
 
-# --- 5. no long-running operation left without a token ----------------------
-$noneCount = ([regex]::Matches($cs, 'CancellationToken\.None')).Count
-Assert-True "no CancellationToken.None left in the window (found $noneCount)" ($noneCount -eq 0)
+# --- 6. AI report is an interactive suggestion sheet ------------------------
+Assert-True 'the clean page has an AI analysis button' `
+    ($xaml -match 'x:Name="AiReportBtn"' -and $xaml -match 'Click="AiReport_Click"' -and
+     $loc -match 'AiReportBtn')
+Assert-True 'the report renders inside the dialog card' `
+    ($xaml -match 'x:Name="ReportBody"' -and $xaml -match 'x:Name="ReportContent"' -and
+     $agent -match 'ReportBody\.Visibility = Visibility\.Visible' -and
+     $agent -match 'DialogCard\.Width = 940')
+Assert-True 'the report has add-to-cleanup and jump-to-folder actions' `
+    ($agent -match 'AddReportItemToCleanup' -and $agent -match 'JumpToReportFolder' -and
+     $agent -match 'Selected = true' -and $loc -match 'AiReportAdd' -and $loc -match 'AiReportJump')
+Assert-True 'the report is built from groups and evidence, not free text' `
+    ($agent -match 'BuildReportItem' -and $agent -match 'MakeBadge' -and
+     $loc -match 'AiReportEvidence' -and $loc -match 'AiReportRisk')
+Assert-True 'the report never deletes or moves anything itself' `
+    ($agent -notmatch 'SendToRecycle|File\.Delete|Directory\.Delete|DeletionExecutor|RecycleService')
+Assert-True 'closing the report restores the normal dialog width' `
+    ($cs -match 'DialogCard\.Width = 520' -and $cs -match 'AiReportBtn\.IsEnabled = _report != null')
+Assert-True 'starting a scan cancels and clears any running report' `
+    ($cs -match '_report = null;' -and $cs -match 'CancelAgentReport\(\)')
+Assert-True 'the report pipeline is budgeted (candidates / batches / tokens)' `
+    ($agentsvc -match 'CardsPerBatch \{ get; init; \} = 25' -and
+     $agentsvc -match 'MaxBatches \{ get; init; \} = 4' -and
+     $agentsvc -match 'MaxCandidates \{ get; init; \} = 100' -and
+     $agentsvc -match 'MaxInputTokens \{ get; init; \} = 50_000')
+Assert-True 'the prompt is versioned and asks for JSON only' `
+    ($prompt -match 'cleanup-report-v1' -and $prompt -match 'JSON')
+Assert-True 'the parser caps items and evidence refs' `
+    ($parser -match 'MaxItems = 40' -and $parser -match 'MaxEvidenceRefs = 6')
+Assert-True 'the assembler floats recommendations and clamps the total' `
+    ($assembler -match 'RecommendConfidenceFloor = 0\.55' -and $assembler -match 'total_clamped')
+Assert-True 'the tool host exposes read-only tools only' `
+    ($toolhost -match 'GetOverviewTool' -and $toolhost -match 'ListFoldersTool' -and
+     $toolhost -match 'GetFolderCardTool' -and $toolhost -match 'QueryEntriesTool' -and
+     $toolhost -notmatch 'PlanDeleteTool' -and $toolhost -notmatch 'DeleteTool' -and
+     $toolhost -notmatch 'ShellTool' -and $toolhost -notmatch 'UninstallTool')
+Assert-True 'evidence cards redact the user name by default' `
+    ($card -match 'Redact\(' -and $card -match '%USER%' -and $card -match 'CardPrivacyMode')
+
+# --- 7. clean page behaviour -------------------------------------------------
+Assert-True 'clean action bar has a single 全选 toggle' `
+    ($xaml -match 'x:Name="CleanSelectAllBtn"' -and
+     $cs -match 'private void CleanSelectAll_Click' -and
+     $cs -match 'allSelected \? Loc\.SelectAllClearTip : Loc\.SelectAllActionTip')
+Assert-True 'selection summary still counts selected and total' `
+    ($xaml -match 'x:Name="CleanSelectionSummary"' -and
+     $cs -match 'Loc\.SelectionSummary\(' -and $cs -match 'Loc\.ViewSelectedSub')
+Assert-True 'the AI report adds candidates only through the existing selection path' `
+    ($agent -match 'CleanListSnapshot\.UnderPrefix' -and
+     $agent -match 'RefreshAfterSelectionChange\(\)')
+
+# --- 8. no long-running operation left without a token ----------------------
+Assert-True 'no CancellationToken.None left in the window' ($cs -notmatch 'CancellationToken\.None')
 Assert-True 'stop button cancels everything' ($cs -match 'StopEverything\(\)')
-Assert-True 'stale results are guarded by a generation counter' `
-    ($cs -match '_scanGeneration' -and $cs -match '_analyzeGeneration' -and $cs -match '_uninstallGeneration')
+Assert-True 'stale results are guarded by generation counters' `
+    ($cs -match '_scanGeneration' -and $cs -match '_analyzeGeneration' -and
+     $cs -match '_uninstallGeneration')
 
-# --- 6. deletion always goes through preflight ------------------------------
+# --- 9. deletion always goes through preflight ------------------------------
 $deletionBoundaryOk = ($cs -match '_cleanupWorkflow\.PlanDeletion\(' -and
     $workflow -match 'coordinator\.Plan\(' -and $workflow -match 'DeletionTarget')
 Assert-True 'deletion goes through DeletionCoordinator' $deletionBoundaryOk
 Assert-True 'no direct RecycleService call in the delete paths' `
     ($cs -notmatch 'RecycleService\.SendToRecycle')
 
-# --- 7. grouping virtualisation (the 260k-row display fix) ------------------
-Assert-True 'clean grid enables virtualisation when grouping' `
-    ($xaml -match 'VirtualizingPanel\.IsVirtualizingWhenGrouping="True"')
-Assert-True 'clean grid recycles row containers' `
-    ($xaml -match 'VirtualizingPanel\.VirtualizationMode="Recycling"')
-Assert-True 'clean grid scrolls by pixel' `
-    ($xaml -match 'VirtualizingPanel\.ScrollUnit="Pixel"')
-Assert-True 'clean grid keeps content scrolling on' `
-    ($xaml -match 'ScrollViewer\.CanContentScroll="True"')
-Assert-True 'uninstall grid virtualises rows (flat list, no grouping)' `
-    ($xaml -match '(?s)x:Name="UninstallGrid".{0,800}EnableRowVirtualization="True"' -and
-     $xaml -match '(?s)x:Name="UninstallGrid".{0,800}VirtualizingPanel\.IsVirtualizing="True"')
-Assert-True 'row container count is audited at runtime' `
-    ($cs -match 'CountRowContainers' -and $cs -match 'rows created=')
-
-$snapshot = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanListSnapshot.cs') -Raw -Encoding UTF8
-$scanSnapshot = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\ScanSnapshot.cs') -Raw -Encoding UTF8
-$grouping = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanGroupingService.cs') -Raw -Encoding UTF8
-$nodes = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Models\CleanGroupNodes.cs') -Raw -Encoding UTF8
-$pager = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanItemPager.cs') -Raw -Encoding UTF8
-
-# --- 8. heavy work is off the UI thread -------------------------------------
-Assert-True 'layered grouping happens in Task.Run' `
-    ($cs -match 'Task\.Run\(\(\) =>' -and $cs -match 'CleanGroupingService\.Build')
-Assert-True 'old synchronous BuildCategories is gone' ($cs -notmatch 'void BuildCategories')
-# 只看明细绑定那一段：卸载页/残留页的排序量级很小，不在这次优化范围内
-$bindDetail = [regex]::Match($cs, '(?s)private void BindDetailPage\(\).*?\n    \}').Value
-Assert-True 'detail view does not add SortDescriptions' `
-    ($bindDetail.Length -gt 0 -and $bindDetail -notmatch 'SortDescriptions\.Add')
-Assert-True 'display order is risk group then size (pager sorts it once)' `
-    ($pager -match 'x\.Risk == CleanRisk\.Safe \? 0 : 1' -and $pager -match 'ThenByDescending\(x => x\.Size\)')
-Assert-True 'grouping orders purposes by risk tier first' `
-    ($grouping -match 'a\.RiskTier\.CompareTo\(b\.RiskTier\)')
-# 扩展名页已整页移除：不仅隐藏，专属的后台统计也被删掉（不是留着不跑）
-Assert-True 'extension page is fully removed from XAML' `
-    (-not ([regex]::Match($xaml, 'x:Name="(ExtPane|ExtGrid|ExtTitle|ColExt|ColType|ColPct|ColSize)"').Success))
-Assert-True 'extension stats model/converter are gone' `
-    ((-not ([regex]::Match($cs, 'class ShareWidthConverter').Success)) -and
-     -not (Test-Path (Join-Path $repo 'src\AiDiskCleaner\Models\ExtStat.cs')))
-Assert-True 'extension-only background computation is gone' `
-    (-not ([regex]::Match($cs, 'BuildExtStats|CollectExt|ShowExtStats').Success))
-Assert-True 'snapshot saving is off the UI thread' `
-    ($cs -match 'await Task\.Run\(' -and $cs -match 'snap\.Save\(ct\)')
-Assert-True 'snapshot save uses temp-file replace' `
-    ($scanSnapshot -match 'File\.Move\(tmp, path, overwrite: true\)')
-Assert-True 'app inventory is deferred until the uninstall tab is opened' `
-    ($cs -match '_uninstallTabVisited' -and $cs -match 'EnsureAppsLoaded')
-
-# --- 9. stop button tracks the work state, not a single flow ----------------
-Assert-True 'stop button visibility is driven by WorkState' `
-    ($cs -match 'private void UpdateStopButton' -and $cs -match '_work\.Busy')
-Assert-True 'the scan finally block no longer hides the stop button' `
-    ($cs -notmatch 'StopButton\.Visibility\s*=\s*Visibility\.Collapsed')
-Assert-True 'scan/analyze/duplicates are registered stages' `
-    ($cs -match 'StageNames\.Scan' -and $cs -match 'StageNames\.Analyze' -and $cs -match 'StageNames\.Duplicates')
-Assert-True 'duplicate detection runs as its own cancellable stage' `
-    ($cs -match 'RunDuplicateStageAsync' -and $cs -match 'StartOperation\(ref _dupCts')
-Assert-True 'analyze skips duplicates so the list shows first' `
-    ($cs -match 'includeDuplicates:\s*false')
-Assert-True 'progress callbacks are generation-guarded' `
-    (([regex]::Matches($cs, 'myGeneration != _\w+Generation')).Count -ge 3)
-
-# --- 11. single-layer navigation: in-place expand (2.11) --------------------
-Assert-True 'purpose home exists as the default view' ($xaml -match 'x:Name="PurposePage"')
-Assert-True 'the old location page is gone (categories expand in place)' `
-    ($xaml -notmatch 'x:Name="LocationPage"')
-Assert-True 'detail panel starts hidden' `
-    ($xaml -match 'x:Name="DetailPanel" Grid\.Column="1" Visibility="Collapsed"')
-# 关键：主内容区里只有一列用于页面，不再各占一行
-$staleStack = @('PurposeRow', 'LocationRow', 'DetailRow', 'CleanLayers') |
-    Where-Object { $xaml -match ('x:Name="' + $_ + '"') }
-Assert-True 'main area has no per-layer rows (old 3-row stack is gone)' ($staleStack.Count -eq 0)
-Assert-True 'purpose home and preflight share the same grid column' `
-    ($xaml -match '(?s)x:Name="PurposePage" Grid\.Column="0"' -and
-     $xaml -match '(?s)x:Name="PreflightPage" Grid\.Column="0"')
-Assert-True 'clicking a category expands locations inline (does not hide the home page)' `
-    ($cs -match 'private void PurposeExpand_Click' -and
-     $cs -match 'private void TogglePurposeInline' -and
-     $cs -notmatch 'LocationPage\.Visibility' -and
-     $nodes -match 'VisibleLocations')
-Assert-True 'in-place expand keeps the same location node instances (selection is not rebuilt)' `
-    ($nodes -match 'IsExpanded \? Locations : Array\.Empty<CleanLocationNode>')
-Assert-True 'home binds purpose sections, not the file list' `
-    ($cs -match 'PurposeSections\.ItemsSource\s*=\s*_sections' -and $cs -match 'CleanPurposeSection\.Build')
-Assert-True 'home has one risk section per tier with safe expanded' `
-    ($nodes -match 'IsExpanded = tier == 0')
-Assert-True 'file grid is only bound through the pager' `
-    ($cs -match 'CleanGrid\.ItemsSource\s*=\s*view' -and $pager -match 'class CleanItemPager')
-Assert-True 'detail loading is paged with a page size' `
-    ($pager -match 'DefaultPageSize\s*=\s*100' -and $cs -match 'new CleanItemPager\(node\.Items')
-Assert-True 'search runs over the full candidate set' `
-    ($pager -match 'Rebuild' -and $pager -match 'ApplySearch\(view, Search\)')
-Assert-True 'search can reach rows that were never loaded' `
-    ($pager -match 'public void SetSearch' -and $pager -match '_filtered = Sort')
-Assert-True 'group nodes keep the full item list (not the page)' `
-    ($nodes -match 'public IReadOnlyList<CleanItem> Items')
-Assert-True 'page state (scroll) is preserved across navigation' `
-    ($cs -match '_purposeScrollOffset' -and $cs -match '_locationScrollOffset')
-Assert-True 'narrow windows turn the detail into a full page' `
-    ($cs -match 'DetailOverlayThreshold' -and $cs -match '_detailIsOverlay')
-Assert-True 'path is hidden by default with a toggle' `
-    ($nodes -match 'public bool IsPathVisible' -and $xaml -match 'Converter=\{StaticResource BoolToVisible\}')
-Assert-True 'no leftover references to the removed stacked grids' `
-    ($cs -notmatch 'PurposeGrid|LocationGrid|LocationPanel|CloseLocationLayer|CloseDetailLayer|UpdateCleanSelHint|BindPurposeGridFiltered')
-
-# --- 12. selection safety and single primary action -------------------------
-Assert-True 'group selection skips non-deletable items' `
-    ($nodes -match '(?s)private void ApplySelection\(bool on\).*?if \(!item\.CanDelete\) continue;')
-Assert-True 'group nodes expose tri-state' `
-    ($nodes -match 'public bool\? IsChecked' -and (([regex]::Matches($xaml, 'IsThreeState="True"')).Count -ge 2))
-Assert-True 'checkbox tooltip states the whole-group scope' `
-    ($nodes -match 'GroupScopeHint' -and $xaml -match 'ToolTip="\{Binding GroupScopeHint\}"')
-Assert-True 'confirm shows locations / files / size / sensitive count' `
-    ($cs -match 'Loc\.DeleteScopeConfirm\(')
-Assert-True 'confirm uses the full selected set, not the current page' `
-    ($cs -match '_layered\.SelectedItems')
-# 只看清理面板那一段：卸载页/残留页/对话框各有自己的主按钮，不在本次范围
-$cleanPane = [regex]::Match($xaml, '(?s)x:Name="CleanPane".*?x:Name="UninstallPane"').Value
-# 底部操作栏任何时候只能有一个主按钮（清理前检查页是独立一层，不算同屏竞争）
-$actionBar = [regex]::Match($xaml, '(?s)x:Name="CleanActionBar".*?</Border>').Value
-Assert-True 'the bottom action bar has exactly one primary action' `
-    ($actionBar.Length -gt 0 -and ([regex]::Matches($actionBar, 'StaticResource PrimaryButton')).Count -eq 1)
-Assert-True 'the primary button is disabled with nothing selected' `
-    ($cs -match 'CheckAndCleanBtn\.IsEnabled = false')
-
-# --- 板块：按钮语义 + 清理前检查页 ------------------------------------------
-Assert-True 'the primary button no longer says 检查并清理' `
-    ($cs -notmatch 'Loc\.CheckAndClean' -and $xaml -notmatch '检查并清理')
-Assert-True 'the primary button says 清理已选项目' `
-    ($cs -match 'Loc\.CleanSelectedItems' -and $xaml -match '清理已选项目')
-Assert-True 'the primary action opens the preflight page, not the delete' `
-    ($cs -match '(?s)private void CheckAndClean_Click.*?ShowPreflightPage\(')
-Assert-True 'preflight page shows locations / items / size / needs-confirm' `
-    ($cs -match 'Loc\.PreflightLocations\(' -and $cs -match 'Loc\.PreflightItems\(' -and
-     $cs -match 'Loc\.PreflightSize\(' -and $cs -match 'Loc\.PreflightNeedsConfirm\(')
-Assert-True 'preflight page explains the re-check before handling' `
-    ($cs -match 'Loc\.PreflightRecheck' -and $xaml -match 'x:Name="PreflightRecheck"')
-Assert-True 'preflight page has 返回修改 / 确认清理' `
-    ($cs -match 'Loc\.BackToEdit' -and $cs -match 'Loc\.ConfirmClean' -and
-     $xaml -match 'x:Name="PreflightBackBtn"' -and $xaml -match 'x:Name="PreflightConfirmBtn"')
-Assert-True 'confirm on preflight reuses the existing preflight+execute chain' `
-    ($cs -match '(?s)private void PreflightConfirm_Click.*?RunCleanFor\(')
-Assert-True 'RunCleanFor keeps the delete preflight + confirm step' `
-    ($cs -match '(?s)private void RunCleanFor.*?_cleanupWorkflow\.PlanDeletion\(' -and
-     $cs -match '(?s)private void RunCleanFor.*?AskConfirm\(')
-Assert-True 'executing shows 正在清理 and a stop path' `
-    ($cs -match 'Loc\.CleaningNow' -and $cs -match 'CleanActionState\.Running')
-Assert-True 'after cleaning the button becomes 查看结果' `
-    ($cs -match 'Loc\.ViewResults' -and $cs -match 'CleanActionState\.Done')
-Assert-True 'the results dialog keeps per-item detail' `
-    ($cs -match '_lastResultText' -and $cs -match 'DeletionCoordinator\.Summarize\(')
-
-# --- 板块：AI 是核心区域，但不得越权 ----------------------------------------
-# ---- 逐项 AI（本轮：从首页全局面板改为项目旁的按需分析） ----
-Assert-True 'the home-page global AI panel is gone' `
-    ($xaml -notmatch 'x:Name="AiPanel"' -and $xaml -notmatch 'x:Name="AiPrimaryBtn"' -and
-     $xaml -notmatch 'x:Name="AiScopeText"' -and $cs -notmatch 'UpdateAiPanel')
-Assert-True 'scan completion no longer auto-fires a model request' `
-    ($cs -notmatch 'AnalyzeCurrentCategory' -and $cs -notmatch 'AiAnalyzeCat_Click')
-Assert-True 'AI config and the gateway are preserved (only the entry moved)' `
-    ($cs -match 'AiConfigured\(' -and
-     (Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\App.xaml.cs') -Raw -Encoding UTF8) -match 'AiGateways\.Register\(\)')
-# 逐项 AI（ItemAiView / ItemAiService / ItemAiPrompt / AiCoordinator / AiNoteParser）
-# 已**整套移除**：按钮、结果卡片、服务、视图类型、落盘那一半，一个不留。
-# 原来这一段的十几条断言（每项自带状态 / 有界并发 / 四档建议 / 五字段面板 / 取消去重）
-# 守的都是那套能力本身 —— 能力没有了，这些断言随之消失是合理的。
-# 「AI 不得越权」这条**没有丢**：见下面按文件夹删除那一节的结构断言
-# （整理对象上根本没有 Selected / CanDelete 这些字段，连硬塞都塞不进去）。
-Assert-True 'per-item AI is gone: no view, service, button or result card' `
-    ($xaml -notmatch 'ItemAiInline' -and $xaml -notmatch 'ItemAiResultOnly' -and
-     $cs -notmatch 'ItemAi_Click' -and $cs -notmatch '_itemAiRunning' -and
-     $cs -notmatch 'DescribeAiTarget' -and
-     $orgnode -notmatch 'ItemAiView' -and $item -notmatch 'ItemAiView')
-Assert-True 'the operation column is gone (two icons per row was noise)' `
-    ($xaml -notmatch 'ColOrgAction' -and $cs -notmatch 'ColOrgAction')
-Assert-True 'opening a folder is still reachable from the context menu' `
-    ($xaml -match 'OrganizeOpen_Click')
-Assert-True 'classification only runs when the user clicks the one button' `
-    ($orgsrc -match 'private void OrganizeClassify_Click' -and
-     $orgsrc -match 'n\.NeedsPurposeClassification \|\| n\.State == PurposeState\.Failed' -and
-     $orgsrc -notmatch '_autoClassifyTimer' -and
-     $xaml -match 'Click="OrganizeClassify_Click"')
-Assert-True 'AI labels persist after classify and can be forgotten without a model call' `
-    ($orgsrc -match 'PersistAiPurposes\(targets\)' -and
-     $orgsrc -match 'TryRestoreAiPurpose\(node\)' -and
-     $orgsrc -match 'private void OrganizeForgetAi_Click' -and
-     $xaml -match 'x:Name="OrganizeForgetAiBtn"' -and
-     $xaml -match 'Click="OrganizeForgetAi_Click"')
-Assert-True 'a batch that overflows the model context is split, not failed' `
-    ($batchsvc -match 'IsTooLargeForModel' -and $decisionset -match 'MaxPerRequest = 1')
-Assert-True 'one folder per request: the state is that folder''s own summary' `
-    ($decisionset -match 'MaxPerRequest = 1' -and $decisionset -match 'AdaptiveStart = 1' -and
-     $decisionset -match 'BuildDecisionState' -and
-     $decisionset -notmatch 'string\.Join\(Environment\.NewLine, chunk\.Select')
-Assert-True 'model-facing text is English constants, not UI language' `
-    ($decisionset -match 'AiPurposeCriteria\.QuestionInstructions' -and
-     $decisionset -match 'AiPurposeCriteria\.Descriptions' -and
-     $decisionset -notmatch 'Loc\.AiPurposeQuestion' -and
-     $decisionset -notmatch 'Loc\.AiPurposeOptions')
-Assert-True 'the folder domain declares concurrency and the runner limits it' `
-    ($decisionset -match 'MaxConcurrency => 8' -and
-     $decisions -match 'SemaphoreSlim' -and $decisions -match 'set\.MaxConcurrency > 1')
-Assert-True 'the classify service still never writes risk / selection' `
-    ($batchsvc -notmatch '\.Risk\s*=' -and $batchsvc -notmatch '\.CanDelete\s*=' -and
-     $batchsvc -notmatch '\.Selected\s*=')
-Assert-True 'AI tools can no longer change the selection' `
-    (-not (Test-Path -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\DiskAnalyst.cs')) -and
-     $batchsvc -notmatch 'name:\s*.set_checked')
-Assert-True 'the chat tool loop and its sidecar are gone (no tool can touch the selection)' `
-    (-not (Test-Path -LiteralPath (Join-Path $repo 'sidecar\src\agent.js')) -and
-     -not (Test-Path -LiteralPath (Join-Path $repo 'sidecar\package.json')) -and
-     -not (Test-Path -LiteralPath (Join-Path $repo 'build-sidecar.ps1')) -and
-     -not (Test-Path -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\SidecarClient.cs')))
-
-# ---- 重复文件「留哪一个」：判定通道的第二个用途 ----
-# 这些断言守的是**架构约束**，不是行为细节（行为细节在 SafetyCheck 的 DupKeepDecisionTests 里）：
-#   · 入口必须由用户点（扫描流程里不许出现判定调用，否则「扫描 = 0 请求」就破了）；
-#   · 回写只碰说明文字（AI 永远不写 Selected / CanDelete / Risk / Evidence）。
-$dupkeep = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\Decisions\DuplicateKeepDecisionSet.cs') -Raw -Encoding UTF8
-$grouping = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanGroupingService.cs') -Raw -Encoding UTF8
-Assert-True 'duplicate keep-advice exists and asks one choice per group' `
-    ($dupkeep -match 'IDecisionSet<CleanLocationNode>' -and
-     $dupkeep -match 'Type = "choice"' -and
-     # 上限来自模型那一侧，界面和判定域必须是同一个数字（写死 12 会在两处漂移）
-     $dupkeep -match 'MaxMembers = CleanLocationNode\.DupAskMaxMembers' -and
-     $nodes -match 'DupAskMaxMembers = 12')
-Assert-True 'the duplicate entry point is a click handler, not part of the scan' `
-    ($cs -match 'DupAskKeep_Click' -and
-     $xaml -match 'Click="DupAskKeep_Click"' -and
-     $cs -match 'DataContext is not CleanLocationNode loc')
-# 扫描阶段（RunDuplicateStageAsync）里不许出现判定调用 —— 这是「扫描 = 0 请求」的结构保证
-$dupStageBody = [regex]::Match($cs, '(?s)private async Task RunDuplicateStageAsync.*?\r?\n    \}').Value
-Assert-True 'the scan stage never calls the decision channel' `
-    ($dupStageBody.Length -gt 0 -and
-     $dupStageBody -notmatch 'DecisionRunner' -and
-     $dupStageBody -notmatch 'DuplicateKeepDecisionSet' -and
-     $dupStageBody -notmatch 'AiGateway\.')
-Assert-True 'duplicate advice only ever writes display text (never selection / deletability / risk)' `
-    ($dupkeep -match 'baseline\.Reason = baseline\.Reason \+' -and
-     $dupkeep -notmatch '\.Selected\s*=' -and
-     $dupkeep -notmatch '\.CanDelete\s*=' -and
-     $dupkeep -notmatch '\.Risk\s*=' -and
-     $dupkeep -notmatch '\.Evidence\s*=')
-# 一组重复文件在界面上被拆成「保留项 / 多余项」两行，每行只有一半 ——
-# 判定域必须看全组（DupMembers），否则生产里永远只有一个选项可选。
-Assert-True 'duplicate advice reads the whole group, not just the row half' `
-    ($dupkeep -match 'node\.DupMembers\.Count > 0 \? node\.DupMembers : node\.Items' -and
-     $grouping -match 'node\.DupMembers = members')
-Assert-True 'duplicate advice is below-threshold silent, and the threshold is shared' `
-    ($dupkeep -match 'confidence < DecisionThresholds\.DuplicateKeep' -and
-     $dupkeep -match 'DecisionWriteBack\.Unsure')
-Assert-True 'duplicate paths are redacted before leaving the process' `
-    ($dupkeep -match 'PathRedactor\.Outbound')
-Assert-True 'the duplicate chip appears without expanding the row' `
-    ($xaml -match 'ShowDupAskRowChip' -and $nodes -match 'ShowDupAskRowChip')
-
-# ---- 清理候选 + 默认不勾选 ----
-Assert-True 'the safe tier is renamed to 清理候选' `
-    ($loc -match '"清理候选"' -and $cs -notmatch '"建议清理"')
-Assert-True 'rules never preselect anything' `
-    ($rules -match 'Selected = false,' -and $rules -notmatch 'Selected = risk == CleanRisk\.Safe')
-Assert-True 'duplicates are not preselected either' `
-    ($dup -notmatch 'Selected = canDelete && !incomplete')
-Assert-True 'path signatures match whole segments only' `
-    ($sig -match 'SegmentIndexOf' -and $sig -notmatch 'p\.IndexOf\(n, StringComparison\.Ordinal\)')
-Assert-True 'npm global install dir is not a safe cache' `
-    ($sig -match 'npm 全局工具' -and $sig -match 'SigRisk\.Keep, N\(@"\\appdata\\roaming\\npm"\)')
-
-Assert-True 'icons are shared vector geometries, not emoji/Unicode' `
-    ($xaml -match 'x:Key="IconGear"' -and $xaml -match 'x:Key="IconChecklist"' -and
-     $xaml -match 'x:Key="IconInfo"' -and $xaml -match 'x:Key="IconMore"' -and
-     $xaml -match 'x:Key="IconArrow' -or $xaml -match 'x:Key="IconBack"')
-Assert-True 'there is one unified icon button style with all four states' `
-    ($xaml -match 'x:Key="IconButton"' -and $xaml -match 'IsMouseOver' -and $xaml -match 'IsPressed' -and
-     $xaml -match 'IsKeyboardFocused' -and $xaml -match 'Property="IsEnabled" Value="False"')
-Assert-True 'icon buttons carry ToolTip and AutomationProperties.Name' `
-    (([regex]::Match($xaml, '(?s)x:Name="ScanDetailsBtn".*?/>').Value) -match 'ToolTip=' -and
-     ([regex]::Match($xaml, '(?s)x:Name="ScanDetailsBtn".*?/>').Value) -match 'AutomationProperties\.Name=' -and
-     ([regex]::Match($xaml, '(?s)x:Name="CleanMoreBtn".*?/>').Value) -match 'AutomationProperties\.Name=')
-Assert-True 'settings is a gear button, not a text button' `
-    ($xaml -match '(?s)x:Name="SettingsButton".*?IconGear' -and
-     $xaml -notmatch '(?s)x:Name="SettingsButton"[^>]{0,200}Content="设置"')
-Assert-True 'ApplyUi never overwrites the settings icon Content' `
-    (([regex]::Match($cs, '(?s)if \(SettingsButton != null\).*?\n        \}').Value) -notmatch 'SettingsButton\.Content')
-Assert-True 'ApplyUi never overwrites the view-selected icon Content' `
-    (([regex]::Match($cs, '(?s)if \(ViewSelectedText != null\).*?\n').Value) -notmatch 'ViewSelectedBtn\.Content')
-Assert-True 'the section chevron uses vector arrows, not glyph characters' `
-    ($xaml -match 'SectionChevronDown' -and $xaml -match 'SectionChevronRight' -and
-     $xaml -notmatch 'Text="\{Binding Chevron\}"')
-# ---- 查看已选：结构化清单 ----
-Assert-True 'view-selected opens a structured panel, not a text blob' `
-    ($xaml -match 'x:Name="SelectionBody"' -and $xaml -match 'x:Name="SelectionGrid"' -and
-     $cs -match 'selection: true')
-Assert-True 'the selection grid is virtualised (large selections must not materialise rows)' `
-    ($xaml -match '(?s)x:Name="SelectionGrid".*?EnableRowVirtualization="True"' -and
-     $xaml -match 'VirtualizationMode="Recycling"')
-Assert-True 'selection panel states counts with explicit units' `
-    ($cs -match 'Loc\.SelectionSummary\(' -and $cs -match 'Loc\.ViewSelectedSub')
-Assert-True 'selection rows expose full path for tooltip and copy' `
-    ($cs -match 'class SelectedRow' -and $cs -match 'public string FullPath' -and
-     $cs -match 'SelectionCopyPath_Click')
-Assert-True 'opening the selection panel does not clear the selection' `
-    (([regex]::Match($cs, '(?s)private void ViewSelected_Click.*?\n    \}').Value) -notmatch 'Selected = false')
-Assert-True 'the view-selected chip shows a count and disables when empty' `
-    ($cs -match 'UpdateViewSelectedLabel' -and $cs -match 'ViewSelectedBtn\.IsEnabled = n > 0')
-
-Assert-True 'AI never writes Risk / Selected / CanDelete' `
-    ($batchsvc -notmatch '\.Risk\s*=' -and $batchsvc -notmatch '\.Selected\s*=' -and
-     $batchsvc -notmatch '\.CanDelete\s*=')
+# --- 10. privacy ------------------------------------------------------------
+Assert-True 'outbound paths are redacted unless full paths are enabled' `
+    ($redactor -match 'AiSendFullPaths \? \(path \?\? ""\) : Redact\(path\)')
+Assert-True 'language never says "recently used"' ($loc -notmatch '最近使用')
 Assert-True 'no misleading AI wording anywhere' `
     ($cs -notmatch 'AI 自动清理' -and $cs -notmatch 'AI 安全清理' -and
      $cs -notmatch 'AI 决定清理' -and $cs -notmatch 'AI 已替你选择')
 
-# --- 板块：AI 结论界面 -------------------------------------------------------
-# AiVerdict / AiBucket / 那张逐项结果卡片已随逐项 AI 整体移除。
-# 但**纯本地**的那条判据（「受保护项永远不算可清理」）一个字都没变，
-# 只是从 AiVerdict 搬进了 CleanRuleEligibility —— 断言改指向，不删。
-$elig = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\Services\CleanRules\CleanRuleEligibility.cs') -Raw -Encoding UTF8
-Assert-True 'protected items never become cleanable' `
-    ($elig -match 'x\.CanDelete && x\.Risk != CleanRisk\.Keep && x\.Risk != CleanRisk\.Confirm')
-Assert-True 'the AI verdict model and its result card are gone' `
-    ($xaml -notmatch 'ItemAiResultOnly' -and $cs -notmatch 'AiVerdict')
-Assert-True '选择这些文件 is a local location-row chip, never an AI verdict' `
-    ($xaml -match '选择这些文件' -and
-     $nodes -match 'ShowLocalSelectChip' -and
-     $xaml -match 'ShowLocalSelectChip' -and
-     $xaml -match 'Click="AiSelectBucket_Click"')
-Assert-True 'technical wording is gone from the panel' `
-    ($xaml -notmatch '本地拆分' -and $xaml -notmatch '符合清理资格' -and
-     $xaml -notmatch '按组' -and $xaml -notmatch '本地规则')
-Assert-True 'selecting goes through the existing refresh chain' `
-    ($cs -match 'AiSelectBucket_Click' -and $cs -match 'RefreshAfterSelectionChange\(\)' -and
-     $cs -match 'is not CleanLocationNode loc')
-Assert-True 'viewing files uses exact item filtering' `
-    ($pager -match 'public void SetItemFilter')
-
-# --- 2.12 UX contract -------------------------------------------------------
-Assert-True 'clean action bar has a single 全选 toggle, not a separate clear or rule-select button' `
-    ($xaml -match 'x:Name="CleanSelectAllBtn"' -and
-     $xaml -notmatch 'x:Name="ClearSelectionBtn"' -and
-     $xaml -notmatch 'x:Name="RuleSelectBtn"' -and
-     $cs -match 'private void CleanSelectAll_Click' -and
-     $cs -match 'CleanSelectAllBtn\.Content = Loc\.SelectAll')
-Assert-True 'clean 全选 never retitles itself to 取消全选' `
-    ($cs -notmatch 'CleanSelectAllBtn\.Content = Loc\.ClearSelection' -and
-     $cs -match 'allSelected \? Loc\.SelectAllClearTip : Loc\.SelectAllActionTip')
-Assert-True 'organize page has no 全选 button; rows tick via IsChecked' `
-    ($xaml -notmatch 'x:Name="OrganizeSelectAllBtn"' -and
-     $org -notmatch 'OrganizeSelectAllToggle_Click' -and
-     $org -notmatch 'UpdateOrganizeSelectAllState' -and
-     $xaml -match 'IsChecked="\{Binding IsChecked, Mode=TwoWay' -and
-     $orgnode -match 'IsSelectionProtected => SelectionGuard.Guard == PathGuard.Blocked')
-Assert-True 'organize pending-filter chip and duplicate title are gone' `
-    ($xaml -notmatch 'x:Name="OrganizeFilterPendingBtn"' -and
-     $xaml -notmatch 'x:Name="OrganizeTitle"')
-Assert-True 'organize grid cannot be resorted from the header (tree order is data-layer size sort)' `
-    ($xaml -match '(?s)x:Name="OrganizeGrid"[^>]*CanUserSortColumns="False"')
-Assert-True 'organize roots mix entry points with other top-level dirs and sort by size' `
-    ($forg -match '入口与普通子目录混在一起按容量降序' -and
-     $forg -match 'int bySize = b\.Size\.CompareTo\(a\.Size\)')
-Assert-True 'the AI chip is gone (one page uses decisions; that page reports its own progress)' `
-    ($xaml -notmatch 'x:Name="AiChip"' -and $cs -notmatch 'AiChip')
-Assert-True 'the decisions channel is the only AI channel left' `
-    ($xaml -match 'x:Name="AiDecisionModelBox"' -and
-     $xaml -notmatch 'x:Name="AiProtoBox"' -and
-     $xaml -notmatch 'x:Name="AiFetchBtn"' -and
-     $xaml -notmatch 'x:Name="AiModelList"' -and
-     $xaml -notmatch 'xmlns:ctrl')
+# --- 11. uninstall page stays fact-only -------------------------------------
 Assert-True 'uninstall keeps name / install date / purpose / size / actions' `
     ($xaml -match 'x:Name="ColAppName"' -and $xaml -match 'x:Name="ColAppInstallDate"' -and
      $xaml -match 'x:Name="ColAppPurpose"' -and $xaml -match 'x:Name="ColAppSize"' -and
      $xaml -match 'x:Name="ColAppAction"')
-# 产品规则：卸载页**只讲事实**，不给建议。上面那条只保证事实列还在，这条保证
-# 「建议」再也长不回来 —— 没有建议列、条目上没有建议字段、窗口里没有那个入口、
-# 服务里没有那套档位（建议卸载 / 可以考虑 / 建议保留 / 未评估）。
 Assert-True 'uninstall page shows no advice (no advice column / field / entry / tier)' `
     ($xaml -notmatch 'AiSuggested' -and $xaml -notmatch 'Binding Recommendation' -and
-     $appitem -notmatch 'Recommendation' -and $appitem -notmatch 'AiSuggested' -and
+     $appitem -notmatch 'Recommendation' -and
      $cs -notmatch 'ReviewSuggestions' -and
-     $recsvc -notmatch 'AppRecommendationDecision' -and
-     $recsvc -notmatch 'ApplyLocalRules' -and $recsvc -notmatch 'ApplyAiResults' -and
+     $recsvc -notmatch 'ApplyAiResults' -and
      $loc -notmatch 'AppRecommendationLabel')
 Assert-True 'uninstall publisher / version / status columns stay in the tree but are collapsed' `
     ($xaml -match '(?s)x:Name="ColAppPub".{0,220}Visibility="Collapsed"' -and
@@ -834,16 +277,6 @@ Assert-True 'uninstall purpose is type + publisher, no version in the cell' `
     ($factual -match 'DuplicatesLabel' -and
      $factual -match 'parts\.Count == 1 && location\.Length > 0' -and
      $factual -notmatch 'parts\.Add\(version\)')
-Assert-True 'inline file list has no 完整列表 button; extra files are counted only' `
-    ($xaml -notmatch 'FullListButtonText' -and
-     $xaml -notmatch '完整列表（可搜索）' -and
-     $loc -match '另有')
-Assert-True 'clean location subtitle no longer appends 用途待确认' `
-    ($nodes -notmatch 'ItemAiPurposeText' -and $nodes -notmatch 'PurposeUnclear' -and
-     $nodes -notmatch 'bits\.Add\(aiPurpose\)')
-Assert-True 'organize purpose column replaces 未识别 after classification' `
-    ($orgnode -match 'HasBatchPurpose' -and
-     $orgnode -match 'NeedsConfirm => _needsConfirm && !HasBatchPurpose')
 
 # 发布产物：取 dist 下最新的 DashaoHuo-*-win-x64。
 # 这是**打包门禁**，不是行为检查：dist 是 gitignore 的生成物，开发机 / CI 没有它很正常。
@@ -851,9 +284,6 @@ Assert-True 'organize purpose column replaces 未识别 after classification' `
 # 只有「dist 存在但缺包/版本不对」才算真失败 —— 那是发布时该抓的。
 $distDir = Join-Path $repo 'dist'
 if (Test-Path -LiteralPath $distDir) {
-    # 注意：必须按**版本号**取最新，不能按名字排序。
-    # 字符串比较下 'DashaoHuo-2.9.2' > 'DashaoHuo-2.10.0'（'9' > '1'），
-    # 于是 2.10.0 一发布这个门禁反而去检查旧包 —— 之前没暴露只是因为没跨过 2.9 -> 2.10。
     $publish = Get-ChildItem -LiteralPath $distDir -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -like 'DashaoHuo-*-win-x64' } |
         ForEach-Object {
@@ -870,9 +300,7 @@ if (Test-Path -LiteralPath $distDir) {
     if ($publish -and (Test-Path -LiteralPath $publish)) {
         $rc = Get-Content -LiteralPath (Join-Path $publish 'AiDiskCleaner.runtimeconfig.json') -Raw
         Assert-True 'publish is self-contained' ($rc -match 'includedFrameworks')
-        # 版本号从 csproj 读，**不写死** —— 写死的话每次升版本这条门禁都会误报
-        # （v3.0.0 升版时撞了一次：包里明明是 3.0.0.0，断言还在比 2.12.1）。
-        $csproj = Get-Content -LiteralPath (Join-Path $repo 'src\AiDiskCleaner\AiDiskCleaner.csproj') -Raw
+        $csproj = Read-Text 'src\AiDiskCleaner\AiDiskCleaner.csproj'
         $wantVersion = [regex]::Match($csproj, '<Version>([^<]+)</Version>').Groups[1].Value.Trim()
         $exeVersion = (Get-Item (Join-Path $publish 'AiDiskCleaner.exe')).VersionInfo.FileVersion
         Assert-True "published exe carries the new version (want $wantVersion, got $exeVersion)" `

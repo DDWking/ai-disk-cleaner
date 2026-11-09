@@ -86,18 +86,17 @@
 
 | 组件 | 职责 | 现状 | 落点建议 |
 |---|---|---|---|
-| `ScanSession` | 一次扫描的会话状态：scanId、扫描质量、树根、索引统计 | 新增 | `Services/Agent/ScanSession.cs` |
-| `EvidenceStore` | 证据卡生成与缓存（键 = scanId + folderId + 结构指纹） | 新增（可复用 `FolderSummary`） | `Services/Agent/EvidenceStore.cs` |
-| `ToolHost` | 工具注册、参数校验、权限、token 记账、截断 | 新增 | `Services/Agent/ToolHost.cs` |
-| `ITool` | 单个工具契约（名称、schema、执行、上限） | 新增 | `Services/Agent/ITool.cs` |
-| `AgentLoop` | 轮次控制、预算、取消、错误恢复 | 新增（L2） | `Services/Agent/AgentLoop.cs` |
-| `IChatModel` | 模型通道抽象（流式、tool_calls） | 新增 | `Services/Ai/IChatModel.cs` |
-| `OpenAiCompatChatModel` | OpenAI 兼容实现（DeepSeek / Ollama / 中转） | 新增 | `Services/Ai/OpenAiCompatChatModel.cs` |
-| `ReportAssembler` | 校验模型输出、合并、排序、阈值、生成报告卡 | 新增 | `Services/Agent/ReportAssembler.cs` |
+| `ScanSession` | 一次扫描的会话状态：scanId、扫描质量、树根、索引统计 | **已实现** | `Services/Agent/ScanSession.cs` |
+| `FolderIndex` / `EvidenceCard` | folderId ↔ FileEntry 映射；证据卡生成（键 = scanId + folderId + cardVersion） | **已实现** | `Services/Agent/FolderIndex.cs` / `EvidenceCard.cs` |
+| `ToolHost` | 工具注册、参数校验、权限、token 记账、截断 | **已实现** | `Services/Agent/ToolHost.cs` |
+| `IAgentTool` | 单个工具契约（名称、执行、上限） | **已实现** | `Services/Agent/ToolEnvelope.cs` |
+| `AgentLoop` | 轮次控制、预算、取消、错误恢复 | 新增（L2，未做） | `Services/Agent/AgentLoop.cs` |
+| `IChatModel` | 模型通道抽象（流式、tool_calls） | **已实现** | `Services/Agent/Chat/ChatModels.cs` |
+| `OpenAiCompatChatModel` | OpenAI 兼容实现（DeepSeek / Ollama / 中转） | **已实现** | `Services/Agent/Chat/OpenAiCompatChatModel.cs` |
+| `ReportAssembler` / `ReportParser` | 校验模型输出、合并、排序、阈值、生成报告卡 | **已实现** | `Services/Agent/ReportAssembler.cs` / `ReportParser.cs` |
 | `DeletionCoordinator` | 预检 + 执行 + 回收站 | **已有** | 不动 |
-| `AiClient` | Jev 判定通道 | **已有** | 不动（可选通道） |
-| `AiConfigurationService` | 预设/探测/诊断 | **已有** | 扩展 `chat` 协议类型 |
-| `RecognitionStore` | AI 结论缓存 | **已有** | 复用缓存键思路 |
+| `AiConfigurationService` | 聊天预设/连通性测试/诊断（Jev 已删） | **已有，已改** | `Services/AiConfigurationService.cs` |
+| `RecognitionStore` | 本地目录用途落盘缓存（purpose 槽） | **已有，已精简** | 复用缓存键思路 |
 
 ## 5. 三条数据流
 
