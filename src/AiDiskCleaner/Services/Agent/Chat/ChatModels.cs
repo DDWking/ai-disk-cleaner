@@ -37,6 +37,13 @@ public readonly record struct ChatUsage(int InputTokens, int OutputTokens)
 public sealed class ChatResponse
 {
     public string Content { get; set; } = "";
+
+    /// <summary>
+    /// 推理模型（DeepSeek V4 一类）的思考过程。它不算正文，但能证明
+    /// 「接口、密钥、模型都通了」——连通性测试不能把只思考没正文当成协议错误。
+    /// </summary>
+    public string Reasoning { get; set; } = "";
+
     public string Model { get; set; } = "";
     public string FinishReason { get; set; } = "";
     public ChatUsage Usage { get; set; }

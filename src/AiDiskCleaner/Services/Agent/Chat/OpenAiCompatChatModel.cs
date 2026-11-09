@@ -180,13 +180,21 @@ public sealed class OpenAiCompatChatModel : IChatModel
         if (root.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array && choices.GetArrayLength() > 0)
         {
             var first = choices[0];
-            if (first.TryGetProperty("message", out var message) && message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+            if (first.TryGetProperty("message", out var message)
+                && message.TryGetProperty("content", out var content)
+                && content.ValueKind == JsonValueKind.String)
                 response.Content = content.GetString() ?? "";
+            if (first.TryGetProperty("message", out var thinking)
+                && thinking.TryGetProperty("reasoning_content", out var reasoning)
+                && reasoning.ValueKind == JsonValueKind.String)
+                response.Reasoning = reasoning.GetString() ?? "";
             response.FinishReason = Str(first, "finish_reason");
         }
 
         response.Usage = ParseUsage(root);
-        if (string.IsNullOrWhiteSpace(response.Content))
+        // 推理模型可能把 max_tokens 全部用在 reasoning_content 上，content 为空。
+        // 这不算「接口不对」：正文没有、思考也没有，才说明对方真的没回东西。
+        if (string.IsNullOrWhiteSpace(response.Content) && string.IsNullOrWhiteSpace(response.Reasoning))
             throw new ChatModelException("模型返回了空内容", ChatErrorKind.Protocol, retryable: true);
         return response;
     }
@@ -196,6 +204,7 @@ public sealed class OpenAiCompatChatModel : IChatModel
         using var stream = await res.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream, new UTF8Encoding(false));
         var builder = new StringBuilder();
+        var reasoning = new StringBuilder();
         var response = new ChatResponse { Model = "", Streamed = true };
 
         while (true)
@@ -206,16 +215,17 @@ public sealed class OpenAiCompatChatModel : IChatModel
             if (line.Length == 0 || !line.StartsWith("data:", StringComparison.Ordinal)) continue;
             string data = line[5..].Trim();
             if (data == "[DONE]") break;
-            AppendChunk(data, response, builder);
+            AppendChunk(data, response, builder, reasoning);
         }
 
         response.Content = builder.ToString();
-        if (string.IsNullOrWhiteSpace(response.Content))
+        response.Reasoning = reasoning.ToString();
+        if (string.IsNullOrWhiteSpace(response.Content) && string.IsNullOrWhiteSpace(response.Reasoning))
             throw new ChatModelException("模型返回了空内容", ChatErrorKind.Protocol, retryable: true);
         return response;
     }
 
-    static void AppendChunk(string data, ChatResponse response, StringBuilder builder)
+    static void AppendChunk(string data, ChatResponse response, StringBuilder builder, StringBuilder reasoning)
     {
         using var doc = JsonDocument.Parse(data);
         var root = doc.RootElement;
@@ -231,8 +241,13 @@ public sealed class OpenAiCompatChatModel : IChatModel
             var first = choices[0];
             string finish = Str(first, "finish_reason");
             if (!string.IsNullOrWhiteSpace(finish)) response.FinishReason = finish;
-            if (first.TryGetProperty("delta", out var delta) && delta.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
-                builder.Append(content.GetString());
+            if (first.TryGetProperty("delta", out var delta))
+            {
+                if (delta.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+                    builder.Append(content.GetString());
+                if (delta.TryGetProperty("reasoning_content", out var think) && think.ValueKind == JsonValueKind.String)
+                    reasoning.Append(think.GetString());
+            }
         }
 
         if (root.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object)

@@ -1493,7 +1493,7 @@ public partial class MainWindow : Window
         if (p.Health != AiProviderHealth.Ok)
         {
             AiLampDot.Fill = AiStatusBrush("#E0B050");
-            AiLampText.Text = Loc.AiLampUntested;
+            AiLampText.Text = p.Health == AiProviderHealth.Failed ? Loc.AiLampFailed : Loc.AiLampUntested;
             AiLampButton.ToolTip = p.Health == AiProviderHealth.Failed && p.LastError.Length > 0
                 ? Loc.AiLampFailedTip(p.LastError)
                 : Loc.AiLampUntestedTip;
@@ -1542,7 +1542,7 @@ public partial class MainWindow : Window
         if (AiPresetBox != null)
         {
             _aiPresetLoading = true;
-            AiPresetBox.SelectedIndex = FindPresetIndex(p?.BaseUrl, App.Settings.DecisionModelId(), p?.Protocol);
+            AiPresetBox.SelectedIndex = FindPresetIndex(p?.BaseUrl);
             _aiPresetLoading = false;
             UpdatePresetHint();
         }
@@ -1558,16 +1558,18 @@ public partial class MainWindow : Window
         if (AiKeyClearBtn != null) AiKeyClearBtn.Content = Loc.AiKeyClear;
     }
 
-    private int FindPresetIndex(string? url, string? model, string? protocol = null)
+    /// <summary>
+    /// 按地址认模板：只比 URL，不再要求模型名和模板完全一致。
+    /// 否则 DeepSeek 地址 + deepseek-flash 会落到「自定义」，看起来像没识别出来。
+    /// </summary>
+    private int FindPresetIndex(string? url)
     {
         string u = (url ?? "").Trim().TrimEnd('/');
-        string m = (model ?? "").Trim();
         for (int i = 0; i < AiConfigurationService.Presets.Count; i++)
         {
             var preset = AiConfigurationService.Presets[i];
-            if (preset.BaseUrl.Length > 0 && string.Equals(u, preset.BaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)
-                && string.Equals(m, preset.Model, StringComparison.OrdinalIgnoreCase)
-                && (string.IsNullOrWhiteSpace(protocol) || string.Equals(protocol, preset.Protocol, StringComparison.OrdinalIgnoreCase))) return i;
+            if (preset.BaseUrl.Length > 0 && string.Equals(u, preset.BaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+                return i;
         }
         return Math.Max(0, AiConfigurationService.Presets.Count - 1);
     }
@@ -1789,6 +1791,8 @@ public partial class MainWindow : Window
             App.Settings.SetActiveProvider(p.Id);
         App.Settings.Save();
         OpenProvEdit(p);
+        // 新建时标题不能也叫「编辑提供方」。
+        DialogTitle.Text = Loc.AiAddTitle;
     }
 
     private void AiEditProv_Click(object sender, RoutedEventArgs e)
@@ -1813,6 +1817,21 @@ public partial class MainWindow : Window
         LoadAiFields();
     }
 
+    void SetAiTestHint(string text, string colorHex)
+    {
+        AiTestHint.Text = text;
+        AiTestHint.Foreground = AiStatusBrush(colorHex);
+    }
+
+    /// <summary>地址或模型一改，上一次的测试结论就不再代表当前输入，先清掉。</summary>
+    private void AiProviderField_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_aiPresetLoading || _aiBusy) return;
+        AiTestHint.Text = "";
+        AiDiagnosticNext.Text = "";
+        AiDiagnosticNext.ToolTip = null;
+    }
+
     private async void AiTest_Click(object sender, RoutedEventArgs e)
     {
         if (_aiBusy) return;
@@ -1820,8 +1839,9 @@ public partial class MainWindow : Window
         _aiBusy = true;
         RefreshAiLamp();
         AiTestBtn.IsEnabled = false;
-        AiTestHint.Text = Loc.AiWorking;
+        SetAiTestHint(Loc.AiWorking, "#8A8A8A");
         AiDiagnosticNext.Text = "";
+        AiDiagnosticNext.ToolTip = null;
         using var op = StartOperation(ref _aiConfigCts, "AiConfig");
         var ct = op.Token;
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -1832,7 +1852,7 @@ public partial class MainWindow : Window
             if (provider == null || string.IsNullOrWhiteSpace(provider.BaseUrl) || string.IsNullOrWhiteSpace(model))
             {
                 var missing = AiConfigurationService.Missing(Loc.IsEn);
-                AiTestHint.Text = missing.Summary;
+                SetAiTestHint(missing.Summary, "#E0B050");
                 AiDiagnosticNext.Text = missing.NextStep;
                 return;
             }
@@ -1848,14 +1868,20 @@ public partial class MainWindow : Window
                 App.Settings.Save();   // 顶栏绿灯要跨重启保持
             }
             sw.Stop();
-            AiTestHint.Text = Loc.AiTestSuccess + " · "
-                + Loc.AiTestModel(reply.Model.Length > 0 ? reply.Model : model, sw.ElapsedMilliseconds);
-            AiDiagnosticNext.Text = Loc.AiTestOk(sw.ElapsedMilliseconds, reply.Model.Length > 0 ? reply.Model : model);
+            // 推理模型可能只回了思考、没有正文：连通性成立，但要说清楚，
+            // 否则用户以为报告也会一样「没有内容」。
+            string note = string.IsNullOrWhiteSpace(reply.Content)
+                ? (Loc.IsEn ? " (reasoning model: no final text)" : "（推理模型：这次只回了思考）")
+                : "";
+            SetAiTestHint(Loc.AiTestSuccess + " · "
+                + Loc.AiTestModel(reply.Model.Length > 0 ? reply.Model : model, sw.ElapsedMilliseconds) + note,
+                "#3ECF6A");
+            AiDiagnosticNext.Text = "";
             op.Done("chat connectivity check ok");
         }
         catch (OperationCanceledException)
         {
-            AiTestHint.Text = Loc.Aborted;
+            SetAiTestHint(Loc.Aborted, "#8A8A8A");
             AiDiagnosticNext.Text = "";
             op.Canceled("ai capability check canceled");
         }
@@ -1869,8 +1895,10 @@ public partial class MainWindow : Window
                 provider.LastError = diagnosis.Summary;
                 App.Settings.Save();   // 让顶栏黄灯与失败原因跨重启可见
             }
-            AiTestHint.Text = diagnosis.Summary;
-            AiDiagnosticNext.Text = diagnosis.NextStep + "\n" + AppError.Trim("technical", ex);
+            SetAiTestHint(diagnosis.Summary, "#E0B050");
+            // 技术异常不再塞进主界面：太长的 hr=0x… 只会吓人，放在悬停里备查。
+            AiDiagnosticNext.Text = diagnosis.NextStep;
+            AiDiagnosticNext.ToolTip = AppError.Trim("technical", ex);
             op.Fail(ex, "ai capability check");
         }
         finally

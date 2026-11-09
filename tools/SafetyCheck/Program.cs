@@ -986,17 +986,25 @@ public static class Program
         Check("聊天探针只含无敏感文本", probeRequest.Messages.All(m => !m.Content.Contains("C:\\"))
             && probeRequest.Messages.Any(m => m.Content.Contains("连通性", StringComparison.Ordinal)
                                               || m.Content.Contains("可以", StringComparison.Ordinal)));
-        Check("聊天探针走非 JSON 的小请求", !probeRequest.JsonMode && probeRequest.MaxTokens <= 32);
+        Check("聊天探针走非 JSON 的小请求", !probeRequest.JsonMode && probeRequest.MaxTokens <= 64);
         bool probeRejectsEmpty = false;
         try { AiConfigurationService.ValidateProbe(new ChatResponse { Content = " " }, english: false); }
         catch (ChatModelException) { probeRejectsEmpty = true; }
-        Check("聊天探针拒绝空回复", probeRejectsEmpty);
+        Check("聊天探针拒绝完全空回复", probeRejectsEmpty);
+        bool probeAcceptsReasoning = true;
+        try { AiConfigurationService.ValidateProbe(new ChatResponse { Content = "", Reasoning = "thinking..." }, english: false); }
+        catch (ChatModelException) { probeAcceptsReasoning = false; }
+        Check("推理模型只回思考也算连通", probeAcceptsReasoning);
         AiConfigurationService.ValidateProbe(new ChatResponse { Content = "可以" }, english: false);
         Check("聊天探针接受正常回复", true);
         Check("聊天配置错误可分类为引导信息",
             AiConfigurationService.Diagnose(new ChatModelException("offline", ChatErrorKind.Network, true), 10, false).Kind == AiDiagnosticKind.Network);
         Check("密钥被拒可分类为认证失败",
             AiConfigurationService.Diagnose(new ChatModelException("bad key", ChatErrorKind.Auth, false), 10, false).Kind == AiDiagnosticKind.Authentication);
+        Check("模型名不认得分到模型问题",
+            AiConfigurationService.Diagnose(new ChatModelException("接口拒绝请求（HTTP 400）：Model Not Exist", ChatErrorKind.Protocol), 10, false).Kind == AiDiagnosticKind.Model);
+        Check("只思考没正文不再报协议错误",
+            AiConfigurationService.Diagnose(new ChatModelException("模型返回了空内容", ChatErrorKind.Protocol), 10, false).Kind == AiDiagnosticKind.Model);
 
         // ---- DoH 兜底：DNS 被污染时拿真实地址 -------------------------------------------------
         // 真机故障：系统 DNS 把 openrouter.ai 解析到伪造 IP，连过去证书不受信任

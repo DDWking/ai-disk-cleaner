@@ -108,18 +108,23 @@ public static class AiConfigurationService
                 new ChatMessage(ChatRole.User, english ? "ping" : "在吗"),
             },
             Temperature = 0,
-            MaxTokens = 24,
+            // 推理模型（DeepSeek V4 Flash 一类）会先花 token 思考。24 个 token
+            // 会被思考全部吃光，正文是空的 —— 探针会误报成「协议不对」。
+            // 给足余量，并且下面允许「只有 reasoning_content」也算连通。
+            MaxTokens = 64,
             JsonMode = false,
         };
     }
 
     public static void ValidateProbe(ChatResponse reply, bool english)
     {
-        if (string.IsNullOrWhiteSpace(reply.Content))
-            throw new ChatModelException(
-                english ? "The service replied with empty content." : "服务已响应，但回复内容为空。",
-                ChatErrorKind.Protocol,
-                retryable: true);
+        // 有正文最好；只有思考也算连通（接口 / 密钥 / 模型名都已被接受）。
+        if (!string.IsNullOrWhiteSpace(reply.Content)) return;
+        if (!string.IsNullOrWhiteSpace(reply.Reasoning)) return;
+        throw new ChatModelException(
+            english ? "The service replied without any content." : "服务已响应，但没有返回任何内容。",
+            ChatErrorKind.Protocol,
+            retryable: true);
     }
 
     public static AiDiagnosticResult Diagnose(Exception ex, long elapsedMs, bool english)
@@ -153,6 +158,18 @@ public static class AiConfigurationService
                     english ? "The connectivity test timed out." : "连接测试超时。",
                     english ? "Check the service load and address. If it always times out, plain DNS may be tampered with — turn on your proxy or encrypted DNS (DoH)." : "检查服务负载和接口地址。如果一直超时，可能是明文 DNS 被投毒：请开启代理，或启用系统加密 DNS（DoH）。",
                     elapsedMs),
+                ChatErrorKind.Protocol when LooksLikeModelName(ex.Message) => Result(AiDiagnosticKind.Model,
+                    english ? "The service does not recognize this model name." : "服务不认识这个模型名。",
+                    english
+                        ? "Fetch the model list and pick one. For DeepSeek official, deepseek-chat is the chat model; deepseek-flash is a reasoning model."
+                        : "点「获取模型」从上游拉列表再选。DeepSeek 官方：deepseek-chat 是对话模型，deepseek-flash 是推理模型。",
+                    elapsedMs),
+                ChatErrorKind.Protocol when LooksLikeEmptyReply(ex.Message) => Result(AiDiagnosticKind.Model,
+                    english ? "The model is reachable, but returned no text." : "模型已连通，但没有返回正文。",
+                    english
+                        ? "A reasoning model may have spent the whole probe on thinking. Switch to a chat model such as deepseek-chat, or just test again."
+                        : "推理模型可能把探测额度用在思考上了。换成 deepseek-chat 这类对话模型再测，或直接重试。",
+                    elapsedMs),
                 ChatErrorKind.Protocol => Result(AiDiagnosticKind.Protocol,
                     english ? "The service replied, but not like an OpenAI-compatible chat API." : "服务已响应，但不像 OpenAI 兼容聊天接口。",
                     english ? "Use a /chat/completions endpoint (usually ends with /v1)." : "请填写兼容 /chat/completions 的地址（通常以 /v1 结尾）。",
@@ -170,6 +187,24 @@ public static class AiConfigurationService
             _ => Unknown(ex, elapsedMs, english),
         };
     }
+
+    private static bool LooksLikeModelName(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return false;
+        return message.Contains("模型不存在", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("模型名", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("model not exist", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("model_not_found", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("invalid model", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("unknown model", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("does not exist", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeEmptyReply(string? message)
+        => !string.IsNullOrWhiteSpace(message)
+           && (message.Contains("空内容", StringComparison.Ordinal)
+               || message.Contains("没有返回", StringComparison.Ordinal)
+               || message.Contains("empty content", StringComparison.OrdinalIgnoreCase));
 
     private static AiDiagnosticResult Unknown(Exception ex, long elapsedMs, bool english)
         => Result(AiDiagnosticKind.Unknown,

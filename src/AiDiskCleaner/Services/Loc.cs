@@ -140,6 +140,7 @@ public static class Loc
         ? "No provider configured yet. Click to set one up."
         : "还没有可用的提供方，点这里去设置。";
     public static string AiLampUntested => IsEn ? "AI untested" : "AI 未测试";
+    public static string AiLampFailed => IsEn ? "AI connection failed" : "AI 连接失败";
     public static string AiLampUntestedTip => IsEn
         ? "Provider configured but not verified yet. Click to test the connection."
         : "提供方已填写，但还没验证；点这里测试连接。";
@@ -153,6 +154,7 @@ public static class Loc
     public static string AiCustomTag => IsEn ? "custom" : "自定义";
     public static string AiAddCustom => IsEn ? "+ Add custom provider" : "+ 添加自定义提供方";
     public static string AiEditTitle => IsEn ? "Edit provider" : "编辑提供方";
+    public static string AiAddTitle => IsEn ? "Add provider" : "添加提供方";
     public static string AiName => IsEn ? "Display name" : "显示名称";
     public static string AiNameHint => IsEn ? "My provider" : "显示名称";
     public static string AiUrlHint => "https://api.example.com/v1";
@@ -160,8 +162,8 @@ public static class Loc
     public static string AiModel => IsEn ? "Model catalog" : "模型目录";
     public static string AiApiKey => IsEn ? "API key" : "API 密钥";
     public static string AiKeyStoreHint => IsEn
-        ? "Encrypted with Windows DPAPI and kept out of settings.json. Never written to logs."
-        : "用 Windows 加密保存，不写进 settings.json，也不会进日志。";
+        ? "Windows DPAPI protected; not written to settings.json or logs."
+        : "Windows DPAPI 加密；不写入 settings.json，也不进日志。";
     public static string AiKeyClear => IsEn ? "Clear key" : "清除密钥";
     public static string AiKeyCleared => IsEn ? "Stored API key cleared." : "已清除保存的 API 密钥。";
     public static string AiKeyUnavailable => IsEn
@@ -264,8 +266,28 @@ public static class Loc
         ? $"Analyzing {done}/{total}"
         : $"分析中 {done}/{total}";
     public static string AiReportDegraded(string reason) => IsEn
-        ? $"Partial result ({reason})"
-        : $"部分结果不可用（{reason}）";
+        ? $"Partial result: {DegradedLabelEn(reason)}"
+        : $"部分结果不可用：{DegradedLabelZh(reason)}";
+    private static string DegradedLabelZh(string reason) => reason switch
+    {
+        "total_clamped" => "可回收总量超过可用空间，已按比例收缩",
+        "call_failed" => "有批次调用失败",
+        "call_failed_retryable" => "有批次调用失败（可重试）",
+        "parse_failed" => "有批次返回的格式不对",
+        "budget" => "输入预算用尽，后面的批次没有分析",
+        "reasoning_only" => "有批次只回了思考、没有正文（换 deepseek-chat 更稳）",
+        _ => reason,
+    };
+    private static string DegradedLabelEn(string reason) => reason switch
+    {
+        "total_clamped" => "total reclaimed exceeded free space and was scaled down",
+        "call_failed" => "some batches failed",
+        "call_failed_retryable" => "some batches failed (retryable)",
+        "parse_failed" => "some batches returned an unusable format",
+        "budget" => "input budget ran out before the later batches",
+        "reasoning_only" => "some batches returned thinking only, no text (deepseek-chat is safer)",
+        _ => reason,
+    };
     public static string AiReportEmpty => IsEn
         ? "No folder stood out in this scan."
         : "这次扫描没有发现值得关注的目录。";

@@ -156,6 +156,24 @@ public sealed class AgentReportService
             result.Usage = new ChatUsage(
                 result.Usage.InputTokens + response.Usage.InputTokens,
                 result.Usage.OutputTokens + response.Usage.OutputTokens);
+
+            // 推理模型（DeepSeek V4 Flash 一类）可能把 max_tokens 全用在思考上：
+            // 这批只有 reasoning_content，没有可解析的正文。不能当成「解析失败」，
+            // 否则用户只会看到一句含糊的 parse_failed。
+            if (string.IsNullOrWhiteSpace(response.Content))
+            {
+                result.Warnings.Add($"第 {b + 1} 批只回了思考、没有正文；换对话模型（如 deepseek-chat）或调大输出额度。");
+                degraded ??= "reasoning_only";
+                if (succeeded == 0 && b == batches.Count - 1)
+                {
+                    result.Ok = false;
+                    result.Error = "模型没有返回正文（思考占满了输出额度）。";
+                    result.ErrorKind = ChatErrorKind.Protocol;
+                    return result;
+                }
+                continue;
+            }
+
             result.RawOutputs.Add(Truncate(response.Content, 8000));
 
             var parsed = ReportParser.Parse(response.Content, session, batches[b]);

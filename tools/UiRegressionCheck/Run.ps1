@@ -207,6 +207,18 @@ Assert-True 'a failed model fetch keeps manual entry and only shows a hint' `
     ($cs -match 'SetModelsHint\(Loc\.AiModelsFailed' -and
      $loc -match 'AiModelsFailed' -and
      $cs -notmatch 'throw new InvalidOperationException\(Loc\.AiModelsFailed')
+Assert-True 'long test results wrap inside the dialog' `
+    ($xaml -notmatch '(?s)<StackPanel Orientation="Horizontal">\s*<Button x:Name="AiTestBtn"' -and
+     $xaml -match 'x:Name="AiTestHint" Grid\.Column="1"')
+Assert-True 'the address placeholder is a chat endpoint, not the old router path' `
+    ($xaml -match 'Tag="https://api\.deepseek\.com/v1"')
+Assert-True 'reasoning-only replies count as a working connection' `
+    ($aiconfig -match 'reply\.Reasoning')
+Assert-True 'an empty reply is diagnosed as a model issue, not a wrong endpoint' `
+    ($aiconfig -match 'AiDiagnosticKind\.Model' -and
+     $aiconfig -match 'LooksLikeEmptyReply')
+Assert-True 'a failed connection is named as failed, not merely untested' `
+    ($cs -match 'AiLampFailed' -and $loc -match 'AiLampFailed')
 $iLamp = $xaml.IndexOf('x:Name="AiLampButton"', [StringComparison]::Ordinal)
 $iGear = $xaml.IndexOf('x:Name="SettingsButton"', [StringComparison]::Ordinal)
 Assert-True 'the AI lamp lives in the top bar, before the settings gear' `
