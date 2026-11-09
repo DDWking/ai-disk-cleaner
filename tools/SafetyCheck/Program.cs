@@ -35,6 +35,7 @@ public static class Program
         ApiKeyEncryptionTests();
         SettingsMigrationTests();
         ModelCatalogTests();
+        AiLampSettingsTests();
         StagedDuplicateTests();
         CoordinatorTests();
         WorkStateTests();
@@ -735,6 +736,34 @@ public static class Program
 
         var errorBody = ChatModelCatalog.Parse("""{"error":{"message":"invalid api key"}}""");
         Check("错误体不会被误当成模型列表", !errorBody.Ok, errorBody.Error);
+    }
+
+    // ---------------------------------------------------------------- 顶栏 AI 灯
+
+    static void AiLampSettingsTests()
+    {
+        Section("AI 灯：测试结果跨重启");
+
+        var p = new AiProviderCfg
+        {
+            Id = "p1",
+            Name = "ds",
+            BaseUrl = "https://api.deepseek.com/v1",
+            Models = { "deepseek-chat" },
+            ApiKey = "sk-secret-value",
+            Health = AiProviderHealth.Ok,
+        };
+        string json = System.Text.Json.JsonSerializer.Serialize(p);
+        Check("健康状态写进 settings（重启后仍能亮绿灯）",
+            json.Contains("\"Health\":\"Ok\""), json);
+        Check("健康状态落盘时密钥仍不出现", !json.Contains("sk-secret-value"));
+
+        var back = System.Text.Json.JsonSerializer.Deserialize<AiProviderCfg>(json)!;
+        Check("健康状态能读回", back.Health == AiProviderHealth.Ok, back.Health.ToString());
+
+        var failed = new AiProviderCfg { Health = AiProviderHealth.Failed, LastError = "HTTP 401" };
+        string failedJson = System.Text.Json.JsonSerializer.Serialize(failed);
+        Check("失败原因也落盘（顶栏黄灯能解释原因）", failedJson.Contains("HTTP 401"), failedJson);
     }
 
     // ---------------------------------------------------------------- 重复文件分阶段哈希

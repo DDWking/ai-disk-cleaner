@@ -7,7 +7,11 @@ namespace AiDiskCleaner.Services;
 
 public enum AppLang { Zh, En }
 
-/// <summary>供应商这次运行期间的连通性状态。只活在内存里，不落盘。</summary>
+/// <summary>
+/// 供应商最近一次连接测试的结果。会落盘（settings.json）：
+/// 顶栏那盏灯重启后仍能显示「上次测试通过」，直到用户改配置或再测失败。
+/// </summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
 public enum AiProviderHealth { Unknown, Ok, Failed }
 
 public sealed class AiProviderCfg
@@ -42,11 +46,10 @@ public sealed class AiProviderCfg
     [System.Text.Json.Serialization.JsonIgnore]
     public string CustomLabel => Loc.AiCustomTag;
 
-    /// <summary>本次运行内「测试连接」的结果；不落盘，重启后回到 Unknown。</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
+    /// <summary>最近一次「测试连接」的结果；落盘，顶栏的 AI 灯靠它保持绿/黄。</summary>
     public AiProviderHealth Health { get; set; }
 
-    [System.Text.Json.Serialization.JsonIgnore]
+    /// <summary>最近一次测试失败的人话原因（不含密钥），供顶栏提示用。</summary>
     public string LastError { get; set; } = "";
 
     /// <summary>界面用：是不是 AI 分析当前使用的那家（由 LoadAiFields 重新计算）。</summary>

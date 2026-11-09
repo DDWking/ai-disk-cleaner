@@ -134,6 +134,21 @@ public static class Loc
         ? "No API key (local relays can leave it empty)"
         : "未填 API 密钥（本地中转可留空）";
     public static string AiStatusFailed => IsEn ? "Last test failed" : "上次测试失败";
+    // ---- 顶栏 AI 状态灯 ----
+    public static string AiLampOff => IsEn ? "AI off" : "AI 未接入";
+    public static string AiLampOffTip => IsEn
+        ? "No provider configured yet. Click to set one up."
+        : "还没有可用的提供方，点这里去设置。";
+    public static string AiLampUntested => IsEn ? "AI untested" : "AI 未测试";
+    public static string AiLampUntestedTip => IsEn
+        ? "Provider configured but not verified yet. Click to test the connection."
+        : "提供方已填写，但还没验证；点这里测试连接。";
+    public static string AiLampFailedTip(string why) => IsEn
+        ? $"Last test failed: {why}. Click to check the settings."
+        : $"上次测试失败：{why}。点这里检查设置。";
+    public static string AiLampOkTip(string name, string model) => IsEn
+        ? $"{name} · {model} · connection verified"
+        : $"{name} · {model} · 连接测试已通过";
     public static string AiEdit => IsEn ? "Edit" : "编辑";
     public static string AiCustomTag => IsEn ? "custom" : "自定义";
     public static string AiAddCustom => IsEn ? "+ Add custom provider" : "+ 添加自定义提供方";

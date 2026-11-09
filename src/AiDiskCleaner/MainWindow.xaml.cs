@@ -406,6 +406,7 @@ public partial class MainWindow : Window
         AiAddProvBtn.Content = Loc.AiAddCustom;
         UpdateDecisionsHint();
         RefreshAiLamp();   // 忙状态行（清理页）随语言与配置一起刷新
+        UpdateAiLamp();
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_root == null)
@@ -1421,6 +1422,7 @@ public partial class MainWindow : Window
         AiProvCards.ItemsSource = App.Settings.AiProviders.ToList();
         UpdateAiActiveStrip();
         RefreshAiLamp();
+        UpdateAiLamp();
     }
 
     /// <summary>
@@ -1472,6 +1474,38 @@ public partial class MainWindow : Window
     static System.Windows.Media.Brush AiStatusBrush(string hex)
         => new System.Windows.Media.SolidColorBrush(
             (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex));
+
+    /// <summary>
+    /// 顶栏 AI 状态灯：红=没接入，黄=接入但没通过测试（含上次失败），绿=通过并显示模型名。
+    /// 只依据「当前供应商 + 最近一次测试结果」，不主动发请求。
+    /// </summary>
+    void UpdateAiLamp()
+    {
+        if (AiLampDot == null || AiLampText == null) return;
+        var p = App.Settings.DecisionProvider();
+        if (p == null || !p.Configured)
+        {
+            AiLampDot.Fill = AiStatusBrush("#E07070");
+            AiLampText.Text = Loc.AiLampOff;
+            AiLampButton.ToolTip = Loc.AiLampOffTip;
+            return;
+        }
+        if (p.Health != AiProviderHealth.Ok)
+        {
+            AiLampDot.Fill = AiStatusBrush("#E0B050");
+            AiLampText.Text = Loc.AiLampUntested;
+            AiLampButton.ToolTip = p.Health == AiProviderHealth.Failed && p.LastError.Length > 0
+                ? Loc.AiLampFailedTip(p.LastError)
+                : Loc.AiLampUntestedTip;
+            return;
+        }
+        AiLampDot.Fill = AiStatusBrush("#3ECF6A");
+        AiLampText.Text = p.ModelLabel;
+        AiLampButton.ToolTip = Loc.AiLampOkTip(p.Name, p.ModelLabel);
+    }
+
+    /// <summary>点顶栏的灯直接进设置：用户不需要先找齿轮。</summary>
+    private void AiLamp_Click(object sender, RoutedEventArgs e) => SettingsButton_Click(sender, e);
 
     /// <summary>在供应商列表里点圆点：切换 AI 分析使用的那家。</summary>
     private void AiUseProv_Click(object sender, RoutedEventArgs e)
@@ -1568,6 +1602,7 @@ public partial class MainWindow : Window
         WriteProv(p);
         App.Settings.Save();
         RefreshAiLamp();
+        UpdateAiLamp();
     }
 
     static AiProviderCfg NewProv()
@@ -1714,6 +1749,10 @@ public partial class MainWindow : Window
     /// </summary>
     void WriteProv(AiProviderCfg p)
     {
+        string oldUrl = p.BaseUrl;
+        string oldKey = p.ApiKey;
+        string oldModel = p.ModelLabel;
+
         p.Name = AiNameBox.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(p.Name)) p.Name = p.Id;
         p.BaseUrl = AiUrlBox.Text?.Trim() ?? "";
@@ -1727,9 +1766,16 @@ public partial class MainWindow : Window
             p.Models.RemoveAll(m => string.Equals(m, model, StringComparison.OrdinalIgnoreCase));
             p.Models.Insert(0, model);
         }
-        // 改了地址/密钥/模型，之前的测试结论就不作数了。
-        p.Health = AiProviderHealth.Unknown;
-        p.LastError = "";
+        // 只有连接相关的地址/密钥/模型真的变了，之前的测试结论才作废。
+        // 只改名字或切换语言时不要清掉绿/黄灯。
+        bool changed = !string.Equals(oldUrl, p.BaseUrl, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(oldKey, p.ApiKey, StringComparison.Ordinal)
+                    || !string.Equals(oldModel, p.ModelLabel, StringComparison.OrdinalIgnoreCase);
+        if (changed)
+        {
+            p.Health = AiProviderHealth.Unknown;
+            p.LastError = "";
+        }
     }
 
     private void AiAddProv_Click(object sender, RoutedEventArgs e)
@@ -1799,6 +1845,7 @@ public partial class MainWindow : Window
             {
                 provider.Health = AiProviderHealth.Ok;
                 provider.LastError = "";
+                App.Settings.Save();   // 顶栏绿灯要跨重启保持
             }
             sw.Stop();
             AiTestHint.Text = Loc.AiTestSuccess + " · "
@@ -1820,6 +1867,7 @@ public partial class MainWindow : Window
             {
                 provider.Health = AiProviderHealth.Failed;
                 provider.LastError = diagnosis.Summary;
+                App.Settings.Save();   // 让顶栏黄灯与失败原因跨重启可见
             }
             AiTestHint.Text = diagnosis.Summary;
             AiDiagnosticNext.Text = diagnosis.NextStep + "\n" + AppError.Trim("technical", ex);
@@ -1830,6 +1878,7 @@ public partial class MainWindow : Window
             _aiBusy = false;
             AiTestBtn.IsEnabled = true;
             RefreshAiLamp();
+            UpdateAiLamp();
             // 回到列表时状态点要立刻变（黄→绿/红），不能等下次打开设置。
             if (SettingsBody.Visibility == Visibility.Visible) LoadAiFields();
             else UpdateAiActiveStrip();

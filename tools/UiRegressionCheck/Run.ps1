@@ -207,6 +207,20 @@ Assert-True 'a failed model fetch keeps manual entry and only shows a hint' `
     ($cs -match 'SetModelsHint\(Loc\.AiModelsFailed' -and
      $loc -match 'AiModelsFailed' -and
      $cs -notmatch 'throw new InvalidOperationException\(Loc\.AiModelsFailed')
+$iLamp = $xaml.IndexOf('x:Name="AiLampButton"', [StringComparison]::Ordinal)
+$iGear = $xaml.IndexOf('x:Name="SettingsButton"', [StringComparison]::Ordinal)
+Assert-True 'the AI lamp lives in the top bar, before the settings gear' `
+    ($iLamp -gt 0 -and $iGear -gt 0 -and $iLamp -lt $iGear)
+Assert-True 'the lamp is red when unconfigured, yellow when untested, green with the model name' `
+    ($cs -match 'void UpdateAiLamp' -and
+     $cs -match '#E07070' -and $cs -match '#E0B050' -and $cs -match '#3ECF6A' -and
+     $cs -match 'AiLampText\.Text = p\.ModelLabel')
+Assert-True 'clicking the lamp opens settings' `
+    ($cs -match 'AiLamp_Click' -and $cs -match 'SettingsButton_Click\(sender, e\)')
+Assert-True 'the lamp result survives a restart (health is persisted, key is not)' `
+    ($settings -match 'public AiProviderHealth Health' -and
+     $settings -notmatch '\[JsonIgnore\]\s*\r?\n\s*public AiProviderHealth Health' -and
+     $settings -match 'JsonStringEnumConverter')
 
 # --- 6. AI report is an interactive suggestion sheet (folder page only) ------
 $iOrgPane = $xaml.IndexOf('x:Name="OrganizePane"', [StringComparison]::Ordinal)

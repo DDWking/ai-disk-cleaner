@@ -1163,6 +1163,18 @@
                    VerticalAlignment="Center" HorizontalAlignment="Right" Margin="8,0,12,0"
                    TextTrimming="CharacterEllipsis"/>
         <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
+          <!-- v3.1：顶栏 AI 状态灯。红=没接入，黄=接入但没通过测试，绿=通过并显示模型名。
+               点它直接打开设置页，省得用户找齿轮。 -->
+          <Button x:Name="AiLampButton" Style="{StaticResource ChipButton}" Margin="0,0,8,0"
+                  Click="AiLamp_Click" AutomationProperties.Name="AI 连接状态"
+                  WindowChrome.IsHitTestVisibleInChrome="True">
+            <StackPanel Orientation="Horizontal">
+              <Ellipse x:Name="AiLampDot" Width="8" Height="8" Margin="0,0,6,0"
+                       VerticalAlignment="Center" Fill="#E07070"/>
+              <TextBlock x:Name="AiLampText" FontSize="11" VerticalAlignment="Center"
+                         MaxWidth="150" TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+          </Button>
           <!-- v3.0：顶栏那枚 AI 常驻胶囊删掉了。判定只服务「按文件夹删除」一页，
                而那一页自己有进度与结果面板 —— 常驻胶囊是重复的第二份指示，
                它以前显示的还是聊天模型 id，现在连「聊天模型」这个概念都没有了。 -->
