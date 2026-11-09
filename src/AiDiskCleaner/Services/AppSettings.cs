@@ -7,6 +7,9 @@ namespace AiDiskCleaner.Services;
 
 public enum AppLang { Zh, En }
 
+/// <summary>供应商这次运行期间的连通性状态。只活在内存里，不落盘。</summary>
+public enum AiProviderHealth { Unknown, Ok, Failed }
+
 public sealed class AiProviderCfg
 {
     public string Id { get; set; } = "";
@@ -38,6 +41,48 @@ public sealed class AiProviderCfg
     public string DeleteLabel => Loc.AiDelProvider;
     [System.Text.Json.Serialization.JsonIgnore]
     public string CustomLabel => Loc.AiCustomTag;
+
+    /// <summary>本次运行内「测试连接」的结果；不落盘，重启后回到 Unknown。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public AiProviderHealth Health { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string LastError { get; set; } = "";
+
+    /// <summary>界面用：是不是 AI 分析当前使用的那家（由 LoadAiFields 重新计算）。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsActive { get; set; }
+
+    /// <summary>地址和模型都有才算「配置完整」；密钥可以为空（本地中转常见）。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool Configured =>
+        !string.IsNullOrWhiteSpace(BaseUrl)
+        && Models.Any(m => !string.IsNullOrWhiteSpace(m));
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ModelLabel =>
+        Models.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m))?.Trim() ?? "";
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ActiveLabel => Loc.AiInUse;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string UseTip => Loc.AiUseThis;
+
+    /// <summary>灰=未选择供应商；黄=配置不完整 / 还没测过；绿=测试通过；红=测试失败。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string StatusKind =>
+        Health == AiProviderHealth.Ok ? "ok"
+        : Health == AiProviderHealth.Failed ? "fail"
+        : "warn";
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string StatusTip =>
+        !Configured ? Loc.AiStatusIncomplete
+        : Health == AiProviderHealth.Ok ? Loc.AiStatusReady
+        : Health == AiProviderHealth.Failed
+            ? Loc.AiStatusFailed + (LastError.Length > 0 ? " · " + LastError : "")
+        : Loc.AiStatusUntested + (HasStoredKey ? "" : " · " + Loc.AiStatusNoKey);
 }
 
 public sealed class AppSettings
@@ -90,8 +135,8 @@ public sealed class AppSettings
     }
 
     /// <summary>
-    /// 判定通道用哪个供应商：显式指定优先，否则第一个配了地址的。
-    /// （v3.0 起没有「协议」这个概念了 —— 聊天通道删掉之后，供应商只可能是判定端点。）
+    /// AI 分析使用哪家供应商：显式选择优先；没选过就退到第一个填了地址的。
+    /// 找不到（一个都没配地址）就返回 null，界面显示「未选择」，而不是偷偷用第一个。
     /// </summary>
     public AiProviderCfg? DecisionProvider()
     {
@@ -102,14 +147,25 @@ public sealed class AppSettings
             var byId = AiProviders.FirstOrDefault(p => p.Id == AiDecisionProviderId);
             if (byId != null) return byId;
         }
-        return AiProviders.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.BaseUrl))
-               ?? AiProviders[0];
+        return AiProviders.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.BaseUrl));
     }
 
+    /// <summary>切换「AI 分析使用」的供应商。这是唯一写入口，避免两个 active 字段各说各话。</summary>
+    public void SetActiveProvider(string? id)
+    {
+        AiDecisionProviderId = id ?? "";
+        AiActiveId = AiDecisionProviderId;   // 旧字段镜像，读老配置的人不会看到两个答案
+    }
+
+    /// <summary>
+    /// 模型跟供应商走：读当前供应商的模型表；只有老配置里还有「全局模型」时才回退。
+    /// </summary>
     public string DecisionModelId()
     {
-        if (!string.IsNullOrWhiteSpace(AiDecisionModel)) return AiDecisionModel.Trim();
-        return DecisionProvider()?.Models.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m))?.Trim() ?? "";
+        var p = DecisionProvider();
+        var model = p?.Models.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m))?.Trim();
+        if (!string.IsNullOrEmpty(model)) return model;
+        return AiDecisionModel.Trim();
     }
 
     /// <summary>批量用途判定能不能用：地址和模型都得有。密钥可以为空（本地中转常见）。</summary>
@@ -151,6 +207,23 @@ public sealed class AppSettings
         }
 
         NormalizeProtocols();
+        EnsureActiveProviderHasModel();
+    }
+
+    /// <summary>
+    /// 把老配置里的「全局模型」补进当前供应商的模型表，让「模型跟供应商走」升级后不空。
+    /// 只在当前供应商一条模型都没有时补，已经有模型的不动。
+    /// </summary>
+    private void EnsureActiveProviderHasModel()
+    {
+        // 这里不能调 DecisionProvider()：它会再触发 Migrate()，形成无限递归。
+        AiProviderCfg? p = null;
+        if (!string.IsNullOrWhiteSpace(AiDecisionProviderId))
+            p = AiProviders.FirstOrDefault(x => x.Id == AiDecisionProviderId);
+        p ??= AiProviders.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.BaseUrl));
+        if (p == null || p.Models.Any(m => !string.IsNullOrWhiteSpace(m))) return;
+        string legacy = !string.IsNullOrWhiteSpace(AiDecisionModel) ? AiDecisionModel.Trim() : AiModel.Trim();
+        if (legacy.Length > 0) p.Models.Add(legacy);
     }
 
     /// <summary>

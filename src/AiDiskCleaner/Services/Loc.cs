@@ -121,8 +121,19 @@ public static class Loc
         : "诊断文件写不出来。";
     public static string AiSection => IsEn ? "Providers" : "提供方";
     public static string AiSectionHint => IsEn
-        ? "Add providers, then pick a model in the chat pane."
-        : "添加提供方后，在分析栏里选模型。";
+        ? "Add providers, then click a dot to choose the one AI analysis uses."
+        : "添加提供方后，点左侧圆点切换 AI 分析使用的那一家。";
+    public static string AiActiveTitle => IsEn ? "AI analysis uses" : "AI 分析使用";
+    public static string AiActiveNone => IsEn ? "No provider selected" : "未选择提供方";
+    public static string AiInUse => IsEn ? "in use" : "使用中";
+    public static string AiUseThis => IsEn ? "Use this provider for AI analysis" : "设为 AI 分析使用的提供方";
+    public static string AiStatusReady => IsEn ? "Ready" : "已就绪";
+    public static string AiStatusUntested => IsEn ? "Not tested yet" : "还没测试";
+    public static string AiStatusIncomplete => IsEn ? "Missing API URL or model" : "缺接口地址或模型";
+    public static string AiStatusNoKey => IsEn
+        ? "No API key (local relays can leave it empty)"
+        : "未填 API 密钥（本地中转可留空）";
+    public static string AiStatusFailed => IsEn ? "Last test failed" : "上次测试失败";
     public static string AiEdit => IsEn ? "Edit" : "编辑";
     public static string AiCustomTag => IsEn ? "custom" : "自定义";
     public static string AiAddCustom => IsEn ? "+ Add custom provider" : "+ 添加自定义提供方";

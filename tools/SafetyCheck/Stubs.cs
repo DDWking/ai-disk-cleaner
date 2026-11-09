@@ -113,6 +113,13 @@ namespace AiDiskCleaner.Services
         public static string AiEdit => "edit";
         public static string AiDelProvider => "delete";
         public static string AiCustomTag => "custom";
+        public static string AiInUse => "in use";
+        public static string AiUseThis => "use this provider";
+        public static string AiStatusReady => "ready";
+        public static string AiStatusUntested => "not tested yet";
+        public static string AiStatusIncomplete => "missing URL or model";
+        public static string AiStatusNoKey => "no API key";
+        public static string AiStatusFailed => "last test failed";
         // 逐项 AI 文案（离线测试只断言状态语义）
         public static string PurposeUnclear => "purpose unclear";
         // 本地候选项分组文案

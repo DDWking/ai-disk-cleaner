@@ -181,6 +181,22 @@ Assert-True 'the Jev decision channel is gone from source and composition root' 
      $cs -notmatch 'AiGateway|DecisionRunner' -and $app -notmatch 'AiGateways')
 Assert-True 'historical protocol values normalize to chat' `
     ($settings -match 'NormalizeProtocols' -and $settings -match 'ChatProtocol')
+Assert-True 'the settings page shows which provider AI analysis uses, with a one-click switch' `
+    ($xaml -match 'x:Name="AiActiveTitle"' -and $xaml -match 'x:Name="AiActiveName"' -and
+     $xaml -match 'x:Name="AiActiveModel"' -and $xaml -match 'x:Name="AiActiveStatus"' -and
+     $xaml -match 'x:Name="AiActiveDot"' -and
+     $xaml -match 'GroupName="AiActiveProv"' -and $xaml -match 'Click="AiUseProv_Click"' -and
+     $cs -match 'AiUseProv_Click' -and $cs -match 'SetActiveProvider' -and
+     $cs -match 'UpdateAiActiveStrip')
+Assert-True 'the provider dot reflects health instead of a hard-coded green' `
+    ($xaml -match 'Binding="\{Binding StatusKind\}"' -and
+     $xaml -match 'ToolTip="\{Binding StatusTip\}"' -and
+     $settings -match 'StatusKind' -and $settings -match 'StatusTip')
+Assert-True 'the model travels with each provider (no shared global model write)' `
+    ($cs -match 'p\.Models\.RemoveAll' -and $cs -match 'p\.Models\.Insert' -and
+     $cs -notmatch 'AiDecisionModel\s*=')
+Assert-True 'switching provider cancels an in-flight report from the old provider' `
+    ($cs -match 'private void AiUseProv_Click' -and $cs -match 'CancelAgentReport\(\)')
 
 # --- 6. AI report is an interactive suggestion sheet (folder page only) ------
 $iOrgPane = $xaml.IndexOf('x:Name="OrganizePane"', [StringComparison]::Ordinal)

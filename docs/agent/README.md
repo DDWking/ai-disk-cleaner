@@ -42,6 +42,7 @@
 | `src/AiDiskCleaner/Services/Agent/` | `PromptBuilder`（`cleanup-report-v1`）/ `ReportParser` / `ReportAssembler` / `AgentReportService`（L1 分批编排） |
 | `src/AiDiskCleaner/MainWindow.AgentReport.cs` | 「按文件夹删除」页页头的「AI 分析」入口 + 可交互报告；条目只有「去处理」：切到文件夹页并定位高亮，**不改勾选、不删除** |
 | `src/AiDiskCleaner/Services/AiConfigurationService.cs` | 设置页改为聊天配置：DeepSeek / OpenAI 兼容 / Ollama 模板 + 真实连通性测试 |
+| 设置页供应商列表 | 顶部状态条显示「AI 分析使用」哪家；每行一个单选圆点，一键切换；模型跟着供应商走；状态点如实反映 未测/就绪/失败 |
 | 删除 | Jev 判定通道整条移除（`AiClient`/`AiGateway*`/`AiPurposeBatchService`/`DecisionRunner`/`Jev*`/`AiPurposeCriteria` 及对应 UI 与测试） |
 | `tools/AgentReportCheck/` | 53 条离线检查（提示词脱敏、解析校验、组装、编排、失败降级），已接入 runner |
 

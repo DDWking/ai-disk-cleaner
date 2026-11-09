@@ -643,7 +643,43 @@ public static class Program
                 s3.DecisionProvider()?.Id == "pold" && s3.DecisionConfigured(),
                 $"{s3.DecisionProvider()?.Id ?? "(none)"} configured={s3.DecisionConfigured()}");
 
-            // ---- 3) 坏文件不能让程序起不来 ----
+            // ---- 3) 供应商切换：模型跟供应商走，active 字段只有一个答案 ----
+            File.WriteAllText(AppPaths.SettingsFile, """
+                {
+                  "AiDecisionProviderId": "a",
+                  "AiProviders": [
+                    { "Id": "a", "Name": "A", "BaseUrl": "https://a.example/v1", "Models": ["model-a"] },
+                    { "Id": "b", "Name": "B", "BaseUrl": "https://b.example/v1", "Models": ["model-b"] }
+                  ]
+                }
+                """);
+            var s5 = AppSettings.Load();
+            Check("当前供应商的模型优先（不会被上一家的全局模型串台）",
+                s5.DecisionModelId() == "model-a", s5.DecisionModelId());
+            s5.SetActiveProvider("b");
+            Check("SetActiveProvider 同时写 AiDecisionProviderId 与 AiActiveId",
+                s5.AiDecisionProviderId == "b" && s5.AiActiveId == "b",
+                $"decision={s5.AiDecisionProviderId} active={s5.AiActiveId}");
+            Check("切换供应商后模型跟着变", s5.DecisionModelId() == "model-b", s5.DecisionModelId());
+
+            // 一个填了地址的都没有：界面应显示「未选择」，而不是偷偷用第一个没配好的。
+            File.WriteAllText(AppPaths.SettingsFile, """
+                {
+                  "AiProviders": [
+                    { "Id": "x", "Name": "没地址", "Models": ["model-x"] }
+                  ]
+                }
+                """);
+            var s6 = AppSettings.Load();
+            Check("没有任何供应商填了地址时，返回未选择（不偷偷用第一个）",
+                s6.DecisionProvider() == null && !s6.DecisionConfigured(),
+                s6.DecisionProvider()?.Id ?? "(none)");
+            Check("不完整的供应商用黄点提示（缺地址或模型），而不是假装就绪",
+                s6.AiProviders[0].StatusKind == "warn"
+                && s6.AiProviders[0].StatusTip == Loc.AiStatusIncomplete,
+                $"{s6.AiProviders[0].StatusKind}: {s6.AiProviders[0].StatusTip}");
+
+            // ---- 4) 坏文件不能让程序起不来 ----
             File.WriteAllText(AppPaths.SettingsFile, "{ 这不是 json");
             var s4 = AppSettings.Load();
             Check("设置文件坏了退回默认设置，不抛异常", s4.AiProviders.Count == 0);

@@ -208,6 +208,9 @@ public partial class MainWindow : Window
     private bool _aiBusy;
     private bool _aiPresetLoading;
 
+    /// <summary>设置页正在编辑哪一家。与「AI 分析使用哪家」分开，编辑 B 不会偷偷切换当前供应商。</summary>
+    private AiProviderCfg? _provEditTarget;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -1410,15 +1413,78 @@ public partial class MainWindow : Window
     void LoadAiFields()
     {
         App.Settings.Migrate();
+        var activeId = App.Settings.DecisionProvider()?.Id;
+        foreach (var p in App.Settings.AiProviders) p.IsActive = p.Id == activeId;
         AiProvCards.ItemsSource = null;
         AiProvCards.ItemsSource = App.Settings.AiProviders.ToList();
+        UpdateAiActiveStrip();
         RefreshAiLamp();
+    }
+
+    /// <summary>
+    /// 顶部「AI 分析使用」状态条：名字 + 模型 + 真实状态（不是写死的绿点）。
+    /// </summary>
+    void UpdateAiActiveStrip()
+    {
+        var p = App.Settings.DecisionProvider();
+        if (AiActiveTitle != null) AiActiveTitle.Text = Loc.AiActiveTitle;
+        if (p == null)
+        {
+            if (AiActiveName != null) AiActiveName.Text = Loc.AiActiveNone;
+            if (AiActiveModel != null) AiActiveModel.Text = "";
+            if (AiActiveStatus != null) AiActiveStatus.Text = Loc.AiStatusIncomplete;
+            if (AiActiveDot != null) AiActiveDot.Fill = AiStatusBrush("#8A8A8A");
+            return;
+        }
+
+        if (AiActiveName != null) AiActiveName.Text = p.Name;
+        if (AiActiveModel != null)
+            AiActiveModel.Text = p.ModelLabel.Length > 0 ? "· " + p.ModelLabel : "";
+
+        string status;
+        string color;
+        if (!p.Configured)
+        {
+            status = Loc.AiStatusIncomplete;
+            color = "#8A8A8A";
+        }
+        else if (p.Health == AiProviderHealth.Ok)
+        {
+            status = Loc.AiStatusReady;
+            color = "#3ECF6A";
+        }
+        else if (p.Health == AiProviderHealth.Failed)
+        {
+            status = Loc.AiStatusFailed + (p.LastError.Length > 0 ? " · " + p.LastError : "");
+            color = "#E07070";
+        }
+        else
+        {
+            status = Loc.AiStatusUntested + (p.HasStoredKey ? "" : " · " + Loc.AiStatusNoKey);
+            color = "#E0B050";
+        }
+        if (AiActiveStatus != null) AiActiveStatus.Text = status;
+        if (AiActiveDot != null) AiActiveDot.Fill = AiStatusBrush(color);
+    }
+
+    static System.Windows.Media.Brush AiStatusBrush(string hex)
+        => new System.Windows.Media.SolidColorBrush(
+            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex));
+
+    /// <summary>在供应商列表里点圆点：切换 AI 分析使用的那家。</summary>
+    private void AiUseProv_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton { Tag: AiProviderCfg p }) return;
+        App.Settings.SetActiveProvider(p.Id);
+        App.Settings.Save();
+        // 供应商变了，正在跑的报告可能来自上一家：取消，避免结果串台。
+        CancelAgentReport();
+        LoadAiFields();
     }
 
     void OpenProvEdit(AiProviderCfg p)
     {
-        App.Settings.AiActiveId = p.Id;
-        App.Settings.Save();
+        _provEditTarget = p;
         SettingsBody.Visibility = Visibility.Collapsed;
         ProvEditBody.Visibility = Visibility.Visible;
         AboutBody.Visibility = Visibility.Collapsed;
@@ -1444,9 +1510,8 @@ public partial class MainWindow : Window
             UpdatePresetHint();
         }
         AiKeyBox.Password = p?.ApiKey ?? "";
-        // 显示**实际会用**的模型：DecisionModelId() 在没有显式指定时会退到该供应商模型表的第一个，
-        // 让用户看见真值，而不是一个空框 + 一个看不见的回退。
-        AiDecisionModelBox.Text = App.Settings.DecisionModelId();
+        // 显示这一家自己的模型（跟供应商走）；不再用全局 DecisionModelId，否则编辑 B 会看到 A 的模型。
+        AiDecisionModelBox.Text = p?.ModelLabel ?? "";
         if (AiKeyHint != null)
         {
             AiKeyHint.Text = !SecretProtector.Available
@@ -1483,7 +1548,7 @@ public partial class MainWindow : Window
     {
         UpdatePresetHint();
         if (_aiPresetLoading || AiPresetBox?.SelectedItem is not AiSetupPresetInfo preset) return;
-        if (App.Settings.CurrentProvider() is { } active) active.Protocol = preset.Protocol;
+        if (_provEditTarget is { } active) active.Protocol = preset.Protocol;
         // 模板只给空白新配置填默认值，不能覆盖用户已经填写的第三方中转地址。
         if (string.IsNullOrWhiteSpace(AiUrlBox.Text)) AiUrlBox.Text = preset.BaseUrl;
         if (string.IsNullOrWhiteSpace(AiDecisionModelBox.Text)) AiDecisionModelBox.Text = preset.Model;
@@ -1495,7 +1560,7 @@ public partial class MainWindow : Window
     {
         if (AiUrlBox == null || ProvEditBody.Visibility != Visibility.Visible) return;
         App.Settings.Migrate();
-        var p = App.Settings.CurrentProvider();
+        var p = _provEditTarget;
         if (p == null) return;
         WriteProv(p);
         App.Settings.Save();
@@ -1548,17 +1613,17 @@ public partial class MainWindow : Window
     /// </summary>
     private void AiKeyClear_Click(object sender, RoutedEventArgs e)
     {
-        var p = App.Settings.CurrentProvider();
+        var p = _provEditTarget ?? App.Settings.DecisionProvider();
         if (p != null)
         {
             p.ApiKey = "";
             App.Settings.Save();
         }
         AiKeyBox.Password = "";
-        ShowProv(App.Settings.CurrentProvider());
+        ShowProv(p);
         AiTestHint.Text = Loc.AiKeyCleared;
         RefreshAiLamp();
-        AppLog.Info("Settings", "user cleared the stored API key for the active provider");
+        AppLog.Info("Settings", "user cleared the stored API key for the provider being edited");
     }
 
     /// <summary>
@@ -1578,16 +1643,25 @@ public partial class MainWindow : Window
         p.ApiKey = AiKeyBox.Password ?? "";
 
         string model = AiDecisionModelBox.Text?.Trim() ?? "";
-        App.Settings.AiDecisionModel = model;
-        if (!string.IsNullOrEmpty(model) && !p.Models.Contains(model, StringComparer.OrdinalIgnoreCase))
-            p.Models.Add(model);
+        if (!string.IsNullOrEmpty(model))
+        {
+            // 模型跟供应商走：写到这一家自己的模型表，不再改全局 AiDecisionModel（否则会串到别家）。
+            p.Models.RemoveAll(m => string.Equals(m, model, StringComparison.OrdinalIgnoreCase));
+            p.Models.Insert(0, model);
+        }
+        // 改了地址/密钥/模型，之前的测试结论就不作数了。
+        p.Health = AiProviderHealth.Unknown;
+        p.LastError = "";
     }
 
     private void AiAddProv_Click(object sender, RoutedEventArgs e)
     {
         var p = NewProv();
         App.Settings.AiProviders.Add(p);
-        App.Settings.AiActiveId = p.Id;
+        _provEditTarget = p;
+        // 一家都还没配时，新建的这家直接成为当前；已有当前的不抢。
+        if (App.Settings.DecisionProvider() == null)
+            App.Settings.SetActiveProvider(p.Id);
         App.Settings.Save();
         OpenProvEdit(p);
     }
@@ -1602,9 +1676,15 @@ public partial class MainWindow : Window
     {
         if (sender is not Button { Tag: AiProviderCfg p }) return;
         App.Settings.AiProviders.Remove(p);
-        if (App.Settings.AiActiveId == p.Id)
-            App.Settings.AiActiveId = App.Settings.AiProviders.FirstOrDefault()?.Id ?? "";
+        if (App.Settings.AiDecisionProviderId == p.Id)
+        {
+            // 删掉当前供应商：自动退到第一个还配了地址的；一个都没有就显示「未选择」。
+            var next = App.Settings.AiProviders.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.BaseUrl));
+            App.Settings.SetActiveProvider(next?.Id);
+        }
+        if (ReferenceEquals(_provEditTarget, p)) _provEditTarget = null;
         App.Settings.Save();
+        CancelAgentReport();
         LoadAiFields();
     }
 
@@ -1620,10 +1700,10 @@ public partial class MainWindow : Window
         using var op = StartOperation(ref _aiConfigCts, "AiConfig");
         var ct = op.Token;
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        var provider = _provEditTarget ?? App.Settings.DecisionProvider();
         try
         {
-            var provider = App.Settings.DecisionProvider();
-            var model = App.Settings.DecisionModelId();
+            var model = provider?.ModelLabel ?? App.Settings.DecisionModelId();
             if (provider == null || string.IsNullOrWhiteSpace(provider.BaseUrl) || string.IsNullOrWhiteSpace(model))
             {
                 var missing = AiConfigurationService.Missing(Loc.IsEn);
@@ -1636,6 +1716,11 @@ public partial class MainWindow : Window
             var client = ChatModelFactory.Create(provider.BaseUrl, model, provider.ApiKey);
             var reply = await client.CompleteAsync(request, ct);
             AiConfigurationService.ValidateProbe(reply, Loc.IsEn);
+            if (provider != null)
+            {
+                provider.Health = AiProviderHealth.Ok;
+                provider.LastError = "";
+            }
             sw.Stop();
             AiTestHint.Text = Loc.AiTestSuccess + " · "
                 + Loc.AiTestModel(reply.Model.Length > 0 ? reply.Model : model, sw.ElapsedMilliseconds);
@@ -1652,6 +1737,11 @@ public partial class MainWindow : Window
         {
             sw.Stop();
             var diagnosis = AiConfigurationService.Diagnose(ex, sw.ElapsedMilliseconds, Loc.IsEn);
+            if (provider != null)
+            {
+                provider.Health = AiProviderHealth.Failed;
+                provider.LastError = diagnosis.Summary;
+            }
             AiTestHint.Text = diagnosis.Summary;
             AiDiagnosticNext.Text = diagnosis.NextStep + "\n" + AppError.Trim("technical", ex);
             op.Fail(ex, "ai capability check");
@@ -1661,6 +1751,9 @@ public partial class MainWindow : Window
             _aiBusy = false;
             AiTestBtn.IsEnabled = true;
             RefreshAiLamp();
+            // 回到列表时状态点要立刻变（黄→绿/红），不能等下次打开设置。
+            if (SettingsBody.Visibility == Visibility.Visible) LoadAiFields();
+            else UpdateAiActiveStrip();
         }
     }
 
@@ -1722,8 +1815,8 @@ public partial class MainWindow : Window
     /// </summary>
     private string AiConfigSignature()
     {
-        var p = App.Settings.CurrentProvider();
-        return $"{p?.Id}|{p?.BaseUrl}|{App.Settings.AiModel}|{App.Settings.AiSendFullPaths}";
+        var p = App.Settings.DecisionProvider();
+        return $"{p?.Id}|{p?.BaseUrl}|{App.Settings.DecisionModelId()}|{App.Settings.AiSendFullPaths}";
     }
 
 

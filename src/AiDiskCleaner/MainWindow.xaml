@@ -2307,28 +2307,93 @@
                       Foreground="{DynamicResource Text}" FontSize="12"/>
             <TextBlock x:Name="AiFullPathHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
                        TextWrapping="Wrap" Margin="0,0,0,10"/>
+            <!-- 当前供应商：一眼看到 AI 分析用的是哪家；切换在下面每一行的圆点 -->
+            <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}"
+                    BorderThickness="1" Padding="12,10" Margin="0,0,0,10">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                  <TextBlock x:Name="AiActiveTitle" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,3"/>
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="AiActiveName" Foreground="{DynamicResource Accent}" FontSize="13"/>
+                    <TextBlock x:Name="AiActiveModel" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                               Margin="8,0,0,0" VerticalAlignment="Center"/>
+                  </StackPanel>
+                  <TextBlock x:Name="AiActiveStatus" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                             TextWrapping="Wrap" Margin="0,3,0,0"/>
+                </StackPanel>
+                <Ellipse x:Name="AiActiveDot" Grid.Column="1" Width="8" Height="8"
+                         VerticalAlignment="Top" Margin="8,4,0,0" Fill="#8A8A8A"/>
+              </Grid>
+            </Border>
             <ItemsControl x:Name="AiProvCards" Margin="0,0,0,10">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
                   <Border BorderBrush="{DynamicResource Border}" BorderThickness="1" Padding="12,10" Margin="0,0,0,8">
-                    <DockPanel>
-                      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                      </Grid.ColumnDefinitions>
+                      <RadioButton Grid.Column="0" GroupName="AiActiveProv" VerticalAlignment="Top"
+                                   Margin="0,2,8,0" Tag="{Binding}" Click="AiUseProv_Click"
+                                   IsChecked="{Binding IsActive, Mode=OneWay}"
+                                   ToolTip="{Binding UseTip}"/>
+                      <StackPanel Grid.Column="1">
+                        <StackPanel Orientation="Horizontal">
+                          <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Accent}" FontSize="13"
+                                     VerticalAlignment="Center"/>
+                          <Border Margin="8,0,0,0" Padding="6,1" BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                                  VerticalAlignment="Center">
+                            <TextBlock Text="{Binding CustomLabel}" Foreground="{DynamicResource TextMuted}" FontSize="10"/>
+                          </Border>
+                          <Border Margin="8,0,0,0" Padding="5,1" Background="{DynamicResource Accent}"
+                                  VerticalAlignment="Center">
+                            <Border.Style>
+                              <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                  <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                  </DataTrigger>
+                                </Style.Triggers>
+                              </Style>
+                            </Border.Style>
+                            <TextBlock Text="{Binding ActiveLabel}" Foreground="#101010" FontSize="10"/>
+                          </Border>
+                        </StackPanel>
+                        <TextBlock Text="{Binding ModelLabel}" Foreground="{DynamicResource TextMuted}" FontSize="11"
+                                   Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                      </StackPanel>
+                      <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top">
+                        <Ellipse Width="7" Height="7" Margin="0,6,10,0" VerticalAlignment="Top" ToolTip="{Binding StatusTip}">
+                          <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                              <Setter Property="Fill" Value="#8A8A8A"/>
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding StatusKind}" Value="ok">
+                                  <Setter Property="Fill" Value="#3ECF6A"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding StatusKind}" Value="warn">
+                                  <Setter Property="Fill" Value="#E0B050"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding StatusKind}" Value="fail">
+                                  <Setter Property="Fill" Value="#E07070"/>
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </Ellipse.Style>
+                        </Ellipse>
                         <Button Content="{Binding EditLabel}" Style="{StaticResource GhostButton}" Padding="10,3" FontSize="11" Margin="0,0,6,0"
                                 Click="AiEditProv_Click" Tag="{Binding}"/>
                         <Button Content="{Binding DeleteLabel}" Style="{StaticResource GhostButton}" Padding="10,3" FontSize="11" Foreground="#E07070"
                                 Click="AiDelProvCard_Click" Tag="{Binding}"/>
                       </StackPanel>
-                      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Accent}" FontSize="13"
-                                   VerticalAlignment="Center"/>
-                        <Border Margin="8,0,0,0" Padding="6,1" BorderBrush="{DynamicResource Border}" BorderThickness="1"
-                                VerticalAlignment="Center">
-                          <TextBlock Text="{Binding CustomLabel}" Foreground="{DynamicResource TextMuted}" FontSize="10"/>
-                        </Border>
-                        <Ellipse Width="7" Height="7" Margin="8,0,0,0" VerticalAlignment="Center"
-                                 Fill="#3ECF6A"/>
-                      </StackPanel>
-                    </DockPanel>
+                    </Grid>
                   </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
