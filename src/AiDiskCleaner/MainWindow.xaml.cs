@@ -10,6 +10,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
+using AiDiskCleaner.Services.Agent;
 using AiDiskCleaner.Services.CleanRules;
 using UninstallTools;
 using UninstallTools.Uninstaller;
@@ -338,6 +339,12 @@ public partial class MainWindow : Window
             CleanMoreBtn.ToolTip = Loc.MoreMenu;
             System.Windows.Automation.AutomationProperties.SetName(CleanMoreBtn, "更多操作");
         }
+        if (AiReportBtn != null)
+        {
+            AiReportBtnText.Text = Loc.AiReportBtn;
+            AiReportBtn.ToolTip = Loc.AiReportBtnTip;
+            System.Windows.Automation.AutomationProperties.SetName(AiReportBtn, Loc.AiReportBtn);
+        }
         // 底部「全选」是单个切换按钮：文字恒为 Loc.SelectAll，状态（幽灵 / 主按钮、
         // 提示、可访问名称、可用性）统一由 ApplySelectAllButton 维护，ApplyUi 之后
         // 会走 RefreshCleanUi → UpdateSelectionUi 把当前状态刷新一次。
@@ -554,6 +561,7 @@ public partial class MainWindow : Window
         // 开新扫描就把上一轮的清理结果和分层丢掉：
         // 否则「旧列表还挂在界面上」，用户可能照着过期清单去勾选删除。
         _report = null;
+        CancelAgentReport();
         _dupIncomplete = 0;
         _layerGeneration++;
         ClearCleanLayers();
@@ -1178,6 +1186,14 @@ public partial class MainWindow : Window
     {
         if (e.Key == Key.Escape)
         {
+            // 弹层在最上层：Esc 先关弹层（AI 报告 / 设置 / 确认框）
+            if (OverlayRoot.Visibility == Visibility.Visible)
+            {
+                HideOverlay();
+                e.Handled = true;
+                base.OnKeyDown(e);
+                return;
+            }
             // Esc 逐层返回：清理前检查页 → 文件明细。
             if (_onPreflightPage)
             {
@@ -1213,6 +1229,10 @@ public partial class MainWindow : Window
         AboutBody.Visibility = about ? Visibility.Visible : Visibility.Collapsed;
         SelectionBody.Visibility = selection ? Visibility.Visible : Visibility.Collapsed;
         RuleSelectBody.Visibility = ruleSelect ? Visibility.Visible : Visibility.Collapsed;
+        ReportBody.Visibility = Visibility.Collapsed;
+        // 报告弹层会把卡片加宽；普通弹层回到默认尺寸。
+        DialogCard.Width = 520;
+        DialogCard.MaxHeight = 680;
         AlertBody.Visibility = alert || confirm ? Visibility.Visible : Visibility.Collapsed;
         ConfirmButtons.Visibility = confirm || ruleSelect ? Visibility.Visible : Visibility.Collapsed;
         DialogClose.Visibility = confirm || ruleSelect ? Visibility.Collapsed : Visibility.Visible;
@@ -1280,6 +1300,13 @@ public partial class MainWindow : Window
             DialogTitle.Text = Loc.SettingsTitle;
             LoadAiFields();
             return;
+        }
+        if (ReportBody.Visibility == Visibility.Visible)
+        {
+            // 报告弹层是加宽过的，关掉时恢复默认尺寸，避免下次设置弹层也变宽
+            ReportBody.Visibility = Visibility.Collapsed;
+            DialogCard.Width = 520;
+            DialogCard.MaxHeight = 680;
         }
 
         int epoch = ++_overlayEpoch;
@@ -1440,7 +1467,7 @@ public partial class MainWindow : Window
                 && string.Equals(m, preset.Model, StringComparison.OrdinalIgnoreCase)
                 && (string.IsNullOrWhiteSpace(protocol) || string.Equals(protocol, preset.Protocol, StringComparison.OrdinalIgnoreCase))) return i;
         }
-        return AiConfigurationService.Presets.Count > 2 ? 2 : Math.Max(0, AiConfigurationService.Presets.Count - 1);
+        return Math.Max(0, AiConfigurationService.Presets.Count - 1);
     }
 
     private void UpdatePresetHint()
@@ -1547,8 +1574,7 @@ public partial class MainWindow : Window
         p.Name = AiNameBox.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(p.Name)) p.Name = p.Id;
         p.BaseUrl = AiUrlBox.Text?.Trim() ?? "";
-        p.Protocol = (AiPresetBox?.SelectedItem as AiSetupPresetInfo)?.Protocol ?? p.Protocol;
-        if (p.Protocol != "systemone") p.Protocol = "decisions";
+        p.Protocol = AiConfigurationService.ChatProtocol;
         p.ApiKey = AiKeyBox.Password ?? "";
 
         string model = AiDecisionModelBox.Text?.Trim() ?? "";
@@ -1606,15 +1632,15 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var request = AiConfigurationService.BuildProbe(provider, model, Loc.IsEn);
-            JevLimits.Validate(request);
-            var reply = await AiGateway.DecideAsync(request, ct);
+            var request = AiConfigurationService.BuildProbe(provider.BaseUrl, model, Loc.IsEn);
+            var client = ChatModelFactory.Create(provider.BaseUrl, model, provider.ApiKey);
+            var reply = await client.CompleteAsync(request, ct);
             AiConfigurationService.ValidateProbe(reply, Loc.IsEn);
             sw.Stop();
-            var answer = reply.Answers["ok"];
-            AiTestHint.Text = Loc.AiTestSuccess + " · " + Loc.AiTestModel(reply.Model.Length > 0 ? reply.Model : model, sw.ElapsedMilliseconds);
-            AiDiagnosticNext.Text = Loc.AiTestOk(sw.ElapsedMilliseconds, reply.Model, answer.Noul ?? 0, reply.Cost);
-            op.Done("jev capability check ok");
+            AiTestHint.Text = Loc.AiTestSuccess + " · "
+                + Loc.AiTestModel(reply.Model.Length > 0 ? reply.Model : model, sw.ElapsedMilliseconds);
+            AiDiagnosticNext.Text = Loc.AiTestOk(sw.ElapsedMilliseconds, reply.Model.Length > 0 ? reply.Model : model);
+            op.Done("chat connectivity check ok");
         }
         catch (OperationCanceledException)
         {
@@ -1886,6 +1912,8 @@ public partial class MainWindow : Window
     private void RefreshCleanUi()
     {
         if (CleanPageTitle == null) return;
+        // AI 分析以扫描结果为前提：没报告时按钮不可点（点了也没东西可分析）
+        if (AiReportBtn != null) AiReportBtn.IsEnabled = _report != null;
         if (_report == null)
         {
             ClearCleanLayers();

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>AgentReportCheck</AssemblyName>
+    <RootNamespace>AgentReportCheck</RootNamespace>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Stubs.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" Link="FileEntry.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\ScanQuality.cs" Link="ScanQuality.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ProtectedPaths.cs" Link="ProtectedPaths.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppSignatures.cs" Link="AppSignatures.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\ScanSession.cs" Link="ScanSession.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\FolderIndex.cs" Link="FolderIndex.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\EvidenceCard.cs" Link="EvidenceCard.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\CandidateSelector.cs" Link="CandidateSelector.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\ReportModels.cs" Link="ReportModels.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\PromptBuilder.cs" Link="PromptBuilder.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\ReportParser.cs" Link="ReportParser.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\ReportAssembler.cs" Link="ReportAssembler.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\AgentReportService.cs" Link="AgentReportService.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\Chat\ChatModels.cs" Link="ChatModels.cs" />
+  </ItemGroup>
+</Project>

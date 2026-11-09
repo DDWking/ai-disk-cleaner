@@ -150,8 +150,8 @@ public static class Loc
     public static string AiSendFullPathsHint => IsEn
         ? "Off by default: paths go out as <UserProfile>\\AppData\\... so usernames stay local."
         : "默认关闭：路径会以 <UserProfile>\\AppData\\… 的形式发出，用户名不出本机。";
-    public static string AiTest => IsEn ? "Test Jev capability" : "测试 Jev 能力";
-    public static string AiSetupTitle => IsEn ? "Connect a Jev service" : "连接 Jev 服务";
+    public static string AiTest => IsEn ? "Test connection" : "测试连接";
+    public static string AiSetupTitle => IsEn ? "Connect an AI model" : "连接 AI 模型";
     public static string AiSetupHint => IsEn
         ? "Choose a template, then test it."
         : "选择模板，然后点击测试。";
@@ -167,21 +167,66 @@ public static class Loc
     public static string AiAdvancedHint => IsEn
         ? "Keys are encrypted when supported by Windows. Full paths are off by default."
         : "系统支持时，密钥会使用 Windows 加密保存。完整路径默认关闭。";
-    public static string AiProtocol(string protocol) => IsEn
-        ? (protocol == "systemone" ? "System One API" : "Decisions API")
-        : (protocol == "systemone" ? "System One API" : "Decisions API");
-    public static string AiTestSuccess => IsEn ? "Jev protocol verified" : "Jev 协议验证通过";
+    public static string AiProtocol(string protocol) => IsEn ? "OpenAI-compatible" : "OpenAI 兼容";
+    public static string AiTestSuccess => IsEn ? "Connection verified" : "连接正常";
     public static string AiTestModel(string model, long ms) => IsEn
         ? $"Model {model} · {ms} ms" : $"模型 {model} · {ms} 毫秒";
-    public static string AiDecisionsModel => IsEn ? "Model for decisions" : "判定用的模型";
+    public static string AiDecisionsModel => IsEn ? "Model" : "模型";
     public static string AiDecisionsHint => IsEn
-        ? "Endpoint and model from the selected template."
-        : "接口地址和模型已按模板填写。";
+        ? "Fill the address up to /v1; /chat/completions is added automatically."
+        : "地址填到 /v1 为止，程序会自动补 /chat/completions。";
     public static string AiNeedConfig => IsEn ? "Set base URL and model first." : "先填接口地址和模型。";
     public static string AiWorking => IsEn ? "Asking the model…" : "正在问模型…";
-    public static string AiTestOk(long ms, string model, double confidence, double cost) => IsEn
-        ? $"OK · {ms} ms · {model} · p={confidence:0.00} · ${cost:0.000000}"
-        : $"连通 · {ms} 毫秒 · {model} · 把握 {confidence:0.00} · ${cost:0.000000}";    public static string AiTitle => IsEn ? "AI" : "AI 建议";
+    public static string AiTestOk(long ms, string model) => IsEn
+        ? $"OK · {ms} ms · {model}"
+        : $"连通 · {ms} 毫秒 · {model}";
+    public static string AiTitle => IsEn ? "AI" : "AI 建议";
+    // ---- AI 清理报告（L1 单发报告）----
+    public static string AiReportBtn => IsEn ? "AI analysis" : "AI 分析";
+    public static string AiReportBtnTip => IsEn
+        ? "Ask the model for a cleanup report on this scan"
+        : "让模型看这次扫描，生成可交互的清理建议";
+    public static string AiReportTitle => IsEn ? "AI cleanup report" : "AI 清理建议";
+    public static string AiReportBusy => IsEn
+        ? "The model is reading the folder summaries…"
+        : "AI 正在读文件夹摘要，稍等…";
+    public static string AiReportNeedScan => IsEn
+        ? "Scan a drive first, then run AI analysis."
+        : "先扫描一次磁盘，再让 AI 分析。";
+    public static string AiReportNotConfigured => IsEn
+        ? "Set up an AI model in Settings first."
+        : "先在设置里配置一个 AI 模型。";
+    public static string AiReportFailed(string message) => IsEn
+        ? $"AI analysis failed: {message}"
+        : $"AI 分析失败：{message}";
+    public static string AiReportMeta(string model, int items, string size) => IsEn
+        ? $"{items} suggestions · up to {size} reclaimable · {model}"
+        : $"{items} 条建议 · 预计可回收 {size} · {model}";
+    public static string AiReportRecommend => IsEn ? "Recommended" : "推荐清理";
+    public static string AiReportConsider => IsEn ? "Worth a look" : "再看看";
+    public static string AiReportKeep => IsEn ? "Suggested to keep" : "建议保留";
+    public static string AiReportEvidence => IsEn ? "Evidence: " : "依据：";
+    public static string AiReportRisk(string risk) => IsEn ? $"Risk: {risk}" : $"风险：{risk}";
+    public static string AiReportAdd => IsEn ? "Add to cleanup" : "加入清理";
+    public static string AiReportAdded(int items, string size) => IsEn
+        ? $"Added {items} item(s) ({size}) to the selection."
+        : $"已加入 {items} 项（{size}）到勾选。";
+    public static string AiReportAddNothing => IsEn
+        ? "Nothing under this folder is selectable for cleanup."
+        : "这个目录下没有可加入的清理项。";
+    public static string AiReportJump => IsEn ? "Show only this folder" : "只看这个目录";
+    public static string AiReportJumpTip => IsEn
+        ? "Switch to the cleanup page scoped to this folder"
+        : "跳到清理页，并只显示这个目录的清理项";
+    public static string AiReportDegraded(string reason) => IsEn
+        ? $"Partial result ({reason})"
+        : $"部分结果不可用（{reason}）";
+    public static string AiReportEmpty => IsEn
+        ? "No folder stood out in this scan."
+        : "这次扫描没有发现值得关注的目录。";
+    public static string AiReportFooter => IsEn
+        ? "AI only suggests. Nothing is deleted until you tick items and confirm."
+        : "AI 只给建议：勾选和删除都由你确认，程序不会自己动手。";
     public static string AiDelProvider => IsEn ? "Remove" : "删除";
     public static string AppScannedSize => IsEn ? "Scanned size" : "扫描占用";
     public static string AppSizeEstimated => IsEn ? " est." : "（估算）";

@@ -157,18 +157,18 @@ public sealed class AppSettings
     }
 
     /// <summary>
-    /// 把供应商上的 <see cref="AiProviderCfg.Protocol"/> 收敛到两种 Jev 接口形状。
+    /// 把供应商上的 <see cref="AiProviderCfg.Protocol"/> 收敛到 <c>chat</c>。
     ///
-    /// 旧配置里存的是聊天协议（completions / responses / anthropic）。那套已经下线，
-    /// 但字段还留在 json 里 —— 如果继续拿它当门槛，老用户升级后会「看起来配好了却不能用」。
-    /// 只认 systemone，其余一律当 decisions。
+    /// v3.0 存的是 Jev 的 decisions / systemone。那套接口已经下线，
+    /// 字段还留在 json 里 —— 继续拿它当门槛，老用户升级后会「看起来配好了却不能用」。
+    /// 全部归一到 OpenAI 兼容聊天接口。
     /// </summary>
     private void NormalizeProtocols()
     {
         foreach (var p in AiProviders)
         {
-            if (!string.Equals(p.Protocol, "systemone", StringComparison.OrdinalIgnoreCase))
-                p.Protocol = "decisions";
+            if (!string.Equals(p.Protocol, AiConfigurationService.ChatProtocol, StringComparison.OrdinalIgnoreCase))
+                p.Protocol = AiConfigurationService.ChatProtocol;
         }
     }
 

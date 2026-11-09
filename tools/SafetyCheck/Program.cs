@@ -2,6 +2,7 @@ using System.IO;
 using AiDiskCleaner;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
+using AiDiskCleaner.Services.Agent;
 using AiDiskCleaner.Services.CleanRules;
 
 namespace SafetyCheck;
@@ -633,15 +634,14 @@ public static class Program
             Check("显式指定的判定模型优先", s2.DecisionModelId() == "typesafe/jev-1.13", s2.DecisionModelId());
             Check("显式指定的判定提供方优先（老配置里那个 decisions 的）",
                 s2.DecisionProvider()?.Id == "pjev1", s2.DecisionProvider()?.Id ?? "(none)");
-            // Protocol 现在回来了，但含义变了：它只表达 Jev 的**接口形状**
-            // （decisions / systemone），不再是聊天协议。旧配置里的 completions
-            // 这类聊天值必须被收敛成 decisions —— 否则「协议」会再次变成使用门槛。
-            Check("旧聊天协议值被收敛为 decisions（协议不再当门槛）",
+            // v3.1 起接入的是 OpenAI 兼容聊天接口，旧配置里 decisions / systemone /
+            // completions 这些历史取值全部归一到 chat —— 继续按旧协议名当门槛，
+            // 老用户升级后会「看起来配好了却不能用」。
+            Check("历史协议值全部收敛为 chat（协议不再当门槛）",
                 s2.AiProviders.All(p =>
-                    p.Protocol is "decisions" or "systemone"
-                    && !string.Equals(p.Protocol, "completions", StringComparison.OrdinalIgnoreCase)));
-            Check("显式声明的 decisions 供应商保持 decisions",
-                s2.AiProviders.First(p => p.Id == "pjev1").Protocol == "decisions");
+                    string.Equals(p.Protocol, AiConfigurationService.ChatProtocol, StringComparison.OrdinalIgnoreCase)));
+            Check("显式声明的旧 decisions 供应商也收敛为 chat",
+                s2.AiProviders.First(p => p.Id == "pjev1").Protocol == AiConfigurationService.ChatProtocol);
             Check("判定通道仍判定为「已配置」", s2.DecisionConfigured());
 
             // 没有显式指定判定提供方时：第一个配了地址的就能用 —— **哪怕它存的是 completions**。
@@ -1005,19 +1005,22 @@ public static class Program
         catch (OperationCanceledException) { canceled = true; }
         Check("取消不触发降级", canceled && shouldNotRun.Calls == 0);
 
-        // ---- Jev setup probe：must verify a typed answer, not just HTTP success ----
-        var probeRequest = AiConfigurationService.BuildProbe(new AiProviderCfg { BaseUrl = "https://example.invalid" }, "jev-test", english: false);
-        Check("Jev 能力测试只含固定无敏感文本", probeRequest.State.Contains("无敏感") && !probeRequest.State.Contains("C:\\"));
-        Check("Jev 能力测试检查题使用结构化协议", probeRequest.Questions.ContainsKey("ok") && probeRequest.Questions["ok"].Type == "noul");
-        bool probeRejectsMissingAnswer = false;
-        try { AiConfigurationService.ValidateProbe(new AiDecisionReply(), english: false); }
-        catch (DecisionLimitException) { probeRejectsMissingAnswer = true; }
-        Check("Jev 能力测试拒绝空答案", probeRejectsMissingAnswer);
-        var probeReply = new AiDecisionReply();
-        probeReply.Answers["ok"] = new AiDecisionAnswer { Noul = 0.75 };
-        AiConfigurationService.ValidateProbe(probeReply, english: false);
-        Check("Jev 能力测试接受合法概率", probeReply.Answers["ok"].Noul == 0.75);
-        Check("Jev 配置错误可分类为引导信息", AiConfigurationService.Diagnose(new System.Net.Http.HttpRequestException("offline"), 10, false).Kind == AiDiagnosticKind.Network);
+        // ---- AI 连接向导：探针要真的验证聊天回复，而不只是 HTTP 200 ----
+        var probeRequest = AiConfigurationService.BuildProbe("https://example.invalid/v1", "chat-test", english: false);
+        Check("聊天探针只含无敏感文本", probeRequest.Messages.All(m => !m.Content.Contains("C:\\"))
+            && probeRequest.Messages.Any(m => m.Content.Contains("连通性", StringComparison.Ordinal)
+                                              || m.Content.Contains("可以", StringComparison.Ordinal)));
+        Check("聊天探针走非 JSON 的小请求", !probeRequest.JsonMode && probeRequest.MaxTokens <= 32);
+        bool probeRejectsEmpty = false;
+        try { AiConfigurationService.ValidateProbe(new ChatResponse { Content = " " }, english: false); }
+        catch (ChatModelException) { probeRejectsEmpty = true; }
+        Check("聊天探针拒绝空回复", probeRejectsEmpty);
+        AiConfigurationService.ValidateProbe(new ChatResponse { Content = "可以" }, english: false);
+        Check("聊天探针接受正常回复", true);
+        Check("聊天配置错误可分类为引导信息",
+            AiConfigurationService.Diagnose(new ChatModelException("offline", ChatErrorKind.Network, true), 10, false).Kind == AiDiagnosticKind.Network);
+        Check("密钥被拒可分类为认证失败",
+            AiConfigurationService.Diagnose(new ChatModelException("bad key", ChatErrorKind.Auth, false), 10, false).Kind == AiDiagnosticKind.Authentication);
 
         // ---- DoH 兜底：DNS 被污染时拿真实地址 -------------------------------------------------
         // 真机故障：系统 DNS 把 openrouter.ai 解析到伪造 IP，连过去证书不受信任

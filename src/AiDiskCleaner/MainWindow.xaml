@@ -1649,6 +1649,12 @@
                   <!-- 这里**没有**批量归类入口：清理中心的候选项由 8 条规则产出，
                        每条规则都声明了具体用途，不会有「认不出来」的堆积。
                        批量归类放在「按文件夹删除」页 —— 未知堆积在那里。 -->
+                  <!-- AI 分析：显式发起、只读、只出建议；点一下才开始调模型（不自动花钱）。 -->
+                  <Button x:Name="AiReportBtn" Style="{StaticResource ChipButton}" Margin="0,0,6,0"
+                          Click="AiReport_Click"
+                          AutomationProperties.Name="AI 分析">
+                    <TextBlock x:Name="AiReportBtnText" FontSize="11.5" VerticalAlignment="Center"/>
+                  </Button>
                   <!-- 扫描详情 / 更多：辅助操作用图标按钮，语义靠 ToolTip + 可访问名称 -->
                   <Button x:Name="ScanDetailsBtn" Style="{StaticResource IconButton}" Margin="0,0,4,0"
                           Click="ScanDetails_Click" ToolTip="扫描信息（来源、权限、耗时、跳过项）"
@@ -2628,6 +2634,14 @@
             </DataGrid.Columns>
           </DataGrid>
         </Grid>
+
+        <!-- ===== AI 清理报告：可交互建议卡 =====
+             AI 只写「建议」和「依据」；加入清理只是勾选候选项，跳到清理页只是换范围。
+             真正的删除仍然要用户在清理页显式确认，走预检 + 回收站。 -->
+        <ScrollViewer x:Name="ReportBody" MaxHeight="560" Visibility="Collapsed"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel x:Name="ReportContent"/>
+        </ScrollViewer>
 
         <StackPanel x:Name="ConfirmButtons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0" Visibility="Collapsed">
           <Button x:Name="ConfirmNoBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="ConfirmNo_Click"/>

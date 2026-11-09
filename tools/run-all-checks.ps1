@@ -58,7 +58,8 @@ $checks = @(
     [pscustomobject]@{ Name = 'LocalRecognitionCheck'; Kind = 'exe' },
     [pscustomobject]@{ Name = 'RecognitionPersistenceCheck'; Kind = 'exe' },
     [pscustomobject]@{ Name = 'FolderDeleteCheck'; Kind = 'exe' },
-    [pscustomobject]@{ Name = 'AgentToolCheck'; Kind = 'exe' }
+    [pscustomobject]@{ Name = 'AgentToolCheck'; Kind = 'exe' },
+    [pscustomobject]@{ Name = 'AgentReportCheck'; Kind = 'exe' }
 ) | Where-Object { $Only -eq '' -or $_.Name -like "*$Only*" }
 
 if ($checks.Count -eq 0) { throw "No check matches -Only '$Only'." }

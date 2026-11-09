@@ -38,7 +38,11 @@ public sealed record EvidenceCard(
     IReadOnlyList<CardRuleRef> Rules,
     bool Truncated,
     string CardVersion,
-    string? FullPath = null);
+    string? FullPath = null)
+{
+    /// <summary>本地软件签名 key（AppSignatures.Classify 的 Key），用于校验 app: 证据引用。</summary>
+    public string? AppKey { get; init; }
+}
 
 public enum CardPrivacyMode
 {
@@ -135,7 +139,10 @@ public static class EvidenceCardBuilder
             Rules: options.Rules?.Invoke(dir) ?? Array.Empty<CardRuleRef>(),
             Truncated: files.Count > MaxSamples || dirs.Count > MaxSampleDirs || CountExtensions(files) > MaxTypeMix,
             CardVersion: options.CardVersion,
-            FullPath: options.Privacy == CardPrivacyMode.Full ? dir.FullPath : null);
+            FullPath: options.Privacy == CardPrivacyMode.Full ? dir.FullPath : null)
+        {
+            AppKey = AppSignatures.Classify(dir.FullPath)?.Key,
+        };
     }
 
     /// <summary>把用户目录名换掉：C:\Users\Alice\x → C:\Users\%USER%\x。</summary>
