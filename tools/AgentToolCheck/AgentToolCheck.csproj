@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>AgentToolCheck</AssemblyName>
+    <RootNamespace>AgentToolCheck</RootNamespace>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Stubs.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Models\FileEntry.cs" Link="FileEntry.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\ScanQuality.cs" Link="ScanQuality.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Services\ProtectedPaths.cs" Link="ProtectedPaths.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\AppSignatures.cs" Link="AppSignatures.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\ScanSession.cs" Link="ScanSession.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\FolderIndex.cs" Link="FolderIndex.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\EvidenceCard.cs" Link="EvidenceCard.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\CandidateSelector.cs" Link="CandidateSelector.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\ToolEnvelope.cs" Link="ToolEnvelope.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\ToolDto.cs" Link="ToolDto.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\ToolHost.cs" Link="ToolHost.cs" />
+
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\Tools\GetOverviewTool.cs" Link="GetOverviewTool.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\Tools\ListFoldersTool.cs" Link="ListFoldersTool.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\Tools\GetFolderCardTool.cs" Link="GetFolderCardTool.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Services\Agent\Tools\QueryEntriesTool.cs" Link="QueryEntriesTool.cs" />
+  </ItemGroup>
+</Project>
