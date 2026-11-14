@@ -246,6 +246,12 @@ Assert-True 'the report renders inside the dialog card' `
     ($xaml -match 'x:Name="ReportBody"' -and $xaml -match 'x:Name="ReportContent"' -and
      $agent -match 'ReportBody\.Visibility = Visibility\.Visible' -and
      $agent -match 'DialogCard\.Width = 940')
+Assert-True 'the folder page also provides a right-side docked report split panel' `
+    ($xaml -match 'x:Name="OrganizeReportPanel"' -and
+     $xaml -match 'x:Name="OrganizeReportContent"' -and
+     $xaml -match 'x:Name="AiReportToggleBtn"' -and
+     $agent -match 'ShowDockedAgentReport' -and
+     $agent -match 'SetDockedReportVisible')
 Assert-True 'the report only locates the folder (never checks it, never deletes)' `
     ($agent -match 'RevealReportFolder' -and $agent -match 'ShowRightTab\(RightTab\.Organize\)' -and
      $agent -match 'RevealOrganizeFolder' -and

@@ -65,7 +65,7 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="4"
+            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="6"
                     BorderBrush="Transparent" BorderThickness="1">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
@@ -104,7 +104,7 @@
       <Setter Property="CanUserDeleteRows" Value="False"/>
     </Style>
     <Style TargetType="PasswordBox">
-      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Background" Value="{DynamicResource PanelLeft}"/>
       <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
       <Setter Property="BorderThickness" Value="1"/>
@@ -120,11 +120,11 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ProgressBar">
-            <Border Background="{TemplateBinding Background}">
+            <Border Background="{TemplateBinding Background}" CornerRadius="4" ClipToBounds="True">
               <Grid>
-                <Rectangle x:Name="PART_Track"/>
-                <Rectangle x:Name="PART_Indicator" HorizontalAlignment="Left" Fill="{TemplateBinding Foreground}"/>
-                <Rectangle x:Name="pulse" Fill="{TemplateBinding Foreground}" Opacity="0" HorizontalAlignment="Stretch"/>
+                <Rectangle x:Name="PART_Track" RadiusX="4" RadiusY="4"/>
+                <Rectangle x:Name="PART_Indicator" HorizontalAlignment="Left" Fill="{TemplateBinding Foreground}" RadiusX="4" RadiusY="4"/>
+                <Rectangle x:Name="pulse" Fill="{TemplateBinding Foreground}" Opacity="0" HorizontalAlignment="Stretch" RadiusX="4" RadiusY="4"/>
               </Grid>
             </Border>
             <ControlTemplate.Triggers>
@@ -150,11 +150,12 @@
     </Style>
 
     <Style TargetType="DataGridColumnHeader">
-      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Background" Value="{DynamicResource PanelLeft}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
-      <Setter Property="FontSize" Value="11"/>
-      <Setter Property="Padding" Value="8,8"/>
+      <Setter Property="FontSize" Value="11.5"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Padding" Value="8,9"/>
       <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
       <Setter Property="BorderThickness" Value="0,0,0,1"/>
       <Setter Property="SeparatorBrush" Value="{DynamicResource Border}"/>
@@ -317,14 +318,14 @@
       </Setter>
     </Style>
     <Style TargetType="ComboBox">
-      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Background" Value="{DynamicResource PanelLeft}"/>
       <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="FontSize" Value="13"/>
-      <Setter Property="Height" Value="28"/>
-      <Setter Property="Padding" Value="8,0,24,0"/>
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="Padding" Value="10,0,24,0"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="SnapsToDevicePixels" Value="True"/>
       <Setter Property="MaxDropDownHeight" Value="280"/>
@@ -336,6 +337,7 @@
               <Border x:Name="bd" Background="{TemplateBinding Background}"
                       BorderBrush="{TemplateBinding BorderBrush}"
                       BorderThickness="{TemplateBinding BorderThickness}"
+                      CornerRadius="6"
                       Height="{TemplateBinding Height}">
                 <Grid>
                   <Grid.ColumnDefinitions>
@@ -350,7 +352,7 @@
                                     ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                     ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
                                     RecognizesAccessKey="False"/>
-                  <TextBlock Grid.Column="1" Text="▾" Foreground="{DynamicResource Accent}"
+                  <TextBlock Grid.Column="1" Text="▾" Foreground="{DynamicResource TextDim}"
                              VerticalAlignment="Center" HorizontalAlignment="Center"
                              FontSize="11" Margin="0,0,4,1"/>
                 </Grid>
@@ -358,7 +360,8 @@
               <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True"
                      Focusable="False" IsOpen="{TemplateBinding IsDropDownOpen}"
                      PopupAnimation="None">
-                <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Accent}" BorderThickness="1"
+                <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                        CornerRadius="6" Margin="0,2,0,0" Padding="0,3"
                         MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
                   <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}" CanContentScroll="False">
                     <StackPanel IsItemsHost="True"/>
@@ -374,12 +377,20 @@
                 </ToggleButton.Template>
               </ToggleButton>
             </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource AccentDim}"/>
+              </Trigger>
+              <Trigger Property="IsDropDownOpen" Value="True">
+                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
     <Style TargetType="TextBox" x:Key="TermTextBox">
-      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Background" Value="{DynamicResource PanelLeft}"/>
       <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
       <Setter Property="BorderThickness" Value="1"/>
@@ -388,7 +399,7 @@
       <Setter Property="SelectionTextBrush" Value="{DynamicResource Accent}"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="FontSize" Value="13"/>
-      <Setter Property="Height" Value="28"/>
+      <Setter Property="Height" Value="30"/>
       <Setter Property="Padding" Value="0"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -399,8 +410,9 @@
             <Border x:Name="bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="6"
                     SnapsToDevicePixels="True">
-              <Grid Margin="8,0">
+              <Grid Margin="10,0">
                 <ScrollViewer x:Name="PART_ContentHost"
                               Margin="0"
                               Padding="0"
@@ -422,6 +434,9 @@
               <Trigger Property="Text" Value="">
                 <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
               </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource AccentDim}"/>
+              </Trigger>
               <Trigger Property="IsFocused" Value="True">
                 <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                 <Setter TargetName="Placeholder" Property="Visibility" Value="Collapsed"/>
@@ -432,10 +447,11 @@
       </Setter>
     </Style>
     <Style TargetType="Button" x:Key="PrimaryButton">
-      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Background" Value="{DynamicResource SelectBg}"/>
       <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
       <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="Padding" Value="14,6"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
@@ -446,6 +462,7 @@
             <Border x:Name="bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="6"
                     Padding="{TemplateBinding Padding}"
                     RenderTransformOrigin="0.5,0.5">
               <Border.RenderTransform>
@@ -458,7 +475,7 @@
                 <Setter TargetName="bd" Property="Background" Value="{DynamicResource HoverBg}"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource PanelLeft}"/>
                 <Trigger.EnterActions>
                   <BeginStoryboard>
                     <Storyboard>
@@ -732,7 +749,7 @@
     </Style>
 
     <Style TargetType="Button" x:Key="GhostButton">
-      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Background" Value="{DynamicResource PanelLeft}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
       <Setter Property="BorderThickness" Value="1"/>
@@ -746,6 +763,7 @@
             <Border x:Name="bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="6"
                     Padding="{TemplateBinding Padding}"
                     RenderTransformOrigin="0.5,0.5">
               <Border.RenderTransform>
@@ -756,6 +774,7 @@
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="{DynamicResource HoverBg}"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource AccentDim}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
@@ -790,6 +809,42 @@
       </Setter>
     </Style>
 
+    <!-- 一级导航标签按钮：底部指示条 + 选中高亮 -->
+    <Style TargetType="Button" x:Key="MainTabButton">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
+      <Setter Property="BorderBrush" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="14,9,14,10"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Grid Background="Transparent">
+              <Border x:Name="bd" Background="{TemplateBinding Background}"
+                      CornerRadius="6,6,0,0" Padding="{TemplateBinding Padding}">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+              <Border x:Name="indicator" Height="2.5" VerticalAlignment="Bottom"
+                      Margin="10,0" CornerRadius="1.5"
+                      Background="{TemplateBinding BorderBrush}"/>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource HoverBg}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource SelectBg}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
     <!-- 带文字的图标按钮：核心操作（AI 分析 / 清理已选项目）用「图标 + 文字」，不裸图标 -->
     <Style TargetType="Button" x:Key="IconTextButton" BasedOn="{StaticResource GhostButton}">
       <Setter Property="Padding" Value="10,5"/>
@@ -797,11 +852,11 @@
 
     <!-- 胶囊按钮：辅助但需要「按钮感」的入口（查看已选）。比幽灵按钮轻，比纯文字重。 -->
     <Style TargetType="Button" x:Key="ChipButton">
-      <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
+      <Setter Property="Background" Value="{DynamicResource PanelLeft}"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="9,4"/>
+      <Setter Property="Padding" Value="11,5"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="Template">
@@ -810,7 +865,7 @@
             <Border x:Name="bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="11" Padding="{TemplateBinding Padding}">
+                    CornerRadius="12" Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
@@ -991,7 +1046,7 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Thumb">
-            <Border x:Name="bd" Background="{DynamicResource Border}" CornerRadius="0" Margin="1"/>
+            <Border x:Name="bd" Background="{DynamicResource Border}" CornerRadius="3" Margin="1.5"/>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="{DynamicResource Accent}"/>
@@ -1057,7 +1112,7 @@
     <Style TargetType="ContextMenu">
       <Setter Property="Background" Value="{DynamicResource PanelRight}"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
       <Setter Property="Padding" Value="0"/>
@@ -1068,6 +1123,7 @@
             <Border Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="6"
                     Padding="0,4">
               <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
             </Border>
@@ -1136,7 +1192,7 @@
 
   <Grid>
   <DockPanel>
-    <Border DockPanel.Dock="Top" Background="{DynamicResource Bg}" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="16,12,8,12">
+    <Border DockPanel.Dock="Top" Background="{DynamicResource Bg}" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="18,10,10,10">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
@@ -1148,31 +1204,37 @@
         </Grid.ColumnDefinitions>
         <!-- 2.11：左上角的目录侧栏（文件浏览器）已整体移除，连同它的开关。
              顶栏从应用名开始，不再留一个没有对应面板的图标。 -->
-        <TextBlock x:Name="TitleText" Grid.Column="0" Text="大扫货" Foreground="{DynamicResource Accent}" FontSize="14"
-                   VerticalAlignment="Center" Margin="0,0,16,0"/>
-        <ComboBox x:Name="DriveBox" Grid.Column="1" Width="72" VerticalAlignment="Center" Margin="0,0,8,0"
+        <TextBlock x:Name="TitleText" Grid.Column="0" Text="大扫货" Foreground="{DynamicResource Accent}" FontSize="15"
+                   FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,18,0"/>
+        <ComboBox x:Name="DriveBox" Grid.Column="1" Width="76" VerticalAlignment="Center" Margin="0,0,8,0"
                   WindowChrome.IsHitTestVisibleInChrome="True"/>
-        <Button x:Name="ScanButton" Grid.Column="2" Content="扫描" Style="{StaticResource GhostButton}"
-                Margin="0,0,8,0" Click="ScanButton_Click"
+        <Button x:Name="ScanButton" Grid.Column="2" Content="扫描" Style="{StaticResource PrimaryButton}"
+                Padding="16,5" FontSize="12.5" Margin="0,0,8,0" Click="ScanButton_Click"
                 WindowChrome.IsHitTestVisibleInChrome="True"/>
         <Button x:Name="StopButton" Grid.Column="3" Content="停止" Style="{StaticResource GhostButton}"
-                Margin="0,0,8,0" IsEnabled="False" Visibility="Collapsed" Click="StopButton_Click"
+                Padding="14,5" FontSize="12.5" Margin="0,0,8,0" IsEnabled="False" Visibility="Collapsed" Click="StopButton_Click"
                 WindowChrome.IsHitTestVisibleInChrome="True"/>
-        <!-- 容量信息：空间不足时省略号收尾，绝不挤压扫描/设置 -->
-        <TextBlock x:Name="VolumeText" Grid.Column="4" Foreground="{DynamicResource TextDim}" FontSize="11"
-                   VerticalAlignment="Center" HorizontalAlignment="Right" Margin="8,0,12,0"
-                   TextTrimming="CharacterEllipsis"/>
+        <!-- 容量信息 + 直观磁盘占用条：空间不足时省略号收尾，绝不挤压扫描/设置 -->
+        <StackPanel Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Right"
+                    Margin="12,0,14,0" MaxWidth="360">
+          <TextBlock x:Name="VolumeText" Foreground="{DynamicResource TextDim}" FontSize="11"
+                     HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
+          <ProgressBar x:Name="VolumeUsageBar" Height="4" Minimum="0" Maximum="100" Value="0"
+                       Margin="0,4,0,0" Width="180" HorizontalAlignment="Right"
+                       Background="{DynamicResource Border}" Foreground="{DynamicResource SectionSafeAccent}"
+                       Visibility="Collapsed"/>
+        </StackPanel>
         <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
           <!-- v3.1：顶栏 AI 状态灯。红=没接入，黄=接入但没通过测试，绿=通过并显示模型名。
                点它直接打开设置页，省得用户找齿轮。 -->
           <Button x:Name="AiLampButton" Style="{StaticResource ChipButton}" Margin="0,0,8,0"
-                  Click="AiLamp_Click" AutomationProperties.Name="AI 连接状态"
+                  Padding="11,5" Click="AiLamp_Click" AutomationProperties.Name="AI 连接状态"
                   WindowChrome.IsHitTestVisibleInChrome="True">
             <StackPanel Orientation="Horizontal">
               <Ellipse x:Name="AiLampDot" Width="8" Height="8" Margin="0,0,6,0"
                        VerticalAlignment="Center" Fill="#E07070"/>
-              <TextBlock x:Name="AiLampText" FontSize="11" VerticalAlignment="Center"
-                         MaxWidth="150" TextTrimming="CharacterEllipsis"/>
+              <TextBlock x:Name="AiLampText" FontSize="11.5" VerticalAlignment="Center"
+                         MaxWidth="160" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
           </Button>
           <!-- v3.0：顶栏那枚 AI 常驻胶囊删掉了。判定只服务「按文件夹删除」一页，
@@ -1194,7 +1256,7 @@
       </Grid>
     </Border>
 
-    <Border x:Name="ScanProgressPanel" DockPanel.Dock="Top" Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}"
+    <Border x:Name="ScanProgressPanel" DockPanel.Dock="Top" Background="{DynamicResource PanelLeft}" BorderBrush="{DynamicResource Border}"
             BorderThickness="0,0,0,1" Padding="20,10" Visibility="Collapsed">
       <Grid>
         <Grid.ColumnDefinitions>
@@ -1226,12 +1288,16 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
-          <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="16,12,16,8">
-            <!-- 清理在前：它是默认首页与主工作区；文件夹整理是辅助入口 -->
-            <Button x:Name="TabCleanBtn" Content="清理中心" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabClean_Click"/>
-            <Button x:Name="TabOrganizeBtn" Content="文件夹整理" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="TabOrganize_Click"/>
-            <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource GhostButton}" Click="TabUninstall_Click"/>
-          </StackPanel>
+          <Border Grid.Row="0" Background="{DynamicResource PanelLeft}"
+                  BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
+                  Padding="16,4,16,0">
+            <StackPanel Orientation="Horizontal">
+              <!-- 清理在前：它是默认首页与主工作区；文件夹整理是辅助入口 -->
+              <Button x:Name="TabCleanBtn" Content="清理中心" Style="{StaticResource MainTabButton}" Margin="0,0,6,0" Click="TabClean_Click"/>
+              <Button x:Name="TabOrganizeBtn" Content="文件夹整理" Style="{StaticResource MainTabButton}" Margin="0,0,6,0" Click="TabOrganize_Click"/>
+              <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource MainTabButton}" Click="TabUninstall_Click"/>
+            </StackPanel>
+          </Border>
           <!-- ===== 文件夹整理：实际工作区（不是说明页）=====
                扫描后自动识别一、二级；三级及更深只由「识别当前文件夹」显式分析当前这一层。
                这一页**不复制**清理页的候选空间与执行按钮，也不碰 Risk / CanDelete / Selected。-->
@@ -1257,11 +1323,22 @@
                 </StackPanel>
                 <!-- AI 分析：这一页唯一的模型入口。显式发起、只读；
                      报告只负责定位到文件夹行，勾选仍由用户自己点。 -->
-                <Button x:Name="AiReportBtn" Grid.Column="1" Style="{StaticResource ChipButton}"
-                        VerticalAlignment="Center" Click="AiReport_Click"
-                        AutomationProperties.Name="AI 分析">
-                  <TextBlock x:Name="AiReportBtnText" FontSize="11.5" VerticalAlignment="Center"/>
-                </Button>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                  <Button x:Name="AiReportToggleBtn" Style="{StaticResource GhostButton}"
+                          Padding="10,4" FontSize="11.5" Margin="0,0,8,0"
+                          Visibility="Collapsed" Click="AiReportToggle_Click"
+                          AutomationProperties.Name="展开或收起 AI 分析报告"/>
+                  <Button x:Name="AiReportBtn" Style="{StaticResource ChipButton}"
+                          VerticalAlignment="Center" Click="AiReport_Click"
+                          AutomationProperties.Name="AI 分析">
+                    <StackPanel Orientation="Horizontal">
+                      <Path Data="{StaticResource IconAi}" Width="12" Height="12" Stretch="Uniform"
+                            Margin="0,0,6,0" VerticalAlignment="Center"
+                            Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                      <TextBlock x:Name="AiReportBtnText" FontSize="11.5" VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </Button>
+                </StackPanel>
               </Grid>
             </Border>
 
@@ -1318,8 +1395,16 @@
               </Grid>
             </Border>
 
+            <!-- 左侧文件夹列表 + 右侧可折叠 AI 分析报告分屏对照区：
+                 点报告里的「去处理」直接展开并高亮左侧目录，不关报告，支持边看报告边勾选。 -->
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="OrganizeReportCol" Width="0"/>
+              </Grid.ColumnDefinitions>
+
             <!-- 唯一的滚动列表：扁平、细分隔线、行虚拟化，不做嵌套滚动 -->
-            <DataGrid x:Name="OrganizeGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+            <DataGrid x:Name="OrganizeGrid" Grid.Column="0" AutoGenerateColumns="False" CanUserSortColumns="False"
                       HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                       BorderThickness="0" RowHeight="NaN" MinRowHeight="46" Margin="0,0,2,0"
                       RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
@@ -1528,6 +1613,46 @@
 
               </DataGrid.Columns>
             </DataGrid>
+
+            <!-- 右侧 AI 分析分屏面板：与左侧文件夹列表并排，点「去处理」直接定位不关面板 -->
+            <Border x:Name="OrganizeReportPanel" Grid.Column="1" Visibility="Collapsed"
+                    Background="{DynamicResource PanelLeft}" BorderBrush="{DynamicResource Border}"
+                    BorderThickness="1,0,0,0">
+              <DockPanel>
+                <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
+                        Padding="14,10">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*"/>
+                      <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                      <Path Data="{StaticResource IconAi}" Width="14" Height="14" Stretch="Uniform"
+                            Margin="0,0,7,0" VerticalAlignment="Center" Fill="{DynamicResource SectionSafeAccent}"/>
+                      <TextBlock x:Name="OrganizeReportHeaderTitle" Text="AI 清理建议报告"
+                                 FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"
+                                 VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                      <Button x:Name="OrganizeReportExpandBtn" Style="{StaticResource GhostButton}"
+                              Padding="8,3" FontSize="11" Margin="0,0,6,0"
+                              Content="大窗查看" Click="OrganizeReportExpand_Click"
+                              AutomationProperties.Name="在大窗口中查看 AI 分析报告"/>
+                      <Button x:Name="OrganizeReportCloseBtn" Style="{StaticResource IconButton}"
+                              Width="26" Height="26" Padding="0" Click="OrganizeReportClose_Click"
+                              ToolTip="收起报告面板" AutomationProperties.Name="收起报告面板">
+                        <Path Data="{StaticResource IconClose}" Width="12" Height="12" Stretch="Uniform"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                      </Button>
+                    </StackPanel>
+                  </Grid>
+                </Border>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
+                  <StackPanel x:Name="OrganizeReportContent"/>
+                </ScrollViewer>
+              </DockPanel>
+            </Border>
+            </Grid>
           </DockPanel>
           <DockPanel x:Name="CleanPane" Grid.Row="1">
             <StackPanel x:Name="CleanProgressPanel" DockPanel.Dock="Top" Margin="20,12,20,10" Visibility="Collapsed">
@@ -1535,8 +1660,9 @@
               <ProgressBar x:Name="CleanProgressBar" Height="8" Minimum="0" Maximum="100" Value="0"/>
             </StackPanel>
             <!-- ===== 页头：页面标题 + 返回 + 简短扫描状态 ===== -->
-            <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
-                    Padding="16,10,16,10">
+            <Border DockPanel.Dock="Top" Background="{DynamicResource PanelLeft}"
+                    BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
+                    Padding="18,12,18,12">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto"/>
@@ -1619,8 +1745,8 @@
 
             <!-- ===== 底部唯一操作栏：选择范围 + 执行入口 ===== -->
             <Border x:Name="CleanActionBar" DockPanel.Dock="Bottom"
-                    Background="{DynamicResource Bg}" BorderBrush="{DynamicResource Border}"
-                    BorderThickness="0,1,0,0" Padding="16,10">
+                    Background="{DynamicResource PanelLeft}" BorderBrush="{DynamicResource Border}"
+                    BorderThickness="0,1,0,0" Padding="18,12">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*"/>
@@ -2073,26 +2199,31 @@
             </StackPanel>
             <!-- 只讲事实：这里列的是什么软件、装在哪、占多少。
                  没有计数器、没有建议分组、没有 AI 说明，也没有刷新/分析/全选/搜索这些入口。 -->
-            <TextBlock x:Name="UninstallSummary" DockPanel.Dock="Top" Margin="16,0,16,8"
-                       Foreground="{DynamicResource TextDim}" FontSize="11" TextWrapping="Wrap"
-                       Text="已安装软件，按占用从大到小。"/>
+            <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
+                    Padding="16,10,16,10">
+              <TextBlock x:Name="UninstallSummary" Foreground="{DynamicResource TextDim}" FontSize="11.5"
+                         TextWrapping="Wrap" Text="已安装软件，按占用从大到小。"/>
+            </Border>
             <TextBlock x:Name="UninstallSortNote" Visibility="Collapsed"/>
-            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="16,8,16,12">
-              <Button x:Name="UninstallRunBtn" Content="卸载勾选项" Style="{StaticResource PrimaryButton}" Click="UninstallRun_Click"/>
-              <!-- 残留：只作为卸载之后的可选收尾动作，勾选「安全残留」仍走同一条确认链路 -->
-              <Button x:Name="JunkSafeBtn" Content="勾选安全残留" Style="{StaticResource GhostButton}"
-                      Margin="8,0,0,0" Click="JunkSafe_Click" Visibility="Collapsed"/>
-              <Button x:Name="JunkDeleteBtn" Content="删除残留" Style="{StaticResource PrimaryButton}"
-                      Margin="8,0,0,0" Click="JunkDelete_Click" Visibility="Collapsed"/>
-              <TextBlock x:Name="UninstallSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
-                         Foreground="{DynamicResource TextDim}" FontSize="11"/>
-            </StackPanel>
+            <Border DockPanel.Dock="Bottom" Background="{DynamicResource Bg}"
+                    BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="16,10">
+              <StackPanel Orientation="Horizontal">
+                <Button x:Name="UninstallRunBtn" Content="卸载勾选项" Style="{StaticResource PrimaryButton}" Click="UninstallRun_Click"/>
+                <!-- 残留：只作为卸载之后的可选收尾动作，勾选「安全残留」仍走同一条确认链路 -->
+                <Button x:Name="JunkSafeBtn" Content="勾选安全残留" Style="{StaticResource GhostButton}"
+                        Margin="8,0,0,0" Click="JunkSafe_Click" Visibility="Collapsed"/>
+                <Button x:Name="JunkDeleteBtn" Content="删除残留" Style="{StaticResource PrimaryButton}"
+                        Margin="8,0,0,0" Click="JunkDelete_Click" Visibility="Collapsed"/>
+                <TextBlock x:Name="UninstallSelHint" Margin="12,0,0,0" VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextDim}" FontSize="11"/>
+              </StackPanel>
+            </Border>
             <Grid>
             <!-- 唯一的表格：铺满整行宽度。没有分组表头、没有建议列 —— 只讲事实。
                  默认排序固定在「占用」列（有效占用降序，未知最后），仍允许用户点表头改看别的列。 -->
             <DataGrid x:Name="UninstallGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
                       HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                      BorderThickness="0" RowHeight="34" Margin="0,0,0,0"
+                      BorderThickness="0" RowHeight="38" Margin="0,0,0,0"
                       AlternatingRowBackground="{DynamicResource RowAlt}"
                       RowBackground="{DynamicResource PanelRight}" Background="{DynamicResource PanelRight}"
                       HorizontalGridLinesBrush="{DynamicResource GridLine}" EnableRowVirtualization="True"
@@ -2288,18 +2419,18 @@
   <Grid x:Name="OverlayRoot" Visibility="Collapsed">
     <Border x:Name="Overlay" Background="{DynamicResource Overlay}" Opacity="0"
             MouseLeftButtonDown="Overlay_Click"/>
-    <Border x:Name="DialogCard" Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Accent}" BorderThickness="1"
-            Width="520" MaxHeight="680" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28,24"
+    <Border x:Name="DialogCard" Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}" BorderThickness="1"
+            CornerRadius="8" Width="520" MaxHeight="680" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28,24"
             RenderTransformOrigin="0.5,0.5" Focusable="True" KeyboardNavigation.TabNavigation="Cycle"
             MouseLeftButtonDown="Dialog_Click">
       <Border.RenderTransform>
         <ScaleTransform x:Name="DialogScale" ScaleX="0.97" ScaleY="0.97"/>
       </Border.RenderTransform>
       <StackPanel>
-        <TextBlock x:Name="DialogTitle" FontSize="16" Foreground="{DynamicResource Accent}" Margin="0,0,0,16"/>
+        <TextBlock x:Name="DialogTitle" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource Accent}" Margin="0,0,0,16"/>
         <ScrollViewer x:Name="SettingsBody" MaxHeight="480" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <StackPanel>
-            <TextBlock x:Name="LangLabel" Foreground="{DynamicResource TextDim}" Margin="0,0,0,8"/>
+            <TextBlock x:Name="LangLabel" Foreground="{DynamicResource TextDim}" FontWeight="SemiBold" Margin="0,0,0,8"/>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
               <Button x:Name="LangZhBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Lang_Click" Tag="Zh"/>
               <Button x:Name="LangEnBtn" Style="{StaticResource GhostButton}" Click="Lang_Click" Tag="En"/>
@@ -2320,8 +2451,8 @@
             <TextBlock x:Name="AiFullPathHint" Foreground="{DynamicResource TextMuted}" FontSize="11"
                        TextWrapping="Wrap" Margin="0,0,0,10"/>
             <!-- 当前供应商：一眼看到 AI 分析用的是哪家；切换在下面每一行的圆点 -->
-            <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}"
-                    BorderThickness="1" Padding="12,10" Margin="0,0,0,10">
+            <Border Background="{DynamicResource PanelLeft}" BorderBrush="{DynamicResource Border}"
+                    BorderThickness="1" CornerRadius="6" Padding="14,12" Margin="0,0,0,10">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*"/>
@@ -2330,7 +2461,7 @@
                 <StackPanel Grid.Column="0">
                   <TextBlock x:Name="AiActiveTitle" Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,0,0,3"/>
                   <StackPanel Orientation="Horizontal">
-                    <TextBlock x:Name="AiActiveName" Foreground="{DynamicResource Accent}" FontSize="13"/>
+                    <TextBlock x:Name="AiActiveName" Foreground="{DynamicResource Accent}" FontWeight="SemiBold" FontSize="13"/>
                     <TextBlock x:Name="AiActiveModel" Foreground="{DynamicResource TextMuted}" FontSize="11"
                                Margin="8,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
@@ -2344,7 +2475,8 @@
             <ItemsControl x:Name="AiProvCards" Margin="0,0,0,10">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Border BorderBrush="{DynamicResource Border}" BorderThickness="1" Padding="12,10" Margin="0,0,0,8">
+                  <Border Background="{DynamicResource PanelLeft}" BorderBrush="{DynamicResource Border}"
+                          BorderThickness="1" CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
                     <Grid>
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -2358,12 +2490,14 @@
                       <StackPanel Grid.Column="1">
                         <StackPanel Orientation="Horizontal">
                           <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Accent}" FontSize="13"
-                                     VerticalAlignment="Center"/>
-                          <Border Margin="8,0,0,0" Padding="6,1" BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                                     FontWeight="SemiBold" VerticalAlignment="Center"/>
+                          <Border Margin="8,0,0,0" Padding="6,1" CornerRadius="3"
+                                  BorderBrush="{DynamicResource Border}" BorderThickness="1"
                                   VerticalAlignment="Center">
                             <TextBlock Text="{Binding CustomLabel}" Foreground="{DynamicResource TextMuted}" FontSize="10"/>
                           </Border>
-                          <Border Margin="8,0,0,0" Padding="5,1" Background="{DynamicResource Accent}"
+                          <Border Margin="8,0,0,0" Padding="6,1" CornerRadius="3"
+                                  Background="{DynamicResource Accent}"
                                   VerticalAlignment="Center">
                             <Border.Style>
                               <Style TargetType="Border">
@@ -2375,7 +2509,7 @@
                                 </Style.Triggers>
                               </Style>
                             </Border.Style>
-                            <TextBlock Text="{Binding ActiveLabel}" Foreground="#101010" FontSize="10"/>
+                            <TextBlock Text="{Binding ActiveLabel}" Foreground="#101010" FontWeight="SemiBold" FontSize="10"/>
                           </Border>
                         </StackPanel>
                         <TextBlock Text="{Binding ModelLabel}" Foreground="{DynamicResource TextMuted}" FontSize="11"
@@ -2451,7 +2585,7 @@
             <Popup x:Name="AiModelsPopup" PlacementTarget="{Binding ElementName=AiDecisionModelBox}"
                    Placement="Bottom" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
               <Border Background="{DynamicResource PanelRight}" BorderBrush="{DynamicResource Border}"
-                      BorderThickness="1" MaxHeight="240"
+                      BorderThickness="1" CornerRadius="5" MaxHeight="240"
                       Width="{Binding ActualWidth, ElementName=AiDecisionModelBox}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                   <ListBox x:Name="AiModelsList" Background="Transparent" BorderThickness="0"
@@ -2466,6 +2600,7 @@
                           <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
                               <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                      CornerRadius="4" Margin="3,1"
                                       Padding="{TemplateBinding Padding}">
                                 <ContentPresenter/>
                               </Border>
@@ -2496,9 +2631,13 @@
                        TextWrapping="Wrap" Margin="0,0,0,10"/>
             <TextBlock x:Name="AiKeyLabel" Foreground="{DynamicResource TextMuted}" FontSize="11" Margin="0,0,0,4"/>
             <Grid Margin="0,0,0,4">
-              <PasswordBox x:Name="AiKeyBox" Height="28" Padding="8,0"
-                           Background="{DynamicResource PanelRight}" Foreground="{DynamicResource Accent}"
-                           BorderBrush="{DynamicResource Border}" BorderThickness="1" CaretBrush="{DynamicResource Accent}"/>
+              <Border Background="{DynamicResource PanelLeft}" BorderBrush="{DynamicResource Border}"
+                      BorderThickness="1" CornerRadius="5">
+                <PasswordBox x:Name="AiKeyBox" Height="30" Padding="8,0"
+                             VerticalContentAlignment="Center"
+                             Background="Transparent" Foreground="{DynamicResource Accent}"
+                             BorderThickness="0" CaretBrush="{DynamicResource Accent}"/>
+              </Border>
             </Grid>
             <Grid Margin="0,0,0,12">
               <TextBlock x:Name="AiKeyHint" Foreground="{DynamicResource TextMuted}" FontSize="11"

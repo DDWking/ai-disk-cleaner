@@ -294,6 +294,10 @@ public static class Loc
     public static string AiReportFooter => IsEn
         ? "AI only suggests. Nothing is deleted until you tick items and confirm."
         : "AI 只给建议：勾选和删除都由你确认，程序不会自己动手。";
+    public static string AiReportDockShow => IsEn ? "Show report" : "展开报告";
+    public static string AiReportDockHide => IsEn ? "Hide report" : "收起报告";
+    public static string AiReportExpandModal => IsEn ? "Full view" : "大窗查看";
+    public static string AiReportCollapsePanel => IsEn ? "Collapse report panel" : "收起报告面板";
     public static string AiDelProvider => IsEn ? "Remove" : "删除";
     public static string AppScannedSize => IsEn ? "Scanned size" : "扫描占用";
     public static string AppSizeEstimated => IsEn ? " est." : "（估算）";

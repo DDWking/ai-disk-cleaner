@@ -347,6 +347,18 @@ public partial class MainWindow : Window
             System.Windows.Automation.AutomationProperties.SetName(AiReportBtn, Loc.AiReportBtn);
             UpdateAiReportButton();
         }
+        if (OrganizeReportHeaderTitle != null) OrganizeReportHeaderTitle.Text = Loc.AiReportTitle;
+        if (OrganizeReportExpandBtn != null) OrganizeReportExpandBtn.Content = Loc.AiReportExpandModal;
+        if (OrganizeReportCloseBtn != null)
+        {
+            OrganizeReportCloseBtn.ToolTip = Loc.AiReportCollapsePanel;
+            System.Windows.Automation.AutomationProperties.SetName(OrganizeReportCloseBtn, Loc.AiReportCollapsePanel);
+        }
+        if (_lastAgentReport != null && OrganizeReportContent != null)
+        {
+            PopulateReportPanel(OrganizeReportContent, _lastAgentReport, isDocked: true);
+            BuildReportContent(_lastAgentReport);
+        }
         // 底部「全选」是单个切换按钮：文字恒为 Loc.SelectAll，状态（幽灵 / 主按钮、
         // 提示、可访问名称、可用性）统一由 ApplySelectAllButton 维护，ApplyUi 之后
         // 会走 RefreshCleanUi → UpdateSelectionUi 把当前状态刷新一次。
@@ -1044,6 +1056,17 @@ public partial class MainWindow : Window
                 FileEntry.FormatSize(used),
                 pct,
                 FileEntry.FormatSize(d.TotalFreeSpace));
+            if (VolumeUsageBar != null)
+            {
+                VolumeUsageBar.Value = Math.Clamp(pct, 0, 100);
+                VolumeUsageBar.Visibility = Visibility.Visible;
+                string colorKey = pct >= 90 ? "CloseHoverBg"
+                                : pct >= 78 ? "SectionConfirmAccent"
+                                : "SectionSafeAccent";
+                VolumeUsageBar.Foreground = pct >= 90
+                    ? new SolidColorBrush(Color.FromRgb(0xE0, 0x70, 0x70))
+                    : ThemeService.Brush(colorKey);
+            }
         }
         catch (Exception ex)
         {
@@ -2061,8 +2084,9 @@ public partial class MainWindow : Window
 
     private static void MarkTab(Button b, bool on)
     {
-        b.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
+        b.BorderBrush = on ? ThemeService.Brush("Accent") : Brushes.Transparent;
         b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
+        b.FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
     }
 
     // ==================== 分层展示：一次只显示一层 ====================

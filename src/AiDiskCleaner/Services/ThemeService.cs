@@ -28,20 +28,20 @@ public static class ThemeService
 {
     public static readonly ThemePalette Mono = new()
     {
-        Bg = C(0x00, 0x00, 0x00),
-        PanelLeft = C(0x08, 0x08, 0x08),
-        PanelRight = C(0x12, 0x12, 0x12),
-        Border = C(0x3A, 0x3A, 0x3A),
-        Accent = C(0xFF, 0xFF, 0xFF),
-        AccentDim = C(0xC8, 0xC8, 0xC8),
-        Text = C(0xF2, 0xF2, 0xF2),
-        TextDim = C(0x8A, 0x8A, 0x8A),
-        TextMuted = C(0x5A, 0x5A, 0x5A),
-        SelectBg = C(0x28, 0x28, 0x28),
-        HoverBg = C(0x1A, 0x1A, 0x1A),
-        CloseHoverBg = C(0x4A, 0x00, 0x00),
-        Placeholder = C(0x5A, 0x5A, 0x5A),
-        Overlay = Color.FromArgb(0xD0, 0x00, 0x00, 0x00),
+        Bg = C(0x0D, 0x0F, 0x12),
+        PanelLeft = C(0x11, 0x14, 0x18),
+        PanelRight = C(0x15, 0x18, 0x1E),
+        Border = C(0x28, 0x2E, 0x38),
+        Accent = C(0xF5, 0xF7, 0xFA),
+        AccentDim = C(0xC6, 0xCD, 0xD7),
+        Text = C(0xEC, 0xEF, 0xF4),
+        TextDim = C(0x94, 0x9C, 0xA8),
+        TextMuted = C(0x64, 0x6C, 0x78),
+        SelectBg = C(0x23, 0x2A, 0x35),
+        HoverBg = C(0x1D, 0x22, 0x2B),
+        CloseHoverBg = C(0x5E, 0x1C, 0x1C),
+        Placeholder = C(0x64, 0x6C, 0x78),
+        Overlay = Color.FromArgb(0xCC, 0x06, 0x08, 0x0B),
         // 正文用正常可读的界面字体（中文优先微软雅黑）；等宽只留给路径/技术信息。
         Font = "Microsoft YaHei UI, Segoe UI, Microsoft YaHei, sans-serif",
         MonoFont = "Cascadia Mono, Consolas, Courier New",
@@ -71,16 +71,16 @@ public static class ThemeService
         Set(app, "Overlay", p.Overlay);
         app.Resources["AppFont"] = new FontFamily(p.Font);
         app.Resources["MonoFont"] = new FontFamily(p.MonoFont);
-        Set(app, "RowAlt", Darken(p.PanelRight, 8));
-        Set(app, "GridLine", Lighten(p.PanelRight, 18));
+        Set(app, "RowAlt", Darken(p.PanelRight, 4));
+        Set(app, "GridLine", C(0x21, 0x26, 0x2F));
 
         // 风险分区的独立视觉区域。刻意克制：不铺大面积刺眼色，
         // 只用左侧色带 + 略微不同的背景层级 + 文字/图标共同表达（不单靠颜色）。
-        Set(app, "SectionSafeAccent", C(0x3E, 0x9E, 0x7A));       // 绿松石
-        Set(app, "SectionConfirmAccent", C(0xC2, 0x7B, 0x2E));    // 暗橙
-        Set(app, "SectionSafeSurface", Lighten(p.Bg, 6));
-        Set(app, "SectionConfirmSurface", Lighten(p.Bg, 3));
-        Set(app, "SidebarScrim", C(0x00, 0x00, 0x00));
+        Set(app, "SectionSafeAccent", C(0x3E, 0xB4, 0x89));       // 柔和绿松石
+        Set(app, "SectionConfirmAccent", C(0xD9, 0x8A, 0x3C));    // 暖琥珀橙
+        Set(app, "SectionSafeSurface", C(0x12, 0x18, 0x1A));
+        Set(app, "SectionConfirmSurface", C(0x16, 0x16, 0x19));
+        Set(app, "SidebarScrim", C(0x0A, 0x0C, 0x0F));
     }
 
     public static SolidColorBrush Brush(string key)
