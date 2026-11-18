@@ -419,6 +419,37 @@ public partial class MainWindow
             ToolTip = Loc.AiReportJumpTip,
         };
         jumpBtn.Click += (_, _) => RevealReportFolder(item, closeModal: closeModalOnJump);
+        
+        // 增加交互式路径跳转支持
+        jumpBtn.ToolTip = Loc.AiReportJumpTip + " (" + item.RelPath + ")";
+        
+        // 优化方案：如果该条目包含证据路径，将其显示为列表供点击跳转
+        if (item.Evidence.Count > 0)
+        {
+            var evidencePanel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+            // 使用已知 UI 字符串或默认文本
+            evidencePanel.Children.Add(new TextBlock { Text = "证据文件:", FontSize = 10.5, FontWeight = FontWeights.Bold, Foreground = ThemeService.Brush("TextMuted") });
+            
+            foreach (var ev in item.Evidence)
+            {
+                var evBtn = new Button
+                {
+                    Content = ev.Label,
+                    Style = FindResource("GhostButton") as Style,
+                    FontSize = 11,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    ToolTip = ev.Target,
+                    Margin = new Thickness(0, 2, 0, 0)
+                };
+                // 点击证据标签中的目标路径进行跳转
+                evBtn.Click += (_, _) => {
+                    RevealReportFolder(item, closeModal: closeModalOnJump);
+                };
+                evidencePanel.Children.Add(evBtn);
+            }
+            body.Children.Add(evidencePanel);
+        }
+        
         DockPanel.SetDock(jumpBtn, Dock.Right);
         buttons.Children.Add(jumpBtn);
         body.Children.Add(buttons);
