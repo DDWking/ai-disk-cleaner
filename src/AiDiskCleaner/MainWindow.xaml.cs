@@ -335,6 +335,11 @@ public partial class MainWindow : Window
             ScanDetailsBtn.ToolTip = Loc.ScanDetails;
             System.Windows.Automation.AutomationProperties.SetName(ScanDetailsBtn, "查看扫描详情");
         }
+        if (OrganizeScanDetailsBtn != null)
+        {
+            OrganizeScanDetailsBtn.ToolTip = Loc.ScanDetails;
+            System.Windows.Automation.AutomationProperties.SetName(OrganizeScanDetailsBtn, "查看扫描详情");
+        }
         if (CleanMoreBtn != null)
         {
             CleanMoreBtn.ToolTip = Loc.MoreMenu;
@@ -358,6 +363,10 @@ public partial class MainWindow : Window
         {
             PopulateReportPanel(OrganizeReportContent, _lastAgentReport, isDocked: true);
             BuildReportContent(_lastAgentReport);
+        }
+        else
+        {
+            RefreshDockedReportPlaceholder();
         }
         // 底部「全选」是单个切换按钮：文字恒为 Loc.SelectAll，状态（幽灵 / 主按钮、
         // 提示、可访问名称、可用性）统一由 ApplySelectAllButton 维护，ApplyUi 之后
@@ -609,16 +618,18 @@ public partial class MainWindow : Window
         {
             if (p.Percent >= 0)
             {
+                // 扫描阶段最多显示到 95%，留最后 5% 给目录结构整理，保证进度条收起时列表已完整就绪
+                int shownPct = Math.Min(p.Percent, 95);
                 ScanProgressBar.IsIndeterminate = false;
-                ScanProgressBar.Value = p.Percent;
+                ScanProgressBar.Value = shownPct;
                 string stage = _scanUsedFallback
-                    ? Loc.ScanFallbackProgress(p.Percent, p.CurrentDirectory, p.FileCount, _scanFallbackReason)
-                    : Loc.ProgressLine(p.Percent, p.CurrentDirectory, p.FileCount);
+                    ? Loc.ScanFallbackProgress(shownPct, p.CurrentDirectory, p.FileCount, _scanFallbackReason)
+                    : Loc.ProgressLine(shownPct, p.CurrentDirectory, p.FileCount);
                 ScanProgressText.Text = stage;
                 SetStatus(_scanUsedFallback
-                    ? Loc.ScanFallbackProgress(p.Percent, p.CurrentDirectory, p.FileCount, _scanFallbackReason)
-                    : Loc.ScanPct(p.Percent));
-                SetCleanProgress(p.Percent, stage, determinate: true);
+                    ? Loc.ScanFallbackProgress(shownPct, p.CurrentDirectory, p.FileCount, _scanFallbackReason)
+                    : Loc.ScanPct(shownPct));
+                SetCleanProgress(shownPct, stage, determinate: true);
             }
             else
             {
@@ -652,7 +663,19 @@ public partial class MainWindow : Window
                 AppLog.Info("Scan", $"dropping stale scan result gen={myGeneration} current={_scanGeneration}");
                 return;
             }
-            // 不 await：首屏不能等后续流水线。阶段由 WorkState 登记，停止按钮照常可用。
+            // 先把文件夹列表建好并刷新界面，再收起扫描进度条，确保进度条与页面展示同步
+            ScanProgressBar.IsIndeterminate = false;
+            ScanProgressBar.Value = 96;
+            ScanProgressText.Text = "正在整理目录结构…";
+            SetStatus("正在整理目录结构…");
+            await Task.Yield();
+            _root = outcome.Root;
+            if (_organizeBuiltForScan != _scanGeneration) RebuildOrganize();
+            UpdateAiReportButton();
+            RefreshDockedReportPlaceholder();
+            ScanProgressBar.Value = 100;
+            ScanProgressText.Text = "扫描与目录整理完成";
+            // 不 await：后续后台清理分析由 WorkState 登记，停止按钮照常可用。
             _ = FinishScanAsync(outcome.Root);
             scanOp.Done(outcome.UsedFallback ? "recursive" : "mft", outcome.Root.FileCount);
         }
@@ -700,7 +723,9 @@ public partial class MainWindow : Window
         // 让出一拍再干重活：进度条 / 阶段切换先画出来，避免看起来像卡死
         await Task.Yield();
         _root = root;
+        if (_organizeBuiltForScan != _scanGeneration) RebuildOrganize();
         UpdateAiReportButton();
+        RefreshDockedReportPlaceholder();
         // 新一次扫描 = 新的占用口径，软件占用缓存必须丢
         AppRecommendationService.InvalidateUsageCache();
 
@@ -1511,20 +1536,22 @@ public partial class MainWindow : Window
             AiLampDot.Fill = AiStatusBrush("#E07070");
             AiLampText.Text = Loc.AiLampOff;
             AiLampButton.ToolTip = Loc.AiLampOffTip;
-            return;
         }
-        if (p.Health != AiProviderHealth.Ok)
+        else if (p.Health != AiProviderHealth.Ok)
         {
             AiLampDot.Fill = AiStatusBrush("#E0B050");
             AiLampText.Text = p.Health == AiProviderHealth.Failed ? Loc.AiLampFailed : Loc.AiLampUntested;
             AiLampButton.ToolTip = p.Health == AiProviderHealth.Failed && p.LastError.Length > 0
                 ? Loc.AiLampFailedTip(p.LastError)
                 : Loc.AiLampUntestedTip;
-            return;
         }
-        AiLampDot.Fill = AiStatusBrush("#3ECF6A");
-        AiLampText.Text = p.ModelLabel;
-        AiLampButton.ToolTip = Loc.AiLampOkTip(p.Name, p.ModelLabel);
+        else
+        {
+            AiLampDot.Fill = AiStatusBrush("#3ECF6A");
+            AiLampText.Text = p.ModelLabel;
+            AiLampButton.ToolTip = Loc.AiLampOkTip(p.Name, p.ModelLabel);
+        }
+        if (_lastAgentReport == null) RefreshDockedReportPlaceholder();
     }
 
     /// <summary>点顶栏的灯直接进设置：用户不需要先找齿轮。</summary>
@@ -2068,13 +2095,15 @@ public partial class MainWindow : Window
     private void ShowRightTab(RightTab tab)
     {
         _rightTab = tab;
+        bool showMainClean = tab is RightTab.Clean or RightTab.Organize;
         if (CleanPane != null)
-            CleanPane.Visibility = tab == RightTab.Clean ? Visibility.Visible : Visibility.Collapsed;
+            CleanPane.Visibility = Visibility.Collapsed;
         if (OrganizePane != null)
-            OrganizePane.Visibility = tab == RightTab.Organize ? Visibility.Visible : Visibility.Collapsed;
+            OrganizePane.Visibility = tab is RightTab.Clean or RightTab.Organize
+                ? Visibility.Visible : Visibility.Collapsed;
         UninstallPane.Visibility = tab == RightTab.Uninstall ? Visibility.Visible : Visibility.Collapsed;
-        MarkTab(TabOrganizeBtn, tab == RightTab.Organize);
-        MarkTab(TabCleanBtn, tab == RightTab.Clean);
+        MarkTab(TabOrganizeBtn, false);
+        MarkTab(TabCleanBtn, showMainClean);
         MarkTab(TabUninstallBtn, tab == RightTab.Uninstall);
         // 卸载页第一次被打开时才去扫软件清单（隐藏面板按需初始化）
         if (tab == RightTab.Uninstall) EnsureAppsLoaded();

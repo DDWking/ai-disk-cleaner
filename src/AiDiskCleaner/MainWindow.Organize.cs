@@ -64,6 +64,16 @@ public partial class MainWindow
     /// <summary>右键目标。</summary>
     private OrganizeNode? _organizeMenuNode;
 
+    /// <summary>三色筛选（null = 全部；只过滤视图，不改展开状态）。</summary>
+    private FolderColorTone? _organizeColorFilter;
+
+    /// <summary>最近一次从右侧 AI 报告跳转高亮的目录行。</summary>
+    private OrganizeNode? _lastJumpNode;
+
+    /// <summary>按规范化完整路径索引的 AI 报告标色与摘要，供延迟材料化的节点自动同步。</summary>
+    private readonly Dictionary<string, (FolderColorTone Tone, string Badge, string Summary, string Brief)> _aiReportAnnotations
+        = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>「当前文件夹」：三级手动识别的目标（展开/点选都会更新它）。</summary>
 
     /// <summary>自动识别是否已经跑过一次（同一次扫描不重复自动跑）。</summary>
@@ -92,6 +102,7 @@ public partial class MainWindow
         OrgCtxCopy.Header = Loc.OrganizeCopyPath;
         ApplyOrganizeColumnPriority(OrganizeContentWidth());
         UpdateOrganizeHeader();
+        UpdateColorFilterButtons();
         // 后端 FolderDelete 合同（MainWindow.FolderDelete.cs）在这里刷新底部执行栏
         RefreshFolderDeleteBar();
     }
@@ -138,12 +149,16 @@ public partial class MainWindow
         _organizeRoots.Clear();
         _organizeNote = "";
         _organizePendingOnly = false;
+        _organizeColorFilter = null;
+        _lastJumpNode = null;
+        _aiReportAnnotations.Clear();
         _organizeUnlistedTotal = 0;
 
         if (_root == null)
         {
             ShowOrganizeState(OrganizeStateKind.NoScan);
             UpdateOrganizeHeader();
+            RefreshDockedReportPlaceholder();
             return;
         }
 
@@ -157,7 +172,8 @@ public partial class MainWindow
             {
                 ShowOrganizeState(OrganizeStateKind.Empty);
                 UpdateOrganizeHeader();
-                    return;
+                RefreshDockedReportPlaceholder();
+                return;
             }
 
             // 后台把一、二级对象建出来（不展开，首屏只见根的一级）
@@ -166,6 +182,7 @@ public partial class MainWindow
             if (rs.Skipped > 0) _organizeNote = Loc.OrganizeSkippedNoAccess(rs.Skipped);
             ShowOrganizeState(OrganizeStateKind.None);
             RefreshOrganizeRows();
+            RefreshDockedReportPlaceholder();
             AppLog.Info("Organize", $"op=build roots={_organizeRoots.Count} objects={_organizeAll.Count} "
                 + $"rows={_organizeRows.Count} entries={_organizeEntryPoints.Count} skipped={rs.Skipped} "
                 + $"levels=1-{OrganizeLevelPolicy.AutoChildLevel}");
@@ -197,6 +214,8 @@ public partial class MainWindow
         _organizeByDir[dir] = node;
         _organizeAll.Add(node);
         LocalRecognize(node);
+        if (_aiReportAnnotations.TryGetValue(CleanListSnapshot.NormPath(dir.FullPath), out var ann))
+            node.ApplyAiAnnotation(ann.Tone, ann.Badge, ann.Summary, ann.Brief);
         return node;
     }
 
@@ -346,13 +365,19 @@ public partial class MainWindow
     {
         if (OrganizeGrid == null) return;
         _organizeFilterSet = null;
-        if (_organizePendingOnly)
+        if (_organizePendingOnly || _organizeColorFilter.HasValue)
         {
             var set = new HashSet<OrganizeNode>();
+            bool Matches(OrganizeNode n)
+            {
+                if (_organizePendingOnly && !n.IsPending) return false;
+                if (_organizeColorFilter is { } tone && n.ColorTone != tone) return false;
+                return true;
+            }
             // 只遍历已经材料化出来的层：筛选不会去碰磁盘、也不会触发识别
             bool Mark(OrganizeNode n)
             {
-                bool keep = n.IsPending;
+                bool keep = Matches(n);
                 if (n.ChildrenLoaded)
                     foreach (var c in n.Children)
                         if (Mark(c)) keep = true;
@@ -412,7 +437,7 @@ public partial class MainWindow
         foreach (var c in node.Children) AddVisibleRows(c, ref count);
     }
 
-    /// <summary>页头统计：对象数 / 容量 / 已认出 / 待确认 / 失败，外加一次性短提示。</summary>
+    /// <summary>页头统计：对象数 / 容量 / 已认出 / 待确认 / 失败，外加一次性短提示与三色筛选。</summary>
     private void UpdateOrganizeHeader()
     {
         if (OrganizeSub == null) return;
@@ -421,6 +446,8 @@ public partial class MainWindow
         {
             OrganizeSub.Text = Loc.OrganizeNoScan;
             OrganizeCounts.Text = "";
+            if (OrganizeNoteText != null) OrganizeNoteText.Text = "";
+            UpdateColorFilterButtons();
             return;
         }
 
@@ -438,8 +465,62 @@ public partial class MainWindow
         string line = Loc.OrganizeCountsLine(local, unknown, failed);
         if (_organizeUnlistedTotal > 0) line += " · " + Loc.OrganizeUnlistedTotal(_organizeUnlistedTotal);
         if (_organizePendingOnly) line += " · " + Loc.OrganizeFilterActive(_organizeRows.Count, _organizeAll.Count);
+        if (_organizeColorFilter.HasValue && _organizeRows.Count == 0) line += " · " + Loc.ColorFilterEmpty;
         if (_organizeNote.Length > 0) line += " · " + _organizeNote;
         OrganizeCounts.Text = line;
+        if (OrganizeNoteText != null)
+        {
+            string shortNote = _organizeNote;
+            if (shortNote.Length == 0 && _organizeColorFilter.HasValue && _organizeRows.Count == 0)
+                shortNote = Loc.ColorFilterEmpty;
+            OrganizeNoteText.Text = shortNote;
+        }
+        UpdateColorFilterButtons();
+    }
+
+    private void ColorFilterAll_Click(object sender, RoutedEventArgs e) => SetColorFilter(null);
+    private void ColorFilterGreen_Click(object sender, RoutedEventArgs e) => SetColorFilter(FolderColorTone.Green);
+    private void ColorFilterYellow_Click(object sender, RoutedEventArgs e) => SetColorFilter(FolderColorTone.Yellow);
+    private void ColorFilterRed_Click(object sender, RoutedEventArgs e) => SetColorFilter(FolderColorTone.Red);
+
+    private void SetColorFilter(FolderColorTone? tone)
+    {
+        _organizeColorFilter = _organizeColorFilter == tone && tone != null ? null : tone;
+        RefreshOrganizeRows();
+    }
+
+    private void UpdateColorFilterButtons()
+    {
+        if (ColorFilterAllBtn == null) return;
+        int total = _organizeAll.Count;
+        int green = _organizeAll.Count(x => x.ColorTone == FolderColorTone.Green);
+        int yellow = _organizeAll.Count(x => x.ColorTone == FolderColorTone.Yellow);
+        int red = _organizeAll.Count(x => x.ColorTone == FolderColorTone.Red);
+
+        ColorFilterAllBtn.Content = total > 0 ? $"{Loc.ColorFilterAll} ({total})" : Loc.ColorFilterAll;
+        if (ColorFilterGreenText != null)
+            ColorFilterGreenText.Text = green > 0 ? $"{Loc.ColorFilterGreen} ({green})" : Loc.ColorFilterGreen;
+        if (ColorFilterYellowText != null)
+            ColorFilterYellowText.Text = yellow > 0 ? $"{Loc.ColorFilterYellow} ({yellow})" : Loc.ColorFilterYellow;
+        if (ColorFilterRedText != null)
+            ColorFilterRedText.Text = red > 0 ? $"{Loc.ColorFilterRed} ({red})" : Loc.ColorFilterRed;
+
+        ApplyFilterPillStyle(ColorFilterAllBtn, _organizeColorFilter == null, "SelectBg", "Accent", "Accent");
+        ApplyFilterPillStyle(ColorFilterGreenBtn, _organizeColorFilter == FolderColorTone.Green,
+            "ToneGreenBg", "ToneGreenAccent", "ToneGreenAccent");
+        ApplyFilterPillStyle(ColorFilterYellowBtn, _organizeColorFilter == FolderColorTone.Yellow,
+            "ToneYellowBg", "ToneYellowAccent", "ToneYellowAccent");
+        ApplyFilterPillStyle(ColorFilterRedBtn, _organizeColorFilter == FolderColorTone.Red,
+            "ToneRedBg", "ToneRedAccent", "ToneRedAccent");
+    }
+
+    private static void ApplyFilterPillStyle(Button? btn, bool active, string bgKey, string borderKey, string fgKey)
+    {
+        if (btn == null) return;
+        btn.Background = ThemeService.Brush(active ? bgKey : "PanelLeft");
+        btn.BorderBrush = ThemeService.Brush(active ? borderKey : "Border");
+        btn.Foreground = ThemeService.Brush(active ? fgKey : "TextDim");
+        btn.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
     }
 
     private void SetOrganizeNote(string text)
@@ -457,6 +538,7 @@ public partial class MainWindow
         {
             OrganizeStateBox.Visibility = Visibility.Collapsed;
             _organizeStateAction = null;
+            if (_lastAgentReport == null) RefreshDockedReportPlaceholder();
             return;
         }
         OrganizeStateBox.Visibility = Visibility.Visible;
@@ -500,6 +582,7 @@ public partial class MainWindow
                 _organizeStateAction = null;
                 break;
         }
+        if (_lastAgentReport == null) RefreshDockedReportPlaceholder();
     }
 
     private void OrganizeStateAction_Click(object sender, RoutedEventArgs e)
@@ -654,13 +737,29 @@ public partial class MainWindow
 
     private OrganizeRevealResult SelectOrganizeRow(OrganizeNode node)
     {
+        if (_organizeColorFilter.HasValue && node.ColorTone != _organizeColorFilter.Value)
+            _organizeColorFilter = null;
         RefreshOrganizeRows();
         if (!_organizeRows.Contains(node))
             return new OrganizeRevealResult(OrganizeRevealKind.Partial, node);
+        if (_lastJumpNode != null && !ReferenceEquals(_lastJumpNode, node))
+            _lastJumpNode.IsJumpHighlighted = false;
+        node.IsJumpHighlighted = true;
+        _lastJumpNode = node;
         OrganizeGrid.SelectedItem = node;
         OrganizeGrid.ScrollIntoView(node);
         OrganizeGrid.Focus();
         return new OrganizeRevealResult(OrganizeRevealKind.Located, node);
+    }
+
+    private void OrganizeGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (OrganizeGrid == null || _lastJumpNode == null) return;
+        if (!ReferenceEquals(OrganizeGrid.SelectedItem, _lastJumpNode))
+        {
+            _lastJumpNode.IsJumpHighlighted = false;
+            _lastJumpNode = null;
+        }
     }
 
     private static string OrganizeNormalizePath(string? path) => (path ?? "").TrimEnd('\\');

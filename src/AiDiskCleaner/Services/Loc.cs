@@ -244,24 +244,61 @@ public static class Loc
     public static string AiReportMeta(string model, int items, string size) => IsEn
         ? $"{items} suggestions · up to {size} reclaimable · {model}"
         : $"{items} 条建议 · 预计可回收 {size} · {model}";
-    public static string AiReportRecommend => IsEn ? "Recommended" : "推荐清理";
-    public static string AiReportConsider => IsEn ? "Worth a look" : "再看看";
-    public static string AiReportKeep => IsEn ? "Suggested to keep" : "建议保留";
+    public static string AiReportRecommend => IsEn ? "Clean" : "可清理";
+    public static string AiReportConsider => IsEn ? "Review" : "待考虑";
+    public static string AiReportKeep => IsEn ? "Keep" : "别动";
     public static string AiReportEvidence => IsEn ? "Evidence: " : "依据：";
     public static string AiReportRisk(string risk) => IsEn ? $"Risk: {risk}" : $"风险：{risk}";
-    public static string AiReportJump => IsEn ? "Open" : "去处理";
+    public static string AiReportJump => IsEn ? "Locate" : "定位";
     public static string AiReportJumpTip => IsEn
-        ? "Jump to the folder page and highlight this folder; you still decide what to check"
-        : "跳到「按文件夹删除」页并定位这个文件夹；勾选仍由你自己点";
+        ? "Locate and highlight this folder in the list; you still decide what to check"
+        : "点击展开并高亮定位左侧目录；勾选仍由你决定";
     public static string AiReportJumped(string name) => IsEn
-        ? $"Located “{name}”. Whether to check it is still up to you."
-        : $"已定位到「{name}」，勾选仍由你决定。";
+        ? $"Located: {name}"
+        : $"已定位：{name}";
     public static string AiReportJumpPartial(string name) => IsEn
         ? $"Could only reach the nearest parent “{name}” — deeper levels are not listed."
         : $"只能定位到最近的上级「{name}」，更深一层没有列出来。";
     public static string AiReportNotInTree => IsEn
         ? "This folder is not in the folder list (protected or beyond the displayed levels)."
-        : "这个目录不在「按文件夹删除」列表里（可能受保护或超出显示层级）。";
+        : "这个目录不在当前文件夹列表里（可能受保护或超出显示层级）。";
+    public static string AiReportPlaceholderTitle => IsEn
+        ? "AI Cleanup Assistant"
+        : "AI 智能清理助手（已预留）";
+    public static string AiReportPlaceholderDesc => IsEn
+        ? "Run AI analysis after scanning to review folder summaries and get structured Green / Yellow / Red cleanup cards. Clicking any card locates that folder on the left without auto-checking or deleting."
+        : "扫描完成后点击「AI 分析」，将读取目录摘要并按 绿（建议清理）/ 黄（待考虑）/ 红（建议保留）生成规整建议卡。点击卡片可直接展开定位左侧文件夹，绝不自动勾选或删除。";
+    public static string AiReportPlaceholderAction => IsEn ? "Run AI Analysis" : "立即开始 AI 分析";
+    public static string AiReportPlaceholderOpenSettings => IsEn ? "Open AI Settings" : "前往配置 AI 模型";
+    public static string AiReportPlaceholderScanFirst => IsEn
+        ? "Select a drive at the top and run a scan first."
+        : "请先在顶部选择磁盘并完成一次扫描，再启用 AI 分析。";
+    public static string AiReportPlaceholderScanning => IsEn
+        ? "Scanning drive… AI analysis will be ready as soon as scanning finishes."
+        : "正在扫描磁盘… 扫描完成后即可进行 AI 分析。";
+    public static string AiReportPlaceholderConfigFirst => IsEn
+        ? "No AI model configured yet. Configure one in Settings to generate structured folder suggestions."
+        : "尚未配置 AI 模型。前往设置接入模型后，即可在此展示结构化清理建议。";
+    public static string AiReportPlaceholderBusy => IsEn
+        ? "AI is reading folder summaries and preparing structured cleanup suggestions…"
+        : "AI 正在读取文件夹摘要并生成结构化建议，完成后将自动展示在此处…";
+    public static string AiReportPlaceholderReady(int folderCount) => IsEn
+        ? $"{folderCount:N0} folders indexed locally. Click below to start AI analysis."
+        : $"已本地整理 {folderCount:N0} 个目录节点，可随时发起 AI 深度研判。";
+    public static string AiReportLegendGreen => IsEn
+        ? "Green · Safe cache & temp files"
+        : "绿色（安全可清理）· 明确缓存与临时目录";
+    public static string AiReportLegendYellow => IsEn
+        ? "Yellow · Review builds, downloads & large folders"
+        : "黄色（待考虑）· 构建依赖、下载或大体积待确认目录";
+    public static string AiReportLegendRed => IsEn
+        ? "Red · Protected system & important folders"
+        : "红色（禁止动）· 系统核心与受保护的重要目录";
+    public static string ColorFilterAll => IsEn ? "All" : "全部";
+    public static string ColorFilterGreen => IsEn ? "Clean" : "可清理";
+    public static string ColorFilterYellow => IsEn ? "Review" : "待考虑";
+    public static string ColorFilterRed => IsEn ? "Keep" : "别动";
+    public static string ColorFilterEmpty => IsEn ? "No folder matches this color filter." : "当前筛选颜色下暂无目录";
     public static string AiReportProgress(int done, int total) => IsEn
         ? $"Analyzing {done}/{total}"
         : $"分析中 {done}/{total}";

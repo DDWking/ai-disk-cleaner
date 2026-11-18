@@ -81,6 +81,22 @@ public static class ThemeService
         Set(app, "SectionSafeSurface", C(0x12, 0x18, 0x1A));
         Set(app, "SectionConfirmSurface", C(0x16, 0x16, 0x19));
         Set(app, "SidebarScrim", C(0x0A, 0x0C, 0x0F));
+
+        // 文件夹清理中心三色标记（绿-安全可清理 / 黄-待考虑 / 红-禁止动）与定位高亮
+        Set(app, "ToneGreenAccent", C(0x3E, 0xB4, 0x89));
+        Set(app, "ToneGreenBg", C(0x13, 0x24, 0x1E));
+        Set(app, "ToneGreenRowBg", C(0x10, 0x1A, 0x17));
+
+        Set(app, "ToneYellowAccent", C(0xE0, 0x9F, 0x3E));
+        Set(app, "ToneYellowBg", C(0x26, 0x1E, 0x12));
+        Set(app, "ToneYellowRowBg", C(0x1A, 0x17, 0x12));
+
+        Set(app, "ToneRedAccent", C(0xE0, 0x6C, 0x75));
+        Set(app, "ToneRedBg", C(0x28, 0x15, 0x18));
+        Set(app, "ToneRedRowBg", C(0x1B, 0x13, 0x15));
+
+        Set(app, "JumpHighlightBg", C(0x1C, 0x2B, 0x3E));
+        Set(app, "JumpHighlightBorder", C(0x4C, 0x9A, 0xFF));
     }
 
     public static SolidColorBrush Brush(string key)

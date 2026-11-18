@@ -40,16 +40,23 @@ public sealed class OpenAiCompatChatModel : IChatModel
     {
         bool json = request.JsonMode;
         bool stream = true;
+        bool disableThinking = ShouldDisableThinking(request);
 
         for (int attempt = 0; ; attempt++)
         {
             try
             {
-                return await SendAsync(request, json, stream, ct);
+                return await SendAsync(request, json, stream, disableThinking, ct);
             }
-            catch (ChatModelException ex) when (ex.Kind == ChatErrorKind.Protocol && attempt < 2)
+            catch (ChatModelException ex) when (ex.Kind == ChatErrorKind.Protocol && attempt < 3)
             {
-                if (json && Mentions(ex.Message, "response_format"))
+                if (disableThinking && Mentions(ex.Message, "thinking"))
+                {
+                    disableThinking = false;
+                    continue;
+                }
+
+                if (json && (Mentions(ex.Message, "response_format") || Mentions(ex.Message, "json_object")))
                 {
                     json = false;
                     continue;
@@ -66,10 +73,19 @@ public sealed class OpenAiCompatChatModel : IChatModel
         }
     }
 
+    bool ShouldDisableThinking(ChatRequest request)
+    {
+        if (!request.JsonMode) return false;
+        string model = _model ?? "";
+        if (model.Contains("reasoner", StringComparison.OrdinalIgnoreCase)) return false;
+        if (model.Contains("flash", StringComparison.OrdinalIgnoreCase)) return true;
+        return _endpoint.Contains("deepseek", StringComparison.OrdinalIgnoreCase);
+    }
+
     static bool Mentions(string text, string token)
         => text.Contains(token, StringComparison.OrdinalIgnoreCase);
 
-    async Task<ChatResponse> SendAsync(ChatRequest request, bool jsonMode, bool stream, CancellationToken ct)
+    async Task<ChatResponse> SendAsync(ChatRequest request, bool jsonMode, bool stream, bool disableThinking, CancellationToken ct)
     {
         var payload = new Dictionary<string, object?>
         {
@@ -83,6 +99,7 @@ public sealed class OpenAiCompatChatModel : IChatModel
         };
         if (stream) payload["stream_options"] = new Dictionary<string, object?> { ["include_usage"] = true };
         if (jsonMode) payload["response_format"] = new Dictionary<string, object?> { ["type"] = "json_object" };
+        if (disableThinking) payload["thinking"] = new Dictionary<string, object?> { ["type"] = "disabled" };
 
         using var req = new HttpRequestMessage(HttpMethod.Post, _endpoint)
         {

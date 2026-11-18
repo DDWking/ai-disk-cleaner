@@ -94,12 +94,12 @@ Assert-True 'tab switching uses an enum, not fragile numeric indexes' `
      -not ([regex]::Match($cs, 'ShowRightTab\([0-9]\)').Success))
 Assert-True 'clean pane still comes before uninstall pane' `
     ($xaml -match '(?s)x:Name="CleanPane".*?x:Name="UninstallPane"')
-Assert-True 'tidy-up pane is the real workspace, not a collapsed placeholder' `
-    ($xaml -match '(?s)x:Name="OrganizePane"[^>]*Visibility="Collapsed"' -and
+Assert-True 'merged cleanup workspace is visible by default (OrganizePane hosts folder view)' `
+    ($xaml -notmatch '(?s)x:Name="OrganizePane"[^>]*Visibility="Collapsed"' -and
      $xaml -match 'x:Name="OrganizeGrid"' -and
-     $cs -match 'OrganizePane\.Visibility = tab == RightTab\.Organize')
-Assert-True 'clean pane is visible by default (no Collapsed on CleanPane itself)' `
-    ($xaml -notmatch '(?s)x:Name="CleanPane"[^>]*Visibility="Collapsed"')
+     $cs -match 'OrganizePane\.Visibility = tab is RightTab\.Clean or RightTab\.Organize')
+Assert-True 'legacy CleanPane stays collapsed in merged cleanup mode' `
+    ($xaml -match '(?s)x:Name="CleanPane"[^>]*Visibility="Collapsed"')
 
 # --- 3. tidy-up workspace structure -----------------------------------------
 Assert-True 'tidy-up columns are name / what-it-is / size (the actions column is gone)' `
@@ -251,7 +251,8 @@ Assert-True 'the folder page also provides a right-side docked report split pane
      $xaml -match 'x:Name="OrganizeReportContent"' -and
      $xaml -match 'x:Name="AiReportToggleBtn"' -and
      $agent -match 'ShowDockedAgentReport' -and
-     $agent -match 'SetDockedReportVisible')
+     $agent -match 'SetDockedReportVisible' -and
+     $agent -match 'RefreshDockedReportPlaceholder')
 Assert-True 'the report only locates the folder (never checks it, never deletes)' `
     ($agent -match 'RevealReportFolder' -and $agent -match 'ShowRightTab\(RightTab\.Organize\)' -and
      $agent -match 'RevealOrganizeFolder' -and

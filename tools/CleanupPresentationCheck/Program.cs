@@ -117,6 +117,9 @@ public static class Program
         Check("首页分区列表控件存在", sectionsControl != null);
         if (sectionsControl == null) return Summary();
 
+        if (NamedField(win, "OrganizePane") is FrameworkElement orgPane) orgPane.Visibility = Visibility.Collapsed;
+        if (NamedField(win, "CleanPane") is FrameworkElement cleanPane) cleanPane.Visibility = Visibility.Visible;
+
         sectionsControl.ItemsSource = sections;
         Loc.Lang = AppLang.Zh;
         Layout(win, 1000, 700);

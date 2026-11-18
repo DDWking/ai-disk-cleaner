@@ -29,6 +29,15 @@ public sealed record OrganizeFileRow(string Name, string SizeText, string Modifi
     public string Hint => FullPath.Length > 0 ? FullPath : Name;
 }
 
+/// <summary>文件夹在清理中心的三色视觉标记：绿=安全可清理 / 黄=待考虑 / 红=禁止动 / 中性=普通目录。</summary>
+public enum FolderColorTone
+{
+    Neutral = 0,
+    Green = 1,
+    Yellow = 2,
+    Red = 3,
+}
+
 /// <summary>
 /// 「文件夹整理」页里的一个文件夹对象。
 ///
@@ -458,6 +467,306 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// </summary>
     public string SelectionNote => SelectionGuard.Guard == PathGuard.Allowed ? "" : SelectionGuard.Reason;
 
+    // ==================== 三色标记与 AI 分析联动（只展示建议，不自动勾选） ====================
+
+    private (FolderColorTone Tone, string Badge, string Tip)? _localColorCache;
+    private FolderColorTone? _aiColorTone;
+    private string _aiBadgeLabel = "";
+    private string _aiSummaryText = "";
+    private string _aiBriefReason = "";
+    private bool _isJumpHighlighted;
+
+    private (FolderColorTone Tone, string Badge, string Tip) LocalColor
+        => _localColorCache ??= ComputeLocalColor();
+
+    private (FolderColorTone Tone, string Badge, string Tip) ComputeLocalColor()
+    {
+        const string MixedTip = "内部包含可清理或待确认的子文件夹，请展开后按需处理";
+
+        // 1) 红色（别动）与混合父容器降级（待考虑）：
+        //    若子文件夹包含可清理/待确认内容，父文件夹不直接标红，改标黄色「待考虑」；
+        //    只有全部内容都不可动时才标红色「别动」。
+        if (IsSelectionProtected)
+        {
+            if (HasCleanableOrReviewableSubfolder(Dir))
+                return (FolderColorTone.Yellow, "待考虑", MixedTip);
+            string tip = SelectionNote.Length > 0 ? SelectionNote : "系统或受保护目录，不能直接删除";
+            return (FolderColorTone.Red, "别动", tip);
+        }
+
+        var hit = AppSignatures.Match(FullPath);
+        bool sigEstablished = hit is { } h && (h.Sig.Subs is not { Length: > 0 } || h.SubHit);
+        if (sigEstablished && hit!.Value.Sig.Risk == SigRisk.Keep)
+        {
+            if (HasCleanableOrReviewableSubfolder(Dir))
+                return (FolderColorTone.Yellow, "待考虑", MixedTip);
+            return (FolderColorTone.Red, "别动", hit.Value.Sig.Plain ?? "重要数据或系统组件，不建议删除");
+        }
+
+        var role = FolderPurposeRules.SystemRole(FullPath);
+        if (role != null && !string.Equals(role.PurposeName, Loc.SysDownloads, StringComparison.Ordinal))
+        {
+            if (HasCleanableOrReviewableSubfolder(Dir))
+                return (FolderColorTone.Yellow, "待考虑", MixedTip);
+            return (FolderColorTone.Red, "别动", $"{role.PurposeName}：{role.Basis}");
+        }
+
+        // 2) 绿色（可清理）：明确的安全缓存签名，或常规缓存/临时目录名（非保护路径）
+        if (AppSignatures.IsSafeCache(FullPath))
+        {
+            string note = hit?.Sig.Plain ?? "安全缓存目录，可清理以释放空间";
+            return (FolderColorTone.Green, "可清理", note);
+        }
+
+        string leafName = (Name ?? "").Trim();
+        if (leafName.Length > 0 && SafeCacheDirNames.Contains(leafName))
+        {
+            return (FolderColorTone.Green, "可清理", "常见的缓存或临时目录");
+        }
+
+        // 3) 黄色（待考虑）：需确认目录、Confirm/Bloat 签名、下载目录、开发依赖/构建产物、大体积未明确目录
+        if (SelectionGuard.Guard == PathGuard.NeedsConfirm)
+        {
+            return (FolderColorTone.Yellow, "待考虑", SelectionNote.Length > 0 ? SelectionNote : "敏感位置，删除前需再次确认");
+        }
+
+        if (sigEstablished && hit!.Value.Sig.Risk is SigRisk.Cautious or SigRisk.Bloat)
+        {
+            return (FolderColorTone.Yellow, "待考虑", hit.Value.Sig.Plain ?? "包含运行数据或软件组件，请确认后再决定");
+        }
+
+        if (role != null && string.Equals(role.PurposeName, Loc.SysDownloads, StringComparison.Ordinal))
+        {
+            return (FolderColorTone.Yellow, "待考虑", "下载目录可能存有个人安装包或文档，建议检查后清理");
+        }
+
+        if (leafName.Length > 0 && CautionDirNames.Contains(leafName))
+        {
+            return (FolderColorTone.Yellow, "待考虑", "开发依赖或构建输出目录，删除后可重新生成或安装");
+        }
+
+        const long BigUnknownThreshold = 100L * 1024 * 1024;
+        if ((!HasConclusion || NeedsConfirm) && Size >= BigUnknownThreshold)
+        {
+            return (FolderColorTone.Yellow, "待考虑", "占用超过 100 MB 且用途待确认，建议核对后再处理");
+        }
+
+        // 4) 中性（普通目录）
+        return (FolderColorTone.Neutral, "", "");
+    }
+
+    private static readonly HashSet<string> StrictRedSegments = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "system32", "syswow64", "winsxs", "system volume information",
+        "$recycle.bin", "recovery", "boot", "efi", "msocache",
+        "$winreagent", "windows.old", "installer", "servicing",
+        "assembly", "driverstore", "windowsapps",
+    };
+
+    private static bool IsStrictRedPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return true;
+        foreach (var seg in ProtectedPaths.Segments(path))
+            if (StrictRedSegments.Contains(seg)) return true;
+        return false;
+    }
+
+    private static bool IsContainerRootPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var parts = ProtectedPaths.Segments(path);
+        if (parts.Length == 2 && IsSelectionRootContainer(parts[1])) return true;
+        if (parts.Length == 3 && parts[1].Equals("Users", StringComparison.OrdinalIgnoreCase)) return true;
+        if (parts.Length == 4 && parts[1].Equals("Users", StringComparison.OrdinalIgnoreCase)
+            && parts[3].Equals("AppData", StringComparison.OrdinalIgnoreCase)) return true;
+        if (parts.Length == 5 && parts[1].Equals("Users", StringComparison.OrdinalIgnoreCase)
+            && parts[3].Equals("AppData", StringComparison.OrdinalIgnoreCase)
+            && (parts[4].Equals("Local", StringComparison.OrdinalIgnoreCase)
+                || parts[4].Equals("Roaming", StringComparison.OrdinalIgnoreCase)
+                || parts[4].Equals("LocalLow", StringComparison.OrdinalIgnoreCase))) return true;
+        return false;
+    }
+
+    private static bool HasCleanableOrReviewableSubfolder(FileEntry dir)
+    {
+        if (IsStrictRedPath(dir.FullPath)) return false;
+
+        if (FolderPurposeRules.IsObjectContainer(dir.FullPath)
+            && dir.ChildList.Any(c => c.IsDirectory && !c.IsReparsePoint && !c.IsFilesGroup && c.Size > 0))
+            return true;
+
+        if (IsContainerRootPath(dir.FullPath)
+            && dir.ChildList.Any(c => c.IsDirectory && !c.IsReparsePoint && !c.IsFilesGroup
+                                      && !IsStrictRedPath(c.FullPath) && c.Size > 0))
+            return true;
+
+        var stack = new Stack<(FileEntry Node, int Depth)>();
+        foreach (var c in dir.ChildList)
+            if (c.IsDirectory && !c.IsReparsePoint && !c.IsFilesGroup)
+                stack.Push((c, 1));
+
+        int visited = 0;
+        while (stack.Count > 0 && visited < 240)
+        {
+            var (cur, depth) = stack.Pop();
+            visited++;
+            if (IsStrictRedPath(cur.FullPath)) continue;
+
+            string name = (cur.Name ?? "").Trim();
+            if (AppSignatures.IsSafeCache(cur.FullPath)
+                || (name.Length > 0 && (SafeCacheDirNames.Contains(name) || CautionDirNames.Contains(name))))
+                return true;
+
+            var hit = AppSignatures.Match(cur.FullPath);
+            if (hit is { } h && (h.Sig.Subs is not { Length: > 0 } || h.SubHit)
+                && h.Sig.Risk is SigRisk.Safe or SigRisk.Cautious or SigRisk.Bloat)
+                return true;
+
+            var role = FolderPurposeRules.SystemRole(cur.FullPath);
+            if (role != null && string.Equals(role.PurposeName, Loc.SysDownloads, StringComparison.Ordinal))
+                return true;
+
+            if (depth < 3)
+            {
+                foreach (var sub in cur.ChildList)
+                    if (sub.IsDirectory && !sub.IsReparsePoint && !sub.IsFilesGroup)
+                        stack.Push((sub, depth + 1));
+            }
+        }
+
+        return false;
+    }
+
+    private static readonly HashSet<string> SafeCacheDirNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cache", "caches", "temp", "tmp", "gpucache", "code cache",
+        "shadercache", "dawncache", "crashpad", "logs",
+    };
+
+    private static readonly HashSet<string> CautionDirNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "node_modules", ".venv", "venv", "obj", "bin", "target", "dist", "build", "__pycache__",
+    };
+
+    public FolderColorTone ColorTone => _aiColorTone is { } aiTone
+        ? (IsSelectionProtected && aiTone == FolderColorTone.Green ? FolderColorTone.Yellow : aiTone)
+        : LocalColor.Tone;
+
+    public string ColorToneKey => ColorTone.ToString();
+
+    public bool HasColorBadge => ColorTone != FolderColorTone.Neutral;
+
+    public string ColorBadgeText
+    {
+        get
+        {
+            if (_aiColorTone is { } aiTone)
+            {
+                if (IsSelectionProtected && aiTone == FolderColorTone.Green)
+                    return LocalColor.Badge;
+                if (!string.IsNullOrWhiteSpace(_aiBadgeLabel))
+                    return _aiBadgeLabel;
+            }
+            return LocalColor.Badge;
+        }
+    }
+
+    public string ColorBadgeTip
+    {
+        get
+        {
+            if (_aiColorTone is { } aiTone)
+            {
+                if (IsSelectionProtected && aiTone == FolderColorTone.Green)
+                    return LocalColor.Tip;
+                if (!string.IsNullOrWhiteSpace(_aiSummaryText))
+                    return _aiSummaryText;
+            }
+            return LocalColor.Tip;
+        }
+    }
+
+    public bool IsAiAnnotated => _aiColorTone.HasValue;
+
+    public string AiSummaryText => _aiSummaryText;
+
+    public bool HasAiSummary => !string.IsNullOrWhiteSpace(_aiSummaryText);
+
+    /// <summary>「用途」列单行精简展示：AI 有结论直接替换掉「未识别」；未识别项留空，不刷屏。</summary>
+    public string DisplayPurposeLine
+    {
+        get
+        {
+            if (HasAiSummary)
+                return _aiBriefReason.Length > 0 ? _aiBriefReason : _aiSummaryText;
+            if (HasConclusion)
+                return _purposeName;
+            if (State is PurposeState.Queued or PurposeState.Running or PurposeState.Failed)
+                return PurposeText;
+            return "";
+        }
+    }
+
+    /// <summary>悬停提示：展示完整用途、依据、AI 风险说明与展开操作提示。</summary>
+    public string DisplayPurposeTip
+    {
+        get
+        {
+            var lines = new List<string>(3);
+            if (HasAiSummary) lines.Add("AI：" + _aiSummaryText);
+            if (HasConclusion)
+                lines.Add(PurposeDetail.Length > 0 ? $"{_purposeName}（{PurposeDetail}）" : _purposeName);
+            lines.Add(DetailTip);
+            return string.Join("\n", lines);
+        }
+    }
+
+    public bool IsJumpHighlighted
+    {
+        get => _isJumpHighlighted;
+        set
+        {
+            if (_isJumpHighlighted == value) return;
+            _isJumpHighlighted = value;
+            Raise(nameof(IsJumpHighlighted));
+        }
+    }
+
+    /// <summary>同步 AI 报告的分析结论到目录行（受硬保护目录不被标绿，绝不改动勾选状态）。</summary>
+    public void ApplyAiAnnotation(FolderColorTone tone, string badgeLabel, string reason, string? briefReason = null)
+    {
+        bool clampGreen = IsSelectionProtected && tone == FolderColorTone.Green;
+        _aiColorTone = clampGreen ? FolderColorTone.Yellow : tone;
+        _aiBadgeLabel = clampGreen ? LocalColor.Badge : (badgeLabel ?? "");
+        _aiSummaryText = reason ?? "";
+        _aiBriefReason = string.IsNullOrWhiteSpace(briefReason) ? _aiSummaryText : briefReason.Trim();
+        RaiseColorDisplay();
+    }
+
+    public void ClearAiAnnotation()
+    {
+        if (!_aiColorTone.HasValue && _aiBadgeLabel.Length == 0 && _aiSummaryText.Length == 0 && _aiBriefReason.Length == 0) return;
+        _aiColorTone = null;
+        _aiBadgeLabel = "";
+        _aiSummaryText = "";
+        _aiBriefReason = "";
+        RaiseColorDisplay();
+    }
+
+    private void RaiseColorDisplay()
+    {
+        Raise(nameof(ColorTone));
+        Raise(nameof(ColorToneKey));
+        Raise(nameof(HasColorBadge));
+        Raise(nameof(ColorBadgeText));
+        Raise(nameof(ColorBadgeTip));
+        Raise(nameof(IsAiAnnotated));
+        Raise(nameof(AiSummaryText));
+        Raise(nameof(HasAiSummary));
+        Raise(nameof(DisplayPurposeLine));
+        Raise(nameof(DisplayPurposeTip));
+    }
+
     // ---------------- 真实摘要证据（行内详情只显示这些，不编造） ----------------
 
     private int _directFolderCount;
@@ -640,10 +949,12 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     public void ClearState()
     {
         _override = null;
+        _localColorCache = null;
         Raise(nameof(State));
         Raise(nameof(PurposeText));
         Raise(nameof(PurposeDetail));
         Raise(nameof(IsPending));
+        RaiseColorDisplay();
     }
 
     // ---------------- 状态写入（都由识别流程调用） ----------------
@@ -652,10 +963,12 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     public void SetState(PurposeState state)
     {
         _override = state;
+        _localColorCache = null;
         Raise(nameof(State));
         Raise(nameof(PurposeText));
         Raise(nameof(PurposeDetail));
         Raise(nameof(IsPending));
+        RaiseColorDisplay();
     }
 
     /// <summary>写入一次识别结论。没有结论时**不覆盖**，只把状态说清楚。</summary>
@@ -675,6 +988,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         // 两种情况都绝不显示成「已识别」。
         _override = null;
         if (!HasConclusion) _override = r.Failed ? PurposeState.Failed : PurposeState.Unrecognized;
+        _localColorCache = null;
         RaiseAll();
     }
 
@@ -719,6 +1033,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         Raise(nameof(IsPending));
         Raise(nameof(DetailText));
         Raise(nameof(Kind));
+        RaiseColorDisplay();
     }
 
     void Raise([CallerMemberName] string? name = null)

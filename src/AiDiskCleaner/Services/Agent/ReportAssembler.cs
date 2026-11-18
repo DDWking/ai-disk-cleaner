@@ -82,8 +82,109 @@ public static class ReportAssembler
                 byFolder[item.FolderId] = item;
         }
 
-        return byFolder.Values.ToList();
+        return CollapseOverlappingPaths(byFolder.Values.ToList());
     }
+
+    private static readonly HashSet<string> ContainerSegmentNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "steamlibrary",
+        "steamapps",
+        "common",
+        "appdata",
+        "local",
+        "roaming",
+        "locallow",
+        "program files",
+        "program files (x86)",
+        "programdata",
+        "users",
+        "%user%",
+    };
+
+    /// <summary>
+    /// 折叠重复的父子层级（例如 eSupport -> eDriver -> Software 或 SteamLibrary -> steamapps -> The Forest），
+    /// 避免同一份磁盘占用或泛化容器目录在建议列表里反复刷屏。
+    /// </summary>
+    static List<ReportItem> CollapseOverlappingPaths(List<ReportItem> items)
+    {
+        if (items.Count <= 1) return items;
+
+        // 按路径层级从浅到深排序（稳定次序保证确定性）。
+        var ordered = items
+            .OrderBy(i => PathDepth(i.RelPath))
+            .ThenBy(i => NormalizeRelPath(i.RelPath), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var dropped = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Pass 1：收敛单线包装目录（非多软件容器，且同结论的子目录占据父目录 80%+ 空间）-> 保留最外层代表目录，去掉下层套娃项。
+        foreach (var ancestor in ordered)
+        {
+            if (dropped.Contains(ancestor.FolderId)) continue;
+            string ancestorNorm = NormalizeRelPath(ancestor.RelPath);
+            if (ancestorNorm.Length == 0 || IsLibraryContainer(ancestor)) continue;
+
+            var descendants = ordered
+                .Where(d => !dropped.Contains(d.FolderId) && IsStrictDescendant(ancestorNorm, NormalizeRelPath(d.RelPath)))
+                .ToList();
+            if (descendants.Count == 0) continue;
+
+            long ancestorSize = EffectiveSize(ancestor);
+            long maxDescendantSize = descendants.Max(EffectiveSize);
+            bool sameVerdict = descendants.All(d => d.Verdict == ancestor.Verdict);
+            if (sameVerdict && ancestorSize > 0 && maxDescendantSize >= (long)(ancestorSize * 0.8))
+            {
+                foreach (var desc in descendants)
+                    dropped.Add(desc.FolderId);
+            }
+        }
+
+        // Pass 2：若外层容器/根目录之下已有具体的可处理子目录，去掉外层重复概括卡，保留具体子项。
+        var remaining = ordered.Where(i => !dropped.Contains(i.FolderId)).ToList();
+        foreach (var ancestor in remaining)
+        {
+            string ancestorNorm = NormalizeRelPath(ancestor.RelPath);
+            if (ancestorNorm.Length == 0) continue;
+
+            bool hasSpecificActionableChild = remaining.Any(d =>
+                d.FolderId != ancestor.FolderId
+                && d.Verdict != ReportVerdict.Keep
+                && IsStrictDescendant(ancestorNorm, NormalizeRelPath(d.RelPath)));
+            if (hasSpecificActionableChild)
+                dropped.Add(ancestor.FolderId);
+        }
+
+        return ordered.Where(i => !dropped.Contains(i.FolderId)).ToList();
+    }
+
+    static bool IsLibraryContainer(ReportItem item)
+    {
+        if (item.Verdict == ReportVerdict.Keep) return true;
+        string norm = NormalizeRelPath(item.RelPath);
+        int slash = norm.LastIndexOf('\\');
+        string last = slash >= 0 ? norm[(slash + 1)..] : norm;
+        return ContainerSegmentNames.Contains(last);
+    }
+
+    static bool IsStrictDescendant(string ancestorNorm, string candidateNorm)
+        => candidateNorm.Length > ancestorNorm.Length + 1
+           && candidateNorm.StartsWith(ancestorNorm + "\\", StringComparison.OrdinalIgnoreCase);
+
+    static string NormalizeRelPath(string? relPath)
+        => (relPath ?? "").Replace('/', '\\').Trim().Trim('\\');
+
+    static int PathDepth(string? relPath)
+    {
+        string norm = NormalizeRelPath(relPath);
+        if (norm.Length == 0) return 0;
+        int depth = 1;
+        foreach (char c in norm)
+            if (c == '\\') depth++;
+        return depth;
+    }
+
+    static long EffectiveSize(ReportItem item)
+        => item.SizeBytes > 0 ? item.SizeBytes : item.ReclaimableBytes;
 
     static void AddGroup(AgentReport report, string name, ReportVerdict[] verdicts, List<ReportItem> items)
     {

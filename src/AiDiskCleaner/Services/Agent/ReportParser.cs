@@ -194,14 +194,14 @@ public static class ReportParser
         long size = card.SizeBytes;
         long reclaimable = Long(element, "reclaimableBytes") ?? 0;
         if (reclaimable < 0) reclaimable = 0;
+        if (reclaimable == 0 && (verdict == ReportVerdict.Recommend || verdict == ReportVerdict.Consider))
+            reclaimable = size;
         if (reclaimable > size) reclaimable = size;
 
         double confidence = Num(element, "confidence") ?? 0;
         confidence = Math.Clamp(confidence, 0, 1);
 
-        string title = card.ProductHint;
-        if (string.IsNullOrWhiteSpace(title)) title = LastSegment(card.RelPath);
-        if (string.IsNullOrWhiteSpace(title)) title = card.FolderId;
+        string title = BuildCardTitle(card);
 
         return new ReportItem
         {
@@ -347,6 +347,27 @@ public static class ReportParser
         if (string.IsNullOrEmpty(value)) return "";
         value = value.Trim();
         return value.Length <= max ? value : value[..max];
+    }
+
+    static string BuildCardTitle(EvidenceCard card)
+    {
+        string folderName = LastSegment(card.RelPath);
+        if (string.Equals(folderName, "%USER%", StringComparison.OrdinalIgnoreCase))
+            folderName = "当前用户目录";
+
+        string hint = (card.ProductHint ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(folderName) && !string.IsNullOrWhiteSpace(hint))
+        {
+            if (folderName.Contains(hint, StringComparison.OrdinalIgnoreCase))
+                return folderName;
+            if (hint.Contains(folderName, StringComparison.OrdinalIgnoreCase))
+                return hint;
+            return $"{folderName} · {hint}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(folderName)) return folderName;
+        if (!string.IsNullOrWhiteSpace(hint)) return hint;
+        return card.FolderId;
     }
 
     static string LastSegment(string? path)

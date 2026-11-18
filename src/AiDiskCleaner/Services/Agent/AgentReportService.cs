@@ -15,7 +15,7 @@ public sealed class AgentReportOptions
     /// <summary>输入 token 预算；超过后停止后续批次，用已有结果出报告。</summary>
     public int MaxInputTokens { get; init; } = 50_000;
 
-    public int MaxOutputTokens { get; init; } = 4096;
+    public int MaxOutputTokens { get; init; } = 8192;
 
     public double Temperature { get; init; } = 0.2;
 
@@ -65,7 +65,7 @@ public sealed class AgentReportService
         var result = new AgentReportResult();
         var index = session.Index;
 
-        progress?.Report(new AgentReportProgress("selecting", 0, 1));
+        progress?.Report(new AgentReportProgress("selecting", 0, 1, "正在筛选候选目录…"));
         var candidates = CandidateSelector.Select(session, index, _options.Candidates);
         if (candidates.Items.Count == 0)
         {
@@ -81,11 +81,11 @@ public sealed class AgentReportService
                 0,
                 Array.Empty<string>(),
                 null);
-            progress?.Report(new AgentReportProgress("done", 1, 1));
+            progress?.Report(new AgentReportProgress("done", 1, 1, "AI 报告整理完成"));
             return result;
         }
 
-        progress?.Report(new AgentReportProgress("packing", 0, candidates.Items.Count));
+        progress?.Report(new AgentReportProgress("packing", 0, candidates.Items.Count, "正在提取目录摘要…"));
         int cardLimit = Math.Min(_options.MaxBatches * _options.CardsPerBatch, _options.MaxCandidates);
         var cards = new List<EvidenceCard>();
         foreach (var candidate in candidates.Items)
@@ -115,7 +115,7 @@ public sealed class AgentReportService
         for (int b = 0; b < batches.Count; b++)
         {
             ct.ThrowIfCancellationRequested();
-            progress?.Report(new AgentReportProgress("calling", b, batches.Count, $"第 {b + 1}/{batches.Count} 批"));
+            progress?.Report(new AgentReportProgress("calling", b, batches.Count, $"正在请求 AI 分析（第 {b + 1}/{batches.Count} 批）…"));
 
             var messages = new[]
             {
@@ -200,7 +200,7 @@ public sealed class AgentReportService
             }
         }
 
-        progress?.Report(new AgentReportProgress("done", batches.Count, batches.Count));
+        progress?.Report(new AgentReportProgress("done", batches.Count, batches.Count, "AI 报告整理完成"));
 
         if (succeeded == 0)
         {
