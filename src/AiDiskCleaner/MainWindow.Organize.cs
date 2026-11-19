@@ -1026,7 +1026,7 @@ public partial class MainWindow
         int red = _organizeAll.Count(x => x.Dir.IsDirectory && x.ColorTone == FolderColorTone.Red);
 
         string greenShort = Loc.IsEn ? "Clean" : "可清";
-        string yellowShort = Loc.IsEn ? "Large" : "大户";
+        string yellowShort = Loc.IsEn ? "Large" : "大文件";
         string redShort = Loc.IsEn ? "Keep" : "系统";
 
         ColorFilterAllBtn.Content = Loc.ColorFilterAll;
@@ -1036,7 +1036,8 @@ public partial class MainWindow
         if (ColorFilterGreenBtn != null) ColorFilterGreenBtn.ToolTip = $"{Loc.ColorFilterGreen} ({green})";
 
         if (ColorFilterYellowText != null) ColorFilterYellowText.Text = yellowShort;
-        if (ColorFilterYellowBtn != null) ColorFilterYellowBtn.ToolTip = $"{Loc.ColorFilterYellow} ({yellow})";
+        if (ColorFilterYellowBtn != null)
+            ColorFilterYellowBtn.ToolTip = Loc.IsEn ? $"Large files ({yellow})" : $"大文件 ({yellow})";
 
         if (ColorFilterRedText != null) ColorFilterRedText.Text = redShort;
         if (ColorFilterRedBtn != null) ColorFilterRedBtn.ToolTip = $"{Loc.ColorFilterRed} ({red})";
@@ -1053,7 +1054,7 @@ public partial class MainWindow
         {
             FlatModeBadge.Visibility = _organizeColorFilter.HasValue ? Visibility.Visible : Visibility.Collapsed;
             if (FlatModeBadgeText != null)
-                FlatModeBadgeText.Text = Loc.IsEn ? "Flat large-item view" : "平铺大户视图";
+                FlatModeBadgeText.Text = Loc.IsEn ? "Flat large-file view" : "平铺大文件视图";
         }
     }
 

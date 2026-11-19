@@ -2051,7 +2051,7 @@
                             Cursor="Hand" MouseLeftButtonUp="StorageSegRed_Click" ToolTip="点击筛选：系统/重要"/>
                       <Path x:Name="RingArcYellow" Stroke="{DynamicResource RingCharcoal}" StrokeThickness="24"
                             StrokeStartLineCap="Flat" StrokeEndLineCap="Flat"
-                            Cursor="Hand" MouseLeftButtonUp="StorageSegYellow_Click" ToolTip="点击筛选：大户"/>
+                            Cursor="Hand" MouseLeftButtonUp="StorageSegYellow_Click" ToolTip="点击筛选：大文件"/>
                       <Path x:Name="RingArcOrange" Stroke="{DynamicResource RingOrange}" StrokeThickness="24"
                             StrokeStartLineCap="Flat" StrokeEndLineCap="Flat"
                             Cursor="Hand" MouseLeftButtonUp="StorageSegGreen_Click" ToolTip="点击筛选：可清理"/>
@@ -2130,7 +2130,7 @@
                               Click="ColorFilterYellow_Click">
                         <StackPanel Orientation="Horizontal">
                           <Ellipse Width="6" Height="6" Fill="{DynamicResource ToneYellowAccent}" Margin="0,0,4,0" VerticalAlignment="Center"/>
-                          <TextBlock x:Name="ColorFilterYellowText" Text="大户" VerticalAlignment="Center"/>
+                          <TextBlock x:Name="ColorFilterYellowText" Text="大文件" VerticalAlignment="Center"/>
                         </StackPanel>
                       </Button>
                       <Button x:Name="ColorFilterRedBtn" Style="{StaticResource ChipButton}"
@@ -3319,7 +3319,6 @@
               <!-- 保留命名字段供多语言同步，界面上折叠隐藏保持极简 -->
               <TextBlock x:Name="AiSectionLabel" Visibility="Collapsed"/>
               <TextBlock x:Name="AiSectionHint" Visibility="Collapsed"/>
-              <TextBlock x:Name="AiFullPathHint" Visibility="Collapsed"/>
 
               <ItemsControl x:Name="AiProvCards" Margin="0,0,0,8">
                 <ItemsControl.ItemTemplate>
@@ -3415,13 +3414,7 @@
               </ItemsControl>
 
               <Button x:Name="AiAddProvBtn" Style="{StaticResource GhostButton}" HorizontalAlignment="Stretch"
-                      Height="36" FontSize="12" Padding="10,0" Margin="0,0,0,12" Click="AiAddProv_Click"/>
-
-              <!-- 隐私开关：默认只发脱敏路径，说明收进 ToolTip -->
-              <Border BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
-                <CheckBox x:Name="AiFullPathBox" Click="AiFullPath_Click"
-                          Foreground="{DynamicResource TextDim}" FontSize="11.5"/>
-              </Border>
+                      Height="36" FontSize="12" Padding="10,0" Margin="0" Click="AiAddProv_Click"/>
             </StackPanel>
 
             <!-- 页签 2：常规设置 -->
@@ -3660,12 +3653,58 @@
           </StackPanel>
         </ScrollViewer>
         <StackPanel x:Name="AboutBody" Visibility="Collapsed">
-          <Image Source="Assets/logo-256.png" Width="88" Height="88" HorizontalAlignment="Left" Margin="0,0,0,16"
-                 RenderOptions.BitmapScalingMode="HighQuality"/>
-          <TextBlock x:Name="AboutText" Foreground="{DynamicResource Text}" TextWrapping="Wrap" Margin="0,0,0,16"/>
-          <TextBlock x:Name="RepoLink" Foreground="{DynamicResource Accent}" Cursor="Hand" TextDecorations="Underline"
-                     MouseLeftButtonDown="RepoLink_Click"/>
+          <Grid Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Image Grid.Column="0" Source="Assets/logo-256.png" Width="56" Height="56"
+                   VerticalAlignment="Top" Margin="0,2,14,0"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock x:Name="AboutAppTitle" Text="大扫货" FontSize="16" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Text}" VerticalAlignment="Center"/>
+                <Border Margin="8,0,0,0" Padding="7,1.5" CornerRadius="5"
+                        Background="{DynamicResource BrandAccentSoft}" VerticalAlignment="Center">
+                  <TextBlock x:Name="AboutVersionBadge" Text="v3.0.0" FontSize="10.5"
+                             FontWeight="SemiBold" Foreground="{DynamicResource BrandAccent}"/>
+                </Border>
+              </StackPanel>
+              <TextBlock x:Name="AboutText" Foreground="{DynamicResource TextDim}" FontSize="12"
+                         TextWrapping="Wrap" Margin="0,5,0,0"/>
+            </StackPanel>
+          </Grid>
+          <Border Background="{DynamicResource PanelLeft}" BorderBrush="{DynamicResource Border}"
+                  BorderThickness="1" CornerRadius="10" Padding="14,11">
+            <StackPanel>
+              <DockPanel Margin="0,0,0,9">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                  <TextBlock x:Name="AboutQqText" Text="953854287" FontSize="12.5" FontWeight="SemiBold"
+                             FontFamily="{DynamicResource MonoFont}" Foreground="{DynamicResource Text}"
+                             VerticalAlignment="Center"/>
+                  <Button x:Name="AboutQqCopyBtn" Style="{StaticResource GhostButton}"
+                          Padding="8,2" FontSize="11" Margin="8,0,0,0" Click="AboutQqCopy_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="AboutQqLabel" Text="联系 QQ" FontSize="12"
+                           Foreground="{DynamicResource TextDim}" VerticalAlignment="Center"/>
+              </DockPanel>
+              <Border Height="1" Background="{DynamicResource Border}" Margin="0,0,0,9"/>
+              <DockPanel>
+                <TextBlock x:Name="RepoLink" DockPanel.Dock="Right" FontSize="11.5"
+                           Foreground="{DynamicResource BrandAccent}" Cursor="Hand"
+                           TextDecorations="Underline" VerticalAlignment="Center"
+                           MouseLeftButtonDown="RepoLink_Click"/>
+                <TextBlock x:Name="AboutRepoLabel" Text="项目主页" FontSize="12"
+                           Foreground="{DynamicResource TextDim}" VerticalAlignment="Center"/>
+              </DockPanel>
+            </StackPanel>
+          </Border>
         </StackPanel>
+        <ScrollViewer x:Name="ScanDetailsBody" MaxHeight="480" Visibility="Collapsed"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel x:Name="ScanDetailsContent"/>
+        </ScrollViewer>
         <ScrollViewer x:Name="AlertBody" MaxHeight="360" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
           <TextBlock x:Name="AlertText" Foreground="{DynamicResource Text}" TextWrapping="Wrap" Margin="0,0,0,8"/>
         </ScrollViewer>

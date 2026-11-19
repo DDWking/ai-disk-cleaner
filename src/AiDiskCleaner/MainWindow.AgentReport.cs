@@ -425,6 +425,7 @@ public partial class MainWindow
         SettingsBody.Visibility = Visibility.Collapsed;
         ProvEditBody.Visibility = Visibility.Collapsed;
         AboutBody.Visibility = Visibility.Collapsed;
+        ScanDetailsBody.Visibility = Visibility.Collapsed;
         SelectionBody.Visibility = Visibility.Collapsed;
         RuleSelectBody.Visibility = Visibility.Collapsed;
         AlertBody.Visibility = Visibility.Collapsed;

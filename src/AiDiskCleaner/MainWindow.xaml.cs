@@ -458,13 +458,6 @@ public partial class MainWindow : Window
             AiPresetBox.ItemsSource = AiConfigurationService.Presets;
             AiPresetBox.DisplayMemberPath = nameof(AiSetupPresetInfo.Name);
         }
-        if (AiFullPathBox != null)
-        {
-            AiFullPathBox.Content = Loc.AiSendFullPaths;
-            AiFullPathBox.IsChecked = App.Settings.AiSendFullPaths;
-            AiFullPathBox.ToolTip = Loc.AiSendFullPathsHint;
-        }
-        if (AiFullPathHint != null) AiFullPathHint.Text = Loc.AiSendFullPathsHint;
         if (SettingsTabAiBtn != null) SettingsTabAiBtn.Content = Loc.IsEn ? "AI Models" : "AI 模型";
         if (SettingsTabGeneralBtn != null) SettingsTabGeneralBtn.Content = Loc.IsEn ? "General" : "常规设置";
         if (PresetBtnCustom != null) PresetBtnCustom.Content = Loc.IsEn ? "Custom" : "自定义";
@@ -484,6 +477,15 @@ public partial class MainWindow : Window
         UpdateDecisionsHint();
         RefreshAiLamp();   // 忙状态行（清理页）随语言与配置一起刷新
         UpdateAiLamp();
+        if (AboutAppTitle != null) AboutAppTitle.Text = Loc.AppName;
+        if (AboutVersionBadge != null)
+        {
+            var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            AboutVersionBadge.Text = "v" + (ver != null ? ver.ToString(3) : "3.0.0");
+        }
+        if (AboutQqLabel != null) AboutQqLabel.Text = Loc.IsEn ? "Author QQ" : "联系 QQ";
+        if (AboutQqCopyBtn != null) AboutQqCopyBtn.Content = Loc.IsEn ? "Copy" : "复制";
+        if (AboutRepoLabel != null) AboutRepoLabel.Text = Loc.IsEn ? "Repository" : "项目主页";
         AboutText.Text = Loc.AboutBody;
         RepoLink.Text = Loc.Repo;
         if (_root == null)
@@ -1351,12 +1353,13 @@ public partial class MainWindow : Window
         => OpenOverlay(Loc.AboutTitle, about: true);
 
     private void OpenOverlay(string title, bool settings = false, bool about = false, bool alert = false,
-        bool confirm = false, bool selection = false, bool ruleSelect = false)
+        bool confirm = false, bool selection = false, bool ruleSelect = false, bool scanDetails = false)
     {
         DialogTitle.Text = title;
         SettingsBody.Visibility = settings ? Visibility.Visible : Visibility.Collapsed;
         ProvEditBody.Visibility = Visibility.Collapsed;
         AboutBody.Visibility = about ? Visibility.Visible : Visibility.Collapsed;
+        if (ScanDetailsBody != null) ScanDetailsBody.Visibility = scanDetails ? Visibility.Visible : Visibility.Collapsed;
         SelectionBody.Visibility = selection ? Visibility.Visible : Visibility.Collapsed;
         RuleSelectBody.Visibility = ruleSelect ? Visibility.Visible : Visibility.Collapsed;
         ReportBody.Visibility = Visibility.Collapsed;
@@ -1374,6 +1377,10 @@ public partial class MainWindow : Window
             ShowSettingsTab(general: false);
             HighlightThemeButtons();
             LoadAiFields();
+        }
+        else if (scanDetails)
+        {
+            DialogCard.Width = 540;
         }
         ShowOverlay();
     }
@@ -1628,6 +1635,8 @@ public partial class MainWindow : Window
         {
             RefreshDockedReportPlaceholder();
         }
+        if (ScanDetailsBody?.Visibility == Visibility.Visible)
+            PopulateScanDetailsPanel();
     }
 
     /// <summary>
@@ -1941,6 +1950,7 @@ public partial class MainWindow : Window
         SettingsBody.Visibility = Visibility.Collapsed;
         ProvEditBody.Visibility = Visibility.Visible;
         AboutBody.Visibility = Visibility.Collapsed;
+        if (ScanDetailsBody != null) ScanDetailsBody.Visibility = Visibility.Collapsed;
         AlertBody.Visibility = Visibility.Collapsed;
         ConfirmButtons.Visibility = Visibility.Collapsed;
         DialogClose.Visibility = Visibility.Visible;
@@ -2080,19 +2090,6 @@ public partial class MainWindow : Window
             AppLog.Record("Diag", ex, "export from settings");
             ShowAlert(Loc.DiagExportTitle, Loc.DiagExportFail);
         }
-    }
-
-    /// <summary>
-    /// 隐私开关：默认只把脱敏路径发给 AI，完整路径必须用户在这里明确打开。
-    /// 打开时会记一笔日志，方便事后对账「到底有没有把真实路径发出去」。
-    /// </summary>
-    private void AiFullPath_Click(object sender, RoutedEventArgs e)
-    {
-        bool on = AiFullPathBox.IsChecked == true;
-        if (App.Settings.AiSendFullPaths == on) return;
-        App.Settings.AiSendFullPaths = on;
-        App.Settings.Save();
-        AppLog.Info("Settings", "send full local paths to AI = " + on);
     }
 
     /// <summary>
@@ -2455,6 +2452,33 @@ public partial class MainWindow : Window
     /// 2.11：目录侧栏（及其右键菜单「问 AI 这是什么」）已整体移除。
     /// 逐项 AI 仍然只从清理列表 / 按文件夹删除列表上那一项显式发起。
     /// </summary>
+
+    private void AboutQqCopy_Click(object sender, RoutedEventArgs e)
+    {
+        string restore = Loc.IsEn ? "Copy" : "复制";
+        CopyWithTemporaryFeedback(AboutQqCopyBtn, "953854287", restore);
+    }
+
+    private void CopyWithTemporaryFeedback(Button? button, string text, string restoreLabel)
+    {
+        try
+        {
+            Clipboard.SetText(text);
+        }
+        catch
+        {
+            return;
+        }
+        if (button == null) return;
+        button.Content = Loc.IsEn ? "Copied" : "已复制";
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            button.Content = restoreLabel;
+        };
+        timer.Start();
+    }
 
     private void RepoLink_Click(object sender, MouseButtonEventArgs e)
     {
@@ -3577,9 +3601,306 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
-    /// <summary>扫描诊断：默认只在页头留一行，细节进这个对话框。数据一条不少。</summary>
+    /// <summary>扫描诊断：用结构化数字卡与状态条呈现扫描质量与跳过统计。</summary>
     private void ScanDetails_Click(object sender, RoutedEventArgs e)
-        => ShowAlert(Loc.ScanDetailsTitle, BuildScanDetailsText());
+    {
+        PopulateScanDetailsPanel();
+        OpenOverlay(Loc.ScanDetailsTitle, scanDetails: true);
+    }
+
+    private void PopulateScanDetailsPanel()
+    {
+        if (ScanDetailsContent == null) return;
+        ScanDetailsContent.Children.Clear();
+
+        var q = _scanQuality;
+        if (q == null)
+        {
+            ScanDetailsContent.Children.Add(new TextBlock
+            {
+                Text = Loc.NoScanYet,
+                FontSize = 12.5,
+                Foreground = ThemeService.Brush("TextMuted"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 28, 0, 20),
+            });
+            return;
+        }
+
+        bool healthy = q.Complete && !q.HasSkips && !q.Canceled;
+        string statusHex = healthy ? "#3ECF6A" : "#E0B050";
+        string statusLabel = q.Canceled
+            ? (Loc.IsEn ? "Scan canceled" : "扫描已中止")
+            : healthy
+                ? (Loc.IsEn ? "Complete scan" : "扫描完整")
+                : (Loc.IsEn ? "Partial scan" : "部分目录未完整检测");
+
+        bool isMft = q.Source == ScanSource.Mft;
+        string sourceTag = q.Source switch
+        {
+            ScanSource.Mft => "NTFS MFT",
+            ScanSource.Recursive => (Loc.IsEn ? "Directory walk" : "目录遍历"),
+            _ => (Loc.IsEn ? "Unknown source" : "未知来源"),
+        };
+
+        // 1. 顶部状态条：左灯+结论，右扫描引擎标签
+        var statusCard = new Border
+        {
+            Background = ThemeService.Brush("PanelLeft"),
+            BorderBrush = ThemeService.Brush("Border"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14, 10, 14, 10),
+            Margin = new Thickness(0, 0, 0, 10),
+        };
+        var statusDock = new DockPanel();
+        var sourceBadge = new Border
+        {
+            Background = ThemeService.Brush(isMft ? "BrandAccentSoft" : "CardSurface"),
+            BorderBrush = ThemeService.Brush(isMft ? "BrandAccent" : "Border"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(5),
+            Padding = new Thickness(8, 2, 8, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = sourceTag,
+                FontSize = 10.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ThemeService.Brush(isMft ? "BrandAccent" : "TextDim"),
+            },
+        };
+        DockPanel.SetDock(sourceBadge, Dock.Right);
+
+        var statusLeft = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        statusLeft.Children.Add(new System.Windows.Shapes.Ellipse
+        {
+            Width = 8,
+            Height = 8,
+            Fill = AiStatusBrush(statusHex),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+        });
+        statusLeft.Children.Add(new TextBlock
+        {
+            Text = statusLabel,
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeService.Brush("Text"),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        statusDock.Children.Add(sourceBadge);
+        statusDock.Children.Add(statusLeft);
+        statusCard.Child = statusDock;
+        ScanDetailsContent.Children.Add(statusCard);
+
+        // 2. 三列核心数字指标卡（耗时 / 文件 / 目录）
+        double elapsed = _scanElapsed > 0 ? _scanElapsed : q.DurationSeconds;
+        var kpiGrid = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        for (int i = 0; i < 5; i++)
+        {
+            kpiGrid.ColumnDefinitions.Add(i % 2 == 0
+                ? new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
+                : new ColumnDefinition { Width = new GridLength(8) });
+        }
+
+        var kpiElapsed = MakeScanKpiCard(Loc.IsEn ? "Elapsed" : "耗时", $"{elapsed:0.0} s", "BrandAccent");
+        Grid.SetColumn(kpiElapsed, 0);
+        kpiGrid.Children.Add(kpiElapsed);
+
+        var kpiFiles = MakeScanKpiCard(Loc.IsEn ? "Files" : "文件数", $"{q.FilesRead:N0}", "Text");
+        Grid.SetColumn(kpiFiles, 2);
+        kpiGrid.Children.Add(kpiFiles);
+
+        var kpiDirs = MakeScanKpiCard(Loc.IsEn ? "Folders" : "目录数", $"{q.DirsRead:N0}", "Text");
+        Grid.SetColumn(kpiDirs, 4);
+        kpiGrid.Children.Add(kpiDirs);
+        ScanDetailsContent.Children.Add(kpiGrid);
+
+        // 3. 结构化键值明细表
+        var kvStack = new StackPanel();
+        bool hasRows = false;
+
+        int skipTotal = q.SkippedDirs + q.PermissionErrors + q.PathErrors + q.ReadErrors;
+        if (skipTotal == 0)
+        {
+            AddScanKvRow(kvStack, ref hasRows, Loc.IsEn ? "Skipped / Errors" : "跳过与错误", "0", "TextMuted");
+        }
+        else
+        {
+            var errParts = new List<string>();
+            if (q.SkippedDirs > 0) errParts.Add(Loc.IsEn ? $"skipped {q.SkippedDirs}" : $"跳过 {q.SkippedDirs}");
+            if (q.PermissionErrors > 0) errParts.Add(Loc.IsEn ? $"denied {q.PermissionErrors}" : $"无权限 {q.PermissionErrors}");
+            if (q.PathErrors > 0) errParts.Add(Loc.IsEn ? $"path {q.PathErrors}" : $"路径 {q.PathErrors}");
+            if (q.ReadErrors > 0) errParts.Add(Loc.IsEn ? $"read {q.ReadErrors}" : $"读取 {q.ReadErrors}");
+            AddScanKvRow(kvStack, ref hasRows, Loc.IsEn ? "Skipped / Errors" : "跳过与错误",
+                string.Join(" · ", errParts), null, "#E0B050");
+        }
+
+        AddScanKvRow(kvStack, ref hasRows, Loc.IsEn ? "Reparse / Hardlinks" : "重解析点 / 硬链接",
+            $"{q.ReparsePoints:N0} / {q.HardLinks:N0}", "TextDim");
+
+        if (q.UnparsedRecords > 0 || q.OrphanRecords > 0)
+        {
+            AddScanKvRow(kvStack, ref hasRows, Loc.IsEn ? "MFT Records" : "MFT 异常记录",
+                Loc.IsEn
+                    ? $"unparsed {q.UnparsedRecords:N0} · orphan {q.OrphanRecords:N0}"
+                    : $"未解析 {q.UnparsedRecords:N0} · 孤儿 {q.OrphanRecords:N0}",
+                "TextDim");
+        }
+
+        int dupGroups = _report?.DupGroupCount ?? 0;
+        string candSummary = dupGroups > 0
+            ? (Loc.IsEn ? $"{_layered.TotalFiles:N0} · {dupGroups:N0} dup groups" : $"{_layered.TotalFiles:N0} 项 · {dupGroups:N0} 组重复")
+            : (Loc.IsEn ? $"{_layered.TotalFiles:N0}" : $"{_layered.TotalFiles:N0} 项");
+        AddScanKvRow(kvStack, ref hasRows, Loc.IsEn ? "Clean Candidates" : "清理候选项", candSummary, "Text");
+
+        if (_layered.OverlapCount > 0 || _layered.DuplicateHitsRemoved > 0)
+        {
+            AddScanKvRow(kvStack, ref hasRows, Loc.IsEn ? "Deduplicated" : "重复归并",
+                Loc.IsEn
+                    ? $"{_layered.OverlapCount:N0} overlap · {_layered.DuplicateHitsRemoved:N0} merged"
+                    : $"跨规则 {_layered.OverlapCount:N0} · 归并 {_layered.DuplicateHitsRemoved:N0}",
+                "TextDim");
+        }
+
+        if (_dupIncomplete > 0)
+        {
+            AddScanKvRow(kvStack, ref hasRows, Loc.IsEn ? "Duplicate Check" : "重复检测",
+                Loc.IsEn ? "Partial (capped)" : "部分未查", null, "#E0B050");
+        }
+
+        if (_cleanScopeRoot != null && !string.IsNullOrWhiteSpace(_cleanScopeRoot.FullPath))
+        {
+            AddScanKvRow(kvStack, ref hasRows, Loc.IsEn ? "Scope" : "限定范围",
+                _cleanScopeRoot.FullPath, "TextDim", tooltip: _cleanScopeRoot.FullPath);
+        }
+
+        var kvCard = new Border
+        {
+            Background = ThemeService.Brush("PanelLeft"),
+            BorderBrush = ThemeService.Brush("Border"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14, 10, 14, 10),
+            Child = kvStack,
+        };
+        ScanDetailsContent.Children.Add(kvCard);
+
+        // 4. 说明/降级原因（有内容才显示）
+        var noteParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(q.Note)) noteParts.Add(q.Note.Trim());
+        if (!string.IsNullOrWhiteSpace(_scanFallbackReason))
+            noteParts.Add(Loc.MftFallbackStarting(_scanFallbackReason));
+        if (noteParts.Count > 0)
+        {
+            ScanDetailsContent.Children.Add(new Border
+            {
+                Background = ThemeService.Brush("PanelLeft"),
+                BorderBrush = AiStatusBrush("#E0B050"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(9),
+                Padding = new Thickness(12, 8, 12, 8),
+                Margin = new Thickness(0, 10, 0, 0),
+                Child = new TextBlock
+                {
+                    Text = string.Join("\n", noteParts),
+                    FontSize = 11.5,
+                    Foreground = ThemeService.Brush("TextDim"),
+                    TextWrapping = TextWrapping.Wrap,
+                },
+            });
+        }
+
+        // 5. 底部快捷复制详情
+        string copyLabel = Loc.IsEn ? "Copy details" : "复制详情";
+        var copyBtn = new Button
+        {
+            Content = copyLabel,
+            Style = TryFindResource("GhostButton") as Style,
+            Padding = new Thickness(12, 4, 12, 4),
+            FontSize = 11.5,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 10, 0, 0),
+        };
+        copyBtn.Click += (_, _) => CopyWithTemporaryFeedback(copyBtn, BuildScanDetailsText(), copyLabel);
+        ScanDetailsContent.Children.Add(copyBtn);
+    }
+
+    private static Border MakeScanKpiCard(string label, string value, string valueBrushKey)
+    {
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 11,
+            Foreground = ThemeService.Brush("TextMuted"),
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = value,
+            FontSize = 16.5,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeService.Brush(valueBrushKey),
+            Margin = new Thickness(0, 3, 0, 0),
+        });
+        return new Border
+        {
+            Background = ThemeService.Brush("PanelLeft"),
+            BorderBrush = ThemeService.Brush("Border"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(9),
+            Padding = new Thickness(12, 9, 12, 9),
+            Child = stack,
+        };
+    }
+
+    private static void AddScanKvRow(StackPanel parent, ref bool hasRows, string label, string value,
+        string? brushKey, string? customHex = null, string? tooltip = null)
+    {
+        if (hasRows)
+        {
+            parent.Children.Add(new Border
+            {
+                Height = 1,
+                Background = ThemeService.Brush("Border"),
+                Margin = new Thickness(0, 7, 0, 7),
+            });
+        }
+        hasRows = true;
+
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var labelBlock = new TextBlock
+        {
+            Text = label,
+            FontSize = 11.5,
+            Foreground = ThemeService.Brush("TextDim"),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(labelBlock, 0);
+        row.Children.Add(labelBlock);
+
+        var valBlock = new TextBlock
+        {
+            Text = value,
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = customHex != null
+                ? AiStatusBrush(customHex)
+                : ThemeService.Brush(brushKey ?? "Text"),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            ToolTip = tooltip,
+        };
+        Grid.SetColumn(valBlock, 2);
+        row.Children.Add(valBlock);
+        parent.Children.Add(row);
+    }
 
     private string BuildScanDetailsText()
     {
