@@ -7,6 +7,9 @@ namespace AiDiskCleaner.Services;
 
 public enum AppLang { Zh, En }
 
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+public enum AppTheme { Dark, Light }
+
 /// <summary>
 /// 供应商最近一次连接测试的结果。会落盘（settings.json）：
 /// 顶栏那盏灯重启后仍能显示「上次测试通过」，直到用户改配置或再测失败。
@@ -91,6 +94,7 @@ public sealed class AiProviderCfg
 public sealed class AppSettings
 {
     public AppLang Lang { get; set; } = AppLang.Zh;
+    public AppTheme Theme { get; set; } = AppTheme.Light;
     public int UiRev { get; set; }
     public List<AiProviderCfg> AiProviders { get; set; } = new();
     public string AiActiveId { get; set; } = "";
@@ -270,9 +274,10 @@ public sealed class AppSettings
             result = new AppSettings();
         }
 
-        if (result.UiRev < 2)
+        if (result.UiRev < 3)
         {
-            result.UiRev = 2;
+            result.UiRev = 3;
+            result.Theme = AppTheme.Light;
             result.Save();
         }
         result.Migrate();

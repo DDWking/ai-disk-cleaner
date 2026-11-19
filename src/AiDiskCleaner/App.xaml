@@ -4,24 +4,59 @@
              xmlns:sys="clr-namespace:System;assembly=System.Runtime"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <SolidColorBrush x:Key="Bg" Color="#000000"/>
-        <SolidColorBrush x:Key="PanelLeft" Color="#080808"/>
-        <SolidColorBrush x:Key="PanelRight" Color="#121212"/>
-        <SolidColorBrush x:Key="Border" Color="#3A3A3A"/>
-        <SolidColorBrush x:Key="Accent" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="AccentDim" Color="#C8C8C8"/>
-        <SolidColorBrush x:Key="Text" Color="#F2F2F2"/>
-        <SolidColorBrush x:Key="TextDim" Color="#8A8A8A"/>
-        <SolidColorBrush x:Key="TextMuted" Color="#5A5A5A"/>
-        <SolidColorBrush x:Key="SelectBg" Color="#282828"/>
-        <SolidColorBrush x:Key="HoverBg" Color="#1A1A1A"/>
-        <SolidColorBrush x:Key="CloseHoverBg" Color="#4A0000"/>
-        <SolidColorBrush x:Key="Placeholder" Color="#5A5A5A"/>
-        <SolidColorBrush x:Key="Overlay" Color="#D0000000"/>
-        <SolidColorBrush x:Key="RowAlt" Color="#0A0A0A"/>
-        <SolidColorBrush x:Key="GridLine" Color="#242424"/>
-        <SolidColorBrush x:Key="CloseHoverFg" Color="#FF6B6B"/>
-        <FontFamily x:Key="AppFont">Cascadia Mono, Consolas, Courier New</FontFamily>
+        <SolidColorBrush x:Key="Bg" Color="#FAF9F7"/>
+        <SolidColorBrush x:Key="PanelLeft" Color="#F7F6F4"/>
+        <SolidColorBrush x:Key="PanelRight" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="CardSurface" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="Border" Color="#EBEAE6"/>
+        <SolidColorBrush x:Key="BorderStrong" Color="#D4D2CC"/>
+        <SolidColorBrush x:Key="GridLine" Color="#F0EFEA"/>
+        <SolidColorBrush x:Key="RowAlt" Color="#FCFCFB"/>
+        <SolidColorBrush x:Key="Accent" Color="#161615"/>
+        <SolidColorBrush x:Key="AccentDim" Color="#5A5955"/>
+        <SolidColorBrush x:Key="BrandAccent" Color="#FF4D00"/>
+        <SolidColorBrush x:Key="BrandAccentHover" Color="#E64500"/>
+        <SolidColorBrush x:Key="BrandAccentSoft" Color="#FFF1EB"/>
+        <SolidColorBrush x:Key="BrandAccentFg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="Text" Color="#161615"/>
+        <SolidColorBrush x:Key="TextDim" Color="#6E6D68"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#A3A19B"/>
+        <SolidColorBrush x:Key="SelectBg" Color="#FFF2EC"/>
+        <SolidColorBrush x:Key="HoverBg" Color="#F4F3EF"/>
+        <SolidColorBrush x:Key="BarTrack" Color="#EAE9E4"/>
+        <SolidColorBrush x:Key="CloseHoverBg" Color="#FF4D00"/>
+        <SolidColorBrush x:Key="CloseHoverFg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="DangerBg" Color="#FF4D00"/>
+        <SolidColorBrush x:Key="DangerHoverBg" Color="#E64500"/>
+        <SolidColorBrush x:Key="DangerFg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="Placeholder" Color="#A3A19B"/>
+        <SolidColorBrush x:Key="Overlay" Color="#5C161615"/>
+
+        <SolidColorBrush x:Key="RingOrange" Color="#FF4D00"/>
+        <SolidColorBrush x:Key="RingCharcoal" Color="#6E6D6A"/>
+        <SolidColorBrush x:Key="RingMidGray" Color="#ABA9A2"/>
+        <SolidColorBrush x:Key="RingLightGray" Color="#E0DFDA"/>
+
+        <SolidColorBrush x:Key="SectionSafeAccent" Color="#FF4D00"/>
+        <SolidColorBrush x:Key="SectionConfirmAccent" Color="#6E6D6A"/>
+        <SolidColorBrush x:Key="SectionSafeSurface" Color="#FFF8F5"/>
+        <SolidColorBrush x:Key="SectionConfirmSurface" Color="#F7F6F3"/>
+        <SolidColorBrush x:Key="SidebarScrim" Color="#E8E6E0"/>
+
+        <SolidColorBrush x:Key="ToneGreenAccent" Color="#FF4D00"/>
+        <SolidColorBrush x:Key="ToneGreenBg" Color="#FFF1EB"/>
+        <SolidColorBrush x:Key="ToneGreenRowBg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="ToneYellowAccent" Color="#686764"/>
+        <SolidColorBrush x:Key="ToneYellowBg" Color="#F2F1ED"/>
+        <SolidColorBrush x:Key="ToneYellowRowBg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="ToneRedAccent" Color="#A8A6A0"/>
+        <SolidColorBrush x:Key="ToneRedBg" Color="#F2F1ED"/>
+        <SolidColorBrush x:Key="ToneRedRowBg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="JumpHighlightBg" Color="#FFF0E8"/>
+        <SolidColorBrush x:Key="JumpHighlightBorder" Color="#FF4D00"/>
+
+        <FontFamily x:Key="AppFont">Microsoft YaHei UI, Segoe UI Variable Text, Segoe UI, sans-serif</FontFamily>
+        <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas, Courier New</FontFamily>
         <sys:String x:Key="SearchHintText">搜索路径 / 文件名</sys:String>
     </Application.Resources>
 </Application>

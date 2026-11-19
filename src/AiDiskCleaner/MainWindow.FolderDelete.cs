@@ -23,6 +23,9 @@ public partial class MainWindow
     private readonly FolderDeleteService _folderDeleteService = new();
     private CancellationTokenSource? _folderDeleteCts;
     private int _folderDeleteDone;
+    private bool _hadFolderSelection;
+    private int _folderCheckedCount;
+    private long _folderCheckedBytes;
 
     /// <summary>「文件夹整理」底部操作栏的视图模型（XAML 绑定它，不直接碰服务）。</summary>
     public FolderDeleteBar FolderDelete { get; } = new();
@@ -140,6 +143,15 @@ public partial class MainWindow
         SaveActiveDriveToCache();
     }
 
+    private void FolderDeleteClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (_folderDeleteService.IsBusy) return;
+        foreach (var node in _organizeAll)
+            if (node.IsChecked) node.IsChecked = false;
+        RefreshFolderDeleteBar();
+        SaveActiveDriveToCache();
+    }
+
     private void FolderDeleteCancel_Click(object sender, RoutedEventArgs e)
     {
         if (!_folderDeleteService.IsBusy) return;
@@ -166,7 +178,14 @@ public partial class MainWindow
     {
         if (OrganizeGrid == null) return;
         var selection = FolderSelectionService.Build(PicksOf(_organizeAll));
+        _folderCheckedCount = selection.KeptCount;
+        _folderCheckedBytes = selection.TotalBytes;
         FolderDelete.Refresh(selection.SelectedCount, selection.KeptCount, selection.NestedCount, selection.TotalBytes);
+        UpdateRadialCenterText();
+        bool hasSel = selection.SelectedCount > 0;
+        if (!_hadFolderSelection && hasSel)
+            AnimateSpringPop(FolderDeleteBarCard, fromScale: 0.96, offsetY: 4, durationMs: 220);
+        _hadFolderSelection = hasSel;
     }
 
     /// <summary>在不阻塞「停止」的前提下让消息队列跑一轮（执行仍在 UI 线程，COM 需要 STA）。</summary>

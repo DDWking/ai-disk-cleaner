@@ -141,6 +141,20 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     public string Name => Dir.Name;
     public string FullPath => Dir.FullPath;
     public long Size => Dir.Size;
+    public bool IsDirectoryNode => Dir.IsDirectory;
+
+    private double _sizeShare;
+    public double SizeShare => _sizeShare;
+    public double SizeBarWidth => _sizeShare <= 0 ? 0 : Math.Max(6.0, Math.Clamp(_sizeShare, 0.0, 1.0) * 124.0);
+
+    public void SetSizeShare(double share)
+    {
+        double clamped = double.IsNaN(share) || double.IsInfinity(share) ? 0.0 : Math.Clamp(share, 0.0, 1.0);
+        if (Math.Abs(_sizeShare - clamped) <= 0.002) return;
+        _sizeShare = clamped;
+        Raise(nameof(SizeShare));
+        Raise(nameof(SizeBarWidth));
+    }
 
     /// <summary>
     /// 容量那一格。

@@ -107,6 +107,20 @@ public static class Loc
         IsEn ? $"Hint: {count} temp/log files, about {size}"
              : $"建议：{count} 个临时/日志文件，约 {size}";
     public static string Language => IsEn ? "Language" : "语言";
+    public static string ThemeLabel => IsEn ? "Appearance" : "外观主题";
+    public static string ThemeDark => IsEn ? "Obsidian Dark" : "极夜深色";
+    public static string ThemeLight => IsEn ? "Fluent Light" : "云母浅色";
+    public static string SwitchToLightTip => IsEn ? "Switch to light theme" : "切换为浅色主题";
+    public static string SwitchToDarkTip => IsEn ? "Switch to dark theme" : "切换为深色主题";
+    public static string NavSectionWorkspace => IsEn ? "Workspace" : "工作台";
+    public static string NavSectionDrives => IsEn ? "Local drives" : "本地磁盘";
+    public static string DriveInstantCacheHint => IsEn ? "Instant cache" : "秒切缓存";
+    public static string DriveRescanTip => IsEn ? "Rescan this drive" : "重新扫描此磁盘";
+    public static string DriveCachedTag => IsEn ? "Cached" : "已缓存";
+    public static string DrivePreloadingTag => IsEn ? "Preloading…" : "预扫中…";
+    public static string DriveSystemLabel => IsEn ? "System" : "系统盘";
+    public static string DriveDataLabel => IsEn ? "Local Disk" : "数据盘";
+    public static string ClearCheckedFolders => IsEn ? "Clear" : "取消勾选";
     // ---- 诊断导出 ----
     public static string DiagExport => IsEn ? "Export diagnostics" : "导出诊断信息";
     public static string DiagHint => IsEn

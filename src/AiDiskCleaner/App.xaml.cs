@@ -49,7 +49,7 @@ public partial class App : Application
 
         Settings = AppSettings.Load();
         Loc.Lang = Settings.Lang;
-        ThemeService.Apply();
+        ThemeService.Apply(Settings.Theme);
         Resources["SearchHintText"] = Loc.SearchHint;
         base.OnStartup(e);
     }
@@ -184,9 +184,18 @@ public partial class App : Application
         Settings.Lang = lang;
         Settings.Save();
         Loc.Lang = lang;
-        ThemeService.Apply();
+        ThemeService.Apply(Settings.Theme);
         Current.Resources["SearchHintText"] = Loc.SearchHint;
         if (Current.MainWindow is MainWindow w)
             w.ApplyUi();
+    }
+
+    public static void SaveTheme(AppTheme theme)
+    {
+        Settings.Theme = theme;
+        Settings.Save();
+        ThemeService.Apply(theme);
+        if (Current.MainWindow is MainWindow w)
+            w.ApplyThemeRefresh();
     }
 }

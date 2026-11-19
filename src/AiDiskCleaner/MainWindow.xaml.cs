@@ -208,6 +208,9 @@ public partial class MainWindow : Window
     private bool _aiBusy;
     private bool _modelsBusy;
     private bool _aiPresetLoading;
+    private bool _settingsGeneralTab;
+    private bool _aiKeyRevealed;
+    private bool _syncingAiKey;
 
     /// <summary>设置页正在编辑哪一家。与「AI 分析使用哪家」分开，编辑 B 不会偷偷切换当前供应商。</summary>
     private AiProviderCfg? _provEditTarget;
@@ -229,6 +232,7 @@ public partial class MainWindow : Window
         var drives = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.Name).ToList();
         DriveBox.ItemsSource = drives;
         if (drives.Count > 0) DriveBox.SelectedIndex = 0;
+        InitDriveCards();
         UpdateVolumeInfo();
         DriveBox.SelectionChanged += (_, _) => _ = HandleDriveSelectionChangedAsync();
         StateChanged += (_, _) =>
@@ -243,6 +247,7 @@ public partial class MainWindow : Window
         // 把代码里的实例接到 XAML：组头统计与折叠状态都在这两个对象上
         Resources["DetailGroupHeader"] = _detailGroups;
         Resources["DetailGroupExpanded"] = _detailGroupsExpanded;
+        ThemeService.Apply(App.Settings.Theme);
         ApplyUi();
         // 默认进「清理中心」：主工作区是清理，文件夹整理退到辅助入口
         ShowRightTab(RightTab.Clean);
@@ -250,6 +255,7 @@ public partial class MainWindow : Window
         try { _folderPurpose.LoadCorrections(); } catch (Exception ex) { AppLog.Record("Purpose", ex, "load corrections"); }
         RebuildOrganize();
         PickDrive("C:\\");
+        RefreshDriveCards();
         // 构造彻底完成：所有 x:Name 控件都已赋值。
         // 崩溃处理器靠这个标记区分「窗口已就绪」和「半初始化」——
         // 半初始化时绝不能去碰 AlertText 这类还没赋值的控件（那会把崩溃变成死循环）。
@@ -265,6 +271,35 @@ public partial class MainWindow : Window
 
     void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        AnimateSlideFadeIn(AppRootDock, offsetY: 8, durationMs: 240, fromOpacity: 0.0);
+        if (!_scanning && _root == null)
+            _ = StartZeroFeelStartupAsync();
+    }
+
+    private async Task StartZeroFeelStartupAsync()
+    {
+        string drive = DriveBox?.SelectedItem?.ToString() ?? @"C:\";
+        string key = NormalizeDriveKey(drive);
+
+        var cachedRoot = await Task.Run(() => OrganizeTreeCache.TryLoad(key, out _));
+        string curKey = NormalizeDriveKey(DriveBox?.SelectedItem?.ToString());
+        if (cachedRoot != null && string.Equals(curKey, key, StringComparison.OrdinalIgnoreCase) && _root == null && !_scanning)
+        {
+            _activeDriveKey = key;
+            _root = cachedRoot;
+            _scanGeneration++;
+            UpdateVolumeInfo();
+            await RebuildOrganizeAsync(cachedRoot, _scanGeneration, preserveChecks: false, _preloadCts?.Token ?? default);
+            UpdateAiReportButton();
+            RefreshDockedReportPlaceholder();
+            SaveActiveDriveToCache();
+            RefreshDriveCards();
+            SetStatus($"{key} 秒开快照，后台静默校准中");
+            _ = RunScanCoreAsync(silentRefresh: true);
+            StartStartupPreloadQueueAsync();
+            return;
+        }
+
         if (!_scanning && _root == null)
             RunScan();
     }
@@ -280,7 +315,11 @@ public partial class MainWindow : Window
     {
         Title = Loc.AppName;
         TitleText.Text = Loc.AppName;
-        ScanButton.Content = Loc.Scan;
+        if (ScanButton != null)
+        {
+            ScanButton.ToolTip = Loc.Scan;
+            System.Windows.Automation.AutomationProperties.SetName(ScanButton, Loc.Scan);
+        }
         StopButton.Content = Loc.Stop;
         // SettingsButton 是齿轮**图标**按钮：这里只更新语义，绝不设 Content。
         // 一旦设 Content，WPF 会用文字顶掉 XAML 里的 <Path> 图标 —— 实测过。
@@ -293,10 +332,15 @@ public partial class MainWindow : Window
         if (AboutLinkBtn != null) AboutLinkBtn.Content = Loc.AboutDashaoHuo;
         if (HeaderStats.Text is "就绪" or "Ready") HeaderStats.Text = Loc.Ready;
         if (CleanOpenItem != null) CleanOpenItem.Header = Loc.OpenInExplorer;
-        // 主导航：按文件夹删除 / 清理中心 / 卸载
+        // 主导航：清理中心 / 卸载（极简纯图标栏，文字藏在 ToolTip 与可访问名称中）
         TabOrganizeBtn.Content = Loc.TabOrganize;
-        TabCleanBtn.Content = Loc.TabClean;
-        TabUninstallBtn.Content = Loc.TabUninstall;
+        TabCleanBtn.ToolTip = Loc.TabClean;
+        System.Windows.Automation.AutomationProperties.SetName(TabCleanBtn, Loc.TabClean);
+        TabUninstallBtn.ToolTip = Loc.TabUninstall;
+        System.Windows.Automation.AutomationProperties.SetName(TabUninstallBtn, Loc.TabUninstall);
+        if (TabCleanText != null) TabCleanText.Text = Loc.TabClean;
+        if (TabUninstallText != null) TabUninstallText.Text = Loc.TabUninstall;
+        if (FolderDeleteClearBtn != null) FolderDeleteClearBtn.Content = Loc.IsEn ? "Clear" : "清空";
         ClearScopeBtn.Content = Loc.ClearScopeAction;
         UninstallRunBtn.Content = Loc.UninstallRun;
         UninstallRetryItem.Header = Loc.UninstallRetry;
@@ -361,8 +405,8 @@ public partial class MainWindow : Window
         }
         if (_lastAgentReport != null && OrganizeReportContent != null)
         {
-            PopulateReportPanel(OrganizeReportContent, _lastAgentReport, isDocked: true);
-            BuildReportContent(_lastAgentReport);
+            PopulateReportPanel(OrganizeReportContent, _lastAgentReport, isDocked: true, animate: false);
+            PopulateReportPanel(ReportContent, _lastAgentReport, isDocked: false, animate: false);
         }
         else
         {
@@ -394,6 +438,9 @@ public partial class MainWindow : Window
         ConfirmYesBtn.Content = Loc.Yes;
         ConfirmNoBtn.Content = Loc.No;
         LangLabel.Text = Loc.Language;
+        if (ThemeLabel != null) ThemeLabel.Text = Loc.ThemeLabel;
+        if (ThemeDarkBtn != null) ThemeDarkBtn.Content = Loc.ThemeDark;
+        if (ThemeLightBtn != null) ThemeLightBtn.Content = Loc.ThemeLight;
         if (DiagExportBtn != null) DiagExportBtn.Content = Loc.DiagExport;
         if (DiagHint != null) DiagHint.Text = Loc.DiagHint;
         LangZhBtn.Content = Loc.LangZh;
@@ -415,10 +462,19 @@ public partial class MainWindow : Window
         {
             AiFullPathBox.Content = Loc.AiSendFullPaths;
             AiFullPathBox.IsChecked = App.Settings.AiSendFullPaths;
+            AiFullPathBox.ToolTip = Loc.AiSendFullPathsHint;
         }
         if (AiFullPathHint != null) AiFullPathHint.Text = Loc.AiSendFullPathsHint;
+        if (SettingsTabAiBtn != null) SettingsTabAiBtn.Content = Loc.IsEn ? "AI Models" : "AI 模型";
+        if (SettingsTabGeneralBtn != null) SettingsTabGeneralBtn.Content = Loc.IsEn ? "General" : "常规设置";
+        if (PresetBtnCustom != null) PresetBtnCustom.Content = Loc.IsEn ? "Custom" : "自定义";
+        if (AiActiveEditBtn != null) AiActiveEditBtn.Content = Loc.AiEdit;
+        if (ProvEditBackBtn != null) ProvEditBackBtn.ToolTip = Loc.IsEn ? "Back" : "返回";
+        if (DialogCloseX != null) DialogCloseX.ToolTip = Loc.Close;
+        if (AiKeyRevealBtn != null) AiKeyRevealBtn.ToolTip = Loc.IsEn ? "Show / hide key" : "显示 / 隐藏密钥";
         AiNameLabel.Text = Loc.AiName;
         AiUrlLabel.Text = Loc.AiBaseUrl;
+        AiUrlBox.ToolTip = Loc.AiDecisionsHint;
         AiKeyLabel.Text = Loc.AiApiKey;
         AiTestBtn.Content = Loc.AiTest;
         if (AiFetchModelsBtn != null) AiFetchModelsBtn.Content = Loc.AiFetchModels;
@@ -435,20 +491,23 @@ public partial class MainWindow : Window
             CleanSummarySub.Text = Loc.AnalyzeAfterScan;
             ScanProgressText.Text = Loc.ScanningEllipsis;
         }
-        BorderBrush = ThemeService.Brush("Border");
-        HighlightThemeButtons();
-        UpdateVolumeInfo();
+        ApplyThemeRefresh();
     }
 
     private void HighlightThemeButtons()
     {
-        void Mark(Button b, bool on)
+        void MarkLang(Button? b, bool on)
         {
-            b.BorderBrush = ThemeService.Brush(on ? "Accent" : "Border");
-            b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
+            if (b == null) return;
+            b.Background = ThemeService.Brush(on ? "BrandAccentSoft" : "CardSurface");
+            b.BorderBrush = ThemeService.Brush(on ? "BrandAccent" : "Border");
+            b.Foreground = ThemeService.Brush(on ? "BrandAccent" : "TextDim");
+            b.FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
         }
-        Mark(LangZhBtn, Loc.Lang == AppLang.Zh);
-        Mark(LangEnBtn, Loc.Lang == AppLang.En);
+        MarkLang(LangZhBtn, Loc.Lang == AppLang.Zh);
+        MarkLang(LangEnBtn, Loc.Lang == AppLang.En);
+        MarkLang(ThemeDarkBtn, App.Settings.Theme == AppTheme.Dark);
+        MarkLang(ThemeLightBtn, App.Settings.Theme == AppTheme.Light);
     }
 
     /// <summary>
@@ -575,73 +634,81 @@ public partial class MainWindow : Window
 
     private async void RunScan()
     {
+        await RunScanCoreAsync(silentRefresh: false);
+    }
+
+    private async Task RunScanCoreAsync(bool silentRefresh)
+    {
         if (_scanning || DriveBox.SelectedItem == null) return;
         _scanning = true;
-        // 先把上一轮的后续阶段全部作废，再开始这一轮
         InvalidateFollowUpStages();
         _work.ResetCancel();
         _scanUsedFallback = false;
         _scanFallbackReason = "";
-        _scanQuality = null;
-        _allFiles = new();
-        // 开新扫描就把上一轮的清理结果和分层丢掉：
-        // 否则「旧列表还挂在界面上」，用户可能照着过期清单去勾选删除。
-        _report = null;
-        CancelAgentReport();
-        UpdateAiReportButton();
-        _dupIncomplete = 0;
-        _layerGeneration++;
-        ClearCleanLayers();
-        CleanPageTitle.Text = Loc.PagePurposeTitle;
-        CleanPageSub.Text = "";
-        CleanSummarySub.Text = "";
-        ShowCleanState(CleanStateKind.Scanning);
-        UpdateSelectionUi();
+        if (!silentRefresh)
+        {
+            _scanQuality = null;
+            _allFiles = new();
+            _report = null;
+            CancelAgentReport();
+            UpdateAiReportButton();
+            _dupIncomplete = 0;
+            _layerGeneration++;
+            ClearCleanLayers();
+            CleanPageTitle.Text = Loc.PagePurposeTitle;
+            CleanPageSub.Text = "";
+            CleanSummarySub.Text = "";
+            ShowCleanState(CleanStateKind.Scanning);
+            UpdateSelectionUi();
+            if (_organizeRows.Count == 0)
+                ShowOrganizeState(OrganizeStateKind.Scanning);
+        }
         ScanButton.IsEnabled = false;
         _scanStart = DateTime.Now;
-        // 每次扫描一个独立的 CTS；上一代扫描/分析会被取消，且代次守卫保证旧结果不覆盖新结果。
         using var scanOp = StartOperation(ref _scanCts, "Scan");
         var ct = scanOp.Token;
         int myGeneration = ++_scanGeneration;
-        // 登记「扫盘」阶段：只要它还在，停止按钮就在
         using var scanStage = _work.Begin(StageNames.Scan, WorkPhase.Scanning);
         UpdateStopButton();
-        SetStatus(Loc.Scanning);
-        ScanProgressPanel.Visibility = Visibility.Visible;
-        ScanProgressBar.IsIndeterminate = true;
-        ScanProgressBar.Value = 0;
-        ScanProgressText.Text = Loc.Preparing;
-        // 不在这里切页：扫描开始/结束/重建都不许把用户从自己选的页面拽走
-        ShowOrganizeState(OrganizeStateKind.Scanning);
-        SetCleanProgress(0, Loc.CleanScan, determinate: false);
-        // 2.11：目录侧栏已移除，扫描进度不再往树上铺占位行。
+
+        if (silentRefresh)
+            SetStatus($"{_activeDriveKey} 后台无感校准中…");
+        else
+            SetStatus(Loc.Scanning);
+
+        SetTopScanBeam(true, -1);
+
+        long lastProgressTick = 0;
+        bool cleanVisible = CleanPane != null && CleanPane.Visibility == Visibility.Visible;
+        if (cleanVisible)
+            SetCleanProgress(0, Loc.CleanScan, determinate: false);
 
         var progress = new Progress<ScanProgress>(p =>
         {
+            long now = Environment.TickCount64;
+            if (now - lastProgressTick < 100 && p.Percent < 95)
+                return;
+            lastProgressTick = now;
+
             if (p.Percent >= 0)
             {
-                // 扫描阶段最多显示到 95%，留最后 5% 给目录结构整理，保证进度条收起时列表已完整就绪
                 int shownPct = Math.Min(p.Percent, 95);
-                ScanProgressBar.IsIndeterminate = false;
-                ScanProgressBar.Value = shownPct;
-                string stage = _scanUsedFallback
-                    ? Loc.ScanFallbackProgress(shownPct, p.CurrentDirectory, p.FileCount, _scanFallbackReason)
-                    : Loc.ProgressLine(shownPct, p.CurrentDirectory, p.FileCount);
-                ScanProgressText.Text = stage;
-                SetStatus(_scanUsedFallback
-                    ? Loc.ScanFallbackProgress(shownPct, p.CurrentDirectory, p.FileCount, _scanFallbackReason)
-                    : Loc.ScanPct(shownPct));
-                SetCleanProgress(shownPct, stage, determinate: true);
+                SetTopScanBeam(true, shownPct);
+                if (!silentRefresh)
+                    SetStatus(_scanUsedFallback
+                        ? Loc.ScanFallbackProgress(shownPct, p.CurrentDirectory, p.FileCount, _scanFallbackReason)
+                        : Loc.ScanPct(shownPct));
+                if (cleanVisible)
+                {
+                    string stage = _scanUsedFallback
+                        ? Loc.ScanFallbackProgress(shownPct, p.CurrentDirectory, p.FileCount, _scanFallbackReason)
+                        : Loc.ProgressLine(shownPct, p.CurrentDirectory, p.FileCount);
+                    SetCleanProgress(shownPct, stage, determinate: true);
+                }
             }
-            else
+            else if (!silentRefresh)
             {
-                ScanProgressBar.IsIndeterminate = true;
-                string stage = _scanUsedFallback
-                    ? Loc.ScanFallbackProgress(-1, p.CurrentDirectory, p.FileCount, _scanFallbackReason)
-                    : Loc.ProgressIndeterminate(p.CurrentDirectory, p.FileCount);
-                ScanProgressText.Text = stage;
-                SetStatus(_scanUsedFallback ? stage : Loc.ScanCount(p.FileCount));
-                SetCleanProgress(0, stage, determinate: false);
+                SetStatus(Loc.ScanCount(p.FileCount));
             }
         });
 
@@ -649,66 +716,65 @@ public partial class MainWindow : Window
         {
             string drive = DriveBox.SelectedItem.ToString()!;
             _activeDriveKey = NormalizeDriveKey(drive);
-            // onFallback 让「MFT 不可用，正在用兼容扫描」立刻显示，而不是等扫完
             var outcome = await _cleanupWorkflow.ScanAsync(drive, progress, ct, reason =>
             {
                 _scanUsedFallback = true;
                 _scanFallbackReason = reason;
                 SetStatus(Loc.MftFallbackStarting(reason));
-                ScanProgressText.Text = Loc.MftFallbackStarting(reason);
             });
             _scanUsedFallback = outcome.UsedFallback;
             _scanFallbackReason = outcome.FallbackReason;
             _scanQuality = outcome.Quality;
             if (myGeneration != _scanGeneration)
             {
-                // 期间用户又发起了新扫描：这份结果已经过期，丢掉，绝不覆盖新结果。
                 AppLog.Info("Scan", $"dropping stale scan result gen={myGeneration} current={_scanGeneration}");
                 return;
             }
-            // 先把文件夹列表建好并刷新界面，再收起扫描进度条，确保进度条与页面展示同步
-            ScanProgressBar.IsIndeterminate = false;
-            ScanProgressBar.Value = 96;
-            ScanProgressText.Text = "正在整理目录结构…";
-            SetStatus("正在整理目录结构…");
-            await Task.Yield();
+
+            SetTopScanBeam(true, 96);
+            var scrollPos = silentRefresh ? (FindScrollViewer(OrganizeGrid)?.VerticalOffset ?? 0) : 0;
+
             _root = outcome.Root;
-            if (_organizeBuiltForScan != _scanGeneration) RebuildOrganize();
+            _ = Task.Run(() => OrganizeTreeCache.Save(outcome.Root, ct), ct);
+            await RebuildOrganizeAsync(outcome.Root, myGeneration, preserveChecks: silentRefresh, ct);
+
+            if (silentRefresh && scrollPos > 0)
+                FindScrollViewer(OrganizeGrid)?.ScrollToVerticalOffset(scrollPos);
+
             UpdateAiReportButton();
             RefreshDockedReportPlaceholder();
             SaveActiveDriveToCache();
             StartStartupPreloadQueueAsync();
-            ScanProgressBar.Value = 100;
-            ScanProgressText.Text = "扫描与目录整理完成";
-            // 不 await：后续后台清理分析由 WorkState 登记，停止按钮照常可用。
+            SetTopScanBeam(false);
             _ = FinishScanAsync(outcome.Root);
             scanOp.Done(outcome.UsedFallback ? "recursive" : "mft", outcome.Root.FileCount);
         }
         catch (OperationCanceledException)
         {
-            // 取消是正常路径，不是故障：只清理状态。
+            SetTopScanBeam(false);
             HideCleanProgress();
             SetStatus(Loc.Aborted);
-            // 整理页也退回可重试的状态，不留一个假的「正在扫描」
-            ShowOrganizeState(OrganizeStateKind.NoScan);
+            if (_organizeRows.Count == 0)
+                ShowOrganizeState(OrganizeStateKind.NoScan);
             scanOp.Canceled("scan canceled by user");
         }
         catch (Exception ex)
         {
+            SetTopScanBeam(false);
             HideCleanProgress();
             string userMsg = AppLog.Record("Scan", ex, "scan failed");
-            ShowAlert(Loc.ScanFailed, Loc.ScanFailedMsg(userMsg));
-            SetStatus(Loc.ScanFailed);
-            ShowOrganizeState(OrganizeStateKind.Failed);
+            if (!silentRefresh)
+            {
+                ShowAlert(Loc.ScanFailed, Loc.ScanFailedMsg(userMsg));
+                SetStatus(Loc.ScanFailed);
+                if (_organizeRows.Count == 0) ShowOrganizeState(OrganizeStateKind.Failed);
+            }
             scanOp.Fail(ex, "scan");
         }
         finally
         {
             _scanning = false;
             UpdateAiReportButton();
-            // 注意：这里**不再**无条件藏停止按钮。
-            // 扫描阶段自己会通过 using 注销；如果后续的分析/重复检测阶段还在跑，
-            // 按钮必须继续留着 —— 以前就是在这里被藏掉，导致「分析还在跑却没有停止入口」。
             UpdateStopButton();
             ScanProgressPanel.Visibility = Visibility.Collapsed;
             ScanProgressBar.IsIndeterminate = false;
@@ -725,36 +791,27 @@ public partial class MainWindow : Window
     private async Task FinishScanAsync(FileEntry root)
     {
         var perf = new PerfTrace("finish-scan");
-        // 让出一拍再干重活：进度条 / 阶段切换先画出来，避免看起来像卡死
         await Task.Yield();
         _root = root;
-        if (_organizeBuiltForScan != _scanGeneration) RebuildOrganize();
+        if (_organizeBuiltForScan != _scanGeneration)
+            await RebuildOrganizeAsync(root, _scanGeneration, preserveChecks: true, _preloadCts?.Token ?? default);
         UpdateAiReportButton();
         RefreshDockedReportPlaceholder();
-        // 新一次扫描 = 新的占用口径，软件占用缓存必须丢
         AppRecommendationService.InvalidateUsageCache();
 
         UpdateVolumeInfo();
-        // 2.11：目录树已移除，扫描完不再需要重建树/切换浏览目录。
-
-        // 扫描耗时不再单独占一条底栏：进「扫描详情」。
         _scanElapsed = (DateTime.Now - _scanStart).TotalSeconds;
         ShowScanQuality();
-        // 扫描完成后不再往顶部堆「MFT 扫描完成 · 1,585,218 个文件」这类长句：
-        // 覆盖完整度由第三层的 CleanScanState 表达，明细进「扫描详情」。
         SetStatus(_scanUsedFallback ? Loc.ScanDoneFallback : Loc.ScanDone);
         perf.Flush();
 
-        // 合并清理模式下旧版 CleanPane 已隐藏，跳过对用户不可见的全局清理规则与磁盘重复文件哈希，大幅降低启动卡顿。
         if (CleanPane != null && CleanPane.Visibility != Visibility.Visible)
         {
             RefreshAiLamp();
-            _ = EnsureActiveFilesCollectedAsync(root, _preloadCts?.Token ?? default);
             _ = SaveSnapshotAsync(root);
             return;
         }
 
-        // 后续阶段一律不阻塞首屏
         _ = RunCleanPipelineAsync(root);
     }
 
@@ -1092,22 +1149,19 @@ public partial class MainWindow : Window
             _volumeUsed = d.TotalSize - d.TotalFreeSpace;
             long used = _volumeUsed;
             double pct = d.TotalSize > 0 ? 100.0 * used / d.TotalSize : 0;
-            VolumeText.Text = Loc.Volume(
-                FileEntry.FormatSize(d.TotalSize),
-                FileEntry.FormatSize(used),
-                pct,
-                FileEntry.FormatSize(d.TotalFreeSpace));
-            if (VolumeUsageBar != null)
+
+            string letter = name.TrimEnd('\\');
+            if (TitleDriveSub != null) TitleDriveSub.Text = " · " + letter;
+            if (VolumeText != null)
             {
-                VolumeUsageBar.Value = Math.Clamp(pct, 0, 100);
-                VolumeUsageBar.Visibility = Visibility.Visible;
-                string colorKey = pct >= 90 ? "CloseHoverBg"
-                                : pct >= 78 ? "SectionConfirmAccent"
-                                : "SectionSafeAccent";
-                VolumeUsageBar.Foreground = pct >= 90
-                    ? new SolidColorBrush(Color.FromRgb(0xE0, 0x70, 0x70))
-                    : ThemeService.Brush(colorKey);
+                VolumeText.Text = Loc.Volume(
+                    FileEntry.FormatSize(d.TotalSize),
+                    FileEntry.FormatSize(used),
+                    pct,
+                    FileEntry.FormatSize(d.TotalFreeSpace));
             }
+            RefreshDriveCards();
+            UpdateStorageBreakdownBar();
         }
         catch (Exception ex)
         {
@@ -1126,6 +1180,8 @@ public partial class MainWindow : Window
 
     private void ScanButton_Click(object sender, RoutedEventArgs e)
     {
+        if (sender is Button { Content: UIElement icon })
+            AnimateSpinIconOnce(icon, 480);
         InvalidateDriveCache(DriveBox.SelectedItem?.ToString());
         RunScan();
     }
@@ -1307,11 +1363,15 @@ public partial class MainWindow : Window
         // 报告弹层会把卡片加宽；普通弹层回到默认尺寸。
         DialogCard.Width = 520;
         DialogCard.MaxHeight = 680;
+        if (ProvEditBackBtn != null) ProvEditBackBtn.Visibility = Visibility.Collapsed;
+        DialogClose.Content = Loc.Close;
         AlertBody.Visibility = alert || confirm ? Visibility.Visible : Visibility.Collapsed;
         ConfirmButtons.Visibility = confirm || ruleSelect ? Visibility.Visible : Visibility.Collapsed;
         DialogClose.Visibility = confirm || ruleSelect ? Visibility.Collapsed : Visibility.Visible;
         if (settings)
         {
+            DialogCard.Width = 560;
+            ShowSettingsTab(general: false);
             HighlightThemeButtons();
             LoadAiFields();
         }
@@ -1333,16 +1393,35 @@ public partial class MainWindow : Window
         Overlay.BeginAnimation(OpacityProperty, null);
         DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        DialogTranslate.BeginAnimation(TranslateTransform.YProperty, null);
+
+        if (ProvEditBackBtn != null && ProvEditBody.Visibility != Visibility.Visible)
+            ProvEditBackBtn.Visibility = Visibility.Collapsed;
 
         OverlayRoot.Visibility = Visibility.Visible;
+
+        if (!CanAnimate)
+        {
+            Overlay.Opacity = 1;
+            DialogScale.ScaleX = 1;
+            DialogScale.ScaleY = 1;
+            DialogTranslate.Y = 0;
+            DialogCard.Focus();
+            return;
+        }
+
         // **只让遮罩做不透明度动画**。卡片保持完全不透明：
         // 以前动画加在包含卡片的父容器上，WPF 的 Opacity 会乘到子元素，
         // 于是弹层内容在动画期间是半透明的，后面的列表直接透出来。
         Overlay.Opacity = 0;
-        DialogScale.ScaleX = 0.97;
-        DialogScale.ScaleY = 0.97;
+        DialogScale.ScaleX = 0.95;
+        DialogScale.ScaleY = 0.95;
+        DialogTranslate.Y = 14;
 
-        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140)) { EasingFunction = new QuadraticEase() };
+        var cubic = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var spring = new BackEase { Amplitude = 0.22, EasingMode = EasingMode.EaseOut };
+
+        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)) { EasingFunction = cubic };
         fade.Completed += (_, _) =>
         {
             if (epoch != _overlayEpoch) return;
@@ -1351,9 +1430,22 @@ public partial class MainWindow : Window
         };
         Overlay.BeginAnimation(OpacityProperty, fade);
 
-        var grow = new DoubleAnimation(0.97, 1, TimeSpan.FromMilliseconds(160)) { EasingFunction = new QuadraticEase() };
-        DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
-        DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, grow.Clone());
+        var growX = new DoubleAnimation(0.95, 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = spring };
+        var growY = growX.Clone();
+        var slideY = new DoubleAnimation(14, 0, TimeSpan.FromMilliseconds(220)) { EasingFunction = cubic };
+        slideY.Completed += (_, _) =>
+        {
+            if (epoch != _overlayEpoch) return;
+            DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            DialogTranslate.BeginAnimation(TranslateTransform.YProperty, null);
+            DialogScale.ScaleX = 1;
+            DialogScale.ScaleY = 1;
+            DialogTranslate.Y = 0;
+        };
+        DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, growX);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, growY);
+        DialogTranslate.BeginAnimation(TranslateTransform.YProperty, slideY);
 
         // 遮罩挡住了鼠标，但键盘焦点默认还留在下面的列表上（Tab/方向键会误操作底层）。
         // 把焦点移进对话框，键盘操作就落在弹层内。
@@ -1371,10 +1463,16 @@ public partial class MainWindow : Window
         {
             ProvEditBody.Visibility = Visibility.Collapsed;
             SettingsBody.Visibility = Visibility.Visible;
+            if (ProvEditBackBtn != null) ProvEditBackBtn.Visibility = Visibility.Collapsed;
+            DialogClose.Content = Loc.Close;
+            SetKeyRevealed(false);
             DialogTitle.Text = Loc.SettingsTitle;
             LoadAiFields();
             return;
         }
+        SetKeyRevealed(false);
+        if (ProvEditBackBtn != null) ProvEditBackBtn.Visibility = Visibility.Collapsed;
+        DialogClose.Content = Loc.Close;
         if (ReportBody.Visibility == Visibility.Visible)
         {
             // 报告弹层是加宽过的，关掉时恢复默认尺寸，避免下次设置弹层也变宽
@@ -1387,19 +1485,42 @@ public partial class MainWindow : Window
         Overlay.BeginAnimation(OpacityProperty, null);
         DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        DialogTranslate.BeginAnimation(TranslateTransform.YProperty, null);
 
-        var fade = new DoubleAnimation(Overlay.Opacity, 0, TimeSpan.FromMilliseconds(110));
+        if (!CanAnimate)
+        {
+            Overlay.Opacity = 0;
+            OverlayRoot.Visibility = Visibility.Collapsed;
+            DialogScale.ScaleX = 0.96;
+            DialogScale.ScaleY = 0.96;
+            DialogTranslate.Y = 12;
+            return;
+        }
+
+        var cubic = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var fade = new DoubleAnimation(Overlay.Opacity, 0, TimeSpan.FromMilliseconds(130)) { EasingFunction = cubic };
+        var shrinkX = new DoubleAnimation(DialogScale.ScaleX, 0.97, TimeSpan.FromMilliseconds(130)) { EasingFunction = cubic };
+        var shrinkY = shrinkX.Clone();
+        var slideOut = new DoubleAnimation(DialogTranslate.Y, 8, TimeSpan.FromMilliseconds(130)) { EasingFunction = cubic };
+
         fade.Completed += (_, _) =>
         {
             // 只有「还是同一次关闭」才允许收起来；否则说明期间又打开过，绝不能隐藏。
             if (epoch != _overlayEpoch) return;
             Overlay.BeginAnimation(OpacityProperty, null);
+            DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            DialogTranslate.BeginAnimation(TranslateTransform.YProperty, null);
             Overlay.Opacity = 0;
             OverlayRoot.Visibility = Visibility.Collapsed;
-            DialogScale.ScaleX = 0.97;
-            DialogScale.ScaleY = 0.97;
+            DialogScale.ScaleX = 0.96;
+            DialogScale.ScaleY = 0.96;
+            DialogTranslate.Y = 12;
         };
         Overlay.BeginAnimation(OpacityProperty, fade);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleXProperty, shrinkX);
+        DialogScale.BeginAnimation(ScaleTransform.ScaleYProperty, shrinkY);
+        DialogTranslate.BeginAnimation(TranslateTransform.YProperty, slideOut);
     }
 
     public void ShowCrash(string text) => ShowAlert(Loc.AppName, text);
@@ -1458,6 +1579,57 @@ public partial class MainWindow : Window
         LoadAiFields();
     }
 
+    private void ThemeToggle_Click(object sender, RoutedEventArgs e)
+    {
+        var next = App.Settings.Theme == AppTheme.Dark ? AppTheme.Light : AppTheme.Dark;
+        if (next == App.Settings.Theme) return;
+        App.SaveTheme(next);
+        AnimateThemeSwitchFeedback();
+    }
+
+    private void ThemeChoice_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag }) return;
+        var next = tag == "Light" ? AppTheme.Light : AppTheme.Dark;
+        if (next == App.Settings.Theme) return;
+        App.SaveTheme(next);
+        AnimateThemeSwitchFeedback();
+    }
+
+    public void ApplyThemeRefresh()
+    {
+        BorderBrush = ThemeService.Brush("Border");
+        if (ThemeToggleBtn != null && ThemeToggleIcon != null)
+        {
+            bool isDark = App.Settings.Theme == AppTheme.Dark;
+            string tip = isDark ? Loc.SwitchToLightTip : Loc.SwitchToDarkTip;
+            ThemeToggleBtn.ToolTip = tip;
+            System.Windows.Automation.AutomationProperties.SetName(ThemeToggleBtn, tip);
+            if (TryFindResource(isDark ? "IconSun" : "IconMoon") is Geometry geo)
+                ThemeToggleIcon.Data = geo;
+        }
+        HighlightThemeButtons();
+        UpdateSettingsTabVisuals();
+        UpdatePresetPillsVisuals();
+        ShowRightTab(_rightTab);
+        UpdateColorFilterButtons();
+        RefreshBgPreloadTheme();
+        RefreshDriveCards();
+        UpdateVolumeInfo();
+        UpdateRadialCenterText();
+        UpdateAiLamp();
+        UpdateAiActiveStrip();
+        if (_lastAgentReport != null && OrganizeReportContent != null)
+        {
+            PopulateReportPanel(OrganizeReportContent, _lastAgentReport, isDocked: true, animate: false);
+            PopulateReportPanel(ReportContent, _lastAgentReport, isDocked: false, animate: false);
+        }
+        else
+        {
+            RefreshDockedReportPlaceholder();
+        }
+    }
+
     /// <summary>
     /// 判定通道的地址与模型说明**常显**。
     ///
@@ -1469,16 +1641,194 @@ public partial class MainWindow : Window
     {
         if (AiDecisionModelBox == null) return;
         if (AiDecisionsHintText != null)
-        {
             AiDecisionsHintText.Text = Loc.AiDecisionsHint;
-            AiDecisionsHintText.Visibility = Visibility.Visible;
-        }
+        if (AiUrlBox != null)
+            AiUrlBox.ToolTip = Loc.AiDecisionsHint;
         if (AiDecisionsModelLabel != null)
         {
             AiDecisionsModelLabel.Text = Loc.AiDecisionsModel;
             AiDecisionsModelLabel.Visibility = Visibility.Visible;
         }
         AiDecisionModelBox.Visibility = Visibility.Visible;
+    }
+
+    private void ApplySegmentedVisuals(Button[] buttons, int activeIndex)
+    {
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            var btn = buttons[i];
+            if (btn == null) continue;
+            bool on = i == activeIndex;
+            btn.Background = on ? ThemeService.Brush("CardSurface") : Brushes.Transparent;
+            btn.Foreground = ThemeService.Brush(on ? "BrandAccent" : "TextDim");
+            btn.FontWeight = on ? FontWeights.SemiBold : FontWeights.Medium;
+        }
+    }
+
+    private void SettingsTab_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag }) return;
+        ShowSettingsTab(general: tag == "General");
+    }
+
+    private void ShowSettingsTab(bool general)
+    {
+        _settingsGeneralTab = general;
+        if (SettingsAiPane != null)
+            SettingsAiPane.Visibility = general ? Visibility.Collapsed : Visibility.Visible;
+        if (SettingsGeneralPane != null)
+            SettingsGeneralPane.Visibility = general ? Visibility.Visible : Visibility.Collapsed;
+        UpdateSettingsTabVisuals();
+    }
+
+    private void UpdateSettingsTabVisuals()
+    {
+        if (SettingsTabAiBtn == null || SettingsTabGeneralBtn == null) return;
+        ApplySegmentedVisuals(new[] { SettingsTabAiBtn, SettingsTabGeneralBtn }, _settingsGeneralTab ? 1 : 0);
+    }
+
+    private void ProvEditBack_Click(object sender, RoutedEventArgs e)
+    {
+        if (ProvEditBody.Visibility == Visibility.Visible) HideOverlay();
+    }
+
+    private void AiActiveEdit_Click(object sender, RoutedEventArgs e)
+    {
+        if (App.Settings.DecisionProvider() is { } p) OpenProvEdit(p);
+    }
+
+    private void ActivateProvider(AiProviderCfg p)
+    {
+        App.Settings.SetActiveProvider(p.Id);
+        App.Settings.Save();
+        // 供应商变了，正在跑的报告可能来自上一家：取消，避免结果串台。
+        CancelAgentReport();
+        LoadAiFields();
+    }
+
+    private void AiProvCard_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left) return;
+        if (sender is not Border { DataContext: AiProviderCfg p } card) return;
+        if (IsInsideButtonBase(e.OriginalSource as DependencyObject, card)) return;
+        if (e.ClickCount == 2)
+        {
+            OpenProvEdit(p);
+            e.Handled = true;
+            return;
+        }
+        if (!p.IsActive) ActivateProvider(p);
+    }
+
+    private static bool IsInsideButtonBase(DependencyObject? source, DependencyObject stopAt)
+    {
+        while (source != null && !ReferenceEquals(source, stopAt))
+        {
+            if (source is System.Windows.Controls.Primitives.ButtonBase) return true;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return false;
+    }
+
+    private void AiPresetPill_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag } || !int.TryParse(tag, out int idx)) return;
+        if (AiPresetBox != null && idx >= 0 && idx < AiPresetBox.Items.Count)
+            AiPresetBox.SelectedIndex = idx;
+        UpdatePresetPillsVisuals();
+    }
+
+    private void UpdatePresetPillsVisuals()
+    {
+        if (PresetBtnDeepSeek == null) return;
+        int idx = AiPresetBox?.SelectedIndex ?? -1;
+        ApplySegmentedVisuals(
+            new[] { PresetBtnDeepSeek, PresetBtnOpenAi, PresetBtnOllama, PresetBtnCustom },
+            idx);
+    }
+
+    private void AiKeyReveal_Click(object sender, RoutedEventArgs e) => SetKeyRevealed(!_aiKeyRevealed);
+
+    private void SetKeyRevealed(bool revealed)
+    {
+        _aiKeyRevealed = revealed;
+        if (AiKeyBox == null || AiKeyPlainBox == null) return;
+        _syncingAiKey = true;
+        try
+        {
+            if (revealed)
+            {
+                AiKeyPlainBox.Text = AiKeyBox.Password;
+                AiKeyPlainBox.Visibility = Visibility.Visible;
+                AiKeyBox.Visibility = Visibility.Collapsed;
+                AiKeyPlainBox.CaretIndex = AiKeyPlainBox.Text.Length;
+            }
+            else
+            {
+                AiKeyBox.Password = AiKeyPlainBox.Text;
+                AiKeyBox.Visibility = Visibility.Visible;
+                AiKeyPlainBox.Visibility = Visibility.Collapsed;
+            }
+        }
+        finally
+        {
+            _syncingAiKey = false;
+        }
+        if (AiKeyRevealIcon != null &&
+            TryFindResource(revealed ? "IconEyeOff" : "IconEye") is Geometry geo)
+        {
+            AiKeyRevealIcon.Data = geo;
+        }
+    }
+
+    private void AiKeyBox_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (_syncingAiKey || AiKeyPlainBox == null) return;
+        _syncingAiKey = true;
+        AiKeyPlainBox.Text = AiKeyBox.Password;
+        _syncingAiKey = false;
+        ClearTestDiagnostic();
+    }
+
+    private void AiKeyPlainBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_syncingAiKey || AiKeyBox == null) return;
+        _syncingAiKey = true;
+        AiKeyBox.Password = AiKeyPlainBox.Text;
+        _syncingAiKey = false;
+        ClearTestDiagnostic();
+    }
+
+    private string CurrentApiKey() =>
+        _aiKeyRevealed ? (AiKeyPlainBox?.Text ?? "") : (AiKeyBox?.Password ?? "");
+
+    private void SetCurrentApiKey(string key)
+    {
+        _syncingAiKey = true;
+        try
+        {
+            if (AiKeyBox != null) AiKeyBox.Password = key;
+            if (AiKeyPlainBox != null) AiKeyPlainBox.Text = key;
+        }
+        finally
+        {
+            _syncingAiKey = false;
+        }
+    }
+
+    private void SetDiagnosticNext(string text, string? tip = null)
+    {
+        if (AiDiagnosticNext == null) return;
+        AiDiagnosticNext.Text = text ?? "";
+        AiDiagnosticNext.ToolTip = tip;
+        AiDiagnosticNext.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void ClearTestDiagnostic()
+    {
+        if (_aiPresetLoading || _aiBusy) return;
+        if (AiTestHint != null) AiTestHint.Text = "";
+        SetDiagnosticNext("");
     }
 
     void LoadAiFields()
@@ -1500,6 +1850,7 @@ public partial class MainWindow : Window
     {
         var p = App.Settings.DecisionProvider();
         if (AiActiveTitle != null) AiActiveTitle.Text = Loc.AiActiveTitle;
+        if (AiActiveEditBtn != null) AiActiveEditBtn.Visibility = p != null ? Visibility.Visible : Visibility.Collapsed;
         if (p == null)
         {
             if (AiActiveName != null) AiActiveName.Text = Loc.AiActiveNone;
@@ -1581,11 +1932,7 @@ public partial class MainWindow : Window
     private void AiUseProv_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not RadioButton { Tag: AiProviderCfg p }) return;
-        App.Settings.SetActiveProvider(p.Id);
-        App.Settings.Save();
-        // 供应商变了，正在跑的报告可能来自上一家：取消，避免结果串台。
-        CancelAgentReport();
-        LoadAiFields();
+        ActivateProvider(p);
     }
 
     void OpenProvEdit(AiProviderCfg p)
@@ -1597,9 +1944,14 @@ public partial class MainWindow : Window
         AlertBody.Visibility = Visibility.Collapsed;
         ConfirmButtons.Visibility = Visibility.Collapsed;
         DialogClose.Visibility = Visibility.Visible;
+        DialogCard.Width = 560;
+        if (ProvEditBackBtn != null) ProvEditBackBtn.Visibility = Visibility.Visible;
+        DialogClose.Content = Loc.IsEn ? "Save & Back" : "保存并返回";
         DialogTitle.Text = Loc.AiEditTitle;
+        SetKeyRevealed(false);
         ShowProv(p);
         AiTestHint.Text = "";
+        SetDiagnosticNext("");
         ResetModelCatalog();
         RefreshAiLamp();
     }
@@ -1615,15 +1967,17 @@ public partial class MainWindow : Window
             AiPresetBox.SelectedIndex = FindPresetIndex(p?.BaseUrl);
             _aiPresetLoading = false;
             UpdatePresetHint();
+            UpdatePresetPillsVisuals();
         }
-        AiKeyBox.Password = p?.ApiKey ?? "";
+        SetCurrentApiKey(p?.ApiKey ?? "");
         // 显示这一家自己的模型（跟供应商走）；不再用全局 DecisionModelId，否则编辑 B 会看到 A 的模型。
         AiDecisionModelBox.Text = p?.ModelLabel ?? "";
         if (AiKeyHint != null)
         {
             AiKeyHint.Text = !SecretProtector.Available
                 ? Loc.AiKeyUnavailable
-                : (p?.HasStoredKey == true ? Loc.AiKeyStored : Loc.AiKeyMissing) + "  ·  " + Loc.AiKeyStoreHint;
+                : (p?.HasStoredKey == true ? Loc.AiKeyStored : Loc.AiKeyMissing);
+            AiKeyHint.ToolTip = SecretProtector.Available ? Loc.AiKeyStoreHint : null;
         }
         if (AiKeyClearBtn != null) AiKeyClearBtn.Content = Loc.AiKeyClear;
     }
@@ -1656,13 +2010,37 @@ public partial class MainWindow : Window
     private void AiPreset_Changed(object sender, SelectionChangedEventArgs e)
     {
         UpdatePresetHint();
+        UpdatePresetPillsVisuals();
         if (_aiPresetLoading || AiPresetBox?.SelectedItem is not AiSetupPresetInfo preset) return;
         if (_provEditTarget is { } active) active.Protocol = preset.Protocol;
-        // 模板只给空白新配置填默认值，不能覆盖用户已经填写的第三方中转地址。
-        if (string.IsNullOrWhiteSpace(AiUrlBox.Text)) AiUrlBox.Text = preset.BaseUrl;
-        if (string.IsNullOrWhiteSpace(AiDecisionModelBox.Text)) AiDecisionModelBox.Text = preset.Model;
+
+        // 当字段还是空白或之前套用过某个预设默认值时，切预设同步更新；自定义中转地址/模型不覆盖。
+        string curUrl = (AiUrlBox.Text ?? "").Trim().TrimEnd('/');
+        bool urlIsDefault = curUrl.Length == 0 || AiConfigurationService.Presets.Any(
+            x => x.BaseUrl.Length > 0 && string.Equals(curUrl, x.BaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase));
+        if (urlIsDefault && preset.BaseUrl.Length > 0)
+            AiUrlBox.Text = preset.BaseUrl;
+
+        string curModel = (AiDecisionModelBox.Text ?? "").Trim();
+        bool modelIsDefault = curModel.Length == 0 || AiConfigurationService.Presets.Any(
+            x => x.Model.Length > 0 && string.Equals(curModel, x.Model, StringComparison.OrdinalIgnoreCase));
+        if (modelIsDefault && preset.Model.Length > 0)
+            AiDecisionModelBox.Text = preset.Model;
+
+        string curName = (AiNameBox.Text ?? "").Trim();
+        string? shortPresetName = preset.Id switch
+        {
+            AiSetupPreset.DeepSeek => "DeepSeek",
+            AiSetupPreset.OpenAi => "OpenAI",
+            AiSetupPreset.Ollama => "Ollama",
+            _ => null,
+        };
+        if (shortPresetName != null && (curName.Length == 0 || curName is "提供方" or "Provider" or "DeepSeek" or "OpenAI" or "Ollama"))
+            AiNameBox.Text = shortPresetName;
+
+        ResetModelCatalog();
         AiTestHint.Text = "";
-        AiDiagnosticNext.Text = "";
+        SetDiagnosticNext("");
     }
 
     void SaveAiFields()
@@ -1731,7 +2109,7 @@ public partial class MainWindow : Window
             return;
         }
         // 正在编辑的 key 优先；没改过就用这一家已存的那把。
-        string key = AiKeyBox.Password;
+        string key = CurrentApiKey();
         if (key.Length == 0) key = _provEditTarget?.ApiKey ?? "";
 
         _modelsBusy = true;
@@ -1782,6 +2160,7 @@ public partial class MainWindow : Window
         if (AiModelsHint == null) return;
         AiModelsHint.Text = text;
         AiModelsHint.Foreground = AiStatusBrush(color);
+        AiModelsHint.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>切换供应商/模板后旧列表就过期了，直接清掉，避免点错别家的模型。</summary>
@@ -1793,6 +2172,7 @@ public partial class MainWindow : Window
         {
             AiModelsHint.Text = "";
             AiModelsHint.Foreground = AiStatusBrush("#8A8A8A");
+            AiModelsHint.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -1804,7 +2184,7 @@ public partial class MainWindow : Window
             p.ApiKey = "";
             App.Settings.Save();
         }
-        AiKeyBox.Password = "";
+        SetCurrentApiKey("");
         ShowProv(p);
         AiTestHint.Text = Loc.AiKeyCleared;
         RefreshAiLamp();
@@ -1829,7 +2209,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(p.Name)) p.Name = p.Id;
         p.BaseUrl = AiUrlBox.Text?.Trim() ?? "";
         p.Protocol = AiConfigurationService.ChatProtocol;
-        p.ApiKey = AiKeyBox.Password ?? "";
+        p.ApiKey = CurrentApiKey();
 
         string model = AiDecisionModelBox.Text?.Trim() ?? "";
         if (!string.IsNullOrEmpty(model))
@@ -1894,13 +2274,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>地址或模型一改，上一次的测试结论就不再代表当前输入，先清掉。</summary>
-    private void AiProviderField_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        if (_aiPresetLoading || _aiBusy) return;
-        AiTestHint.Text = "";
-        AiDiagnosticNext.Text = "";
-        AiDiagnosticNext.ToolTip = null;
-    }
+    private void AiProviderField_TextChanged(object sender, TextChangedEventArgs e) => ClearTestDiagnostic();
 
     private async void AiTest_Click(object sender, RoutedEventArgs e)
     {
@@ -1910,8 +2284,7 @@ public partial class MainWindow : Window
         RefreshAiLamp();
         AiTestBtn.IsEnabled = false;
         SetAiTestHint(Loc.AiWorking, "#8A8A8A");
-        AiDiagnosticNext.Text = "";
-        AiDiagnosticNext.ToolTip = null;
+        SetDiagnosticNext("");
         using var op = StartOperation(ref _aiConfigCts, "AiConfig");
         var ct = op.Token;
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -1923,7 +2296,7 @@ public partial class MainWindow : Window
             {
                 var missing = AiConfigurationService.Missing(Loc.IsEn);
                 SetAiTestHint(missing.Summary, "#E0B050");
-                AiDiagnosticNext.Text = missing.NextStep;
+                SetDiagnosticNext(missing.NextStep);
                 return;
             }
 
@@ -1946,13 +2319,13 @@ public partial class MainWindow : Window
             SetAiTestHint(Loc.AiTestSuccess + " · "
                 + Loc.AiTestModel(reply.Model.Length > 0 ? reply.Model : model, sw.ElapsedMilliseconds) + note,
                 "#3ECF6A");
-            AiDiagnosticNext.Text = "";
+            SetDiagnosticNext("");
             op.Done("chat connectivity check ok");
         }
         catch (OperationCanceledException)
         {
             SetAiTestHint(Loc.Aborted, "#8A8A8A");
-            AiDiagnosticNext.Text = "";
+            SetDiagnosticNext("");
             op.Canceled("ai capability check canceled");
         }
         catch (Exception ex)
@@ -1967,8 +2340,7 @@ public partial class MainWindow : Window
             }
             SetAiTestHint(diagnosis.Summary, "#E0B050");
             // 技术异常不再塞进主界面：太长的 hr=0x… 只会吓人，放在悬停里备查。
-            AiDiagnosticNext.Text = diagnosis.NextStep;
-            AiDiagnosticNext.ToolTip = AppError.Trim("technical", ex);
+            SetDiagnosticNext(diagnosis.NextStep, AppError.Trim("technical", ex));
             op.Fail(ex, "ai capability check");
         }
         finally
@@ -2114,6 +2486,7 @@ public partial class MainWindow : Window
 
     private void ShowRightTab(RightTab tab)
     {
+        bool prevMain = _rightTab is RightTab.Clean or RightTab.Organize;
         _rightTab = tab;
         bool showMainClean = tab is RightTab.Clean or RightTab.Organize;
         if (CleanPane != null)
@@ -2125,6 +2498,12 @@ public partial class MainWindow : Window
         MarkTab(TabOrganizeBtn, false);
         MarkTab(TabCleanBtn, showMainClean);
         MarkTab(TabUninstallBtn, tab == RightTab.Uninstall);
+        if (TabCleanIndicator != null)
+            TabCleanIndicator.Visibility = showMainClean ? Visibility.Visible : Visibility.Collapsed;
+        if (TabUninstallIndicator != null)
+            TabUninstallIndicator.Visibility = tab == RightTab.Uninstall ? Visibility.Visible : Visibility.Collapsed;
+        if (prevMain != showMainClean)
+            AnimateSlideFadeIn(showMainClean ? OrganizePane : UninstallPane, offsetY: 10, durationMs: 210, fromOpacity: 0.35);
         // 卸载页第一次被打开时才去扫软件清单（隐藏面板按需初始化）
         if (tab == RightTab.Uninstall) EnsureAppsLoaded();
         // 切页时把第三层状态同步过去（各页只显示自己的状态）
@@ -2133,8 +2512,9 @@ public partial class MainWindow : Window
 
     private static void MarkTab(Button b, bool on)
     {
-        b.BorderBrush = on ? ThemeService.Brush("Accent") : Brushes.Transparent;
-        b.Foreground = ThemeService.Brush(on ? "Accent" : "TextDim");
+        b.Background = on ? ThemeService.Brush("BrandAccentSoft") : Brushes.Transparent;
+        b.BorderBrush = Brushes.Transparent;
+        b.Foreground = ThemeService.Brush(on ? "BrandAccent" : "TextDim");
         b.FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
     }
 

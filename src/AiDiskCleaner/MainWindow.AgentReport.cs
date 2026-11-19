@@ -43,7 +43,7 @@ public partial class MainWindow
     private string _agentProgressText = "";
 
     /// <summary>右侧停靠报告面板的用户自定义宽度（折叠/展开间保持用户拖动宽度）。</summary>
-    private double _dockedReportWidth = 430;
+    private double _dockedReportWidth = 320;
 
     // ==================== 入口 ====================
 
@@ -251,12 +251,12 @@ public partial class MainWindow
 
         if (OrganizeReportContent != null)
             PopulateReportPanel(OrganizeReportContent, report, isDocked: true);
-        BuildReportContent(report);
+        PopulateReportPanel(ReportContent, report, isDocked: false, animate: false);
         SetDockedReportVisible(true);
         UpdateAiReportDockToggle();
     }
 
-    /// <summary>在尚未生成报告时，在右侧常驻预留区渲染一张清爽的引导卡片。</summary>
+    /// <summary>在尚未生成报告时，在右侧抽屉渲染极简状态与单一动作入口。</summary>
     private void RefreshDockedReportPlaceholder()
     {
         if (OrganizeReportContent == null || _lastAgentReport != null) return;
@@ -267,127 +267,122 @@ public partial class MainWindow
 
         OrganizeReportContent.Children.Clear();
 
-        var card = MakePanelCard("PanelRight", _lastAgentError.Length > 0 ? "ToneRedAccent" : "Border");
-        var stack = new StackPanel();
-
-        stack.Children.Add(AddText(Loc.AiReportPlaceholderTitle, 13, "Accent", FontWeights.SemiBold, new Thickness(0, 0, 0, 4)));
-        stack.Children.Add(AddText(Loc.AiReportFooter, 11, "TextDim", FontWeights.Normal, new Thickness(0, 0, 0, 10)));
-
-        // 单行紧凑三色图例
-        var legend = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
-        legend.Children.Add(MakeCompactLegendChip("ToneGreenAccent", Loc.ColorFilterGreen));
-        legend.Children.Add(MakeCompactLegendChip("ToneYellowAccent", Loc.ColorFilterYellow));
-        legend.Children.Add(MakeCompactLegendChip("ToneRedAccent", Loc.ColorFilterRed));
-        stack.Children.Add(legend);
-
-        stack.Children.Add(new Border
+        var stack = new StackPanel
         {
-            Height = 1,
-            Background = ThemeService.Brush("Border"),
-            Margin = new Thickness(0, 0, 0, 10),
-        });
+            Margin = new Thickness(8, 28, 8, 12),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
 
         if (_lastAgentError.Length > 0)
-            stack.Children.Add(AddText(_lastAgentError, 11.5, "ToneRedAccent", FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = _lastAgentError,
+                FontSize = 11.5,
+                Foreground = ThemeService.Brush("ToneRedAccent"),
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 10),
+            });
+        }
+
+        var ctaStyle = TryFindResource("OrangePillButton") as Style ?? TryFindResource("PrimaryButton") as Style;
 
         if (_agentBusy)
         {
-            stack.Children.Add(AddText(_agentProgressText.Length > 0 ? _agentProgressText : Loc.AiReportPlaceholderBusy,
-                11.5, "ToneGreenAccent", FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
-            stack.Children.Add(new ProgressBar { Height = 5, IsIndeterminate = true });
+            stack.Children.Add(new TextBlock
+            {
+                Text = _agentProgressText.Length > 0 ? _agentProgressText : (Loc.IsEn ? "Analyzing..." : "分析中…"),
+                FontSize = 11.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ThemeService.Brush("BrandAccent"),
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+            });
+            stack.Children.Add(new ProgressBar
+            {
+                Height = 3,
+                IsIndeterminate = true,
+                Margin = new Thickness(16, 10, 16, 0),
+            });
         }
         else if (_scanning)
         {
-            stack.Children.Add(AddText(Loc.AiReportPlaceholderScanning, 11.5, "TextDim", FontWeights.Normal, new Thickness(0)));
+            stack.Children.Add(new TextBlock
+            {
+                Text = Loc.IsEn ? "Scanning..." : "扫描中…",
+                FontSize = 11.5,
+                Foreground = ThemeService.Brush("TextMuted"),
+                TextAlignment = TextAlignment.Center,
+            });
         }
         else if (_root == null)
         {
-            stack.Children.Add(AddText(Loc.AiReportPlaceholderScanFirst, 11.5, "TextDim", FontWeights.Normal, new Thickness(0)));
+            stack.Children.Add(new TextBlock
+            {
+                Text = Loc.IsEn ? "Scan a drive first" : "请先扫描",
+                FontSize = 11.5,
+                Foreground = ThemeService.Brush("TextMuted"),
+                TextAlignment = TextAlignment.Center,
+            });
         }
         else if (!AiConfigured())
         {
-            stack.Children.Add(AddText(Loc.AiReportPlaceholderConfigFirst, 11.5, "TextDim", FontWeights.Normal, new Thickness(0, 0, 0, 10)));
+            stack.Children.Add(new TextBlock
+            {
+                Text = Loc.IsEn ? "AI not configured" : "未配置 AI",
+                FontSize = 11.5,
+                Foreground = ThemeService.Brush("TextDim"),
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 12),
+            });
             var settingsBtn = new Button
             {
                 Content = Loc.AiReportPlaceholderOpenSettings,
-                Style = FindResource("PrimaryButton") as Style,
-                Padding = new Thickness(12, 6, 12, 6),
+                Style = ctaStyle,
+                Padding = new Thickness(18, 6, 18, 6),
                 FontSize = 12,
-                HorizontalAlignment = HorizontalAlignment.Left,
+                HorizontalAlignment = HorizontalAlignment.Center,
             };
             settingsBtn.Click += (_, _) => OpenOverlay(Loc.SettingsTitle, settings: true);
             stack.Children.Add(settingsBtn);
         }
         else
         {
-            stack.Children.Add(AddText(Loc.AiReportPlaceholderReady(_organizeAll.Count(x => x.Dir.IsDirectory)), 11.5, "Text", FontWeights.Normal, new Thickness(0, 0, 0, 10)));
             var runBtn = new Button
             {
                 Content = Loc.AiReportPlaceholderAction,
-                Style = FindResource("PrimaryButton") as Style,
-                Padding = new Thickness(14, 6, 14, 6),
+                Style = ctaStyle,
+                Padding = new Thickness(20, 7, 20, 7),
                 FontSize = 12,
-                HorizontalAlignment = HorizontalAlignment.Left,
+                HorizontalAlignment = HorizontalAlignment.Center,
             };
             runBtn.Click += AiReport_Click;
             stack.Children.Add(runBtn);
         }
 
-        card.Child = stack;
-        OrganizeReportContent.Children.Add(card);
+        OrganizeReportContent.Children.Add(stack);
     }
-
-    private static StackPanel MakeCompactLegendChip(string dotKey, string label)
-    {
-        var row = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 10, 4),
-        };
-        row.Children.Add(new System.Windows.Shapes.Ellipse
-        {
-            Width = 7,
-            Height = 7,
-            Fill = ThemeService.Brush(dotKey),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 5, 0),
-        });
-        row.Children.Add(new TextBlock
-        {
-            Text = label,
-            FontSize = 11,
-            Foreground = ThemeService.Brush("TextDim"),
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        return row;
-    }
-
-    private static Border MakePanelCard(string bgKey, string borderKey) => new()
-    {
-        Background = ThemeService.Brush(bgKey),
-        BorderBrush = ThemeService.Brush(borderKey),
-        BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(6),
-        Padding = new Thickness(12, 10, 12, 10),
-        Margin = new Thickness(0, 0, 0, 10),
-    };
 
     private void SetDockedReportVisible(bool visible)
     {
         if (OrganizeReportPanel == null || OrganizeReportCol == null) return;
         if (visible)
         {
+            bool wasHidden = OrganizeReportPanel.Visibility != Visibility.Visible;
             OrganizeReportPanel.Visibility = Visibility.Visible;
             if (OrganizeReportSplitter != null) OrganizeReportSplitter.Visibility = Visibility.Visible;
-            if (OrganizeReportSplitterCol != null) OrganizeReportSplitterCol.Width = new GridLength(6);
-            OrganizeReportCol.MinWidth = 280;
+            if (OrganizeReportSplitterCol != null) OrganizeReportSplitterCol.Width = new GridLength(8);
+            OrganizeReportCol.MinWidth = 240;
             OrganizeReportCol.MaxWidth = 760;
-            OrganizeReportCol.Width = new GridLength(_dockedReportWidth >= 280 ? _dockedReportWidth : 430);
+            OrganizeReportCol.Width = new GridLength(_dockedReportWidth >= 240 ? _dockedReportWidth : 320);
             if (_lastAgentReport == null) RefreshDockedReportPlaceholder();
+            if (wasHidden)
+                AnimateSlideFadeIn(OrganizeReportPanel, offsetX: 24, offsetY: 0, durationMs: 230, fromOpacity: 0.0);
         }
         else
         {
-            if (OrganizeReportCol.ActualWidth >= 280)
+            if (OrganizeReportCol.ActualWidth >= 240)
                 _dockedReportWidth = OrganizeReportCol.ActualWidth;
             OrganizeReportPanel.Visibility = Visibility.Collapsed;
             if (OrganizeReportSplitter != null) OrganizeReportSplitter.Visibility = Visibility.Collapsed;
@@ -403,7 +398,9 @@ public partial class MainWindow
         if (AiReportToggleBtn == null) return;
         bool isOpen = OrganizeReportPanel?.Visibility == Visibility.Visible;
         AiReportToggleBtn.Visibility = Visibility.Visible;
-        AiReportToggleBtn.Content = isOpen ? Loc.AiReportDockHide : Loc.AiReportDockShow;
+        AiReportToggleBtn.Content = isOpen
+            ? (Loc.IsEn ? "Hide" : "收起")
+            : (Loc.IsEn ? "Report" : "报告");
     }
 
     private void AiReportToggle_Click(object sender, RoutedEventArgs e)
@@ -447,28 +444,43 @@ public partial class MainWindow
         PopulateReportPanel(ReportContent, report, isDocked: false);
     }
 
-    private void PopulateReportPanel(StackPanel container, AgentReport report, bool isDocked)
+    private void PopulateReportPanel(StackPanel container, AgentReport report, bool isDocked, bool animate = true)
     {
         container.Children.Clear();
+        bool runStagger = animate && CanAnimate;
 
-        // 顶部摘要卡片：总括 + 三色分布胶囊（模型与统计细节进悬停，避免文字堆砌）
-        var summaryCard = MakePanelCard("PanelRight", "Border");
-        summaryCard.ToolTip = Loc.AiReportMeta(report.Model, report.AllItems.Count(), FileEntry.FormatSize(report.TotalReclaimableBytes));
-        var summaryStack = new StackPanel();
-        summaryStack.Children.Add(AddText(report.Summary, 12.5, "Text", FontWeights.SemiBold, new Thickness(0, 0, 0, 6)));
-
-        var countsRow = new WrapPanel { Orientation = Orientation.Horizontal };
         var allItems = report.AllItems.ToList();
-        AddSummaryPill(countsRow, "ToneGreenAccent", "ToneGreenBg", Loc.AiReportRecommend,
-            allItems.Where(x => x.Verdict == ReportVerdict.Recommend).ToList());
-        AddSummaryPill(countsRow, "ToneYellowAccent", "ToneYellowBg", Loc.AiReportConsider,
-            allItems.Where(x => x.Verdict == ReportVerdict.Consider).ToList());
-        AddSummaryPill(countsRow, "ToneRedAccent", "ToneRedBg", Loc.AiReportKeep,
-            allItems.Where(x => x.Verdict == ReportVerdict.Keep).ToList());
-        if (countsRow.Children.Count > 0) summaryStack.Children.Add(countsRow);
+        var recommendItems = allItems.Where(x => x.Verdict == ReportVerdict.Recommend).ToList();
+        var considerItems = allItems.Where(x => x.Verdict == ReportVerdict.Consider).ToList();
 
-        summaryCard.Child = summaryStack;
-        container.Children.Add(summaryCard);
+        // 顶部双列 KPI 指标；模型元信息与自然语言总括收进悬停提示，保持面板极简
+        var kpiGrid = new Grid { Margin = new Thickness(0, 0, 0, 10), Background = Brushes.Transparent };
+        kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        string meta = Loc.AiReportMeta(report.Model, report.AllItems.Count(), FileEntry.FormatSize(report.TotalReclaimableBytes));
+        kpiGrid.ToolTip = string.IsNullOrWhiteSpace(report.Summary)
+            ? meta
+            : meta + "\n" + report.Summary.Trim();
+
+        var kpiGreen = MakeKpiTile("ToneGreenAccent",
+            Loc.IsEn ? "Cleanable" : "可清理",
+            recommendItems.Sum(x => x.SizeBytes > 0 ? x.SizeBytes : x.ReclaimableBytes),
+            recommendItems.Count);
+        Grid.SetColumn(kpiGreen, 0);
+        kpiGrid.Children.Add(kpiGreen);
+
+        var kpiYellow = MakeKpiTile("ToneYellowAccent",
+            Loc.IsEn ? "Review" : "待复核",
+            considerItems.Sum(x => x.SizeBytes > 0 ? x.SizeBytes : x.ReclaimableBytes),
+            considerItems.Count);
+        Grid.SetColumn(kpiYellow, 2);
+        kpiGrid.Children.Add(kpiYellow);
+
+        container.Children.Add(kpiGrid);
+        if (runStagger)
+            AnimateSlideFadeIn(kpiGrid, offsetY: 6, durationMs: 200, delayMs: 0, fromOpacity: 0.0);
 
         var statusBlock = AddText("", 11, "TextMuted", FontWeights.Normal, new Thickness(0, 0, 0, 8));
         statusBlock.Visibility = Visibility.Collapsed;
@@ -487,6 +499,7 @@ public partial class MainWindow
             container.Children.Add(AddText(Loc.AiReportEmpty, 12, "TextDim", FontWeights.Normal, new Thickness(0, 6, 0, 6)));
         }
 
+        int cardIdx = 0;
         foreach (var group in report.Groups)
         {
             if (group.Items.Count == 0) continue;
@@ -497,20 +510,20 @@ public partial class MainWindow
                 ReportVerdict.Keep => "ToneRedAccent",
                 _ => "Accent",
             };
-            var header = new DockPanel { Margin = new Thickness(0, 10, 0, 6) };
+            var header = new DockPanel { Margin = new Thickness(0, 8, 0, 5) };
             var leftHeader = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             leftHeader.Children.Add(new System.Windows.Shapes.Ellipse
             {
-                Width = 8,
-                Height = 8,
+                Width = 6,
+                Height = 6,
                 Fill = ThemeService.Brush(groupAccent),
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 6, 0),
             });
             leftHeader.Children.Add(new TextBlock
             {
-                Text = $"{group.Group} ({group.Items.Count})",
-                FontSize = 12,
+                Text = $"{group.Group} · {group.Items.Count}",
+                FontSize = 11.5,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = ThemeService.Brush(groupAccent),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -521,7 +534,7 @@ public partial class MainWindow
                 Text = FileEntry.FormatSize(groupBytes),
                 FontSize = 11,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = ThemeService.Brush("AccentDim"),
+                Foreground = ThemeService.Brush("TextMuted"),
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -532,43 +545,79 @@ public partial class MainWindow
             container.Children.Add(header);
 
             foreach (var item in group.Items)
-                container.Children.Add(BuildReportItem(item, closeModalOnJump: !isDocked));
+            {
+                var card = BuildReportItem(item, closeModalOnJump: !isDocked);
+                container.Children.Add(card);
+                if (runStagger && cardIdx < 10)
+                {
+                    AnimateSlideFadeIn(card, offsetY: 10, durationMs: 210, delayMs: (cardIdx + 1) * 24, fromOpacity: 0.0);
+                    cardIdx++;
+                }
+            }
         }
-
-        container.Children.Add(AddText(Loc.AiReportFooter, 10.5, "TextMuted", FontWeights.Normal, new Thickness(0, 10, 0, 2)));
     }
 
-    private static void AddSummaryPill(WrapPanel panel, string fgKey, string bgKey, string label, List<ReportItem> items)
+    private static Border MakeKpiTile(string accentKey, string label, long bytes, int count)
     {
-        if (items.Count == 0) return;
-        long bytes = items.Sum(x => x.SizeBytes > 0 ? x.SizeBytes : x.ReclaimableBytes);
-        var pill = new Border
+        var stack = new StackPanel();
+        var top = new DockPanel();
+        var countText = new TextBlock
         {
-            Background = ThemeService.Brush(bgKey),
-            BorderBrush = ThemeService.Brush(fgKey),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(8, 2, 8, 2),
-            Margin = new Thickness(0, 0, 6, 4),
-            Child = new TextBlock
-            {
-                Text = $"{label} {items.Count} · {FileEntry.FormatSize(bytes)}",
-                FontSize = 10.5,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = ThemeService.Brush(fgKey),
-            },
+            Text = count.ToString(),
+            FontSize = 10.5,
+            Foreground = ThemeService.Brush("TextMuted"),
+            VerticalAlignment = VerticalAlignment.Center,
         };
-        panel.Children.Add(pill);
+        DockPanel.SetDock(countText, Dock.Right);
+
+        var labelRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        labelRow.Children.Add(new System.Windows.Shapes.Ellipse
+        {
+            Width = 6,
+            Height = 6,
+            Fill = ThemeService.Brush(accentKey),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0),
+        });
+        labelRow.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 11,
+            Foreground = ThemeService.Brush("TextDim"),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        DockPanel.SetDock(labelRow, Dock.Left);
+        top.Children.Add(countText);
+        top.Children.Add(labelRow);
+
+        stack.Children.Add(top);
+        stack.Children.Add(new TextBlock
+        {
+            Text = count > 0 ? FileEntry.FormatSize(bytes) : "0 B",
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeService.Brush(accentKey),
+            Margin = new Thickness(0, 4, 0, 0),
+        });
+        return new Border
+        {
+            Background = ThemeService.Brush("CardSurface"),
+            BorderBrush = ThemeService.Brush("Border"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 8, 10, 8),
+            Child = stack,
+        };
     }
 
     private Border BuildReportItem(ReportItem item, bool closeModalOnJump = true)
     {
-        var (accentKey, surfaceKey) = item.Verdict switch
+        var accentKey = item.Verdict switch
         {
-            ReportVerdict.Recommend => ("ToneGreenAccent", "ToneGreenRowBg"),
-            ReportVerdict.Consider => ("ToneYellowAccent", "ToneYellowRowBg"),
-            ReportVerdict.Keep => ("ToneRedAccent", "ToneRedRowBg"),
-            _ => ("Border", "Bg"),
+            ReportVerdict.Recommend => "ToneGreenAccent",
+            ReportVerdict.Consider => "ToneYellowAccent",
+            ReportVerdict.Keep => "ToneRedAccent",
+            _ => "Border",
         };
 
         long displayBytes = item.SizeBytes > 0 ? item.SizeBytes : item.ReclaimableBytes;
@@ -587,15 +636,26 @@ public partial class MainWindow
         {
             BorderBrush = ThemeService.Brush("Border"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-            Background = ThemeService.Brush(surfaceKey),
-            Padding = new Thickness(8, 7, 10, 7),
+            CornerRadius = new CornerRadius(8),
+            Background = ThemeService.Brush("CardSurface"),
+            Padding = closeModalOnJump ? new Thickness(12, 10, 12, 10) : new Thickness(10, 8, 10, 8),
             Margin = new Thickness(0, 0, 0, 6),
             Cursor = System.Windows.Input.Cursors.Hand,
             ToolTip = string.Join("\n", tipParts),
+            RenderTransform = new TranslateTransform(0, 0),
         };
-        card.MouseEnter += (_, _) => card.BorderBrush = ThemeService.Brush(accentKey == "Border" ? "AccentDim" : accentKey);
-        card.MouseLeave += (_, _) => card.BorderBrush = ThemeService.Brush("Border");
+        card.MouseEnter += (_, _) =>
+        {
+            card.BorderBrush = ThemeService.Brush("BrandAccent");
+            card.Background = ThemeService.Brush("HoverBg");
+            AnimateHoverLift(card, lifted: true);
+        };
+        card.MouseLeave += (_, _) =>
+        {
+            card.BorderBrush = ThemeService.Brush("Border");
+            card.Background = ThemeService.Brush("CardSurface");
+            AnimateHoverLift(card, lifted: false);
+        };
         card.MouseLeftButtonUp += (_, e) =>
         {
             if (e.Handled) return;
@@ -603,70 +663,39 @@ public partial class MainWindow
             RevealReportFolder(item, closeModal: closeModalOnJump);
         };
 
-        var layout = new Grid();
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3.5) });
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var body = new StackPanel();
+        bool showPathInModal = closeModalOnJump && !string.IsNullOrWhiteSpace(item.RelPath) && item.RelPath.Contains('\\');
+        string detailLine = !string.IsNullOrWhiteSpace(item.Why) ? item.Why.Trim() : (item.Risk?.Trim() ?? "");
+        bool hasSubline = showPathInModal || !string.IsNullOrWhiteSpace(detailLine);
 
-        var accentBar = new Border
-        {
-            Background = ThemeService.Brush(accentKey),
-            CornerRadius = new CornerRadius(2),
-            Margin = new Thickness(0, 1, 0, 1),
-        };
-        Grid.SetColumn(accentBar, 0);
-        layout.Children.Add(accentBar);
-
-        var body = new StackPanel { Margin = new Thickness(9, 0, 0, 0) };
-
-        // 第 1 行：徽章 + 目录名 + 父路径线索（随面板拉宽展开）+ 右侧实际占用容量 & 跳转箭头
-        var top = new Grid { Margin = new Thickness(0, 0, 0, 3) };
+        // 第 1 行：状态圆点 + 名称 + 右侧实际容量 & 跳转箭头
+        var top = new Grid { Margin = hasSubline ? new Thickness(0, 0, 0, 2) : new Thickness(0) };
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var badge = MakeBadge(item.Verdict);
-        badge.Margin = new Thickness(0, 0, 6, 0);
+        var badge = MakeBadge(item.Verdict, compact: !closeModalOnJump);
+        badge.Margin = new Thickness(0, 0, 7, 0);
         Grid.SetColumn(badge, 0);
         top.Children.Add(badge);
-
-        var titleGrid = new Grid { VerticalAlignment = VerticalAlignment.Center };
-        titleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        titleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         var title = new TextBlock
         {
             Text = item.Title,
-            FontSize = 12.5,
+            FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             Foreground = ThemeService.Brush(item.Verdict == ReportVerdict.Keep ? "TextDim" : "Text"),
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        Grid.SetColumn(title, 0);
-        titleGrid.Children.Add(title);
-
-        if (!string.IsNullOrWhiteSpace(item.RelPath) && item.RelPath.Contains('\\'))
-        {
-            var relPathHint = new TextBlock
-            {
-                Text = "  " + item.RelPath,
-                FontSize = 10.5,
-                Foreground = ThemeService.Brush("TextMuted"),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            Grid.SetColumn(relPathHint, 1);
-            titleGrid.Children.Add(relPathHint);
-        }
-
-        Grid.SetColumn(titleGrid, 1);
-        top.Children.Add(titleGrid);
+        Grid.SetColumn(title, 1);
+        top.Children.Add(title);
 
         var sizeText = new TextBlock
         {
             Text = FileEntry.FormatSize(displayBytes) + "  ›",
-            FontSize = 12,
-            FontWeight = FontWeights.SemiBold,
+            FontSize = 11.5,
+            FontWeight = FontWeights.Bold,
             Foreground = ThemeService.Brush(accentKey == "Border" ? "TextDim" : accentKey),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(8, 0, 0, 0),
@@ -676,32 +705,38 @@ public partial class MainWindow
 
         body.Children.Add(top);
 
-        // 第 2 行：单行结论 + 风险（不折行；拉宽面板即可在一行看到更多内容，完整内容仍在悬停）
-        string detailLine = item.Why?.Trim() ?? "";
-        if (!string.IsNullOrWhiteSpace(item.Risk))
-            detailLine = string.IsNullOrEmpty(detailLine)
-                ? Loc.AiReportRisk(item.Risk)
-                : detailLine + " · " + Loc.AiReportRisk(item.Risk);
+        // 大窗查看才展示完整等宽路径；右侧抽屉收进悬停提示保持极简
+        if (showPathInModal)
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = item.RelPath,
+                FontSize = 10.5,
+                FontFamily = Application.Current?.TryFindResource("MonoFont") as FontFamily ?? new FontFamily("Consolas"),
+                Foreground = ThemeService.Brush("TextMuted"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = !string.IsNullOrWhiteSpace(detailLine) ? new Thickness(0, 0, 0, 2) : new Thickness(0),
+            });
+        }
 
+        // 第 2 行：仅保留单行简短说明（风险与证据完整详情放在 ToolTip）
         if (!string.IsNullOrWhiteSpace(detailLine))
         {
             body.Children.Add(new TextBlock
             {
                 Text = detailLine,
-                FontSize = 11,
-                Foreground = ThemeService.Brush("TextDim"),
+                FontSize = 10.5,
+                Foreground = ThemeService.Brush("TextMuted"),
                 TextWrapping = TextWrapping.NoWrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             });
         }
 
-        Grid.SetColumn(body, 1);
-        layout.Children.Add(body);
-        card.Child = layout;
+        card.Child = body;
         return card;
     }
 
-    private Border MakeBadge(ReportVerdict verdict)
+    private Border MakeBadge(ReportVerdict verdict, bool compact = false)
     {
         var (text, fgKey) = verdict switch
         {
@@ -710,15 +745,25 @@ public partial class MainWindow
             ReportVerdict.Keep => (Loc.AiReportKeep, "ToneRedAccent"),
             _ => (Loc.AiReportConsider, "TextMuted"),
         };
-        var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        row.Children.Add(new System.Windows.Shapes.Ellipse
+        var dot = new System.Windows.Shapes.Ellipse
         {
             Width = 6,
             Height = 6,
             Fill = ThemeService.Brush(fgKey),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 4, 0),
-        });
+        };
+        if (compact)
+        {
+            return new Border
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = dot,
+            };
+        }
+
+        dot.Margin = new Thickness(0, 0, 4, 0);
+        var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        row.Children.Add(dot);
         row.Children.Add(new TextBlock
         {
             Text = text,
