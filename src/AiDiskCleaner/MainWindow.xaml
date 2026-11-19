@@ -1564,9 +1564,14 @@
                           </Button>
                           <StackPanel VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal">
-                              <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Text}" FontSize="12.5"
-                                         TextTrimming="CharacterEllipsis" MaxWidth="320"
+                              <TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource Text}" FontSize="12.5"
+                                         TextTrimming="CharacterEllipsis" MaxWidth="340"
                                          ToolTip="{Binding FullPath}"/>
+                              <TextBlock Text="{Binding RelativePath}" FontSize="11"
+                                         Foreground="{DynamicResource TextMuted}" Margin="8,0,0,0"
+                                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="280"
+                                         ToolTip="{Binding FullPath}"
+                                         Visibility="{Binding ShowPathHint, Converter={StaticResource BoolToVisible}}"/>
                               <StackPanel Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center"
                                           Visibility="{Binding HasColorBadge, Converter={StaticResource BoolToVisible}}"
                                           ToolTip="{Binding ColorBadgeTip}">
@@ -1622,8 +1627,6 @@
                                 <TextBlock Text="{Binding CoveredTag}" FontSize="10"/>
                               </Border>
                             </StackPanel>
-                            <!-- 相对路径默认隐藏（单行树形名称更清爽；完整路径在鼠标悬停查看） -->
-                            <TextBlock Text="{Binding RelativePath}" Visibility="Collapsed"/>
                           </StackPanel>
                         </StackPanel>
                       </Grid>

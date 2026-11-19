@@ -96,6 +96,48 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         ? Loc.OrganizeLevelAuto(Level)
         : Loc.OrganizeLevelDeep(Level);
 
+    private FileEntry? _expandTargetDir;
+    private string _collapsedChainName = "";
+    private int? _viewDepthOverride;
+
+    /// <summary>实际用于展开/列子项的目标目录（单线折叠时会指向末级目录，删除仍作用于 <see cref="Dir"/>）。</summary>
+    public FileEntry ExpandDir => _expandTargetDir ?? Dir;
+
+    /// <summary>列表展示名（单线套娃合并且命名为 A / B，原文件夹真实名保留在 <see cref="Name"/>）。</summary>
+    public string DisplayName => _collapsedChainName.Length > 0 ? _collapsedChainName : Dir.Name;
+
+    /// <summary>平铺筛选模式下在名称后显示相对路径线索。</summary>
+    public bool ShowPathHint => _viewDepthOverride.HasValue
+        && !string.IsNullOrWhiteSpace(RelativePath)
+        && !string.Equals(RelativePath, DisplayName, StringComparison.OrdinalIgnoreCase);
+
+    public void SetCollapsedChain(FileEntry expandTargetDir, string chainDisplayName)
+    {
+        _expandTargetDir = expandTargetDir;
+        _collapsedChainName = chainDisplayName ?? "";
+        _directFileCountKnown = false;
+        _filesLoaded = false;
+        _localColorCache = null;
+        Raise(nameof(DisplayName));
+        Raise(nameof(ExpandDir));
+        Raise(nameof(ShowPathHint));
+        Raise(nameof(DirectFileCount));
+        Raise(nameof(ContentKind));
+        Raise(nameof(CanExpand));
+        Raise(nameof(CanViewFiles));
+        Raise(nameof(ContentStateText));
+        Raise(nameof(HasContentState));
+        Raise(nameof(SizeText));
+    }
+
+    public void SetFlatFilterMode(int? depthOverride)
+    {
+        if (_viewDepthOverride == depthOverride) return;
+        _viewDepthOverride = depthOverride;
+        Raise(nameof(IndentWidth));
+        Raise(nameof(ShowPathHint));
+    }
+
     public string Name => Dir.Name;
     public string FullPath => Dir.FullPath;
     public long Size => Dir.Size;
@@ -105,12 +147,14 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// **未扫描的（链接 / 重解析点）绝不显示 0 KB** ——「没进去看」和「里面是空的」
     /// 是两回事，0 KB 会把后者说成前者。空目录也换成明确的「扫描无内容」，不用 0 暗示。
     /// </summary>
-    public string SizeText => ContentKind switch
-    {
-        FolderContentKind.NotScanned => Loc.OrganizeSizeNotScanned,
-        FolderContentKind.Empty => Loc.OrganizeSizeEmpty,
-        _ => FileEntry.FormatSize(Dir.Size),
-    };
+    public string SizeText => !Dir.IsDirectory
+        ? FileEntry.FormatSize(Dir.Size)
+        : ContentKind switch
+        {
+            FolderContentKind.NotScanned => Loc.OrganizeSizeNotScanned,
+            FolderContentKind.Empty => Loc.OrganizeSizeEmpty,
+            _ => FileEntry.FormatSize(Dir.Size),
+        };
 
     public int FileCount => Dir.FileCount;
     public int FolderCount => Dir.FolderCount;
@@ -128,7 +172,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (!_directFileCountKnown)
             {
                 int n = 0;
-                foreach (var c in Dir.ChildList) if (!c.IsDirectory) n++;
+                foreach (var c in ExpandDir.ChildList) if (!c.IsDirectory) n++;
                 _directFileCount = n;
                 _directFileCountKnown = true;
             }
@@ -145,7 +189,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     {
         get
         {
-            if (!FolderPurposeRules.CanDescend(Dir)) return FolderContentKind.NotScanned;
+            if (!FolderPurposeRules.CanDescend(ExpandDir)) return FolderContentKind.NotScanned;
             if (ChildDirCount > 0) return FolderContentKind.ChildDirs;
             if (DirectFileCount > 0) return FolderContentKind.FilesOnly;
             return FolderContentKind.Empty;
@@ -153,29 +197,33 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     }
 
     /// <summary>「只有文件」的行要有一个**有效**的查看入口，而不是伪造一个展开箭头。</summary>
-    public bool CanViewFiles => ContentKind == FolderContentKind.FilesOnly;
+    public bool CanViewFiles => Dir.IsDirectory && ContentKind == FolderContentKind.FilesOnly;
 
     /// <summary>
     /// 容量列下面那行短状态。有箭头或常态时不占位置（返回空串）。
     /// </summary>
-    public string ContentStateText => ContentKind switch
-    {
-        FolderContentKind.NotScanned => Loc.OrganizeStateNotScanned,
-        FolderContentKind.FilesOnly => Loc.OrganizeStateFilesOnly(DirectFileCount),
-        FolderContentKind.Empty => Loc.OrganizeStateEmpty,
-        _ => "",
-    };
+    public string ContentStateText => !Dir.IsDirectory
+        ? "文件"
+        : ContentKind switch
+        {
+            FolderContentKind.NotScanned => Loc.OrganizeStateNotScanned,
+            FolderContentKind.FilesOnly => Loc.OrganizeStateFilesOnly(DirectFileCount),
+            FolderContentKind.Empty => Loc.OrganizeStateEmpty,
+            _ => "",
+        };
 
     public bool HasContentState => ContentStateText.Length > 0;
 
     /// <summary>悬停解释这一行为什么没有箭头 / 为什么写未知。</summary>
-    public string ContentStateTip => ContentKind switch
-    {
-        FolderContentKind.NotScanned => Loc.OrganizeTipNotScanned,
-        FolderContentKind.FilesOnly => Loc.OrganizeTipFilesOnly,
-        FolderContentKind.Empty => Loc.OrganizeTipEmpty,
-        _ => "",
-    };
+    public string ContentStateTip => !Dir.IsDirectory
+        ? FullPath
+        : ContentKind switch
+        {
+            FolderContentKind.NotScanned => Loc.OrganizeTipNotScanned,
+            FolderContentKind.FilesOnly => Loc.OrganizeTipFilesOnly,
+            FolderContentKind.Empty => Loc.OrganizeTipEmpty,
+            _ => "",
+        };
 
     // ==================== 「只有文件」的行内查看（只读、有界） ====================
 
@@ -238,7 +286,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     {
         _filesLoaded = true;
         var rows = new List<(long Size, OrganizeFileRow Row)>();
-        foreach (var c in Dir.ChildList)
+        foreach (var c in ExpandDir.ChildList)
         {
             if (c.IsDirectory) continue;
             rows.Add((Math.Max(0, c.Allocated > 0 ? c.Allocated : c.Size), new OrganizeFileRow(
@@ -259,7 +307,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     public string FilesScopeText => Loc.OrganizeFilesScope;
 
     /// <summary>这个对象在树里的缩进（像素）。不引用 WPF 类型，便于离线测试。</summary>
-    public double IndentWidth => Depth * 18.0;
+    public double IndentWidth => (_viewDepthOverride ?? Depth) * 18.0;
 
     // ---------------- 识别结论（**来源如实**） ----------------
 
@@ -481,6 +529,8 @@ public sealed class OrganizeNode : INotifyPropertyChanged
 
     private (FolderColorTone Tone, string Badge, string Tip) ComputeLocalColor()
     {
+        if (!Dir.IsDirectory) return ComputeFileLocalColor();
+
         const string MixedTip = "内部包含可清理或待确认的子文件夹，请展开后按需处理";
 
         // 1) 红色（别动）与混合父容器降级（待考虑）：
@@ -637,6 +687,66 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         return false;
     }
 
+    private (FolderColorTone Tone, string Badge, string Tip) ComputeFileLocalColor()
+    {
+        if (IsSelectionProtected)
+        {
+            string tip = SelectionNote.Length > 0 ? SelectionNote : "系统或受保护文件，不能直接删除";
+            return (FolderColorTone.Red, "别动", tip);
+        }
+
+        string ext = FileExtensionOf(Dir.Name);
+        if (GreenFileExtensions.Contains(ext))
+            return (FolderColorTone.Green, "可清理", "临时或未完成下载残留文件，可安全清理");
+
+        if (CautionFileExtensions.Contains(ext)
+            || Dir.Size >= 50L * 1024 * 1024
+            || (FullPath ?? "").Contains("\\Downloads\\", StringComparison.OrdinalIgnoreCase))
+        {
+            return (FolderColorTone.Yellow, "待考虑", "下载或安装包文件，确认不再需要后可勾选清理");
+        }
+
+        return (FolderColorTone.Neutral, "", "");
+    }
+
+    private static string FileExtensionOf(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "";
+        int dot = name.LastIndexOf('.');
+        return dot >= 0 ? name[dot..].ToLowerInvariant() : "";
+    }
+
+    private static string DescribeFilePurpose(FileEntry file)
+    {
+        string ext = FileExtensionOf(file.Name);
+        string kind = ext switch
+        {
+            ".exe" or ".msi" or ".msix" => "安装程序 / 可执行文件",
+            ".zip" or ".7z" or ".rar" or ".tar" or ".gz" or ".iso" => "压缩包 / 镜像文件",
+            ".mp4" or ".mkv" or ".avi" or ".mov" or ".wmv" or ".flv" => "视频文件",
+            ".mp3" or ".ncm" or ".flac" or ".wav" or ".aac" or ".m4a" => "音频文件",
+            ".png" or ".jpg" or ".jpeg" or ".webp" or ".gif" or ".bmp" => "图片文件",
+            ".pdf" or ".doc" or ".docx" or ".xls" or ".xlsx" or ".ppt" or ".pptx" => "文档文件",
+            ".bc!" or ".crdownload" or ".part" or ".tmp" or ".temp" or ".dmp" or ".log" or ".bak" or ".old" => "未完成下载 / 临时文件",
+            _ => !string.IsNullOrWhiteSpace(file.Category) && !string.Equals(file.Category, "其他", StringComparison.Ordinal)
+                ? file.Category
+                : (ext.Length > 1 ? ext[1..].ToUpperInvariant() + " 文件" : "文件"),
+        };
+        if (file.Modified != DateTime.MinValue)
+            return $"{kind} · {file.Modified:yyyy-MM-dd}";
+        return kind;
+    }
+
+    private static readonly HashSet<string> GreenFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".tmp", ".temp", ".dmp", ".log", ".bak", ".old", ".bc!", ".crdownload", ".part",
+    };
+
+    private static readonly HashSet<string> CautionFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".exe", ".msi", ".msix", ".zip", ".7z", ".rar", ".iso", ".img", ".mp4", ".mkv", ".avi", ".mov",
+    };
+
     private static readonly HashSet<string> SafeCacheDirNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "cache", "caches", "temp", "tmp", "gpucache", "code cache",
@@ -701,6 +811,8 @@ public sealed class OrganizeNode : INotifyPropertyChanged
                 return _aiBriefReason.Length > 0 ? _aiBriefReason : _aiSummaryText;
             if (HasConclusion)
                 return _purposeName;
+            if (!Dir.IsDirectory)
+                return DescribeFilePurpose(Dir);
             if (State is PurposeState.Queued or PurposeState.Running or PurposeState.Failed)
                 return PurposeText;
             return "";
@@ -850,8 +962,8 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     public IReadOnlyList<OrganizeNode> Children => _children;
     public bool ChildrenLoaded => _childrenLoaded;
 
-    /// <summary>还能不能再往下看（重解析点/文件组一律不看）。</summary>
-    public bool CanExpand => FolderPurposeRules.CanDescend(Dir) && ChildDirCount > 0;
+    /// <summary>还能不能再往下看（文件或重解析点/文件组一律不看）。</summary>
+    public bool CanExpand => Dir.IsDirectory && FolderPurposeRules.CanDescend(ExpandDir) && ChildDirCount > 0;
 
     /// <summary>直接子目录数（含因预算没列出来的）。</summary>
     public int ChildDirCount { get; private set; }
@@ -937,6 +1049,28 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         Raise(nameof(HasUnlistedNote));
         Raise(nameof(ToggleText));
         Raise(nameof(HasToggleText));
+    }
+
+    /// <summary>将目录的直接子文件作为行节点并入已展开的子节点列表并按容量降序排列。</summary>
+    public void AppendDirectFiles(IReadOnlyList<OrganizeNode> fileNodes)
+    {
+        if (fileNodes.Count == 0) return;
+        bool added = false;
+        foreach (var fn in fileNodes)
+        {
+            if (_children.Any(existing => ReferenceEquals(existing.Dir, fn.Dir))) continue;
+            _children.Add(fn);
+            added = true;
+        }
+        if (!added) return;
+        _children.Sort(static (a, b) =>
+        {
+            int bySize = b.Size.CompareTo(a.Size);
+            if (bySize != 0) return bySize;
+            return string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase);
+        });
+        _childTotal = _children.Count + UnlistedChildCount;
+        Raise(nameof(Children));
     }
 
     /// <summary>收起：**保留已材料化的子对象**（结果不丢，再展开不重复请求）。</summary>

@@ -319,7 +319,7 @@ public partial class MainWindow
         }
         else
         {
-            stack.Children.Add(AddText(Loc.AiReportPlaceholderReady(_organizeAll.Count), 11.5, "Text", FontWeights.Normal, new Thickness(0, 0, 0, 10)));
+            stack.Children.Add(AddText(Loc.AiReportPlaceholderReady(_organizeAll.Count(x => x.Dir.IsDirectory)), 11.5, "Text", FontWeights.Normal, new Thickness(0, 0, 0, 10)));
             var runBtn = new Button
             {
                 Content = Loc.AiReportPlaceholderAction,

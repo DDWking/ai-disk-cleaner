@@ -282,8 +282,11 @@ public sealed class FolderDeleteService
             return Done(row, FolderDeleteOutcome.NotFound, "文件夹已经不在了", probe.Error ?? "not found", sw);
         if (probe.AccessDenied)
             return Done(row, FolderDeleteOutcome.AccessDenied, "没有权限读取", "access denied", sw);
-        if (!probe.IsDirectory)
-            return Done(row, FolderDeleteOutcome.Replaced, "这个位置已经不是文件夹了", "not a directory", sw);
+        bool expectDir = row.Preflight?.Target.IsDirectory ?? true;
+        if (probe.IsDirectory != expectDir)
+            return Done(row, FolderDeleteOutcome.Replaced,
+                expectDir ? "这个位置已经不是文件夹了" : "这个位置已经变成文件夹了",
+                expectDir ? "not a directory" : "unexpected directory", sw);
 
         var guard = FolderDeleteGuard.ClassifyForFolderDelete(path, _probe);
         if (guard.Guard == PathGuard.Blocked)

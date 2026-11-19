@@ -11,7 +11,7 @@ namespace AiDiskCleaner.Models;
 /// <c>OrganizeNode.cs</c> 被多个离线检查工程单独链接，不能因此引入新类型依赖；
 /// 选择逻辑本身也不需要知道节点的其余部分。
 /// </summary>
-public readonly record struct FolderPick(bool IsSelected, string FullPath, string Name, long Size);
+public readonly record struct FolderPick(bool IsSelected, string FullPath, string Name, long Size, bool IsDirectory = true);
 
 /// <summary>一次手动删除任务的整体状态（界面按它决定按钮与文案）。</summary>
 public enum FolderDeleteState

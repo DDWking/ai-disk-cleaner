@@ -43,7 +43,7 @@ public partial class MainWindow
     private static List<FolderPick> PicksOf(IEnumerable<OrganizeNode> nodes)
     {
         var picks = new List<FolderPick>();
-        foreach (var n in nodes) picks.Add(new FolderPick(n.IsChecked, n.FullPath, n.Name, n.Size));
+        foreach (var n in nodes) picks.Add(new FolderPick(n.IsChecked, n.FullPath, n.Name, n.Size, n.Dir.IsDirectory));
         return picks;
     }
 

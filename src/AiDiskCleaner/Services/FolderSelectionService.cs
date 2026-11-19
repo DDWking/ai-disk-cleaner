@@ -69,12 +69,12 @@ public static class FolderSelectionService
             }
             if (covered) { nested++; continue; }
 
-            keptDirs.Add(norm);
+            if (item.IsDirectory) keptDirs.Add(norm);
             targets.Add(new DeletionTarget
             {
                 Path = item.FullPath,
                 Label = item.Name,
-                IsDirectory = true,
+                IsDirectory = item.IsDirectory,
                 // 目录的 Size 是子树聚合值，和磁盘目录项对不上：只用于「预计空间」，不参与比对。
                 ExpectedSize = Math.Max(0, item.Size),
                 ExpectedModified = default,
