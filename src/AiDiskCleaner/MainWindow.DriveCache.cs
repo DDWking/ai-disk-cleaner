@@ -44,8 +44,8 @@ public partial class MainWindow
     private readonly Dictionary<string, Task<DriveScanCacheEntry?>> _bgScanTasks = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _preloadCts;
     private string _activeDriveKey = "";
-    private bool _startupUninstallPreloaded;
-    private bool _startupSecondaryDrivesStarted;
+    private bool _startupQueueStarted;
+    private FileEntry? _collectingFilesForRoot;
 
     private static string NormalizeDriveKey(string? drive)
     {
@@ -184,7 +184,7 @@ public partial class MainWindow
         SetStatus(cachedTip);
         SetOrganizeNote(cachedTip);
 
-        if (entry.CleanReport == null)
+        if (entry.CleanReport == null && CleanPane != null && CleanPane.Visibility == Visibility.Visible)
             _ = RunCleanPipelineAsync(entry.Root);
     }
 
@@ -269,36 +269,165 @@ public partial class MainWindow
         RunScan();
     }
 
-    /// <summary>打开软件时即在后台预加载卸载清单，不等用户切到「卸载」页才扫描。</summary>
-    private void TriggerStartupPreloadUninstall()
+    private void ShowBgPreloadBanner(string message, bool busy)
     {
-        if (_startupUninstallPreloaded) return;
-        _startupUninstallPreloaded = true;
-        _uninstallTabVisited = true;
-        if (_apps.Count == 0 && !_listingApps)
-            _ = LoadApps(silent: true);
+        if (BgPreloadBanner == null || BgPreloadText == null) return;
+        string bgKey = busy ? "ToneYellowBg" : "ToneGreenBg";
+        string fgKey = busy ? "ToneYellowAccent" : "ToneGreenAccent";
+        BgPreloadBanner.Background = ThemeService.Brush(bgKey);
+        BgPreloadBanner.BorderBrush = ThemeService.Brush(fgKey);
+        BgPreloadText.Foreground = ThemeService.Brush(fgKey);
+        BgPreloadText.Text = message;
+        if (BgPreloadProgress != null)
+        {
+            BgPreloadProgress.Foreground = ThemeService.Brush(fgKey);
+            BgPreloadProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        }
+        BgPreloadBanner.Visibility = Visibility.Visible;
     }
 
-    /// <summary>首盘（默认 C:\）扫描结束后，自动在后台预扫描并缓存 D:\（或未扫的 C:\）。</summary>
-    private void TriggerStartupSecondaryDrivePreload()
+    private void HideBgPreloadBanner()
     {
-        if (_startupSecondaryDrivesStarted) return;
-        _startupSecondaryDrivesStarted = true;
+        if (BgPreloadBanner != null)
+            BgPreloadBanner.Visibility = Visibility.Collapsed;
+    }
 
-        if (DriveBox?.ItemsSource is not IEnumerable<string> available) return;
-        var targets = new[] { @"C:\", @"D:\" };
-        foreach (var raw in available)
+    private async Task ShowBgPreloadDoneBrieflyAsync(string message, CancellationToken ct)
+    {
+        try
         {
-            string key = NormalizeDriveKey(raw);
-            if (!targets.Any(t => string.Equals(t, key, StringComparison.OrdinalIgnoreCase)))
-                continue;
-            if (string.Equals(key, _activeDriveKey, StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (_driveCache.ContainsKey(key) || _bgScanTasks.ContainsKey(key))
-                continue;
+            ShowBgPreloadBanner(message, busy: false);
+            await Task.Delay(4000, ct);
+            if (!ct.IsCancellationRequested && BgPreloadText?.Text == message)
+                HideBgPreloadBanner();
+        }
+        catch (OperationCanceledException)
+        {
+            HideBgPreloadBanner();
+        }
+    }
 
-            var task = PreloadDriveInBackgroundAsync(key);
-            _bgScanTasks[key] = task;
+    /// <summary>
+    /// 首盘（C:\）显示出来后再启动串联后台预加载队列：
+    /// 先让界面喘息稳定 → 依次预扫另一盘（如 D:\）并缓存 → 再预加载卸载列表 → 完成后轻提示并收起。
+    /// 避免软件刚打开时几项重活同时并发抢占 CPU/磁盘导致卡顿。
+    /// </summary>
+    private async void StartStartupPreloadQueueAsync()
+    {
+        if (_startupQueueStarted) return;
+        _startupQueueStarted = true;
+
+        if (_preloadCts == null || _preloadCts.IsCancellationRequested)
+            _preloadCts = new CancellationTokenSource();
+        var ct = _preloadCts.Token;
+
+        var doneParts = new List<string>();
+        if (_activeDriveKey.Length > 0) doneParts.Add(_activeDriveKey);
+
+        try
+        {
+            // 先让首屏目录列表稳定渲染与响应交互
+            await Task.Delay(350, ct);
+
+            // 若当前主盘的文件扁平清单尚未收集，以低优先级在后台收集一份供跨盘软件体积核对使用
+            var activeRoot = _root;
+            if (activeRoot != null && _allFiles.Count == 0 && !ReferenceEquals(_collectingFilesForRoot, activeRoot))
+                await EnsureActiveFilesCollectedAsync(activeRoot, ct);
+
+            // 1) 串联预扫另一块启动目标盘（C:\ / D:\）
+            var pendingDrives = new List<string>();
+            if (DriveBox?.ItemsSource is IEnumerable<string> available)
+            {
+                var targets = new[] { @"C:\", @"D:\" };
+                foreach (var raw in available)
+                {
+                    string key = NormalizeDriveKey(raw);
+                    if (!targets.Any(t => string.Equals(t, key, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+                    if (string.Equals(key, _activeDriveKey, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (_driveCache.ContainsKey(key) || _bgScanTasks.ContainsKey(key))
+                        continue;
+                    pendingDrives.Add(key);
+                }
+            }
+
+            foreach (var key in pendingDrives)
+            {
+                ct.ThrowIfCancellationRequested();
+                ShowBgPreloadBanner($"后台正在预扫描 {key}（完成后切盘可秒开）", busy: true);
+                var task = PreloadDriveInBackgroundAsync(key);
+                _bgScanTasks[key] = task;
+                var entry = await task;
+                if (entry != null) doneParts.Add(key);
+                await Task.Delay(250, ct);
+            }
+
+            // 2) 再预加载卸载清单，此时 C:\ 与 D:\ 文件已入缓存，体积可一次算齐
+            if (_apps.Count == 0 && !_listingApps)
+            {
+                ct.ThrowIfCancellationRequested();
+                string cachedPrefix = doneParts.Count > 0 ? string.Join(" / ", doneParts) + " 已缓存 · " : "";
+                ShowBgPreloadBanner($"{cachedPrefix}后台正在预加载卸载列表（完成后切页秒开）", busy: true);
+                _uninstallTabVisited = true;
+                await LoadApps(silent: true);
+            }
+            if (_apps.Count > 0) doneParts.Add("卸载列表");
+
+            if (doneParts.Count > 0)
+                _ = ShowBgPreloadDoneBrieflyAsync($"后台预加载完成：{string.Join("、", doneParts)}已缓存", ct);
+            else
+                HideBgPreloadBanner();
+        }
+        catch (OperationCanceledException)
+        {
+            HideBgPreloadBanner();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Record("Scan", ex, "startup preload queue failed");
+            HideBgPreloadBanner();
+        }
+    }
+
+    private async Task EnsureActiveFilesCollectedAsync(FileEntry activeRoot, CancellationToken ct = default)
+    {
+        if (ReferenceEquals(_collectingFilesForRoot, activeRoot)) return;
+        _collectingFilesForRoot = activeRoot;
+        try
+        {
+            var collected = await Task.Run(() => CollectFilesLowPriority(activeRoot), ct);
+            if (!ReferenceEquals(_root, activeRoot)) return;
+            _allFiles = collected;
+            SaveActiveDriveToCache();
+            if (_apps.Count > 0)
+                _ = RefreshAppUsageWithAllCachedDrivesAsync();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            AppLog.Record("Scan", ex, "collect root files in background");
+        }
+        finally
+        {
+            if (ReferenceEquals(_collectingFilesForRoot, activeRoot))
+                _collectingFilesForRoot = null;
+        }
+    }
+
+    private static List<FileEntry> CollectFilesLowPriority(FileEntry root)
+    {
+        var prev = Thread.CurrentThread.Priority;
+        try
+        {
+            Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+            return CollectFiles(root);
+        }
+        finally
+        {
+            Thread.CurrentThread.Priority = prev;
         }
     }
 
@@ -316,7 +445,7 @@ public partial class MainWindow
             var outcome = await bgWorkflow.ScanAsync(driveKey, progress: null, ct);
             ct.ThrowIfCancellationRequested();
 
-            var files = await Task.Run(() => CollectFiles(outcome.Root), ct);
+            var files = await Task.Run(() => CollectFilesLowPriority(outcome.Root), ct);
             ct.ThrowIfCancellationRequested();
             sw.Stop();
 

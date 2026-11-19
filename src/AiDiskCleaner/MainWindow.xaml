@@ -1291,12 +1291,27 @@
           <Border Grid.Row="0" Background="{DynamicResource PanelLeft}"
                   BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
                   Padding="16,4,16,0">
-            <StackPanel Orientation="Horizontal">
-              <!-- 合并后的清理中心（按文件夹视图）为唯一清理入口，原独立「文件夹整理」入口已合并 -->
-              <Button x:Name="TabCleanBtn" Content="清理中心" Style="{StaticResource MainTabButton}" Margin="0,0,6,0" Click="TabClean_Click"/>
-              <Button x:Name="TabOrganizeBtn" Content="文件夹整理" Style="{StaticResource MainTabButton}" Margin="0,0,6,0" Click="TabOrganize_Click" Visibility="Collapsed"/>
-              <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource MainTabButton}" Click="TabUninstall_Click"/>
-            </StackPanel>
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                <!-- 合并后的清理中心（按文件夹视图）为唯一清理入口，原独立「文件夹整理」入口已合并 -->
+                <Button x:Name="TabCleanBtn" Content="清理中心" Style="{StaticResource MainTabButton}" Margin="0,0,6,0" Click="TabClean_Click"/>
+                <Button x:Name="TabOrganizeBtn" Content="文件夹整理" Style="{StaticResource MainTabButton}" Margin="0,0,6,0" Click="TabOrganize_Click" Visibility="Collapsed"/>
+                <Button x:Name="TabUninstallBtn" Content="卸载" Style="{StaticResource MainTabButton}" Click="TabUninstall_Click"/>
+              </StackPanel>
+              <Border x:Name="BgPreloadBanner" DockPanel.Dock="Right" Visibility="Collapsed"
+                      VerticalAlignment="Center" Margin="0,0,0,4" Padding="10,3"
+                      CornerRadius="12" Background="{DynamicResource ToneYellowBg}"
+                      BorderBrush="{DynamicResource ToneYellowAccent}" BorderThickness="1">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                  <ProgressBar x:Name="BgPreloadProgress" Width="34" Height="4"
+                               IsIndeterminate="True" Margin="0,0,7,0" VerticalAlignment="Center"
+                               Foreground="{DynamicResource ToneYellowAccent}"/>
+                  <TextBlock x:Name="BgPreloadText" FontSize="11"
+                             Foreground="{DynamicResource ToneYellowAccent}"
+                             VerticalAlignment="Center"/>
+                </StackPanel>
+              </Border>
+            </DockPanel>
           </Border>
           <!-- ===== 清理中心（合并文件夹视图 + 三色标记 + 右侧常驻 AI 面板） ===== -->
           <DockPanel x:Name="OrganizePane" Grid.Row="1">

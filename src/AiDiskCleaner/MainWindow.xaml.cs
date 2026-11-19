@@ -265,7 +265,6 @@ public partial class MainWindow : Window
 
     void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        TriggerStartupPreloadUninstall();
         if (!_scanning && _root == null)
             RunScan();
     }
@@ -584,6 +583,7 @@ public partial class MainWindow : Window
         _scanUsedFallback = false;
         _scanFallbackReason = "";
         _scanQuality = null;
+        _allFiles = new();
         // 开新扫描就把上一轮的清理结果和分层丢掉：
         // 否则「旧列表还挂在界面上」，用户可能照着过期清单去勾选删除。
         _report = null;
@@ -677,7 +677,7 @@ public partial class MainWindow : Window
             UpdateAiReportButton();
             RefreshDockedReportPlaceholder();
             SaveActiveDriveToCache();
-            TriggerStartupSecondaryDrivePreload();
+            StartStartupPreloadQueueAsync();
             ScanProgressBar.Value = 100;
             ScanProgressText.Text = "扫描与目录整理完成";
             // 不 await：后续后台清理分析由 WorkState 登记，停止按钮照常可用。
@@ -744,6 +744,15 @@ public partial class MainWindow : Window
         // 覆盖完整度由第三层的 CleanScanState 表达，明细进「扫描详情」。
         SetStatus(_scanUsedFallback ? Loc.ScanDoneFallback : Loc.ScanDone);
         perf.Flush();
+
+        // 合并清理模式下旧版 CleanPane 已隐藏，跳过对用户不可见的全局清理规则与磁盘重复文件哈希，大幅降低启动卡顿。
+        if (CleanPane != null && CleanPane.Visibility != Visibility.Visible)
+        {
+            RefreshAiLamp();
+            _ = EnsureActiveFilesCollectedAsync(root, _preloadCts?.Token ?? default);
+            _ = SaveSnapshotAsync(root);
+            return;
+        }
 
         // 后续阶段一律不阻塞首屏
         _ = RunCleanPipelineAsync(root);
@@ -3480,9 +3489,23 @@ public partial class MainWindow : Window
                 if (p.Percent >= 0) UninstallProgressBar.Value = p.Percent;
                 UninstallProgressText.Text = p.CurrentDirectory;
             });
-            var list = await Task.Run(() => BcuUninstallService.ListApps(progress, ct), ct);
             var files = GetAllCachedScanFiles();
-            var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(list, files, ct), ct);
+            var (list, usage) = await Task.Run(() =>
+            {
+                var prev = Thread.CurrentThread.Priority;
+                try
+                {
+                    if (silent) Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+                    var raw = BcuUninstallService.ListApps(progress, ct);
+                    DecodeAppIcons(raw, ct);
+                    var calc = AppRecommendationService.CalculateUsage(raw, files, ct);
+                    return (raw, calc);
+                }
+                finally
+                {
+                    Thread.CurrentThread.Priority = prev;
+                }
+            }, ct);
             if (myGeneration != _uninstallGeneration)
             {
                 op.Note("stale app inventory dropped");
@@ -3492,16 +3515,13 @@ public partial class MainWindow : Window
             // 只讲事实：这是什么软件 + 有效占用。没有建议、没有评分、没有 AI。
             AppFactualInfoService.Apply(list);
             InjectInstalledEvidence(list);
-            foreach (var app in list)
-            {
-                try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }
-                catch (Exception ex) { app.Icon = null; AppLog.Record("Uninstall", ex, "icon decode"); }
-                app.IconBytes = null;
-            }
             _apps = list;
             _appInventoryVersion++;
             _junk.Clear();
-            ShowAppList();
+            if (silent && _rightTab != RightTab.Uninstall)
+                _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(ShowAppList));
+            else
+                ShowAppList();
             op.Done("apps listed", list.Count);
         }
         catch (OperationCanceledException)
@@ -3524,6 +3544,17 @@ public partial class MainWindow : Window
                 UninstallProgressPanel.Visibility = Visibility.Collapsed;
                 UninstallProgressBar.IsIndeterminate = false;
             }
+        }
+    }
+
+    private static void DecodeAppIcons(List<AppUninstallItem> list, CancellationToken ct)
+    {
+        foreach (var app in list)
+        {
+            ct.ThrowIfCancellationRequested();
+            try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }
+            catch (Exception ex) { app.Icon = null; AppLog.Record("Uninstall", ex, "icon decode"); }
+            app.IconBytes = null;
         }
     }
 
@@ -3752,9 +3783,14 @@ public partial class MainWindow : Window
         int myGeneration = ++_uninstallGeneration;
         try
         {
-            var list = await Task.Run(() => BcuUninstallService.ListApps(null, ct), ct);
             var files = GetAllCachedScanFiles();
-            var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(list, files, ct), ct);
+            var (list, usage) = await Task.Run(() =>
+            {
+                var raw = BcuUninstallService.ListApps(null, ct);
+                DecodeAppIcons(raw, ct);
+                var calc = AppRecommendationService.CalculateUsage(raw, files, ct);
+                return (raw, calc);
+            }, ct);
             if (myGeneration != _uninstallGeneration)
             {
                 op.Note("stale app inventory dropped after uninstall");
@@ -3763,12 +3799,6 @@ public partial class MainWindow : Window
             AppRecommendationService.ApplyUsage(usage);
             AppFactualInfoService.Apply(list);
             InjectInstalledEvidence(list);
-            foreach (var app in list)
-            {
-                try { app.Icon = BcuUninstallService.ToImage(app.IconBytes); }
-                catch (Exception ex) { app.Icon = null; AppLog.Record("Uninstall", ex, "icon decode"); }
-                app.IconBytes = null;
-            }
             _apps = list;
             _appInventoryVersion++;
             if (!_showingJunk) ShowAppList();
