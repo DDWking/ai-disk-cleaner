@@ -37,6 +37,7 @@ public partial class MainWindow
     {
         if (_folderDeleteService.IsBusy) return;
         RefreshFolderDeleteBar();
+        SaveActiveDriveToCache();
     }
 
     /// <summary>把整理对象投影成选择/去重逻辑需要的最小结构。</summary>
@@ -136,6 +137,7 @@ public partial class MainWindow
             + $"uncertain={result.Uncertain} failed={result.Failed} blocked={result.Protected} "
             + $"skipped={result.Skipped} total={result.Total}");
         RefreshFolderDeleteBar();
+        SaveActiveDriveToCache();
     }
 
     private void FolderDeleteCancel_Click(object sender, RoutedEventArgs e)

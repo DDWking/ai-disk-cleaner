@@ -135,6 +135,7 @@ public partial class MainWindow
                 FileEntry.FormatSize(result.Report.TotalReclaimableBytes)));
             ApplyReportToOrganizeTree(result.Report);
             ShowDockedAgentReport(result.Report);
+            SaveActiveDriveToCache();
             AppLog.Info("AI", $"agent-report ok items={result.Report.AllItems.Count()} calls={result.Calls} in={result.Usage.InputTokens} out={result.Usage.OutputTokens} ms={sw.ElapsedMilliseconds}");
         }
         catch (OperationCanceledException)

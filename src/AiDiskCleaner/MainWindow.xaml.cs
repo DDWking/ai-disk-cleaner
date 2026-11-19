@@ -230,7 +230,7 @@ public partial class MainWindow : Window
         DriveBox.ItemsSource = drives;
         if (drives.Count > 0) DriveBox.SelectedIndex = 0;
         UpdateVolumeInfo();
-        DriveBox.SelectionChanged += (_, _) => UpdateVolumeInfo();
+        DriveBox.SelectionChanged += (_, _) => _ = HandleDriveSelectionChangedAsync();
         StateChanged += (_, _) =>
         {
             MaxButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
@@ -265,6 +265,7 @@ public partial class MainWindow : Window
 
     void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        TriggerStartupPreloadUninstall();
         if (!_scanning && _root == null)
             RunScan();
     }
@@ -543,6 +544,7 @@ public partial class MainWindow : Window
         CancelQuietly(_snapshotCts);
         CancelQuietly(_uninstallCts);
         CancelQuietly(_aiConfigCts);
+        CancelQuietly(_preloadCts);
         // 整理页已无批量/自动识别任务：模型请求只由用户对单项发起，走逐项取消按钮
         // 标记「正在取消」：按钮立刻变成不可再点，并给出反馈，不等任务真正退出。
         _work.RequestCancel();
@@ -646,6 +648,7 @@ public partial class MainWindow : Window
         try
         {
             string drive = DriveBox.SelectedItem.ToString()!;
+            _activeDriveKey = NormalizeDriveKey(drive);
             // onFallback 让「MFT 不可用，正在用兼容扫描」立刻显示，而不是等扫完
             var outcome = await _cleanupWorkflow.ScanAsync(drive, progress, ct, reason =>
             {
@@ -673,6 +676,8 @@ public partial class MainWindow : Window
             if (_organizeBuiltForScan != _scanGeneration) RebuildOrganize();
             UpdateAiReportButton();
             RefreshDockedReportPlaceholder();
+            SaveActiveDriveToCache();
+            TriggerStartupSecondaryDrivePreload();
             ScanProgressBar.Value = 100;
             ScanProgressText.Text = "扫描与目录整理完成";
             // 不 await：后续后台清理分析由 WorkState 登记，停止按钮照常可用。
@@ -829,6 +834,7 @@ public partial class MainWindow : Window
             if (!ReferenceEquals(_root, root) || myGeneration != _analyzeGeneration) return null;
             _allFiles = files;
             _report = report;
+            UpdateDriveCacheAnalysis(root);
             analyzeOp.Done($"cleanable={report.Cleanable.Count}", report.Cleanable.Count);
             return report;
         }
@@ -972,14 +978,14 @@ public partial class MainWindow : Window
     {
         if (_apps.Count > 0)
         {
-            // 已经有清单：只重算占用（便宜），仍然放后台
-            _ = RefreshAppUsageAfterScanAsync(_apps, _allFiles, _root);
+            // 已经有清单：结合全部已缓存盘重算占用（便宜），仍然放后台
+            _ = RefreshAppUsageWithAllCachedDrivesAsync();
             return;
         }
         if (_listingApps) return;
         if (_uninstallTabVisited)
         {
-            _ = LoadApps();
+            _ = LoadApps(silent: true);
             return;
         }
         AppLog.Info("Uninstall", "skipping app inventory: uninstall tab has not been opened yet");
@@ -999,8 +1005,9 @@ public partial class MainWindow : Window
     {
         try
         {
-            var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(apps, files));
-            if (!ReferenceEquals(_root, root) || !ReferenceEquals(_apps, apps)) return;
+            var allFiles = GetAllCachedScanFiles();
+            var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(apps, allFiles));
+            if (!ReferenceEquals(_apps, apps)) return;
             AppRecommendationService.ApplyUsage(usage);
             // 占用口径变了，重算一次「这是什么软件」的事实信息（只讲事实，不做建议）
             AppFactualInfoService.Apply(apps);
@@ -1108,7 +1115,11 @@ public partial class MainWindow : Window
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 
-    private void ScanButton_Click(object sender, RoutedEventArgs e) => RunScan();
+    private void ScanButton_Click(object sender, RoutedEventArgs e)
+    {
+        InvalidateDriveCache(DriveBox.SelectedItem?.ToString());
+        RunScan();
+    }
 
     private void StopButton_Click(object sender, RoutedEventArgs e) => StopEverything();
 
@@ -2235,6 +2246,7 @@ public partial class MainWindow : Window
         // 文件夹整理：**每次扫描只建一次**，而且建在扫描代次落定之后，
         // 这样对象标识里的代次与本次扫描一致（旧请求就不可能串到新列表里）。
         if (_organizeBuiltForScan != _scanGeneration) RebuildOrganize();
+        UpdateDriveCacheAnalysis(root);
         BuildSections();
         RestoreOpenLayers();      // 用稳定键找回原来的页面/位置
         UpdateScopeChip();        // 范围提示里的「范围外已选」要跟着最新选择走
@@ -3447,7 +3459,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task LoadApps()
+    private async Task LoadApps(bool silent = false)
     {
         if (_listingApps) return;
         // 软件清点 + 占用计算有自己的 CTS 和代次：卸载后重扫时旧结果不会覆盖新的。
@@ -3469,7 +3481,7 @@ public partial class MainWindow : Window
                 UninstallProgressText.Text = p.CurrentDirectory;
             });
             var list = await Task.Run(() => BcuUninstallService.ListApps(progress, ct), ct);
-            var files = _allFiles;
+            var files = GetAllCachedScanFiles();
             var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(list, files, ct), ct);
             if (myGeneration != _uninstallGeneration)
             {
@@ -3499,7 +3511,10 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             op.Fail(ex, "list apps");
-            ShowAlert(Loc.TabUninstall, AppError.From(ex, "list apps").UserMessage);
+            if (silent)
+                UninstallSummary.Text = AppError.From(ex, "list apps").UserMessage;
+            else
+                ShowAlert(Loc.TabUninstall, AppError.From(ex, "list apps").UserMessage);
         }
         finally
         {
@@ -3738,7 +3753,7 @@ public partial class MainWindow : Window
         try
         {
             var list = await Task.Run(() => BcuUninstallService.ListApps(null, ct), ct);
-            var files = _allFiles;
+            var files = GetAllCachedScanFiles();
             var usage = await Task.Run(() => AppRecommendationService.CalculateUsage(list, files, ct), ct);
             if (myGeneration != _uninstallGeneration)
             {
