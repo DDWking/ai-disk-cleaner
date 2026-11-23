@@ -92,8 +92,9 @@ Assert-True 'tab switching uses an enum, not fragile numeric indexes' `
     ($cs -match 'private enum RightTab \{ Organize, Clean, Uninstall \}' -and
      $cs -match 'ShowRightTab\(RightTab\.Uninstall\)' -and
      -not ([regex]::Match($cs, 'ShowRightTab\([0-9]\)').Success))
-Assert-True 'clean pane still comes before uninstall pane' `
-    ($xaml -match '(?s)x:Name="CleanPane".*?x:Name="UninstallPane"')
+Assert-True 'clean pane still comes before uninstall pane, and unified stage + classify modal exist cleanly' `
+    ($xaml -match '(?s)x:Name="CleanPane".*?x:Name="UninstallPane"' -and
+     $xaml -match '(?s)x:Name="OrganizeStageGrid".*?x:Name="OrganizeClassifyBar".*?x:Name="ClassifyModalBody"')
 Assert-True 'merged cleanup workspace is visible by default (OrganizePane hosts folder view)' `
     ($xaml -notmatch '(?s)x:Name="OrganizePane"[^>]*Visibility="Collapsed"' -and
      $xaml -match 'x:Name="OrganizeGrid"' -and

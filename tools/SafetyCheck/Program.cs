@@ -337,8 +337,20 @@ public static class Program
         Check("Merge 累加解析失败", q.UnparsedRecords == 9);
         Check("TotalErrors 汇总", q.TotalErrors == 6);
 
-        var mft = new ScanQuality { Source = ScanSource.Mft, FilesRead = 100, DirsRead = 5, DurationMs = 1234 };
+        var mft = new ScanQuality
+        {
+            Source = ScanSource.Mft, FilesRead = 100, DirsRead = 5, DurationMs = 1234,
+            MftReadMs = 310, MftParseMs = 520, MftTreeMs = 210, MftAccumulateMs = 194,
+            MftRecordsTotal = 200, ManagedHeapMb = 64, EntryMemoryMb = 18,
+            AvgEntryBytes = 192, AvgPathChars = 48,
+        };
         Check("耗时换算", Math.Abs(mft.DurationSeconds - 1.234) < 0.001);
+        var cloned = mft.Clone();
+        Check("MFT 分段耗时与内存指标完整克隆",
+            cloned.MftReadMs == 310 && cloned.MftParseMs == 520 && cloned.MftTreeMs == 210
+            && cloned.MftAccumulateMs == 194 && cloned.MftRecordsTotal == 200
+            && cloned.ManagedHeapMb == 64 && cloned.EntryMemoryMb == 18
+            && cloned.AvgEntryBytes == 192 && cloned.AvgPathChars == 48);
     }
 
     static void RecursiveScanQualityTests()

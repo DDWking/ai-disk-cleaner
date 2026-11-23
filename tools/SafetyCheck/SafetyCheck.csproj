@@ -22,6 +22,7 @@
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanItem.cs" Link="CleanItem.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\CleanGroupNodes.cs" Link="CleanGroupNodes.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Models\ScanQuality.cs" Link="ScanQuality.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Models\ClassifyModels.cs" Link="ClassifyModels.cs" />
 
     <Compile Include="..\..\src\AiDiskCleaner\Native\FileProbeNative.cs" Link="FileProbeNative.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Native\ShellNative.cs" Link="ShellNative.cs" />
