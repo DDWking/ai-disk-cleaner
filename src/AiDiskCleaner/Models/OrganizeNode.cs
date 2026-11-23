@@ -97,28 +97,50 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         : Loc.OrganizeLevelDeep(Level);
 
     private FileEntry? _expandTargetDir;
-    private string _collapsedChainName = "";
+    private string _collapsedBaseName = "";
+    private string _collapsedChainSuffix = "";
     private int? _viewDepthOverride;
 
     /// <summary>实际用于展开/列子项的目标目录（单线折叠时会指向末级目录，删除仍作用于 <see cref="Dir"/>）。</summary>
     public FileEntry ExpandDir => _expandTargetDir ?? Dir;
 
-    /// <summary>列表展示名（单线套娃合并且命名为 A / B，原文件夹真实名保留在 <see cref="Name"/>）。</summary>
-    public string DisplayName => _collapsedChainName.Length > 0 ? _collapsedChainName : Dir.Name;
+    /// <summary>列表主展示名（始终保持干净的一段目录名，不把多层斜杠塞进主标题）。</summary>
+    public string DisplayName => _collapsedBaseName.Length > 0 ? _collapsedBaseName : Dir.Name;
 
-    /// <summary>平铺筛选模式下在名称后显示相对路径线索。</summary>
-    public bool ShowPathHint => _viewDepthOverride.HasValue
+    /// <summary>单线折叠时的柔和次级路径后缀（用淡灰呈现，不与主目录名抢视觉重心）。</summary>
+    public string ChainSuffixInline => _collapsedChainSuffix.Length > 0 ? "  " + _collapsedChainSuffix : "";
+
+    /// <summary>平铺筛选模式下只在顶层命中项（depth 0）显示相对路径线索；展开出的子项不显示以免视觉混乱。</summary>
+    public bool ShowPathHint => _viewDepthOverride == 0
         && !string.IsNullOrWhiteSpace(RelativePath)
         && !string.Equals(RelativePath, DisplayName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>当前筛选模式下被展开的顶层大文件夹原点，用左侧亮橙竖线和淡底高亮锚定。</summary>
+    public bool IsFilterBranchRoot => _viewDepthOverride == 0 && IsExpanded;
+
+    /// <summary>筛选模式下展开出来的嵌套子项。</summary>
+    public bool IsFilterBranchChild => (_viewDepthOverride ?? 0) > 0;
 
     public void SetCollapsedChain(FileEntry expandTargetDir, string chainDisplayName)
     {
         _expandTargetDir = expandTargetDir;
-        _collapsedChainName = chainDisplayName ?? "";
+        string raw = chainDisplayName ?? "";
+        int sep = raw.IndexOf(" / ", StringComparison.Ordinal);
+        if (sep > 0)
+        {
+            _collapsedBaseName = raw[..sep].Trim();
+            _collapsedChainSuffix = "› " + raw[(sep + 3)..].Trim().Replace(" / ", " › ");
+        }
+        else
+        {
+            _collapsedBaseName = raw;
+            _collapsedChainSuffix = "";
+        }
         _directFileCountKnown = false;
         _filesLoaded = false;
         _localColorCache = null;
         Raise(nameof(DisplayName));
+        Raise(nameof(ChainSuffixInline));
         Raise(nameof(ExpandDir));
         Raise(nameof(ShowPathHint));
         Raise(nameof(DirectFileCount));
@@ -136,6 +158,8 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         _viewDepthOverride = depthOverride;
         Raise(nameof(IndentWidth));
         Raise(nameof(ShowPathHint));
+        Raise(nameof(IsFilterBranchRoot));
+        Raise(nameof(IsFilterBranchChild));
     }
 
     public string Name => Dir.Name;
@@ -150,7 +174,9 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     public void SetSizeShare(double share)
     {
         double clamped = double.IsNaN(share) || double.IsInfinity(share) ? 0.0 : Math.Clamp(share, 0.0, 1.0);
-        if (Math.Abs(_sizeShare - clamped) <= 0.002) return;
+        // 哪怕占用不足 0.2%（如几百 MB 对比几百 GB），只要 >0 就要首次赋上非零占比画出清晰药丸条。
+        if ((clamped > 0.0) == (_sizeShare > 0.0) && Math.Abs(_sizeShare - clamped) <= 0.0005)
+            return;
         _sizeShare = clamped;
         Raise(nameof(SizeShare));
         Raise(nameof(SizeBarWidth));
@@ -159,14 +185,14 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// <summary>
     /// 容量那一格。
     /// **未扫描的（链接 / 重解析点）绝不显示 0 KB** ——「没进去看」和「里面是空的」
-    /// 是两回事，0 KB 会把后者说成前者。空目录也换成明确的「扫描无内容」，不用 0 暗示。
+    /// 是两回事，0 KB 会把后者说成前者；只要目录本身有非零大小（>0），绝不误报「扫描无内容」。
     /// </summary>
     public string SizeText => !Dir.IsDirectory
         ? FileEntry.FormatSize(Dir.Size)
         : ContentKind switch
         {
-            FolderContentKind.NotScanned => Loc.OrganizeSizeNotScanned,
-            FolderContentKind.Empty => Loc.OrganizeSizeEmpty,
+            FolderContentKind.NotScanned when Dir.Size <= 0 => Loc.OrganizeSizeNotScanned,
+            FolderContentKind.Empty when Dir.Size <= 0 => Loc.OrganizeSizeEmpty,
             _ => FileEntry.FormatSize(Dir.Size),
         };
 
@@ -187,11 +213,28 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             {
                 int n = 0;
                 foreach (var c in ExpandDir.ChildList) if (!c.IsDirectory) n++;
+                if (n == 0 && ExpandDir.IsCachePartial && ExpandDir.FileCount > 0)
+                    n = ExpandDir.FileCount;
                 _directFileCount = n;
                 _directFileCountKnown = true;
             }
             return _directFileCount;
         }
+    }
+
+    public void InvalidateContentMetrics()
+    {
+        _directFileCountKnown = false;
+        _filesLoaded = false;
+        _localColorCache = null;
+        Raise(nameof(DirectFileCount));
+        Raise(nameof(ContentKind));
+        Raise(nameof(CanExpand));
+        Raise(nameof(CanViewFiles));
+        Raise(nameof(SizeText));
+        Raise(nameof(ContentStateText));
+        Raise(nameof(HasContentState));
+        Raise(nameof(ContentStateTip));
     }
 
     /// <summary>
@@ -204,7 +247,8 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         get
         {
             if (!FolderPurposeRules.CanDescend(ExpandDir)) return FolderContentKind.NotScanned;
-            if (ChildDirCount > 0) return FolderContentKind.ChildDirs;
+            if (ChildDirCount > 0 || (ExpandDir.IsCachePartial && ExpandDir.FolderCount > 0))
+                return FolderContentKind.ChildDirs;
             if (DirectFileCount > 0) return FolderContentKind.FilesOnly;
             return FolderContentKind.Empty;
         }
@@ -222,11 +266,11 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         {
             FolderContentKind.NotScanned => Loc.OrganizeStateNotScanned,
             FolderContentKind.FilesOnly => Loc.OrganizeStateFilesOnly(DirectFileCount),
-            FolderContentKind.Empty => Loc.OrganizeStateEmpty,
+            FolderContentKind.Empty => Dir.Size <= 0 ? Loc.OrganizeStateEmpty : "",
             _ => "",
         };
 
-    public bool HasContentState => ContentStateText.Length > 0;
+    public bool HasContentState => !IsClassifyGroupHeader && ContentStateText.Length > 0;
 
     /// <summary>悬停解释这一行为什么没有箭头 / 为什么写未知。</summary>
     public string ContentStateTip => !Dir.IsDirectory
@@ -321,7 +365,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     public string FilesScopeText => Loc.OrganizeFilesScope;
 
     /// <summary>这个对象在树里的缩进（像素）。不引用 WPF 类型，便于离线测试。</summary>
-    public double IndentWidth => (_viewDepthOverride ?? Depth) * 18.0;
+    public double IndentWidth => (_viewDepthOverride ?? Depth) * 20.0;
 
     // ---------------- 识别结论（**来源如实**） ----------------
 
@@ -522,7 +566,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
     /// 复选框是否禁用。只对硬拦（Windows / Program Files / Users / ProgramData 等根容器）。
     /// 需确认项（如用户配置根）仍可勾，额外确认留在删除预览/对话框。
     /// </summary>
-    public bool IsSelectionProtected => SelectionGuard.Guard == PathGuard.Blocked;
+    public bool IsSelectionProtected => _isClassifyGroupHeader || SelectionGuard.Guard == PathGuard.Blocked;
 
     /// <summary>
     /// 硬拦时解释为何灰掉；需确认时说明删除还会再问一次。允许勾选的普通目录为空。
@@ -890,6 +934,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         Raise(nameof(AiSummaryText));
         Raise(nameof(HasAiSummary));
         Raise(nameof(DisplayPurposeLine));
+        Raise(nameof(DisplayOrClassifyReasonLine));
         Raise(nameof(DisplayPurposeTip));
     }
 
@@ -990,6 +1035,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             if (_isExpanded == value) return;
             _isExpanded = value;
             Raise(nameof(IsExpanded));
+            Raise(nameof(IsFilterBranchRoot));
             Raise(nameof(ExpandGlyphKey));
             Raise(nameof(ExpandTip));
             Raise(nameof(ToggleText));
@@ -1146,6 +1192,213 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         if (kind == FolderKind.Unknown) return;
         _kind = kind;
         Raise(nameof(Kind));
+    }
+
+    // ==================== 同表可视化排序分类状态（纯展示层，绝不碰删除能力） ====================
+
+    private bool _isClassifyGroupHeader;
+    private bool _isClassifySortedItem;
+    private bool _classifyTintActive;
+    private string _classifyGroupId = "";
+    private string _classifyGroupTarget = "";
+    private string _classifyGroupSummary = "";
+    private string _classifyGroupCountText = "";
+    private bool _classifyGroupActive = true;
+    private string _classifyAccentHex = "Transparent";
+    private string _classifyRowBgHex = "Transparent";
+    private string _classifyPillBgHex = "Transparent";
+    private string _classifyBadgeText = "";
+    private string _classifyReasonLine = "";
+    private string _classifyActionLabel = "";
+    private string _classifyItemId = "";
+    private bool _canToggleClassifyMove;
+    private bool _isClassifyMoveChecked;
+    private long _classifyHeaderBytes;
+    private bool _isClassifyGroupCollapsed;
+
+    public bool IsClassifyGroupHeader => _isClassifyGroupHeader;
+    public bool IsClassifyGroupCollapsed => _isClassifyGroupCollapsed;
+    public string ClassifyGroupCollapseGlyphKey => _isClassifyGroupCollapsed ? "IconChevronRight" : "IconChevronDown";
+    public string ClassifyGroupCollapseTip => _isClassifyGroupCollapsed ? "点击展开该分组" : "点击折叠该分组";
+    public bool IsClassifySortedItem => _isClassifySortedItem;
+    public bool HasClassifyTint => _classifyTintActive;
+    public double ClassifyAccentBarWidth => (_isClassifyGroupHeader || _classifyTintActive) ? 4.0 : 0.0;
+    public string ClassifyGroupId => _classifyGroupId;
+    public string ClassifyGroupTarget => _classifyGroupTarget;
+    public string ClassifyGroupSummary => _classifyGroupSummary;
+    public string ClassifyGroupCountText => _classifyGroupCountText;
+    public bool ClassifyGroupActive => _classifyGroupActive;
+    public string ClassifyAccentHex => _classifyAccentHex;
+    public string ClassifyRowBgHex => _classifyRowBgHex;
+    public string ClassifyPillBgHex => _classifyPillBgHex;
+    public string ClassifyBadgeText => _classifyBadgeText;
+    public string ClassifyReasonLine => _classifyReasonLine;
+    public string ClassifyActionLabel => _classifyActionLabel;
+    public string ClassifyItemId => _classifyItemId;
+    public bool CanToggleClassifyMove => _canToggleClassifyMove;
+    public bool IsClassifyMoveChecked => _isClassifyMoveChecked;
+    public bool ShowClassifyPill => !_isClassifyGroupHeader && _isClassifySortedItem && _classifyBadgeText.Length > 0;
+    public bool ShowNormalPurposeArea => !_isClassifyGroupHeader;
+    public bool ShowNormalPurposeLine => !_isClassifyGroupHeader && !_isClassifySortedItem;
+    public bool IsClassifyMovableToggleVisible => !_isClassifyGroupHeader && _isClassifySortedItem;
+    public string ClassifyHeaderSizeText => FileEntry.FormatSize(_classifyHeaderBytes);
+    public string DisplayOrClassifyReasonLine =>
+        _isClassifySortedItem && _classifyReasonLine.Length > 0
+            ? _classifyReasonLine
+            : DisplayPurposeLine;
+
+    /// <summary>生成同表排序模式专用的彩色分类组头横幅行（仅留在展示列表，绝不进删除集合）。</summary>
+    public static OrganizeNode CreateClassifyGroupHeader(
+        string categoryId,
+        string groupName,
+        string targetFolderName,
+        string accentHex,
+        string headerBgHex,
+        string pillBgHex)
+    {
+        var synthetic = new FileEntry
+        {
+            Name = groupName,
+            FullPath = "__classify_group__\\" + categoryId,
+            Kind = EntryKind.Directory,
+            Size = 1,
+        };
+        var node = new OrganizeNode(synthetic, new FolderId(synthetic.FullPath, 0), 0, "")
+        {
+            _isClassifyGroupHeader = true,
+            _classifyTintActive = true,
+            _classifyGroupId = categoryId ?? "",
+            _classifyAccentHex = string.IsNullOrWhiteSpace(accentHex) ? "#FF5A1F" : accentHex,
+            _classifyRowBgHex = string.IsNullOrWhiteSpace(headerBgHex) ? "#1AFF5A1F" : headerBgHex,
+            _classifyPillBgHex = string.IsNullOrWhiteSpace(pillBgHex) ? "#24FF5A1F" : pillBgHex,
+            _classifyGroupTarget = string.IsNullOrWhiteSpace(targetFolderName) ? "原地保留" : $"→ {targetFolderName}",
+        };
+        return node;
+    }
+
+    public void UpdateClassifyGroupHeader(
+        string groupName,
+        string targetFolderName,
+        int totalCount,
+        int checkedCount,
+        long totalBytes,
+        string accentHex,
+        string headerBgHex,
+        string pillBgHex,
+        bool isKeepGroup)
+    {
+        if (!_isClassifyGroupHeader) return;
+        _collapsedBaseName = groupName;
+        _collapsedChainSuffix = "";
+        _classifyHeaderBytes = Math.Max(0, totalBytes);
+        _classifyGroupCountText = totalCount == 1 ? "1 个目录" : $"{totalCount} 个目录";
+        _classifyGroupTarget = isKeepGroup || string.IsNullOrWhiteSpace(targetFolderName)
+            ? "原地不动"
+            : $"→ {targetFolderName}";
+        _classifyGroupActive = !isKeepGroup && checkedCount > 0;
+        _classifyGroupSummary = isKeepGroup
+            ? "受系统/软件保守保护或保持原位，不参与搬移"
+            : (checkedCount > 0
+                ? $"已选 {checkedCount}/{totalCount} 个同盘归入 {targetFolderName}"
+                : $"本组 {totalCount} 个已暂停搬移（可右侧一键开启）");
+        _classifyActionLabel = isKeepGroup
+            ? $"🔒 已保护 ({totalCount})"
+            : (checkedCount > 0 ? $"✓ 本组已选 ({checkedCount}/{totalCount})" : $"○ 已暂停 ({totalCount})");
+        _classifyAccentHex = accentHex;
+        _classifyRowBgHex = headerBgHex;
+        _classifyPillBgHex = pillBgHex;
+        Raise(nameof(DisplayName));
+        RaiseClassifyDisplay();
+    }
+
+    public void ApplyClassifyVisualState(
+        string itemId,
+        string groupId,
+        string accentHex,
+        string rowBgHex,
+        string pillBgHex,
+        string badgeText,
+        string reasonLine,
+        string actionLabel,
+        bool canToggleMove,
+        bool isMoveChecked)
+    {
+        _isClassifySortedItem = true;
+        _classifyTintActive = true;
+        _classifyItemId = itemId ?? "";
+        _classifyGroupId = groupId ?? "";
+        _classifyAccentHex = string.IsNullOrWhiteSpace(accentHex) ? "#64748B" : accentHex;
+        _classifyRowBgHex = string.IsNullOrWhiteSpace(rowBgHex) ? "Transparent" : rowBgHex;
+        _classifyPillBgHex = string.IsNullOrWhiteSpace(pillBgHex) ? "#1F64748B" : pillBgHex;
+        _classifyBadgeText = badgeText ?? "";
+        _classifyReasonLine = reasonLine ?? "";
+        _classifyActionLabel = actionLabel ?? "";
+        _canToggleClassifyMove = canToggleMove;
+        _isClassifyMoveChecked = isMoveChecked;
+        RaiseClassifyDisplay();
+    }
+
+    public void SetClassifyGroupCollapsed(bool collapsed)
+    {
+        if (_isClassifyGroupCollapsed == collapsed) return;
+        _isClassifyGroupCollapsed = collapsed;
+        Raise(nameof(IsClassifyGroupCollapsed));
+        Raise(nameof(ClassifyGroupCollapseGlyphKey));
+        Raise(nameof(ClassifyGroupCollapseTip));
+    }
+
+    public void ClearClassifyVisualState()
+    {
+        if (!_isClassifySortedItem && !_classifyTintActive && !_isClassifyGroupHeader) return;
+        _isClassifyGroupHeader = false;
+        _isClassifyGroupCollapsed = false;
+        _isClassifySortedItem = false;
+        _classifyTintActive = false;
+        _classifyGroupId = "";
+        _classifyGroupTarget = "";
+        _classifyGroupSummary = "";
+        _classifyGroupCountText = "";
+        _classifyAccentHex = "Transparent";
+        _classifyRowBgHex = "Transparent";
+        _classifyPillBgHex = "Transparent";
+        _classifyBadgeText = "";
+        _classifyReasonLine = "";
+        _classifyActionLabel = "";
+        _classifyItemId = "";
+        _canToggleClassifyMove = false;
+        _isClassifyMoveChecked = false;
+        RaiseClassifyDisplay();
+    }
+
+    private void RaiseClassifyDisplay()
+    {
+        Raise(nameof(IsClassifyGroupHeader));
+        Raise(nameof(IsClassifyGroupCollapsed));
+        Raise(nameof(ClassifyGroupCollapseGlyphKey));
+        Raise(nameof(ClassifyGroupCollapseTip));
+        Raise(nameof(IsClassifySortedItem));
+        Raise(nameof(HasClassifyTint));
+        Raise(nameof(ClassifyAccentBarWidth));
+        Raise(nameof(ClassifyGroupId));
+        Raise(nameof(ClassifyGroupTarget));
+        Raise(nameof(ClassifyGroupSummary));
+        Raise(nameof(ClassifyGroupCountText));
+        Raise(nameof(ClassifyGroupActive));
+        Raise(nameof(ClassifyAccentHex));
+        Raise(nameof(ClassifyRowBgHex));
+        Raise(nameof(ClassifyPillBgHex));
+        Raise(nameof(ClassifyBadgeText));
+        Raise(nameof(ClassifyReasonLine));
+        Raise(nameof(ClassifyActionLabel));
+        Raise(nameof(ClassifyItemId));
+        Raise(nameof(CanToggleClassifyMove));
+        Raise(nameof(IsClassifyMoveChecked));
+        Raise(nameof(ShowClassifyPill));
+        Raise(nameof(ShowNormalPurposeArea));
+        Raise(nameof(ShowNormalPurposeLine));
+        Raise(nameof(IsClassifyMovableToggleVisible));
+        Raise(nameof(ClassifyHeaderSizeText));
+        Raise(nameof(DisplayOrClassifyReasonLine));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

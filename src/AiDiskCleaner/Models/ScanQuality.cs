@@ -37,6 +37,18 @@ public sealed class ScanQuality
     /// <summary>解析出多条 $FILE_NAME（硬链接）的数量。</summary>
     public int HardLinks { get; set; }
     public long DurationMs { get; set; }
+
+    /// <summary>MFT 扫描各阶段耗时与内存诊断数据（用于扫描详情耗时剖析）。</summary>
+    public long MftReadMs { get; set; }
+    public long MftParseMs { get; set; }
+    public long MftTreeMs { get; set; }
+    public long MftAccumulateMs { get; set; }
+    public int MftRecordsTotal { get; set; }
+    public long ManagedHeapMb { get; set; }
+    public long EntryMemoryMb { get; set; }
+    public int AvgEntryBytes { get; set; }
+    public int AvgPathChars { get; set; }
+
     /// <summary>补充说明（失败原因、降级原因）。</summary>
     public string Note { get; set; } = "";
 

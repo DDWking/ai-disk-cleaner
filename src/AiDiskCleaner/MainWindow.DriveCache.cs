@@ -50,6 +50,13 @@ public partial class MainWindow
         public Dictionary<string, (FolderColorTone Tone, string Badge, string Summary, string Brief)> AiAnnotations { get; set; }
             = new(StringComparer.OrdinalIgnoreCase);
 
+        public bool HasClassifyPlan { get; set; }
+        public bool ClassifySortActive { get; set; }
+        public List<ClassifyItem> ClassifyItems { get; set; } = new();
+        public List<ClassifyCategoryRule> ClassifyCategories { get; set; } = new();
+        public HashSet<string> ClassifyCollapsedGroups { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public bool LeftReportShown { get; set; }
+
         public List<OrganizeNode>? OrganizeAll { get; set; }
         public List<OrganizeNode>? OrganizeRoots { get; set; }
         public Dictionary<FileEntry, OrganizeNode>? OrganizeByDir { get; set; }
@@ -60,6 +67,7 @@ public partial class MainWindow
 
     private readonly Dictionary<string, DriveScanCacheEntry> _driveCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Task<DriveScanCacheEntry?>> _bgScanTasks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string Label, long Total, long Free, long Tick)> _driveInfoMemo = new(StringComparer.OrdinalIgnoreCase);
     private readonly ObservableCollection<DriveCardItem> _driveCards = new();
     private CancellationTokenSource? _preloadCts;
     private string _activeDriveKey = "";
@@ -110,6 +118,13 @@ public partial class MainWindow
         entry.AgentSession = _agentSession;
         entry.AgentReport = _lastAgentReport;
         entry.AiAnnotations = new Dictionary<string, (FolderColorTone, string, string, string)>(_aiReportAnnotations, StringComparer.OrdinalIgnoreCase);
+        var cls = CaptureClassifyStateForCache();
+        entry.HasClassifyPlan = cls.HasPlan;
+        entry.ClassifySortActive = cls.SortActive;
+        entry.ClassifyItems = cls.Items;
+        entry.ClassifyCategories = cls.Categories;
+        entry.ClassifyCollapsedGroups = cls.CollapsedGroups;
+        entry.LeftReportShown = OrganizeReportPanel?.Visibility == Visibility.Visible;
         SaveOrganizeSnapshotInto(entry);
         RefreshDriveCards();
     }
@@ -182,6 +197,8 @@ public partial class MainWindow
             if (entry.DirectFilesMaterialized != null)
                 foreach (var n in entry.DirectFilesMaterialized) _directFilesMaterialized.Add(n);
             _filterExpandedNodes.Clear();
+            _filterDrillChildren.Clear();
+            _filterDrillOnlyNodes.Clear();
             _organizeColorFilter = null;
             _organizePendingOnly = false;
             _lastJumpNode = null;
@@ -196,6 +213,12 @@ public partial class MainWindow
         }
 
         RestoreCachedAgentReport(entry);
+        RestoreClassifyStateFromCache(
+            entry.HasClassifyPlan,
+            entry.ClassifySortActive,
+            entry.ClassifyItems,
+            entry.ClassifyCategories,
+            entry.ClassifyCollapsedGroups);
         UpdateVolumeInfo();
         ShowScanQuality();
         RefreshCleanUi();
@@ -203,11 +226,16 @@ public partial class MainWindow
         UpdateStopButton();
         RefreshDriveCards();
 
-        string cachedTip = $"{entry.Drive} 已从缓存秒切";
+        bool hasSavedAi = entry.AgentReport != null || entry.HasClassifyPlan;
+        string cachedTip = hasSavedAi
+            ? $"{entry.Drive} 已恢复本次会话 AI 分析与分类结果"
+            : $"{entry.Drive} 已从缓存秒切";
         SetStatus(cachedTip);
         SetOrganizeNote("");
         AnimateSlideFadeIn(OrganizeGridHost, offsetY: 8, durationMs: 190, fromOpacity: 0.55);
-        AnimateSpringPop(RadialRingCanvas, fromScale: 0.94, offsetY: 0, durationMs: 240);
+        if (OrganizeReportPanel?.Visibility != Visibility.Visible)
+            AnimateSpringPop(RadialRingCanvas, fromScale: 0.94, offsetY: 0, durationMs: 240);
+        StaggerRevealVisibleRows(OrganizeGrid);
 
         if (entry.CleanReport == null && CleanPane != null && CleanPane.Visibility == Visibility.Visible)
             _ = RunCleanPipelineAsync(entry.Root);
@@ -236,6 +264,7 @@ public partial class MainWindow
                 OrganizeReportHeaderTitle.Text = Loc.AiReportTitle;
             if (OrganizeReportExpandBtn != null)
                 OrganizeReportExpandBtn.Visibility = Visibility.Collapsed;
+            SetDockedReportVisible(false);
             RefreshOrganizeRows();
             RefreshDockedReportPlaceholder();
             UpdateAiReportDockToggle();
@@ -251,6 +280,7 @@ public partial class MainWindow
         if (targetDrive.Length == 0 || string.Equals(targetDrive, _activeDriveKey, StringComparison.OrdinalIgnoreCase))
             return;
 
+        CancelStartupChoreographyAndFlush();
         if (_root != null)
             SaveActiveDriveToCache();
 
@@ -390,13 +420,22 @@ public partial class MainWindow
 
             try
             {
-                var info = new DriveInfo(key);
-                if (info.IsReady)
+                long nowTick = Environment.TickCount64;
+                if (!_driveInfoMemo.TryGetValue(key, out var memo) || nowTick - memo.Tick > 15_000)
                 {
-                    if (!isSystem && !string.IsNullOrWhiteSpace(info.VolumeLabel))
-                        title = info.VolumeLabel.Trim();
-                    long total = Math.Max(1, info.TotalSize);
-                    long free = Math.Max(0, info.TotalFreeSpace);
+                    var info = new DriveInfo(key);
+                    if (info.IsReady)
+                    {
+                        memo = (info.VolumeLabel ?? "", Math.Max(1, info.TotalSize), Math.Max(0, info.TotalFreeSpace), nowTick);
+                        _driveInfoMemo[key] = memo;
+                    }
+                }
+                if (memo.Total > 0)
+                {
+                    if (!isSystem && !string.IsNullOrWhiteSpace(memo.Label))
+                        title = memo.Label.Trim();
+                    long total = Math.Max(1, memo.Total);
+                    long free = Math.Max(0, memo.Free);
                     long used = Math.Max(0, total - free);
                     pct = Math.Clamp(100.0 * used / total, 0, 100);
                     freeText = Loc.IsEn ? $"Free {FileEntry.FormatSize(free)}" : $"余 {FileEntry.FormatSize(free)}";

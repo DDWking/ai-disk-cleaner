@@ -80,6 +80,12 @@ public partial class MainWindow
     /// <summary>在颜色筛选平铺视图中被用户点开的节点（切换筛选即清空）。</summary>
     private readonly HashSet<OrganizeNode> _filterExpandedNodes = new();
 
+    /// <summary>筛选视图下按父节点缓存的实际直属子项（不跳过系统入口节点，避免点进容器没头）。</summary>
+    private readonly Dictionary<OrganizeNode, List<OrganizeNode>> _filterDrillChildren = new();
+
+    /// <summary>仅因在筛选模式逐级点开才临时创建的深层节点；禁止在刷新筛选列表时反向挤掉原有顶层大文件夹。</summary>
+    private readonly HashSet<OrganizeNode> _filterDrillOnlyNodes = new();
+
     private const int MaxDirectFilesPerFolder = 400;
 
     /// <summary>「当前文件夹」：三级手动识别的目标（展开/点选都会更新它）。</summary>
@@ -180,7 +186,10 @@ public partial class MainWindow
                 IsPlatformContainer = FolderOrganize.KeepsObjectEntries(tailDir),
             };
             node.SetLevel(policy.Level);
-            node.SetChildDirCount(FolderOrganize.DirectChildDirs(tailDir, 0).Total);
+            int directDirs = FolderOrganize.DirectChildDirs(tailDir, 0).Total;
+            node.SetChildDirCount(directDirs == 0 && tailDir.IsCachePartial && tailDir.FolderCount > 0
+                ? tailDir.FolderCount
+                : directDirs);
             if (!ReferenceEquals(tailDir, dir))
                 node.SetCollapsedChain(tailDir, chainName);
 
@@ -201,7 +210,8 @@ public partial class MainWindow
 
         void MaterializeNode(OrganizeNode node, int childBudget, int materializeBudget)
         {
-            if (node.ChildrenLoaded || FolderOrganize.ObjectBudgetReached(all.Count)) return;
+            if (node.ChildrenLoaded || all.Count >= FolderOrganize.AutoMaterializeObjectCap
+                || FolderOrganize.ObjectBudgetReached(all.Count)) return;
             var parentPolicy = new OrganizeLevelPolicy(node.Level, node.Size, node.FileCount);
             bool parentIsEntry = FolderOrganize.IsEntryPoint(node.ExpandDir.FullPath, entryPoints);
             int cap = Math.Max(childBudget, materializeBudget);
@@ -265,7 +275,7 @@ public partial class MainWindow
         {
             foreach (var r in roots)
             {
-                if (FolderOrganize.ObjectBudgetReached(all.Count)) break;
+                if (all.Count >= FolderOrganize.AutoMaterializeObjectCap || FolderOrganize.ObjectBudgetReached(all.Count)) break;
                 if (FolderOrganize.ShouldAutoMaterializeChildren(
                     new OrganizeLevelPolicy(r.Level, r.Size, r.FileCount), r.Dir, r.Kind, entryPoints))
                     MaterializeNode(r, FolderOrganize.ChildBudget, FolderOrganize.AutoMaterializeBudget(r.Depth == 0));
@@ -276,7 +286,7 @@ public partial class MainWindow
                 .ToList();
             foreach (var n in level1)
             {
-                if (FolderOrganize.ObjectBudgetReached(all.Count)) break;
+                if (all.Count >= FolderOrganize.AutoMaterializeObjectCap || FolderOrganize.ObjectBudgetReached(all.Count)) break;
                 if (FolderOrganize.ShouldAutoMaterializeChildren(
                     new OrganizeLevelPolicy(n.Level, n.Size, n.FileCount), n.Dir, n.Kind, entryPoints))
                     MaterializeNode(n, FolderOrganize.ChildBudget, FolderOrganize.AutoMaterializeBudget(n.Depth == 0));
@@ -294,6 +304,229 @@ public partial class MainWindow
         };
     }
 
+    private CancellationTokenSource? _startupChoreographyCts;
+    private bool _scanRowStreamActive;
+    private List<OrganizeNode>? _scanStreamPendingFlush;
+
+    private void CancelStartupChoreographyAndFlush()
+    {
+        var cts = _startupChoreographyCts;
+        _startupChoreographyCts = null;
+        if (cts != null)
+        {
+            try { cts.Cancel(); } catch { }
+            try { cts.Dispose(); } catch { }
+        }
+
+        _scanRowStreamActive = false;
+        RestoreMechaAssemblyVisualsImmediate();
+
+        var pending = _scanStreamPendingFlush;
+        _scanStreamPendingFlush = null;
+        if (pending != null && pending.Count > 0)
+        {
+            var existing = new HashSet<OrganizeNode>(_organizeRows, ReferenceEqualityComparer.Instance);
+            foreach (var row in pending)
+            {
+                if (existing.Add(row))
+                    _organizeRows.Add(row);
+            }
+            MarkCoveredRows();
+            UpdateRowSizeShares();
+            UpdateOrganizeHeader();
+            RefreshFolderDeleteBar();
+        }
+
+        if (_scanRingActive && !_scanning)
+            CompleteRadialScanGrowthImmediate();
+    }
+
+    private async Task RebuildOrganizeWithScanChoreographyAsync(
+        FileEntry root,
+        int expectedScanGen,
+        System.Diagnostics.Stopwatch choreoWatch,
+        int ringGrowMs,
+        bool alreadyChoreographedRing,
+        bool playMechaOutroButtons,
+        CancellationToken outerCt)
+    {
+        if (OrganizeGrid == null || root == null) return;
+        // 重要：当 alreadyChoreographedRing 为 true 时，本方法正是开机机甲动画本身，绝不能提前调 CancelStartupChoreographyAndFlush 掐断圆环！
+        if (!alreadyChoreographedRing)
+            _scanRowStreamActive = false;
+        ResetPurposeForNewScan();
+
+        int nodeGen = expectedScanGen;
+        string aiSig = AiConfigSignature();
+        var snap = await Task.Run(() =>
+        {
+            var prevPrio = Thread.CurrentThread.Priority;
+            try
+            {
+                Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+                outerCt.ThrowIfCancellationRequested();
+                return BuildOrganizeSnapshotCore(root, nodeGen, aiSig, null);
+            }
+            finally
+            {
+                Thread.CurrentThread.Priority = prevPrio;
+            }
+        }, outerCt);
+
+        if (outerCt.IsCancellationRequested || expectedScanGen != _scanGeneration || !ReferenceEquals(_root, root))
+            return;
+
+        if (!CanAnimate)
+        {
+            RestoreMechaAssemblyVisualsImmediate();
+            CommitOrganizeSnapshot(snap, expectedScanGen, resetFilter: true, animateReveal: false);
+            CompleteRadialScanGrowthImmediate();
+            return;
+        }
+
+        var localCts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
+        var prevCts = _startupChoreographyCts;
+        _startupChoreographyCts = localCts;
+        var ct = localCts.Token;
+
+        // 1) 提交树状态与容量统计（暂不一次性倒进 _organizeRows，留给逐行机甲锁入流式释放）
+        _organizeGeneration++;
+        _organizeBuiltForScan = expectedScanGen;
+        _organizeRows.Clear();
+        _organizeAll.Clear();
+        _organizeAll.AddRange(snap.All);
+        _organizeByDir.Clear();
+        foreach (var kv in snap.ByDir) _organizeByDir[kv.Key] = kv.Value;
+        _organizeRoots.Clear();
+        _organizeRoots.AddRange(snap.Roots);
+        _organizeEntryPoints = snap.EntryPoints;
+        _organizeUnlistedTotal = snap.UnlistedTotal;
+        _directFilesMaterialized.Clear();
+        _filterDrillChildren.Clear();
+        _filterDrillOnlyNodes.Clear();
+        _filterExpandedNodes.Clear();
+        _organizeColorFilter = null;
+        _organizePendingOnly = false;
+        _lastJumpNode = null;
+        _organizeNote = snap.Skipped > 0 ? Loc.OrganizeSkippedNoAccess(snap.Skipped) : "";
+
+        if (_organizeRoots.Count == 0)
+        {
+            ShowOrganizeState(OrganizeStateKind.Empty);
+            UpdateOrganizeHeader();
+            RefreshDockedReportPlaceholder();
+            CompleteRadialScanGrowth();
+            if (playMechaOutroButtons) PlayMechaAssemblyOutroButtons();
+            return;
+        }
+
+        var plannedRows = new List<OrganizeNode>(_organizeRoots.Count);
+        long maxSize = 0;
+        int budget = 0;
+        foreach (var r in _organizeRoots)
+        {
+            if (FolderOrganize.RowBudgetReached(budget)) break;
+            plannedRows.Add(r);
+            if (r.Size > maxSize) maxSize = r.Size;
+            budget++;
+        }
+        foreach (var r in plannedRows)
+            r.SetSizeShare(maxSize > 0 && r.Size > 0 ? (double)r.Size / maxSize : 0.0);
+
+        _scanStreamPendingFlush = plannedRows;
+        ShowOrganizeState(OrganizeStateKind.None);
+        UpdateOrganizeHeader();
+        UpdateStorageBreakdownBar();
+        RefreshDockedReportPlaceholder();
+
+        int elapsedAlready = (int)choreoWatch.ElapsedMilliseconds;
+        int remainGrowMs = alreadyChoreographedRing
+            ? Math.Max(900, ringGrowMs - elapsedAlready)
+            : Math.Clamp(ringGrowMs - elapsedAlready, 1800, 4200);
+
+        if (!alreadyChoreographedRing)
+            AnimateScanDashTo(1.0, durationMs: remainGrowMs);
+
+        int streamVisibleCap = Math.Min(16, plannedRows.Count);
+        long totalFiles = Math.Max(1, root.FileCount);
+        double startPct = alreadyChoreographedRing
+            ? Math.Clamp((double)elapsedAlready / Math.Max(1, ringGrowMs), 0.0, 0.20)
+            : Math.Clamp(_scanRingFraction, 0.12, 0.70);
+
+        int streamStartMs = Math.Min(220, remainGrowMs / 8);
+        int streamEndMs = Math.Max(streamStartMs + 600, remainGrowMs - 320);
+        int nextRowIdx = 0;
+        var phaseWatch = System.Diagnostics.Stopwatch.StartNew();
+
+        _scanRowStreamActive = true;
+        try
+        {
+            while (phaseWatch.ElapsedMilliseconds < remainGrowMs)
+            {
+                ct.ThrowIfCancellationRequested();
+                long nowMs = phaseWatch.ElapsedMilliseconds;
+                double t = Math.Clamp((double)nowMs / Math.Max(1, remainGrowMs), 0.0, 1.0);
+                double eased = t < 0.5 ? 2.0 * t * t : 1.0 - Math.Pow(-2.0 * t + 2.0, 2.0) / 2.0;
+                double pctFrac = startPct + (1.0 - startPct) * eased;
+                int shownPct = Math.Clamp((int)Math.Round(pctFrac * 100.0), 1, 99);
+                long shownFiles = (long)Math.Round(totalFiles * pctFrac);
+                SetChoreographedScanCounterText(shownPct, shownFiles);
+
+                if (nowMs >= streamStartMs && nextRowIdx < streamVisibleCap)
+                {
+                    double rowT = Math.Clamp((double)(nowMs - streamStartMs) / Math.Max(1, streamEndMs - streamStartMs), 0.0, 1.0);
+                    int targetCount = Math.Min(streamVisibleCap, 1 + (int)Math.Floor(rowT * streamVisibleCap));
+                    while (nextRowIdx < targetCount)
+                    {
+                        _organizeRows.Add(plannedRows[nextRowIdx]);
+                        nextRowIdx++;
+                    }
+                }
+
+                await Task.Delay(32, ct);
+            }
+
+            while (nextRowIdx < streamVisibleCap)
+            {
+                _organizeRows.Add(plannedRows[nextRowIdx]);
+                nextRowIdx++;
+            }
+            _scanRowStreamActive = false;
+            while (nextRowIdx < plannedRows.Count)
+            {
+                _organizeRows.Add(plannedRows[nextRowIdx]);
+                nextRowIdx++;
+            }
+            _scanStreamPendingFlush = null;
+
+            MarkCoveredRows();
+            UpdateRowSizeShares();
+            UpdateOrganizeHeader();
+            RefreshFolderDeleteBar();
+
+            SetChoreographedScanCounterText(100, totalFiles);
+            CompleteRadialScanGrowth();
+
+            if (playMechaOutroButtons)
+            {
+                PlayMechaAssemblyOutroButtons();
+                await Task.Delay(520, ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _scanRowStreamActive = false;
+            RestoreMechaAssemblyVisualsImmediate();
+        }
+        finally
+        {
+            _scanRowStreamActive = false;
+            if (ReferenceEquals(_startupChoreographyCts, localCts))
+                _startupChoreographyCts = prevCts;
+            localCts.Dispose();
+        }
+    }
+
     private void CommitOrganizeSnapshot(BuiltOrganizeSnapshot snap, int scanGen, bool resetFilter = true, bool animateReveal = true)
     {
         _organizeGeneration++;
@@ -308,12 +541,18 @@ public partial class MainWindow
         _organizeEntryPoints = snap.EntryPoints;
         _organizeUnlistedTotal = snap.UnlistedTotal;
         _directFilesMaterialized.Clear();
+        _filterDrillChildren.Clear();
+        _filterDrillOnlyNodes.Clear();
         if (resetFilter)
         {
             _filterExpandedNodes.Clear();
             _organizeColorFilter = null;
             _organizePendingOnly = false;
             _lastJumpNode = null;
+        }
+        else
+        {
+            _filterExpandedNodes.Clear();
         }
         _organizeNote = snap.Skipped > 0 ? Loc.OrganizeSkippedNoAccess(snap.Skipped) : "";
 
@@ -332,6 +571,7 @@ public partial class MainWindow
         {
             AnimateSlideFadeIn(OrganizeGridHost, offsetY: 8, durationMs: 200, fromOpacity: 0.6);
             AnimateSpringPop(RadialRingCanvas, fromScale: 0.94, offsetY: 0, durationMs: 240);
+            StaggerRevealVisibleRows(OrganizeGrid);
         }
     }
 
@@ -346,11 +586,32 @@ public partial class MainWindow
         ResetPurposeForNewScan();
 
         HashSet<string>? prevChecked = null;
+        HashSet<string>? prevExpanded = null;
+        HashSet<string>? prevFilterExpanded = null;
+        HashSet<string>? prevFilesOpen = null;
+        HashSet<string>? prevDetailOpen = null;
+        string? prevSelectedPath = null;
+        double prevScrollOffset = 0;
+
         if (preserveChecks && _organizeAll.Count > 0)
         {
             prevChecked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            prevExpanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            prevFilterExpanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            prevFilesOpen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            prevDetailOpen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var n in _organizeAll)
+            {
                 if (n.IsChecked) prevChecked.Add(n.FullPath);
+                if (n.IsExpanded && !_organizeColorFilter.HasValue) prevExpanded.Add(n.FullPath);
+                if (n.IsFilesOpen) prevFilesOpen.Add(n.FullPath);
+                if (n.IsDetailOpen) prevDetailOpen.Add(n.FullPath);
+            }
+            foreach (var n in _filterExpandedNodes)
+                prevFilterExpanded.Add(n.FullPath);
+            prevSelectedPath = (OrganizeGrid.SelectedItem as OrganizeNode)?.FullPath;
+            prevScrollOffset = FindScrollViewer(OrganizeGrid)?.VerticalOffset ?? 0;
         }
 
         int nodeGen = expectedScanGen;
@@ -374,6 +635,134 @@ public partial class MainWindow
             return;
 
         CommitOrganizeSnapshot(snap, expectedScanGen, resetFilter: !preserveChecks, animateReveal: !preserveChecks);
+        if (preserveChecks)
+        {
+            RestoreOrganizeViewStateAfterSilentRefresh(
+                prevExpanded, prevFilterExpanded, prevFilesOpen, prevDetailOpen, prevSelectedPath, prevScrollOffset);
+        }
+    }
+
+    private void RestoreOrganizeViewStateAfterSilentRefresh(
+        HashSet<string>? expandedPaths,
+        HashSet<string>? filterExpandedPaths,
+        HashSet<string>? filesOpenPaths,
+        HashSet<string>? detailOpenPaths,
+        string? selectedPath,
+        double scrollOffset)
+    {
+        bool changed = false;
+
+        if (_organizeColorFilter.HasValue && filterExpandedPaths is { Count: > 0 })
+        {
+            // 先按路径长度从短到长展开，保证祖先展开出子项后再继续展开孙辈
+            foreach (var path in filterExpandedPaths.OrderBy(p => p.Length))
+            {
+                var target = FindOrMaterializeFilterNodeByPath(path);
+                if (target == null || !target.Dir.IsDirectory) continue;
+                var kids = EnsureFilterDrillChildren(target, new HashSet<OrganizeNode> { target });
+                if (kids.Count > 0)
+                {
+                    _filterExpandedNodes.Add(target);
+                    target.Expand();
+                    changed = true;
+                }
+            }
+        }
+        else if (!_organizeColorFilter.HasValue && expandedPaths is { Count: > 0 })
+        {
+            foreach (var path in expandedPaths.OrderBy(p => p.Length))
+            {
+                if (ExpandOrganizeNodeByPath(path))
+                    changed = true;
+            }
+        }
+
+        if (filesOpenPaths is { Count: > 0 } || detailOpenPaths is { Count: > 0 })
+        {
+            foreach (var n in _organizeAll)
+            {
+                if (filesOpenPaths != null && filesOpenPaths.Contains(n.FullPath) && n.CanViewFiles && !n.IsFilesOpen)
+                {
+                    n.SetFilesOpen(true);
+                    changed = true;
+                }
+                if (detailOpenPaths != null && detailOpenPaths.Contains(n.FullPath) && !n.IsDetailOpen)
+                {
+                    n.SetDetailOpen(true);
+                    changed = true;
+                }
+            }
+        }
+
+        OrganizeNode? anchor = null;
+        if (!string.IsNullOrEmpty(selectedPath))
+            anchor = _organizeAll.FirstOrDefault(n => OrganizePathIsSame(n.FullPath, selectedPath));
+
+        if (changed || anchor != null || scrollOffset > 0)
+            RefreshOrganizeRows(anchorNode: anchor, restoreScrollOffset: scrollOffset);
+    }
+
+    private OrganizeNode? FindOrMaterializeFilterNodeByPath(string fullPath)
+    {
+        var hit = _organizeAll.FirstOrDefault(n => n.Dir.IsDirectory && OrganizePathIsSame(n.FullPath, fullPath));
+        if (hit != null) return hit;
+
+        var seeds = _organizeAll.Where(n => n.Dir.IsDirectory && OrganizePathIsUnder(fullPath, n.FullPath))
+            .OrderByDescending(n => n.FullPath.Length)
+            .ToList();
+        if (seeds.Count == 0) return null;
+
+        var cur = seeds[0];
+        for (int guard = 0; guard < 16 && !OrganizePathIsSame(cur.FullPath, fullPath); guard++)
+        {
+            var kids = EnsureFilterDrillChildren(cur, new HashSet<OrganizeNode> { cur });
+            var next = kids.FirstOrDefault(k => k.Dir.IsDirectory && OrganizePathIsUnder(fullPath, k.FullPath));
+            if (next == null) return null;
+            cur = next;
+        }
+        return OrganizePathIsSame(cur.FullPath, fullPath) ? cur : null;
+    }
+
+    private bool ExpandOrganizeNodeByPath(string fullPath)
+    {
+        if (_root == null) return false;
+        var entry = FolderOrganize.Find(_root, fullPath);
+        if (entry != null && _organizeByDir.TryGetValue(entry, out var known))
+        {
+            if (known.CanExpand && !known.IsExpanded)
+            {
+                if (!known.ChildrenLoaded)
+                    Materialize(known, FolderOrganize.MaxMaterializePerNode, null, autoExpand: true);
+                else
+                    known.Expand();
+                EnsureDirectFilesMaterialized(known);
+                return known.IsExpanded;
+            }
+            return false;
+        }
+
+        var root = _organizeRoots
+            .Where(r => OrganizePathIsUnder(fullPath, r.FullPath))
+            .OrderByDescending(r => r.FullPath.Length)
+            .FirstOrDefault();
+        if (root == null) return false;
+
+        var cur = root;
+        for (int guard = 0; guard < 24 && !OrganizePathIsSame(cur.FullPath, fullPath); guard++)
+        {
+            if (!cur.ChildrenLoaded)
+                Materialize(cur, FolderOrganize.MaxMaterializePerNode, null, autoExpand: false);
+            var next = cur.Children.FirstOrDefault(c => c.Dir.IsDirectory && OrganizePathIsUnder(fullPath, c.FullPath));
+            if (next == null) return false;
+            cur = next;
+        }
+        if (!OrganizePathIsSame(cur.FullPath, fullPath) || !cur.CanExpand) return false;
+        if (!cur.ChildrenLoaded)
+            Materialize(cur, FolderOrganize.MaxMaterializePerNode, null, autoExpand: true);
+        else
+            cur.Expand();
+        EnsureDirectFilesMaterialized(cur);
+        return cur.IsExpanded;
     }
 
     private void RebuildOrganize()
@@ -395,6 +784,8 @@ public partial class MainWindow
         _aiReportAnnotations.Clear();
         _directFilesMaterialized.Clear();
         _filterExpandedNodes.Clear();
+        _filterDrillChildren.Clear();
+        _filterDrillOnlyNodes.Clear();
         _organizeUnlistedTotal = 0;
 
         if (_root == null)
@@ -435,7 +826,10 @@ public partial class MainWindow
             IsPlatformContainer = FolderOrganize.KeepsObjectEntries(tailDir),
         };
         node.SetLevel(policy.Level);
-        node.SetChildDirCount(FolderOrganize.DirectChildDirs(tailDir, 0).Total);
+        int directDirs = FolderOrganize.DirectChildDirs(tailDir, 0).Total;
+        node.SetChildDirCount(directDirs == 0 && tailDir.IsCachePartial && tailDir.FolderCount > 0
+            ? tailDir.FolderCount
+            : directDirs);
         if (!ReferenceEquals(tailDir, dir))
             node.SetCollapsedChain(tailDir, chainName);
 
@@ -707,10 +1101,16 @@ public partial class MainWindow
     /// </summary>
     private HashSet<OrganizeNode>? _organizeFilterSet;
 
-    private void RefreshOrganizeRows()
+    private void RefreshOrganizeRows(OrganizeNode? anchorNode = null, double? restoreScrollOffset = null)
+        => RefreshOrganizeRowsCore(anchorNode, restoreScrollOffset, skipViewportRestore: false);
+
+    private void RefreshOrganizeRowsCore(OrganizeNode? anchorNode, double? restoreScrollOffset, bool skipViewportRestore)
     {
         if (OrganizeGrid == null) return;
+        CancelStartupChoreographyAndFlush();
+        OnBeforeStandardOrganizeRefresh();
         _organizeFilterSet = null;
+        double scrollOffset = restoreScrollOffset ?? (FindScrollViewer(OrganizeGrid)?.VerticalOffset ?? 0);
 
         if (_organizeColorFilter is { } filterTone)
         {
@@ -721,6 +1121,7 @@ public partial class MainWindow
             foreach (var n in _organizeAll)
             {
                 if (!n.Dir.IsDirectory || n.ColorTone != filterTone) continue;
+                if (_filterDrillOnlyNodes.Contains(n)) continue;
                 if (!seenNodes.Add(n)) continue;
                 if (filterTone == FolderColorTone.Yellow && !n.IsAiAnnotated && IsSystemContainerPath(n.FullPath))
                 {
@@ -756,6 +1157,9 @@ public partial class MainWindow
                 .ThenBy(n => n.FullPath, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            var filterRootSet = new HashSet<OrganizeNode>(filtered);
+            var branchVisited = new HashSet<OrganizeNode>();
+
             _organizeRows.Clear();
             int count = 0;
             foreach (var item in filtered)
@@ -765,12 +1169,18 @@ public partial class MainWindow
                 _organizeRows.Add(item);
                 count++;
                 if (_filterExpandedNodes.Contains(item))
-                    AddFilterExpandedChildren(item, 1, ref count);
+                {
+                    branchVisited.Add(item);
+                    AddFilterExpandedChildren(item, 1, filterRootSet, branchVisited, ref count);
+                    branchVisited.Remove(item);
+                }
             }
             MarkCoveredRows();
             UpdateRowSizeShares();
             UpdateOrganizeHeader();
             RefreshFolderDeleteBar();
+            if (!skipViewportRestore)
+                RestoreOrganizeViewport(anchorNode, scrollOffset);
             return;
         }
 
@@ -806,6 +1216,26 @@ public partial class MainWindow
         UpdateOrganizeHeader();
         // 行集合变了：底部执行栏的「已选 / 可删除 / 状态」跟着重算（后端合同提供）
         RefreshFolderDeleteBar();
+        if (!skipViewportRestore)
+            RestoreOrganizeViewport(anchorNode, scrollOffset);
+    }
+
+    private void RestoreOrganizeViewport(OrganizeNode? anchorNode, double scrollOffset)
+    {
+        if (OrganizeGrid == null) return;
+        if (anchorNode != null && _organizeRows.Contains(anchorNode))
+            OrganizeGrid.SelectedItem = anchorNode;
+
+        if (scrollOffset <= 0) return;
+        var sv = FindScrollViewer(OrganizeGrid);
+        sv?.ScrollToVerticalOffset(scrollOffset);
+        OrganizeGrid.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (OrganizeGrid == null) return;
+            var laterSv = FindScrollViewer(OrganizeGrid);
+            if (laterSv != null && Math.Abs(laterSv.VerticalOffset - scrollOffset) > 1.0)
+                laterSv.ScrollToVerticalOffset(Math.Min(scrollOffset, laterSv.ScrollableHeight));
+        }));
     }
 
     private void UpdateRowSizeShares()
@@ -889,17 +1319,184 @@ public partial class MainWindow
     private void StorageSegYellow_Click(object sender, MouseButtonEventArgs e) => SetColorFilter(FolderColorTone.Yellow);
     private void StorageSegRed_Click(object sender, MouseButtonEventArgs e) => SetColorFilter(FolderColorTone.Red);
 
-    private void AddFilterExpandedChildren(OrganizeNode parent, int childDepth, ref int count)
+    private void AddFilterExpandedChildren(
+        OrganizeNode parent,
+        int childDepth,
+        HashSet<OrganizeNode> filterRootSet,
+        HashSet<OrganizeNode> branchVisited,
+        ref int count)
     {
-        foreach (var c in parent.Children)
+        var kids = EnsureFilterDrillChildren(parent, branchVisited);
+        foreach (var c in kids)
         {
             if (FolderOrganize.RowBudgetReached(count)) return;
+            if (filterRootSet.Contains(c) || !branchVisited.Add(c)) continue;
             c.SetFlatFilterMode(childDepth);
             _organizeRows.Add(c);
             count++;
-            if (c.IsExpanded)
-                AddFilterExpandedChildren(c, childDepth + 1, ref count);
+            if (_filterExpandedNodes.Contains(c))
+                AddFilterExpandedChildren(c, childDepth + 1, filterRootSet, branchVisited, ref count);
+            branchVisited.Remove(c);
         }
+    }
+
+    /// <summary>
+    /// 筛选模式下展开某个目录时按真实磁盘层级列出所有子目录与大文件，
+    /// 不因为子节点也在顶层系统入口（如 AppData\Local / Downloads）就跳过不挂，彻底避免“点进去没头了”。
+    /// </summary>
+    private List<OrganizeNode> EnsureFilterDrillChildren(OrganizeNode parent, HashSet<OrganizeNode> branchVisited)
+    {
+        HydratePartialCacheDirIfNeeded(parent);
+        if (_filterDrillChildren.TryGetValue(parent, out var cachedKids))
+            return cachedKids;
+
+        var parentPolicy = new OrganizeLevelPolicy(parent.Level, parent.Size, parent.FileCount);
+        bool parentIsEntry = FolderOrganize.IsEntryPoint(parent.ExpandDir.FullPath, _organizeEntryPoints);
+        var set = FolderOrganize.DirectChildDirs(parent.ExpandDir, FolderOrganize.MaxMaterializePerNode);
+
+        var combined = new List<OrganizeNode>(set.Dirs.Count + 16);
+        var seenEntries = new HashSet<FileEntry>();
+
+        foreach (var d in set.Dirs)
+        {
+            if (!seenEntries.Add(d)) continue;
+            OrganizeNode childNode;
+            if (_organizeByDir.TryGetValue(d, out var existing))
+            {
+                if (ReferenceEquals(existing, parent) || branchVisited.Contains(existing))
+                    continue;
+                childNode = existing;
+            }
+            else
+            {
+                bool isEntry = FolderOrganize.IsEntryPoint(d.FullPath, _organizeEntryPoints);
+                childNode = CreateOrganizeNode(d, parent.Depth + 1,
+                    FolderOrganize.ForChild(parentPolicy, d, isEntry, parentIsEntry));
+                _filterDrillOnlyNodes.Add(childNode);
+            }
+            combined.Add(childNode);
+        }
+
+        var directFiles = new List<FileEntry>();
+        foreach (var child in parent.ExpandDir.ChildList)
+        {
+            if (child.IsDirectory || child.IsReparsePoint || child.IsFilesGroup) continue;
+            if (seenEntries.Add(child)) directFiles.Add(child);
+        }
+        directFiles.Sort(static (a, b) =>
+        {
+            int bySize = b.Size.CompareTo(a.Size);
+            if (bySize != 0) return bySize;
+            return string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase);
+        });
+        int takeFiles = Math.Min(directFiles.Count, MaxDirectFilesPerFolder);
+        for (int i = 0; i < takeFiles; i++)
+            combined.Add(CreateOrganizeFileNode(directFiles[i], parent.Depth + 1, parent.Level + 1));
+
+        combined.Sort(static (a, b) =>
+        {
+            int bySize = b.Size.CompareTo(a.Size);
+            if (bySize != 0) return bySize;
+            return string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase);
+        });
+
+        _filterDrillChildren[parent] = combined;
+        return combined;
+    }
+
+    /// <summary>
+    /// 后台 MFT 尚未扫完前，若用户先点了冷启动缓存里被截断的目录（IsCachePartial），
+    /// 直接轻量枚举该目录一层填充真实子目录与文件，保证“永远能继续往下点”。
+    /// </summary>
+    private bool HydratePartialCacheDirIfNeeded(OrganizeNode node)
+    {
+        var dir = node.ExpandDir;
+        if (!dir.IsDirectory || !dir.IsCachePartial) return false;
+        dir.IsCachePartial = false;
+
+        if (string.IsNullOrWhiteSpace(dir.FullPath) || !System.IO.Directory.Exists(dir.FullPath))
+        {
+            node.InvalidateContentMetrics();
+            return false;
+        }
+
+        var existingDirsByName = new Dictionary<string, FileEntry>(StringComparer.OrdinalIgnoreCase);
+        var existingFilesByName = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in dir.ChildList)
+        {
+            if (c.IsDirectory) existingDirsByName[c.Name] = c;
+            else existingFilesByName.Add(c.Name);
+        }
+
+        bool addedNew = false;
+        try
+        {
+            int budget = 600;
+            int subdirProbeBudget = 64;
+            var di = new System.IO.DirectoryInfo(dir.FullPath);
+            foreach (var info in di.EnumerateFileSystemInfos())
+            {
+                if (budget-- <= 0) break;
+                bool isReparse = (info.Attributes & System.IO.FileAttributes.ReparsePoint) != 0;
+                bool isHidden = (info.Attributes & System.IO.FileAttributes.Hidden) != 0;
+                bool isSystem = (info.Attributes & System.IO.FileAttributes.System) != 0;
+
+                if (info is System.IO.DirectoryInfo sub)
+                {
+                    if (existingDirsByName.ContainsKey(sub.Name)) continue;
+                    bool hasSubItems = false;
+                    if (!isReparse && subdirProbeBudget-- > 0)
+                    {
+                        try { hasSubItems = sub.EnumerateFileSystemInfos().Take(1).Any(); }
+                        catch { hasSubItems = false; }
+                    }
+                    var subEntry = new FileEntry
+                    {
+                        Name = sub.Name,
+                        FullPath = sub.FullName,
+                        Kind = EntryKind.Directory,
+                        Parent = dir,
+                        IsReparsePoint = isReparse,
+                        IsHidden = isHidden,
+                        IsSystem = isSystem,
+                        Modified = sub.LastWriteTime,
+                        FolderCount = hasSubItems ? 1 : 0,
+                        IsCachePartial = hasSubItems,
+                    };
+                    dir.Children.Add(subEntry);
+                    addedNew = true;
+                }
+                else if (info is System.IO.FileInfo fi)
+                {
+                    if (existingFilesByName.Contains(fi.Name)) continue;
+                    var fileEntry = new FileEntry
+                    {
+                        Name = fi.Name,
+                        FullPath = fi.FullName,
+                        Kind = EntryKind.File,
+                        Category = FileClassifier.Classify(fi.Name),
+                        Parent = dir,
+                        Size = fi.Length,
+                        Allocated = fi.Length,
+                        IsReparsePoint = isReparse,
+                        IsHidden = isHidden,
+                        IsSystem = isSystem,
+                        Modified = fi.LastWriteTime,
+                    };
+                    dir.Children.Add(fileEntry);
+                    addedNew = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Record("Organize", ex, "hydrate cache dir " + LogRedactor.ScrubPath(dir.FullPath));
+        }
+
+        node.SetChildDirCount(FolderOrganize.DirectChildDirs(dir, 0).Total);
+        node.InvalidateContentMetrics();
+        if (addedNew) _filterDrillChildren.Remove(node);
+        return addedNew;
     }
 
     private static bool IsSystemContainerPath(string? path)
@@ -1005,6 +1602,8 @@ public partial class MainWindow
     {
         bool flatWasVisible = FlatModeBadge?.Visibility == Visibility.Visible;
         _organizeColorFilter = _organizeColorFilter == tone && tone != null ? null : tone;
+        foreach (var n in _filterExpandedNodes)
+            if (n.IsExpanded) n.Collapse();
         _filterExpandedNodes.Clear();
         if (_organizeColorFilter.HasValue)
         {
@@ -1140,10 +1739,21 @@ public partial class MainWindow
 
     // ==================== 展开 / 收起 ====================
 
+    private void OrganizeGrid_LoadingRow(object? sender, DataGridRowEventArgs e)
+    {
+        if (_scanRowStreamActive && CanAnimate)
+        {
+            AnimateStreamedScanRowIn(e.Row);
+            return;
+        }
+        if (!_classifyAnimInFlight)
+            ResetRowMotionTransform(e.Row);
+    }
+
     private void OrganizeExpand_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is OrganizeNode t) { ToggleOrganize(t); return; }
-        if ((sender as FrameworkElement)?.DataContext is OrganizeNode n) ToggleOrganize(n);
+        if ((sender as FrameworkElement)?.Tag is OrganizeNode t) { if (!t.IsClassifyGroupHeader) ToggleOrganize(t); return; }
+        if ((sender as FrameworkElement)?.DataContext is OrganizeNode n && !n.IsClassifyGroupHeader) ToggleOrganize(n);
     }
 
     // 说明：按文件夹删除的删除入口（OrganizeSelect_Click / FolderDeletePreview_Click /
@@ -1158,7 +1768,8 @@ public partial class MainWindow
     {
         var node = (sender as FrameworkElement)?.Tag as OrganizeNode
             ?? (sender as FrameworkElement)?.DataContext as OrganizeNode;
-        if (node == null) return;
+        if (node == null || node.IsClassifyGroupHeader) return;
+        HydratePartialCacheDirIfNeeded(node);
         node.ToggleFiles();
         AppLog.Info("Organize", $"op=files dir={node.Name} open={node.IsFilesOpen} "
             + $"listed={node.VisibleFiles.Count} direct={node.DirectFileCount} kind={node.ContentKind}");
@@ -1177,31 +1788,28 @@ public partial class MainWindow
             }
             else
             {
-                _filterExpandedNodes.Add(node);
-                if (node.ChildrenLoaded)
+                HydratePartialCacheDirIfNeeded(node);
+                var kids = EnsureFilterDrillChildren(node, new HashSet<OrganizeNode> { node });
+                if (kids.Count > 0)
                 {
+                    _filterExpandedNodes.Add(node);
                     node.Expand();
-                    EnsureDirectFilesMaterialized(node);
                 }
                 else
                 {
-                    var r = Materialize(node, FolderOrganize.MaxMaterializePerNode, null, autoExpand: true);
-                    EnsureDirectFilesMaterialized(node);
-                    if (node.Children.Count > 0 && !node.IsExpanded)
-                        node.Expand();
-                    if (!node.IsExpanded)
-                        _filterExpandedNodes.Remove(node);
+                    SetOrganizeNote(Loc.OrganizeExpandNoChildren);
                 }
             }
-            RefreshOrganizeRows();
+            RefreshOrganizeRows(anchorNode: node);
             return;
         }
 
+        bool hydratedNew = HydratePartialCacheDirIfNeeded(node);
         if (node.IsExpanded)
         {
             node.Collapse();
         }
-        else if (node.ChildrenLoaded)
+        else if (node.ChildrenLoaded && !hydratedNew)
         {
             // 展开不重复请求：结果还在节点上，直接显示；并补齐该目录的直接子文件。
             node.Expand();
@@ -1209,28 +1817,57 @@ public partial class MainWindow
         }
         else
         {
-            // 首次展开：先材料化子目录，再补充直接子文件并展开。
-            var r = Materialize(node, FolderOrganize.MaxMaterializePerNode, null, autoExpand: true);
-            EnsureDirectFilesMaterialized(node);
-            if (node.Children.Count > 0 && !node.IsExpanded)
-                node.Expand();
-            if (!node.IsExpanded)
+            // 首次展开（或冷启动缓存刚补全磁盘真实现状）：先材料化子目录，再补充直接子文件并展开。
+            if (hydratedNew && node.ChildrenLoaded)
             {
-                switch (r)
+                // 追加刚刚从磁盘补全出来、原本缓存截断缺失的子目录
+                var parentPolicy = new OrganizeLevelPolicy(node.Level, node.Size, node.FileCount);
+                bool parentIsEntry = FolderOrganize.IsEntryPoint(node.ExpandDir.FullPath, _organizeEntryPoints);
+                var set = FolderOrganize.DirectChildDirs(node.ExpandDir, FolderOrganize.MaxMaterializePerNode);
+                var merged = new List<OrganizeNode>(node.Children);
+                foreach (var d in set.Dirs)
                 {
-                    case OrganizeMaterializeResult.BudgetReached:
-                        SetOrganizeNote(Loc.OrganizeExpandBudgetReached);
-                        break;
-                    case OrganizeMaterializeResult.AlreadyElsewhere:
-                        SetOrganizeNote(Loc.OrganizeExpandAlreadyListed);
-                        break;
-                    case OrganizeMaterializeResult.NoChildren:
-                        SetOrganizeNote(Loc.OrganizeExpandNoChildren);
-                        break;
+                    if (_organizeByDir.ContainsKey(d)) continue;
+                    if (FolderOrganize.ObjectBudgetReached(_organizeAll.Count)) break;
+                    bool isEntry = FolderOrganize.IsEntryPoint(d.FullPath, _organizeEntryPoints);
+                    merged.Add(CreateOrganizeNode(d, node.Depth + 1,
+                        FolderOrganize.ForChild(parentPolicy, d, isEntry, parentIsEntry)));
+                }
+                node.SetChildren(merged, set.Truncated, set.Total, Math.Max(0, set.Total - merged.Count), autoExpand: merged.Count > 0);
+                EnsureDirectFilesMaterialized(node);
+            }
+            else
+            {
+                var r = Materialize(node, FolderOrganize.MaxMaterializePerNode, null, autoExpand: true);
+                EnsureDirectFilesMaterialized(node);
+                if (node.Children.Count > 0 && !node.IsExpanded)
+                    node.Expand();
+                if (!node.IsExpanded)
+                {
+                    switch (r)
+                    {
+                        case OrganizeMaterializeResult.BudgetReached:
+                            SetOrganizeNote(Loc.OrganizeExpandBudgetReached);
+                            break;
+                        case OrganizeMaterializeResult.AlreadyElsewhere:
+                            SetOrganizeNote(Loc.OrganizeExpandAlreadyListed);
+                            break;
+                        case OrganizeMaterializeResult.NoChildren:
+                            SetOrganizeNote(Loc.OrganizeExpandNoChildren);
+                            break;
+                    }
                 }
             }
         }
-        RefreshOrganizeRows();
+        if (_classifySortActive)
+        {
+            SyncClassifyGroupedRowsInPlace();
+            RefreshFolderDeleteBar();
+        }
+        else
+        {
+            RefreshOrganizeRows(anchorNode: node);
+        }
         AppLog.Info("Organize", $"op=toggle dir={node.Name} level={node.Level} "
             + $"expanded={node.IsExpanded} loaded={node.ChildrenLoaded} kids={node.Children.Count} "
             + $"rows={_organizeRows.Count}");
@@ -1251,6 +1888,10 @@ public partial class MainWindow
     {
         if (folder == null || _organizeRoots.Count == 0 || OrganizeGrid == null)
             return new OrganizeRevealResult(OrganizeRevealKind.NotFound, null);
+
+        // 若当前正处于按色分组视图且该目录就在分组清单里（含已被折叠的色组），直接展开对应色组并原地聚焦高亮！
+        if (TryRevealFolderInGroupedView(folder, out var groupedNode) && groupedNode != null)
+            return SelectOrganizeRow(groupedNode, alreadyInCurrentView: true);
 
         // 对象已经建过：直接找回它在树里的链，不需要再材料化一遍
         if (_organizeByDir.TryGetValue(folder, out var known))
@@ -1334,26 +1975,30 @@ public partial class MainWindow
             target.Expand();
     }
 
-    private OrganizeRevealResult SelectOrganizeRow(OrganizeNode node)
+    private OrganizeRevealResult SelectOrganizeRow(OrganizeNode node, bool alreadyInCurrentView = false)
     {
-        if (_organizeColorFilter.HasValue)
+        if (!alreadyInCurrentView)
         {
-            if (node.ColorTone != _organizeColorFilter.Value)
+            if (_organizeColorFilter.HasValue)
+            {
+                if (node.ColorTone != _organizeColorFilter.Value)
+                {
+                    _organizeColorFilter = null;
+                    _filterExpandedNodes.Clear();
+                }
+                else if (node.CanExpand)
+                {
+                    _filterExpandedNodes.Add(node);
+                }
+            }
+            // 关键：跳过 RestoreOrganizeViewport，彻底根除「跳转完瞬间被旧滚动条位置拉回画面外」的 Bug！
+            RefreshOrganizeRowsCore(null, null, skipViewportRestore: true);
+            if (_organizeColorFilter.HasValue && !_organizeRows.Contains(node))
             {
                 _organizeColorFilter = null;
                 _filterExpandedNodes.Clear();
+                RefreshOrganizeRowsCore(null, null, skipViewportRestore: true);
             }
-            else if (node.CanExpand)
-            {
-                _filterExpandedNodes.Add(node);
-            }
-        }
-        RefreshOrganizeRows();
-        if (_organizeColorFilter.HasValue && !_organizeRows.Contains(node))
-        {
-            _organizeColorFilter = null;
-            _filterExpandedNodes.Clear();
-            RefreshOrganizeRows();
         }
         if (!_organizeRows.Contains(node))
             return new OrganizeRevealResult(OrganizeRevealKind.Partial, node);
@@ -1362,9 +2007,42 @@ public partial class MainWindow
         node.IsJumpHighlighted = true;
         _lastJumpNode = node;
         OrganizeGrid.SelectedItem = node;
-        OrganizeGrid.ScrollIntoView(node);
+        ScrollOrganizeRowIntoCenterAndSpotlight(node);
         OrganizeGrid.Focus();
         return new OrganizeRevealResult(OrganizeRevealKind.Located, node);
+    }
+
+    private void ScrollOrganizeRowIntoCenterAndSpotlight(OrganizeNode node)
+    {
+        if (OrganizeGrid == null) return;
+        OrganizeGrid.UpdateLayout();
+        OrganizeGrid.ScrollIntoView(node);
+        OrganizeGrid.UpdateLayout();
+
+        OrganizeGrid.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (OrganizeGrid == null || !_organizeRows.Contains(node)) return;
+            OrganizeGrid.ScrollIntoView(node);
+            OrganizeGrid.UpdateLayout();
+
+            var sv = FindScrollViewer(OrganizeGrid);
+            if (OrganizeGrid.ItemContainerGenerator.ContainerFromItem(node) is DataGridRow row && row.IsVisible)
+            {
+                if (sv != null && OrganizeGrid.ActualHeight > 0 && row.ActualHeight > 0)
+                {
+                    double rowTopInGrid = row.TransformToAncestor(OrganizeGrid).Transform(new Point(0, 0)).Y;
+                    double desiredTop = Math.Max(42.0, (OrganizeGrid.ActualHeight - row.ActualHeight) * 0.40);
+                    double delta = rowTopInGrid - desiredTop;
+                    if (Math.Abs(delta) > 8.0)
+                    {
+                        double targetOffset = Math.Clamp(sv.VerticalOffset + delta, 0.0, sv.ScrollableHeight);
+                        sv.ScrollToVerticalOffset(targetOffset);
+                        OrganizeGrid.UpdateLayout();
+                    }
+                }
+                AnimateJumpSpotlight(row);
+            }
+        }));
     }
 
     private void OrganizeGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1399,19 +2077,19 @@ public partial class MainWindow
     private void OrganizePurpose_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         var node = (sender as FrameworkElement)?.DataContext as OrganizeNode;
-        if (node == null) return;
+        if (node == null || node.IsClassifyGroupHeader) return;
         // PropertyChanged 会自己刷新这一行的高度（RowHeight=Auto），不需要整表重绘
         node.ToggleDetail();
         e.Handled = true;
     }
 
-    /// <summary>双击一行 = 就地展开/收起这个文件夹（不换视图、不触发识别）。</summary>
+    /// <summary>双击一行 = 就地展开/收起这个文件夹（纯文件目录展开文件列表，不换视图、不触发识别）。</summary>
     private void OrganizeGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if ((sender as DataGrid)?.SelectedItem is OrganizeNode n)
-        {
-            if (n.CanExpand && !n.IsExpanded) ToggleOrganize(n);
-        }
+        if ((sender as DataGrid)?.SelectedItem is not OrganizeNode n || n.IsClassifyGroupHeader) return;
+        HydratePartialCacheDirIfNeeded(n);
+        if (n.CanExpand) ToggleOrganize(n);
+        else if (n.CanViewFiles) n.ToggleFiles();
     }
 
     // ==================== 待确认筛选（页面上已无入口） ====================
@@ -1447,8 +2125,10 @@ public partial class MainWindow
     private void OrganizeMenu_Opened(object sender, RoutedEventArgs e)
     {
         var n = _organizeMenuNode;
-        if (OrgCtxOpen != null) OrgCtxOpen.IsEnabled = n != null;
-        if (OrgCtxCopy != null) OrgCtxCopy.IsEnabled = n != null;
+        bool isReal = n != null && !n.IsClassifyGroupHeader;
+        if (OrgCtxOpen != null) OrgCtxOpen.IsEnabled = isReal;
+        if (OrgCtxCopy != null) OrgCtxCopy.IsEnabled = isReal;
+        if (OrgCtxClassify != null) OrgCtxClassify.IsEnabled = isReal;
     }
 
     private void OrganizeOpen_Click(object sender, RoutedEventArgs e)

@@ -1,8 +1,10 @@
+using AiDiskCleaner.Models;
+
 namespace AiDiskCleaner.Services.Agent;
 
 /// <summary>
 /// 把已通过校验的条目组装成 UI 可直接渲染的报告卡：
-/// 去重 → 阈值降级 → 总量校正 → 分组 → 排序。
+/// 去重 → 过度保守纠偏 → 阈值降级 → 总量校正 → 分组 → 排序。
 ///
 /// 这里再强调一次：组装过程只调整展示与统计，不会新增任何 folderId 或证据。
 /// </summary>
@@ -36,7 +38,9 @@ public static class ReportAssembler
         report.Warnings.AddRange(warnings);
         report.Questions.AddRange(questions);
 
-        var deduped = Deduplicate(items);
+        var deduped = DeduplicateByFolderId(items);
+        CalibrateOverlyConservativeKeeps(deduped, session);
+        deduped = CollapseOverlappingPaths(deduped);
         foreach (var item in deduped)
         {
             if (item.Verdict == ReportVerdict.Recommend && item.Confidence < RecommendConfidenceFloor)
@@ -67,7 +71,7 @@ public static class ReportAssembler
         return report;
     }
 
-    static List<ReportItem> Deduplicate(IReadOnlyList<ReportItem> items)
+    static List<ReportItem> DeduplicateByFolderId(IReadOnlyList<ReportItem> items)
     {
         var byFolder = new Dictionary<string, ReportItem>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in items)
@@ -82,7 +86,7 @@ public static class ReportAssembler
                 byFolder[item.FolderId] = item;
         }
 
-        return CollapseOverlappingPaths(byFolder.Values.ToList());
+        return byFolder.Values.ToList();
     }
 
     private static readonly HashSet<string> ContainerSegmentNames = new(StringComparer.OrdinalIgnoreCase)
@@ -90,6 +94,9 @@ public static class ReportAssembler
         "steamlibrary",
         "steamapps",
         "common",
+        "wegameapps",
+        "epic games",
+        "games",
         "appdata",
         "local",
         "roaming",
@@ -100,6 +107,77 @@ public static class ReportAssembler
         "users",
         "%user%",
     };
+
+    private static readonly HashSet<string> InternalComponentNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "common7", "ide", "bin", "lib", "include", "sdk", "runtime", "redist",
+        "drivers", "driverstore", "winsxs", "system32", "syswow64", "modules",
+        "plugins", "resources", "servicing", "installer", "assembly",
+    };
+
+    private static readonly HashSet<string> ProtectedPersonalRootNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "desktop", "documents", "桌面", "文档", "我的文档",
+        "pictures", "图片", "videos", "视频", "music", "音乐",
+        "downloads", "下载", "onedrive", "favorites", "contacts",
+    };
+
+    private static readonly string[] SecurityAndAntiCheatTokens =
+    {
+        "riot vanguard", "easyanticheat", "battleye", "faceit", "nprotect", "gameguard",
+        "ace-guard", "anticheatexpert", "huorong", "360safe", "360totalsecurity",
+        "kaspersky", "bitdefender", "norton", "mcafee", "eset", "avast", "avg",
+        "crowdstrike", "windows defender", "windowsapps", "driverstore",
+    };
+
+    /// <summary>
+    /// 模型常把具体单机游戏、Minecraft 整合包、独立软件误判成「建议保留」，导致建议保留堆满数百 GB。
+    /// 只有系统核心、杀毒/反作弊底座、软件内部共享子组件（Common7/IDE）、通用容器外壳与用户个人文档根才保留为 Keep；
+    /// 其余具名游戏/软件/大目录自动纠偏为「再看看 (Consider)」，方便用户按需决定是否卸载或清理。
+    /// </summary>
+    private static void CalibrateOverlyConservativeKeeps(List<ReportItem> items, ScanSession session)
+    {
+        foreach (var item in items)
+        {
+            if (item.Verdict != ReportVerdict.Keep) continue;
+            if (!session.Index.TryGet(item.FolderId, out var entry)) continue;
+            if (MustStayKeep(entry)) continue;
+
+            item.Verdict = ReportVerdict.Consider;
+            if (item.ReclaimableBytes <= 0 && item.SizeBytes > 0)
+                item.ReclaimableBytes = item.SizeBytes;
+            if (string.IsNullOrWhiteSpace(item.Risk))
+                item.Risk = "若不再使用或游玩可按需清理，删除前请确认个人存档或配置";
+        }
+    }
+
+    private static bool MustStayKeep(FileEntry entry)
+    {
+        string path = (entry.FullPath ?? "").Replace('/', '\\').Trim();
+        string name = (entry.Name ?? "").Trim();
+        if (ProtectedPaths.IsProtectedEntry(entry)) return true;
+        if (ProtectedPaths.Classify(path).Guard == PathGuard.Blocked) return true;
+
+        foreach (var tok in SecurityAndAntiCheatTokens)
+        {
+            if (path.Contains(tok, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        if (ContainerSegmentNames.Contains(name)) return true;
+        if (ProtectedPersonalRootNames.Contains(name)) return true;
+
+        // C:\Users\<用户名> 用户主配置根目录本身必须保留
+        var segs = ProtectedPaths.Segments(path);
+        if (segs.Length == 3 && segs[1].Equals("Users", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // 非盘符根且为程序/IDE 内部引擎子目录（如 Common7 / IDE / bin / lib / drivers）应保留
+        if (entry.Parent != null && entry.Parent.Parent != null && InternalComponentNames.Contains(name))
+            return true;
+
+        return false;
+    }
 
     /// <summary>
     /// 折叠重复的父子层级（例如 eSupport -> eDriver -> Software 或 SteamLibrary -> steamapps -> The Forest），
@@ -139,31 +217,36 @@ public static class ReportAssembler
             }
         }
 
-        // Pass 2：若外层容器/根目录之下已有具体的可处理子目录，去掉外层重复概括卡，保留具体子项。
+        // Pass 2：若外层容器/根目录之下已有具体的可处理子目录，或外层本身就是通用库容器外壳且下面已有子项，去掉外层重复概括卡。
         var remaining = ordered.Where(i => !dropped.Contains(i.FolderId)).ToList();
         foreach (var ancestor in remaining)
         {
             string ancestorNorm = NormalizeRelPath(ancestor.RelPath);
             if (ancestorNorm.Length == 0) continue;
 
-            bool hasSpecificActionableChild = remaining.Any(d =>
+            bool ancestorIsGenericContainer = IsContainerSegmentPath(ancestorNorm);
+            bool hasSpecificChild = remaining.Any(d =>
                 d.FolderId != ancestor.FolderId
-                && d.Verdict != ReportVerdict.Keep
-                && IsStrictDescendant(ancestorNorm, NormalizeRelPath(d.RelPath)));
-            if (hasSpecificActionableChild)
+                && IsStrictDescendant(ancestorNorm, NormalizeRelPath(d.RelPath))
+                && (ancestorIsGenericContainer || d.Verdict != ReportVerdict.Keep));
+            if (hasSpecificChild)
                 dropped.Add(ancestor.FolderId);
         }
 
         return ordered.Where(i => !dropped.Contains(i.FolderId)).ToList();
     }
 
+    static bool IsContainerSegmentPath(string normRelPath)
+    {
+        int slash = normRelPath.LastIndexOf('\\');
+        string last = slash >= 0 ? normRelPath[(slash + 1)..] : normRelPath;
+        return ContainerSegmentNames.Contains(last);
+    }
+
     static bool IsLibraryContainer(ReportItem item)
     {
         if (item.Verdict == ReportVerdict.Keep) return true;
-        string norm = NormalizeRelPath(item.RelPath);
-        int slash = norm.LastIndexOf('\\');
-        string last = slash >= 0 ? norm[(slash + 1)..] : norm;
-        return ContainerSegmentNames.Contains(last);
+        return IsContainerSegmentPath(NormalizeRelPath(item.RelPath));
     }
 
     static bool IsStrictDescendant(string ancestorNorm, string candidateNorm)

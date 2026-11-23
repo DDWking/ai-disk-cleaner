@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using AiDiskCleaner.Models;
 using AiDiskCleaner.Services;
 using AiDiskCleaner.Services.Agent;
@@ -24,6 +25,7 @@ public partial class MainWindow
 
     /// <summary>最近一次生成的 AI 报告（供右侧分屏与大窗弹层复用）。</summary>
     private AgentReport? _lastAgentReport;
+    private AgentReport? _dockedReportRenderedFor;
 
     /// <summary>AI 分析是否在跑：同一时间只允许一次，避免重复扣费。</summary>
     private bool _agentBusy;
@@ -39,11 +41,8 @@ public partial class MainWindow
     /// <summary>最近一次 AI 分析失败时的简短说明（用于展示在右侧预留面板）。</summary>
     private string _lastAgentError = "";
 
-    /// <summary>当前 AI 分析进度文本（用于展示在右侧预留面板）。</summary>
+    /// <summary>当前 AI 分析进度文本（用于展示在预留面板）。</summary>
     private string _agentProgressText = "";
-
-    /// <summary>右侧停靠报告面板的用户自定义宽度（折叠/展开间保持用户拖动宽度）。</summary>
-    private double _dockedReportWidth = 320;
 
     // ==================== 入口 ====================
 
@@ -110,33 +109,41 @@ public partial class MainWindow
                 if (_lastAgentReport == null) RefreshDockedReportPlaceholder();
             });
 
-            _agentProgressText = "正在建立目录索引…";
+            _agentProgressText = "正在同步分析垃圾并开启逐行智能排序归拢…";
             if (_lastAgentReport == null) RefreshDockedReportPlaceholder();
 
-            var (session, result) = await Task.Run(async () =>
-            {
-                var s = ScanSession.Create(driveRoot, root, quality, freeBytes: sessionCapBytes);
-                var r = await service.AnalyzeAsync(s, progress, cts.Token);
-                return (s, r);
-            }, cts.Token);
-            _agentSession = session;
+            CancelStartupChoreographyAndFlush();
+            // 若左侧当前正展示上一次报告（点击了「重分析」），先平滑切回四色圆环舞台再启动灵动旋转
+            SetDockedReportVisible(false);
+            SetRadialAiRotating(true);
 
-            if (!result.Ok || result.Report == null)
+            var reportTask = RunDockedAgentReportCoreAsync(service, root, driveRoot, quality, sessionCapBytes, modelId, progress, sw, cts.Token);
+            var classifyTask = RunUnifiedClassifyStreamingAsync(model, root, cts.Token);
+
+            await Task.WhenAll(reportTask, classifyTask);
+            var classifyOutcome = classifyTask.Result;
+            var result = reportTask.Result;
+
+            SetRadialAiRotating(false);
+
+            if (result.Ok && result.Report != null)
             {
-                _lastAgentError = Loc.AiReportFailed(result.Error ?? "");
-                SetOrganizeNote(_lastAgentError);
-                AppLog.Warn("AI", $"agent-report failed kind={result.ErrorKind} calls={result.Calls} ms={sw.ElapsedMilliseconds} err={result.Error}");
-                return;
+                // 等右侧所有 1200ms 慢赏排序落地完成后，左侧四色圆环丝滑转换为 AI 清理报告面板！
+                ShowDockedAgentReport(result.Report);
             }
 
-            _lastAgentReport = result.Report;
-            _lastAgentError = "";
-            SetOrganizeNote(Loc.AiReportMeta(modelId, result.Report.AllItems.Count(),
-                FileEntry.FormatSize(result.Report.TotalReclaimableBytes)));
-            ApplyReportToOrganizeTree(result.Report);
-            ShowDockedAgentReport(result.Report);
+            if (!classifyOutcome.Ok && result.Ok && !string.IsNullOrWhiteSpace(classifyOutcome.Error))
+                SetOrganizeNote(Loc.AiReportMeta(modelId, result.Report!.AllItems.Count(),
+                    FileEntry.FormatSize(result.Report.TotalReclaimableBytes)) + " · 整理分类：" + classifyOutcome.Error);
+            else if (!result.Ok && !classifyOutcome.Ok)
+            {
+                _lastAgentError = Loc.AiReportFailed(result.Error ?? classifyOutcome.Error);
+                SetOrganizeNote(_lastAgentError);
+            }
+
+            // 同步落入当前盘符的内存会话缓存，切去其他盘再切回秒恢复报告与彩色分组
             SaveActiveDriveToCache();
-            AppLog.Info("AI", $"agent-report ok items={result.Report.AllItems.Count()} calls={result.Calls} in={result.Usage.InputTokens} out={result.Usage.OutputTokens} ms={sw.ElapsedMilliseconds}");
+            RefreshDriveCards();
         }
         catch (OperationCanceledException)
         {
@@ -153,10 +160,48 @@ public partial class MainWindow
             _agentBusy = false;
             _agentCts = null;
             _agentProgressText = "";
+            SetRadialAiRotating(false);
             if (AiReportBtnText != null) AiReportBtnText.Text = Loc.AiReportBtn;
             UpdateAiReportButton();
             if (_lastAgentReport == null) RefreshDockedReportPlaceholder();
         }
+    }
+
+    private async Task<AgentReportResult> RunDockedAgentReportCoreAsync(
+        AgentReportService service,
+        FileEntry root,
+        string driveRoot,
+        ScanQuality? quality,
+        long sessionCapBytes,
+        string modelId,
+        IProgress<AgentReportProgress> progress,
+        Stopwatch sw,
+        CancellationToken ct)
+    {
+        var (session, result) = await Task.Run(async () =>
+        {
+            var s = ScanSession.Create(driveRoot, root, quality, freeBytes: sessionCapBytes);
+            var r = await service.AnalyzeAsync(s, progress, ct);
+            return (s, r);
+        }, ct);
+
+        _agentSession = session;
+
+        if (result.Ok && result.Report != null)
+        {
+            _lastAgentReport = result.Report;
+            _lastAgentError = "";
+            SetOrganizeNote(Loc.AiReportMeta(modelId, result.Report.AllItems.Count(),
+                FileEntry.FormatSize(result.Report.TotalReclaimableBytes)));
+            ApplyReportToOrganizeTree(result.Report);
+            AppLog.Info("AI", $"agent-report ok items={result.Report.AllItems.Count()} calls={result.Calls} in={result.Usage.InputTokens} out={result.Usage.OutputTokens} ms={sw.ElapsedMilliseconds}");
+        }
+        else
+        {
+            AppLog.Warn("AI", $"agent-report failed kind={result.ErrorKind} calls={result.Calls} ms={sw.ElapsedMilliseconds} err={result.Error}");
+        }
+
+        return result;
     }
 
     /// <summary>按钮可用性只由「有没有扫描结果 + 是否在扫描/分析」决定，与清理列表无关。</summary>
@@ -171,7 +216,11 @@ public partial class MainWindow
     private void CancelAgentReport()
     {
         try { _agentCts?.Cancel(); } catch { /* 已经释放/取消过 */ }
+        SetRadialAiRotating(false);
+        SetDockedReportVisible(false);
+        ResetClassifyStageOnScanChange();
         _lastAgentReport = null;
+        _dockedReportRenderedFor = null;
         _lastAgentError = "";
         _agentProgressText = "";
         _aiReportAnnotations.Clear();
@@ -229,29 +278,32 @@ public partial class MainWindow
                 node.ApplyAiAnnotation(tone, badge, summary, brief);
         }
 
-        RefreshOrganizeRows();
+        if (!_classifySortActive)
+            RefreshOrganizeRows();
     }
 
-    /// <summary>默认在清理中心右侧展开分屏报告，同时把内容同步到弹层容器。</summary>
+    /// <summary>AI 分析完成后，在左侧主栏丝滑展示清理建议报告（替代圆环舞台，右侧始终保持宽敞双栏）。</summary>
     private void ShowDockedAgentReport(AgentReport report)
     {
         _lastAgentReport = report;
         if (OrganizeReportHeaderTitle != null)
-            OrganizeReportHeaderTitle.Text = Loc.AiReportTitle;
+        {
+            string driveTag = !string.IsNullOrWhiteSpace(_activeDriveKey) ? _activeDriveKey.TrimEnd('\\') : "";
+            OrganizeReportHeaderTitle.Text = driveTag.Length > 0
+                ? $"{Loc.AiReportTitle} · {driveTag}"
+                : Loc.AiReportTitle;
+        }
         if (OrganizeReportExpandBtn != null)
-        {
-            OrganizeReportExpandBtn.Content = Loc.AiReportExpandModal;
-            OrganizeReportExpandBtn.Visibility = Visibility.Visible;
-        }
+            OrganizeReportExpandBtn.Visibility = Visibility.Collapsed;
         if (OrganizeReportCloseBtn != null)
-        {
-            OrganizeReportCloseBtn.ToolTip = Loc.AiReportCollapsePanel;
-            System.Windows.Automation.AutomationProperties.SetName(OrganizeReportCloseBtn, Loc.AiReportCollapsePanel);
-        }
+            OrganizeReportCloseBtn.Visibility = Visibility.Collapsed;
 
+        _dockedReportRenderedFor = null;
         if (OrganizeReportContent != null)
+        {
             PopulateReportPanel(OrganizeReportContent, report, isDocked: true);
-        PopulateReportPanel(ReportContent, report, isDocked: false, animate: false);
+            _dockedReportRenderedFor = report;
+        }
         SetDockedReportVisible(true);
         UpdateAiReportDockToggle();
     }
@@ -366,29 +418,91 @@ public partial class MainWindow
 
     private void SetDockedReportVisible(bool visible)
     {
-        if (OrganizeReportPanel == null || OrganizeReportCol == null) return;
+        if (OrganizeReportPanel == null) return;
+
+        // 报告现已常驻左侧舞台栏，右侧第 3 栏永久归零，确保文件列表永远宽敞双栏
+        if (OrganizeReportSplitter != null) OrganizeReportSplitter.Visibility = Visibility.Collapsed;
+        if (OrganizeReportSplitterCol != null) OrganizeReportSplitterCol.Width = new GridLength(0);
+        if (OrganizeReportCol != null)
+        {
+            OrganizeReportCol.MinWidth = 0;
+            OrganizeReportCol.Width = new GridLength(0);
+        }
+
         if (visible)
         {
             bool wasHidden = OrganizeReportPanel.Visibility != Visibility.Visible;
+            if (_lastAgentReport == null)
+            {
+                RefreshDockedReportPlaceholder();
+            }
+            else if (!ReferenceEquals(_dockedReportRenderedFor, _lastAgentReport) && OrganizeReportContent != null)
+            {
+                PopulateReportPanel(OrganizeReportContent, _lastAgentReport, isDocked: true);
+                _dockedReportRenderedFor = _lastAgentReport;
+            }
+
             OrganizeReportPanel.Visibility = Visibility.Visible;
-            if (OrganizeReportSplitter != null) OrganizeReportSplitter.Visibility = Visibility.Visible;
-            if (OrganizeReportSplitterCol != null) OrganizeReportSplitterCol.Width = new GridLength(8);
-            OrganizeReportCol.MinWidth = 240;
-            OrganizeReportCol.MaxWidth = 760;
-            OrganizeReportCol.Width = new GridLength(_dockedReportWidth >= 240 ? _dockedReportWidth : 320);
-            if (_lastAgentReport == null) RefreshDockedReportPlaceholder();
-            if (wasHidden)
-                AnimateSlideFadeIn(OrganizeReportPanel, offsetX: 24, offsetY: 0, durationMs: 230, fromOpacity: 0.0);
+            if (wasHidden && CanAnimate)
+            {
+                // 左侧圆环舞台轻柔上浮淡出，AI 清理报告面板从下方丝滑滑入接管左侧栏
+                if (RadialRingStageContainer != null && RadialRingStageContainer.Visibility == Visibility.Visible)
+                {
+                    int ringEpoch = NextMotionEpoch(RadialRingStageContainer);
+                    var (rTr, _) = EnsureCompositeTransform(RadialRingStageContainer);
+                    var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                    var rY = new DoubleAnimation(0.0, -18.0, TimeSpan.FromMilliseconds(280)) { EasingFunction = ease };
+                    var rO = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease };
+                    rO.Completed += (_, _) =>
+                    {
+                        if (!IsMotionEpoch(RadialRingStageContainer, ringEpoch)) return;
+                        RadialRingStageContainer.Visibility = Visibility.Collapsed;
+                        RadialRingStageContainer.BeginAnimation(OpacityProperty, null);
+                        rTr.BeginAnimation(TranslateTransform.YProperty, null);
+                        RadialRingStageContainer.Opacity = 1.0;
+                        rTr.Y = 0.0;
+                    };
+                    rTr.BeginAnimation(TranslateTransform.YProperty, rY);
+                    RadialRingStageContainer.BeginAnimation(OpacityProperty, rO);
+                }
+
+                AnimateSlideFadeIn(OrganizeReportPanel, offsetX: 0, offsetY: 22, durationMs: 420, fromOpacity: 0.0);
+            }
+            else
+            {
+                if (RadialRingStageContainer != null)
+                {
+                    NextMotionEpoch(RadialRingStageContainer);
+                    RadialRingStageContainer.Visibility = Visibility.Collapsed;
+                    RadialRingStageContainer.Opacity = 1.0;
+                }
+                OrganizeReportPanel.BeginAnimation(OpacityProperty, null);
+                OrganizeReportPanel.Opacity = 1.0;
+            }
         }
         else
         {
-            if (OrganizeReportCol.ActualWidth >= 240)
-                _dockedReportWidth = OrganizeReportCol.ActualWidth;
+            bool wasReportVisible = OrganizeReportPanel.Visibility == Visibility.Visible;
+            NextMotionEpoch(OrganizeReportPanel);
+            OrganizeReportPanel.BeginAnimation(OpacityProperty, null);
             OrganizeReportPanel.Visibility = Visibility.Collapsed;
-            if (OrganizeReportSplitter != null) OrganizeReportSplitter.Visibility = Visibility.Collapsed;
-            if (OrganizeReportSplitterCol != null) OrganizeReportSplitterCol.Width = new GridLength(0);
-            OrganizeReportCol.MinWidth = 0;
-            OrganizeReportCol.Width = new GridLength(0);
+            OrganizeReportPanel.Opacity = 1.0;
+
+            if (RadialRingStageContainer != null)
+            {
+                NextMotionEpoch(RadialRingStageContainer);
+                RadialRingStageContainer.BeginAnimation(OpacityProperty, null);
+                if (RadialRingStageContainer.RenderTransform is TransformGroup)
+                {
+                    var (rTr, _) = EnsureCompositeTransform(RadialRingStageContainer);
+                    rTr.BeginAnimation(TranslateTransform.YProperty, null);
+                    rTr.Y = 0.0;
+                }
+                RadialRingStageContainer.Visibility = Visibility.Visible;
+                RadialRingStageContainer.Opacity = 1.0;
+                if (wasReportVisible && CanAnimate)
+                    AnimateSlideFadeIn(RadialRingStageContainer, offsetX: 0, offsetY: -12, durationMs: 280, fromOpacity: 0.0);
+            }
         }
         UpdateAiReportDockToggle();
     }
@@ -396,11 +510,8 @@ public partial class MainWindow
     private void UpdateAiReportDockToggle()
     {
         if (AiReportToggleBtn == null) return;
-        bool isOpen = OrganizeReportPanel?.Visibility == Visibility.Visible;
-        AiReportToggleBtn.Visibility = Visibility.Visible;
-        AiReportToggleBtn.Content = isOpen
-            ? (Loc.IsEn ? "Hide" : "收起")
-            : (Loc.IsEn ? "Report" : "报告");
+        // 报告直接由左侧圆环栏丝滑转换呈现，不再显示多余的切换按钮
+        AiReportToggleBtn.Visibility = Visibility.Collapsed;
     }
 
     private void AiReportToggle_Click(object sender, RoutedEventArgs e)
@@ -428,6 +539,7 @@ public partial class MainWindow
         ScanDetailsBody.Visibility = Visibility.Collapsed;
         SelectionBody.Visibility = Visibility.Collapsed;
         RuleSelectBody.Visibility = Visibility.Collapsed;
+        if (ClassifyModalBody != null) ClassifyModalBody.Visibility = Visibility.Collapsed;
         AlertBody.Visibility = Visibility.Collapsed;
         ConfirmButtons.Visibility = Visibility.Collapsed;
         ReportBody.Visibility = Visibility.Visible;

@@ -25,6 +25,7 @@
     <local:EmptyToCollapsedConverter x:Key="EmptyToCollapsed"/>
     <!-- 资源键 → 图标 Geometry：整理页的展开箭头按状态换图标，图形仍只有一套 -->
     <local:IconKeyConverter x:Key="IconKey"/>
+    <local:CachedHexBrushConverter x:Key="HexBrush"/>
 
     <!-- ===== 图标体系：全部用统一的 24x24 线性矢量 Geometry =====
          一套尺寸、一套线条风格，不混用 emoji / 随机 Unicode。
@@ -58,6 +59,9 @@
     <Geometry x:Key="IconDriveOutline">M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5zm2 0v14h12V5H6zm2 10h8v2H8v-2zm6 0.8a0.9 0.9 0 1 1 0 1.8 0.9 0.9 0 0 1 0-1.8z</Geometry>
     <Geometry x:Key="IconAppsOutline">M4 4h6.5v6.5H4V4zm2 2v2.5h2.5V6H6zm7.5-2H20v6.5h-6.5V4zm2 2v2.5H18V6h-2.5zM4 13.5h6.5V20H4v-6.5zm2 2V18h2.5v-2.5H6zm7.5-2H20V20h-6.5v-6.5zm2 2V18H18v-2.5h-2.5z</Geometry>
     <Geometry x:Key="IconShield">M12 2L4 5.5v6c0 5 3.4 9.5 8 10.5 4.6-1 8-5.5 8-10.5v-6L12 2z</Geometry>
+    <Geometry x:Key="IconShieldOutline">M12 2L4 5.5v6c0 5 3.4 9.5 8 10.5 4.6-1 8-5.5 8-10.5v-6L12 2zm0 2.2l6 2.6v4.7c0 4-2.6 7.7-6 8.6-3.4-.9-6-4.6-6-8.6V6.8l6-2.6z</Geometry>
+    <Geometry x:Key="IconLockOutline">M7 10V7.5a5 5 0 0 1 10 0V10h1.5A1.5 1.5 0 0 1 20 11.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19.5v-8A1.5 1.5 0 0 1 5.5 10H7zm2 0h6V7.5a3 3 0 0 0-6 0V10zm-3 1.5v8h12v-8H6z</Geometry>
+    <Geometry x:Key="IconClassifyOutline">M3 5a2 2 0 0 1 2-2h4.6l2 2H19a2 2 0 0 1 2 2v3h-2V7h-8.2l-2-2H5v12h4v2H5a2 2 0 0 1-2-2V5zm10 6.5a1.5 1.5 0 0 0-1.5 1.5v6.5a1.5 1.5 0 0 0 1.5 1.5h7.5a1.5 1.5 0 0 0 1.5-1.5V13a1.5 1.5 0 0 0-1.5-1.5H13zm.5 2H20v5.5h-6.5v-5.5z</Geometry>
     <Geometry x:Key="IconTrash">M4 6h16v2H4V6zm2 3h12l-1 11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 9zm3-5h6v2H9V4z</Geometry>
     <Geometry x:Key="IconApps">M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z</Geometry>
     <Geometry x:Key="IconCheckmark">M4.5 9.5L8 13l7.5-7.5</Geometry>
@@ -2015,22 +2019,23 @@
               </StackPanel>
             </Border>
 
-            <!-- 主双栏内容区 + 按需抽屉式 AI 参谋 -->
+            <!-- 主双栏内容区（AI 完成后左侧圆环直接丝滑切换为清理报告面板，右侧始终宽敞双栏） -->
             <Grid>
               <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="288"/>
+                <ColumnDefinition Width="296"/>
                 <ColumnDefinition Width="1"/>
                 <ColumnDefinition Width="*" MinWidth="300"/>
                 <ColumnDefinition x:Name="OrganizeReportSplitterCol" Width="0"/>
                 <ColumnDefinition x:Name="OrganizeReportCol" Width="0" MinWidth="0" MaxWidth="760"/>
               </Grid.ColumnDefinitions>
 
-              <!-- 左视觉舞台：亮橙分段圆环 + 中心数字 + 清理胶囊按钮 + 四点筛选 -->
-              <Grid x:Name="RadialStagePanel" Grid.Column="0" Background="{DynamicResource Bg}">
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="20,0">
+              <!-- 左视觉舞台：扫盘/待命/AI分析中展示圆环；AI完成后丝滑切换为左侧清理报告面板 -->
+              <Grid x:Name="RadialStagePanel" Grid.Column="0" Background="{DynamicResource Bg}" ClipToBounds="True">
+                <!-- Layer 1：圆环舞台 -->
+                <StackPanel x:Name="RadialRingStageContainer" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="20,0">
 
                   <!-- 顶部极简盘信息行 -->
-                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,18">
+                  <StackPanel x:Name="RadialDriveMetaRow" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,18">
                     <TextBlock x:Name="RadialDriveMeta" Text="C:" FontSize="11.5" FontWeight="Medium"
                                Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center"/>
                     <Button x:Name="OrganizeScanDetailsBtn" Style="{StaticResource IconButton}" Width="22" Height="22"
@@ -2041,9 +2046,30 @@
                     </Button>
                   </StackPanel>
 
-                  <!-- 216x216 分段亮橙占比圆环 -->
-                  <Grid Width="216" Height="216" HorizontalAlignment="Center">
+                  <!-- 216x216 分段亮橙占比圆环（扫盘旋转生长，AI分析时四色分段环灵动变速呼吸 + 同色共振脉冲） -->
+                  <Grid x:Name="RadialRingHost" Width="216" Height="216" HorizontalAlignment="Center" RenderTransformOrigin="0.5,0.5">
+                    <!-- 归类起飞 / 扫描合拢脉冲光晕环 -->
+                    <Ellipse x:Name="RingPulseHalo" Width="204" Height="204"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Stroke="{DynamicResource RingOrange}" StrokeThickness="2.2"
+                             Opacity="0" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
+                      <Ellipse.RenderTransform>
+                        <ScaleTransform x:Name="RingPulseHaloScale" ScaleX="0.96" ScaleY="0.96"/>
+                      </Ellipse.RenderTransform>
+                    </Ellipse>
+
                     <Canvas x:Name="RadialRingCanvas" Width="216" Height="216" RenderTransformOrigin="0.5,0.5">
+                      <Canvas.RenderTransform>
+                        <TransformGroup>
+                          <ScaleTransform x:Name="RadialRingScale" ScaleX="1" ScaleY="1"/>
+                          <TranslateTransform X="0" Y="0"/>
+                          <RotateTransform x:Name="RadialRingRotate" Angle="0"/>
+                        </TransformGroup>
+                      </Canvas.RenderTransform>
+                      <!-- 静谧环形底轨：扫盘生长时承托圆环轮廓 -->
+                      <Path x:Name="RingTrackBase" Data="M 108,22 A 86,86 0 1 1 107.99,22"
+                            Stroke="{DynamicResource RingLightGray}" StrokeThickness="24"
+                            Opacity="0" Visibility="Collapsed" IsHitTestVisible="False"/>
                       <Path x:Name="RingArcFree" Stroke="{DynamicResource RingLightGray}" StrokeThickness="24"
                             StrokeStartLineCap="Flat" StrokeEndLineCap="Flat"/>
                       <Path x:Name="RingArcRed" Stroke="{DynamicResource RingMidGray}" StrokeThickness="24"
@@ -2055,6 +2081,25 @@
                       <Path x:Name="RingArcOrange" Stroke="{DynamicResource RingOrange}" StrokeThickness="24"
                             StrokeStartLineCap="Flat" StrokeEndLineCap="Flat"
                             Cursor="Hand" MouseLeftButtonUp="StorageSegGreen_Click" ToolTip="点击筛选：可清理"/>
+                      <!-- 扫盘专用双层生长流光弧：纯 GPU StrokeDashOffset + 独立旋转，零逐帧几何分配 -->
+                      <Path x:Name="RingScanTrailArc" Data="M 108,22 A 86,86 0 1 1 107.99,22"
+                            Stroke="{DynamicResource RingOrange}" StrokeThickness="24" Opacity="0.26"
+                            StrokeDashCap="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                            StrokeDashArray="22.515 24.0" StrokeDashOffset="22.515"
+                            Visibility="Collapsed" IsHitTestVisible="False">
+                        <Path.RenderTransform>
+                          <RotateTransform x:Name="RingScanTrailRotate" CenterX="108" CenterY="108" Angle="-28"/>
+                        </Path.RenderTransform>
+                      </Path>
+                      <Path x:Name="RingScanArc" Data="M 108,22 A 86,86 0 1 1 107.99,22"
+                            Stroke="{DynamicResource RingOrange}" StrokeThickness="24"
+                            StrokeDashCap="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                            StrokeDashArray="22.515 24.0" StrokeDashOffset="22.515"
+                            Visibility="Collapsed" IsHitTestVisible="False">
+                        <Path.RenderTransform>
+                          <RotateTransform x:Name="RingScanRotate" CenterX="108" CenterY="108" Angle="0"/>
+                        </Path.RenderTransform>
+                      </Path>
                     </Canvas>
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False">
                       <TextBlock x:Name="RadialHeroValue" Text="—" FontSize="29" FontWeight="SemiBold"
@@ -2092,25 +2137,36 @@
                                 Background="{DynamicResource BrandAccentSoft}"
                                 BorderBrush="{DynamicResource BrandAccentSoft}"
                                 Foreground="{DynamicResource BrandAccent}"
-                                Padding="11,4" Margin="0,0,6,0" Click="AiReport_Click"
+                                Padding="13,4.5" Click="AiReport_Click"
+                                ToolTip="AI 分析：原地逐行染色聚拢文件夹并同步生成清理报告"
                                 AutomationProperties.Name="AI 分析">
                           <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconAi}" Width="11" Height="11" Stretch="Uniform"
                                   Margin="0,0,5,0" VerticalAlignment="Center"
                                   Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                            <TextBlock x:Name="AiReportBtnText" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="AiReportBtnText" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
                           </StackPanel>
                         </Button>
                         <Button x:Name="AiReportToggleBtn" Style="{StaticResource ChipButton}"
                                 Padding="10,4" FontSize="11"
-                                Visibility="Visible" Click="AiReportToggle_Click"
+                                Visibility="Collapsed" Click="AiReportToggle_Click"
                                 AutomationProperties.Name="展开或收起 AI 分析面板"/>
                       </StackPanel>
+
+                      <Button x:Name="ClassifyActionBtn" Style="{StaticResource ChipButton}"
+                              Margin="0,8,0,0" Padding="14,5" HorizontalAlignment="Center"
+                              Background="{DynamicResource BrandAccentSoft}"
+                              BorderBrush="{DynamicResource BrandAccentSoft}"
+                              Foreground="{DynamicResource BrandAccent}"
+                              Visibility="Collapsed" Click="ClassifyOpenModal_Click"
+                              ToolTip="调整整理勾选、自定义分类规则或一键执行同盘归类">
+                        <TextBlock x:Name="ClassifyActionBtnText" FontSize="11.5" FontWeight="SemiBold" Text="整理归类"/>
+                      </Button>
                     </StackPanel>
                   </Border>
 
                   <!-- 极简 4 胶囊快捷筛选（数字全部收纳到悬停 Tooltip） -->
-                  <Border Margin="0,20,0,0" CornerRadius="10" Background="{DynamicResource PanelLeft}"
+                  <Border x:Name="OrganizeFilterBar" Margin="0,20,0,0" CornerRadius="10" Background="{DynamicResource PanelLeft}"
                           BorderBrush="{DynamicResource Border}" BorderThickness="1" Padding="3"
                           HorizontalAlignment="Center">
                     <StackPanel Orientation="Horizontal">
@@ -2144,14 +2200,126 @@
                     </StackPanel>
                   </Border>
                 </StackPanel>
+
+                <!-- Layer 2：左侧 AI 清理建议报告面板（AI 分析完成后丝滑替换圆环，无冗余切回/大窗按钮） -->
+                <Border x:Name="OrganizeReportPanel" Visibility="Collapsed"
+                        Background="{DynamicResource Bg}" ClipToBounds="True">
+                  <DockPanel>
+                    <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
+                            Padding="16,14,14,12">
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                          <Border Width="20" Height="20" CornerRadius="6" Margin="0,0,7,0"
+                                  Background="{DynamicResource BrandAccentSoft}">
+                            <Path Data="{StaticResource IconAi}" Width="11" Height="11" Stretch="Uniform"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Fill="{DynamicResource BrandAccent}"/>
+                          </Border>
+                          <TextBlock x:Name="OrganizeReportHeaderTitle" Text="AI 清理建议"
+                                     FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Text}"
+                                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                          <Button x:Name="OrganizeReportReRunBtn" Style="{StaticResource ChipButton}"
+                                  Padding="8,3.5" FontSize="11" Content="↻ 重分析"
+                                  Click="AiReport_Click" ToolTip="重新对当前磁盘执行 AI 分析与排序"/>
+                          <Button x:Name="OrganizeReportExpandBtn" Visibility="Collapsed"
+                                  Click="OrganizeReportExpand_Click"/>
+                          <Button x:Name="OrganizeReportCloseBtn" Visibility="Collapsed"
+                                  Click="OrganizeReportClose_Click"/>
+                        </StackPanel>
+                      </Grid>
+                    </Border>
+
+                    <!-- 底部常驻精简行动条：删除文件夹 + 整理归类 (N) -->
+                    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0"
+                            Background="{DynamicResource PanelLeft}" Padding="14,11"
+                            DataContext="{Binding FolderDelete, RelativeSource={RelativeSource AncestorType=Window}}">
+                      <StackPanel>
+                        <ProgressBar Height="3" Margin="0,0,0,8" IsIndeterminate="True"
+                                     Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisible}}"/>
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                          </Grid.ColumnDefinitions>
+                          <Button Grid.Column="0" Style="{StaticResource OrangePillButton}" Height="34" Padding="8,0"
+                                  FontSize="11.5" Content="{Binding DeleteText}" IsEnabled="{Binding CanDelete}"
+                                  Click="FolderDeletePreview_Click"
+                                  AutomationProperties.Name="{Binding DeleteText}"
+                                  ToolTip="{Binding SelectedText}"/>
+                          <Button x:Name="ClassifyReportActionBtn" Grid.Column="2" Style="{StaticResource ChipButton}"
+                                  Height="34" Padding="8,0"
+                                  Background="{DynamicResource BrandAccentSoft}"
+                                  BorderBrush="{DynamicResource BrandAccentSoft}"
+                                  Foreground="{DynamicResource BrandAccent}"
+                                  Click="ClassifyOpenModal_Click"
+                                  ToolTip="调整整理勾选、自定义分类规则或一键执行同盘归类">
+                            <TextBlock x:Name="ClassifyReportActionBtnText" FontSize="11.5" FontWeight="SemiBold"
+                                       Text="整理归类" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                          </Button>
+                        </Grid>
+                      </StackPanel>
+                    </Border>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,10">
+                      <StackPanel x:Name="OrganizeReportContent"/>
+                    </ScrollViewer>
+                  </DockPanel>
+                </Border>
               </Grid>
 
-              <!-- 1px 瑞士极细垂直分界线 -->
-              <Border Grid.Column="1" Width="1" Margin="0,30,0,30" Background="{DynamicResource Border}"/>
+              <!-- 1px 瑞士极细中轴焊接线（开机机甲装配时从上往下拉出 + 亮橙光点） -->
+              <Grid Grid.Column="1" Margin="0,28,0,28" ClipToBounds="False">
+                <Border x:Name="OrganizeCenterSpine" Width="1" Background="{DynamicResource Border}" RenderTransformOrigin="0.5,0">
+                  <Border.RenderTransform>
+                    <ScaleTransform x:Name="OrganizeCenterSpineScale" ScaleY="1"/>
+                  </Border.RenderTransform>
+                </Border>
+                <Border x:Name="OrganizeSpineSpark" Width="5" Height="18" CornerRadius="2.5"
+                        VerticalAlignment="Top" HorizontalAlignment="Center" Margin="-2,0,-2,0"
+                        Opacity="0" IsHitTestVisible="False">
+                  <Border.Background>
+                    <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                      <GradientStop Color="#00FF5A1F" Offset="0"/>
+                      <GradientStop Color="#FFFF5A1F" Offset="0.65"/>
+                      <GradientStop Color="#FFFFFFFF" Offset="1"/>
+                    </LinearGradientBrush>
+                  </Border.Background>
+                  <Border.RenderTransform>
+                    <TranslateTransform x:Name="OrganizeSpineSparkY" Y="0"/>
+                  </Border.RenderTransform>
+                </Border>
+              </Grid>
 
-              <!-- 右侧极净文件夹清单：圆框 + 极简线性图标 + 文件夹名 + 比例横条 + 容量数字（零多余文字） -->
+              <!-- 右侧极净文件夹清单：全程单画面原地按色聚拢，绝不拥挤与跳转 -->
               <Border x:Name="OrganizeGridHost" Grid.Column="2" Padding="18,14,22,12" Background="{DynamicResource Bg}">
-                <DataGrid x:Name="OrganizeGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                <Grid x:Name="OrganizeStageGrid">
+                  <DockPanel>
+                    <!-- 极轻无边框状态与排序微条：仅在存在分类/撤销结果时贴顶浮现一行轻文字 -->
+                    <Border x:Name="OrganizeClassifyBar" DockPanel.Dock="Top" Visibility="Collapsed"
+                            Margin="0,0,0,6" Padding="4,0,2,4" Background="Transparent" BorderThickness="0">
+                      <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                          <Button x:Name="ClassifySortModeChipBtn" Content="✦ 按颜色聚拢"
+                                  Style="{StaticResource ChipButton}" Padding="9,3" FontSize="11"
+                                  Margin="0,0,6,0" Visibility="Collapsed" Click="ClassifySortModeToggle_Click"/>
+                          <Button x:Name="OrganizeQuickUndoBtn" Content="撤销整理"
+                                  Style="{StaticResource GhostButton}" Padding="8,3" FontSize="11"
+                                  Visibility="Collapsed" Click="ClassifyUndo_Click"/>
+                        </StackPanel>
+                        <TextBlock x:Name="OrganizeClassifyBarText" FontSize="11.5"
+                                   Foreground="{DynamicResource TextDim}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" Margin="0,0,10,0"/>
+                      </DockPanel>
+                    </Border>
+
+                    <DataGrid x:Name="OrganizeGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
                           HeadersVisibility="None" GridLinesVisibility="Horizontal"
                           BorderThickness="0" RowHeight="NaN" MinRowHeight="46" Margin="0"
                           RowBackground="{DynamicResource Bg}" Background="{DynamicResource Bg}"
@@ -2160,13 +2328,15 @@
                           VerticalContentAlignment="Center"
                           HorizontalScrollBarVisibility="Disabled"
                           VirtualizingPanel.IsVirtualizing="True"
-                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          VirtualizingPanel.VirtualizationMode="Standard"
                           VirtualizingPanel.CacheLength="1,1"
                           VirtualizingPanel.CacheLengthUnit="Page"
                           ScrollViewer.CanContentScroll="True"
                           VirtualizingPanel.ScrollUnit="Pixel"
+                          LoadingRow="OrganizeGrid_LoadingRow"
                           SelectionChanged="OrganizeGrid_SelectionChanged"
                           MouseDoubleClick="OrganizeGrid_MouseDoubleClick"
+                          PreviewMouseLeftButtonUp="OrganizeGrid_PreviewLeftButtonUp"
                           PreviewMouseRightButtonDown="OrganizeGrid_PreviewRightDown">
                   <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
@@ -2174,6 +2344,18 @@
                       <Setter Property="BorderBrush" Value="Transparent"/>
                       <Setter Property="BorderThickness" Value="0"/>
                       <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsFilterBranchRoot}" Value="True">
+                          <Setter Property="Background" Value="{DynamicResource BrandAccentSoft}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding HasClassifyTint}" Value="True">
+                          <Setter Property="Background" Value="{Binding ClassifyRowBgHex, Converter={StaticResource HexBrush}}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsClassifyGroupHeader}" Value="True">
+                          <Setter Property="Background" Value="{DynamicResource Bg}"/>
+                          <Setter Property="MinHeight" Value="38"/>
+                          <Setter Property="Cursor" Value="Hand"/>
+                          <Setter Property="ToolTip" Value="{Binding ClassifyGroupCollapseTip}"/>
+                        </DataTrigger>
                         <Trigger Property="IsMouseOver" Value="True">
                           <Setter Property="Background" Value="{DynamicResource HoverBg}"/>
                         </Trigger>
@@ -2182,7 +2364,9 @@
                           <Setter Property="Foreground" Value="{DynamicResource Text}"/>
                         </Trigger>
                         <DataTrigger Binding="{Binding IsJumpHighlighted}" Value="True">
-                          <Setter Property="Background" Value="{DynamicResource JumpHighlightBg}"/>
+                          <Setter Property="Background" Value="{DynamicResource BrandAccentSoft}"/>
+                          <Setter Property="BorderBrush" Value="{DynamicResource BrandAccent}"/>
+                          <Setter Property="BorderThickness" Value="3,1.5,1.5,1.5"/>
                         </DataTrigger>
                       </Style.Triggers>
                     </Style>
@@ -2191,6 +2375,8 @@
                     <ContextMenu Opened="OrganizeMenu_Opened">
                       <MenuItem x:Name="OrgCtxOpen" Header="在资源管理器中打开" Click="OrganizeOpen_Click"/>
                       <MenuItem x:Name="OrgCtxCopy" Header="复制完整路径" Click="OrganizeCopyPath_Click"/>
+                      <Separator/>
+                      <MenuItem x:Name="OrgCtxClassify" Header="优先纳入整理分类" Click="OrganizeSendToClassify_Click"/>
                     </ContextMenu>
                   </DataGrid.ContextMenu>
                   <DataGrid.Columns>
@@ -2201,18 +2387,54 @@
                       </DataGridTemplateColumn.Header>
                       <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                          <CheckBox VerticalAlignment="Center" HorizontalAlignment="Center"
-                                    IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                    IsEnabled="{Binding IsSelectionProtected, Converter={StaticResource InvertBool}}"
-                                    Click="OrganizeSelect_Click"
-                                    ToolTip="{Binding SelectionNote}"
-                                    AutomationProperties.Name="{Binding SelectionNote}"/>
+                          <Grid VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Width="24" Height="24" Background="Transparent"
+                                ToolTip="{Binding SelectionNote}">
+                            <CheckBox VerticalAlignment="Center" HorizontalAlignment="Center"
+                                      IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      IsEnabled="{Binding IsSelectionProtected, Converter={StaticResource InvertBool}}"
+                                      Click="OrganizeSelect_Click"
+                                      ToolTip="{Binding SelectionNote}"
+                                      AutomationProperties.Name="{Binding SelectionNote}">
+                              <CheckBox.Style>
+                                <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+                                  <Setter Property="Visibility" Value="Visible"/>
+                                  <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelectionProtected}" Value="True">
+                                      <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                  </Style.Triggers>
+                                </Style>
+                              </CheckBox.Style>
+                            </CheckBox>
+                            <Path Data="{StaticResource IconLockOutline}" Width="12" Height="12" Stretch="Uniform"
+                                  VerticalAlignment="Center" HorizontalAlignment="Center"
+                                  Fill="{DynamicResource BorderStrong}">
+                              <Path.Style>
+                                <Style TargetType="Path">
+                                  <Setter Property="Visibility" Value="Collapsed"/>
+                                  <Style.Triggers>
+                                    <MultiDataTrigger>
+                                      <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsSelectionProtected}" Value="True"/>
+                                        <Condition Binding="{Binding IsClassifyGroupHeader}" Value="False"/>
+                                      </MultiDataTrigger.Conditions>
+                                      <Setter Property="Visibility" Value="Visible"/>
+                                    </MultiDataTrigger>
+                                  </Style.Triggers>
+                                </Style>
+                              </Path.Style>
+                            </Path>
+                            <Ellipse Width="8" Height="8" Fill="{Binding ClassifyAccentHex, Converter={StaticResource HexBrush}}"
+                                     VerticalAlignment="Center" HorizontalAlignment="Center"
+                                     Visibility="{Binding IsClassifyGroupHeader, Converter={StaticResource BoolToVisible}}"/>
+                          </Grid>
                         </DataTemplate>
                       </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <!-- 名称：缩进 + 展开箭头 + 极简线性文件夹图标 + 文件夹名（路径悬停可见） -->
-                    <DataGridTemplateColumn x:Name="ColOrgName" Header="名称" Width="1.8*" MinWidth="180"
+                    <!-- 名称：原图极简风格（分组头仅显示轻盈小标题 + 目标文件夹提示） -->
+                    <DataGridTemplateColumn x:Name="ColOrgName" Header="名称" Width="2.0*" MinWidth="220"
                                             CanUserResize="True" CanUserSort="False" IsReadOnly="True">
                       <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
@@ -2221,11 +2443,21 @@
                               <ColumnDefinition Width="Auto"/>
                               <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Width="3" CornerRadius="1.5" Margin="0,2,4,2">
+                            <Border Grid.Column="0" Width="3" CornerRadius="1.5" Margin="0,2,5,2">
                               <Border.Style>
                                 <Style TargetType="Border">
                                   <Setter Property="Background" Value="Transparent"/>
                                   <Style.Triggers>
+                                    <MultiDataTrigger>
+                                      <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsClassifySortedItem}" Value="True"/>
+                                        <Condition Binding="{Binding IsClassifyGroupHeader}" Value="False"/>
+                                      </MultiDataTrigger.Conditions>
+                                      <Setter Property="Background" Value="{Binding ClassifyAccentHex, Converter={StaticResource HexBrush}}"/>
+                                    </MultiDataTrigger>
+                                    <DataTrigger Binding="{Binding IsFilterBranchRoot}" Value="True">
+                                      <Setter Property="Background" Value="{DynamicResource BrandAccent}"/>
+                                    </DataTrigger>
                                     <DataTrigger Binding="{Binding IsJumpHighlighted}" Value="True">
                                       <Setter Property="Background" Value="{DynamicResource BrandAccent}"/>
                                       <DataTrigger.EnterActions>
@@ -2245,48 +2477,97 @@
                                 </Style>
                               </Border.Style>
                             </Border>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                              <Border Width="{Binding IndentWidth}" Height="1"/>
-                              <Button Style="{StaticResource IconButton}" Width="20" Height="20" Padding="0"
-                                      VerticalAlignment="Center" Margin="0,0,4,0"
-                                      Visibility="{Binding CanExpand, Converter={StaticResource BoolToVisible}}"
-                                      Click="OrganizeExpand_Click" ToolTip="{Binding ExpandTip}"
-                                      AutomationProperties.Name="{Binding ExpandTip}">
-                                <Path Data="{Binding ExpandGlyphKey, Converter={StaticResource IconKey}}"
-                                      Width="9" Height="9" Stretch="Uniform"
-                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                              </Button>
-                              <Button Style="{StaticResource IconButton}" Width="20" Height="20" Padding="0"
-                                      VerticalAlignment="Center" Margin="0,0,4,0"
-                                      Visibility="{Binding CanViewFiles, Converter={StaticResource BoolToVisible}}"
-                                      Click="OrganizeFiles_Click" ToolTip="{Binding FilesToggleText}"
-                                      AutomationProperties.Name="{Binding FilesToggleText}">
-                                <Path Data="{StaticResource IconFileLines}" Width="11" Height="11" Stretch="Uniform"
-                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                              </Button>
-                              <Path Width="15" Height="15" Stretch="Uniform" Margin="0,0,10,0" VerticalAlignment="Center">
-                                <Path.Style>
-                                  <Style TargetType="Path">
-                                    <Setter Property="Data" Value="{StaticResource IconFolderOutline}"/>
-                                    <Setter Property="Fill" Value="{DynamicResource TextDim}"/>
-                                    <Style.Triggers>
-                                      <DataTrigger Binding="{Binding IsDirectoryNode}" Value="False">
-                                        <Setter Property="Data" Value="{StaticResource IconFileLines}"/>
-                                      </DataTrigger>
-                                      <DataTrigger Binding="{Binding ColorToneKey}" Value="Green">
-                                        <Setter Property="Fill" Value="{DynamicResource BrandAccent}"/>
-                                      </DataTrigger>
-                                      <DataTrigger Binding="{Binding ColorToneKey}" Value="Red">
-                                        <Setter Property="Data" Value="{StaticResource IconShield}"/>
-                                      </DataTrigger>
-                                    </Style.Triggers>
-                                  </Style>
-                                </Path.Style>
-                              </Path>
-                              <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource Text}" FontSize="13.5"
-                                           FontWeight="Medium" TextTrimming="CharacterEllipsis" MaxWidth="320"
-                                           ToolTip="{Binding FullPath}"/>
+
+                            <!-- 极简轻量可折叠分组小标题（点击整行可折叠/展开该色组） -->
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                                        Background="Transparent" Cursor="Hand"
+                                        Visibility="{Binding IsClassifyGroupHeader, Converter={StaticResource BoolToVisible}}">
+                              <Path Data="{Binding ClassifyGroupCollapseGlyphKey, Converter={StaticResource IconKey}}"
+                                    Width="9" Height="9" Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center"
+                                    Fill="{Binding ClassifyAccentHex, Converter={StaticResource HexBrush}}"/>
+                              <TextBlock Text="{Binding DisplayName}" FontSize="12" FontWeight="SemiBold"
+                                         Foreground="{Binding ClassifyAccentHex, Converter={StaticResource HexBrush}}" VerticalAlignment="Center"/>
+                              <TextBlock Text=" · " FontSize="11.5" Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center"/>
+                              <TextBlock Text="{Binding ClassifyGroupCountText}" FontSize="11.5"
+                                         Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center"/>
+                              <TextBlock Text="{Binding ClassifyGroupTarget}" FontSize="11" Margin="8,0,0,0"
+                                         FontFamily="{DynamicResource MonoFont}" Foreground="{DynamicResource TextDim}"
+                                         VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <!-- 普通目录行标题（树缩进 + 图标 + 名称 + 路径线索） -->
+                            <Grid Grid.Column="1" VerticalAlignment="Center"
+                                  Visibility="{Binding ShowNormalPurposeArea, Converter={StaticResource BoolToVisible}}">
+                              <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                              </Grid.ColumnDefinitions>
+                              <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border Width="{Binding IndentWidth}" Height="1"/>
+                                <Border Width="2" Height="16" CornerRadius="1" Margin="0,0,6,0"
+                                        Background="{DynamicResource BorderStrong}" VerticalAlignment="Center"
+                                        Visibility="{Binding IsFilterBranchChild, Converter={StaticResource BoolToVisible}}"/>
+                                <Grid Width="24" Height="24" Margin="0,0,4,0" VerticalAlignment="Center">
+                                  <Button Style="{StaticResource IconButton}" Width="24" Height="24" Padding="0"
+                                          VerticalAlignment="Center"
+                                          Visibility="{Binding CanExpand, Converter={StaticResource BoolToVisible}}"
+                                          Click="OrganizeExpand_Click" ToolTip="{Binding ExpandTip}"
+                                          AutomationProperties.Name="{Binding ExpandTip}">
+                                    <Path Data="{Binding ExpandGlyphKey, Converter={StaticResource IconKey}}"
+                                          Width="9" Height="9" Stretch="Uniform"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                  </Button>
+                                  <Button Style="{StaticResource IconButton}" Width="24" Height="24" Padding="0"
+                                          VerticalAlignment="Center"
+                                          Visibility="{Binding CanViewFiles, Converter={StaticResource BoolToVisible}}"
+                                          Click="OrganizeFiles_Click" ToolTip="{Binding FilesToggleText}"
+                                          AutomationProperties.Name="{Binding FilesToggleText}">
+                                    <Path Data="{StaticResource IconFileLines}" Width="11" Height="11" Stretch="Uniform"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                  </Button>
+                                </Grid>
+                                <!-- Windows 11 经典双色暖黄实心文件夹图标（非目录项自动切为文件图标） -->
+                                <Grid Width="17" Height="15" Margin="0,0,10,0" VerticalAlignment="Center">
+                                  <Grid Visibility="{Binding IsDirectoryNode, Converter={StaticResource BoolToVisible}}">
+                                    <!-- 后层折耳 -->
+                                    <Path Stretch="Fill" Fill="#DDA024"
+                                          Data="M 0,2.4 C 0,1.08 1.08,0 2.4,0 L 6.8,0 C 7.45,0 8.05,0.28 8.48,0.76 L 9.75,2.2 L 15.2,2.2 C 16.2,2.2 17,3.0 17,4.0 L 17,12.6 C 17,13.92 15.92,15 14.6,15 L 2.4,15 C 1.08,15 0,13.92 0,12.6 Z"/>
+                                    <!-- 前层暖金主体（带细腻顶部高光渐变） -->
+                                    <Path Stretch="Fill" Margin="0,3.2,0,0"
+                                          Data="M 0,1.6 C 0,0.72 0.72,0 1.6,0 L 15.4,0 C 16.28,0 17,0.72 17,1.6 L 17,9.8 C 17,10.9 16.1,11.8 15,11.8 L 2,11.8 C 0.9,11.8 0,10.9 0,9.8 Z">
+                                      <Path.Fill>
+                                        <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                          <GradientStop Color="#FFD85D" Offset="0"/>
+                                          <GradientStop Color="#F9C53D" Offset="0.45"/>
+                                          <GradientStop Color="#EEB127" Offset="1"/>
+                                        </LinearGradientBrush>
+                                      </Path.Fill>
+                                    </Path>
+                                    <!-- 顶部微弱高光线 -->
+                                    <Border Height="1" Margin="1.5,3.5,1.5,0" VerticalAlignment="Top"
+                                            CornerRadius="0.5" Background="#66FFF5C2"/>
+                                  </Grid>
+                                  <Path Width="13" Height="13" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                        Data="{StaticResource IconFileLines}" Fill="{DynamicResource TextMuted}">
+                                    <Path.Style>
+                                      <Style TargetType="Path">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding IsDirectoryNode}" Value="False">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </Path.Style>
+                                  </Path>
+                                </Grid>
+                              </StackPanel>
+                              <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Foreground="{DynamicResource Text}" FontSize="13.5"
+                                           FontWeight="Medium" TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding FullPath}">
+                                  <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="{Binding ChainSuffixInline, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" FontWeight="Normal" FontSize="12"/>
+                                </TextBlock>
                                 <Border MaxWidth="0" MaxHeight="0" Opacity="0" IsHitTestVisible="False"
                                         Visibility="{Binding IsSystemEntry, Converter={StaticResource BoolToVisible}}">
                                   <TextBlock Text="{Binding SystemEntryTag}" FontSize="10"/>
@@ -2302,166 +2583,150 @@
                                 <TextBlock Text="{Binding RelativePath}" FontSize="10.5"
                                            FontFamily="{DynamicResource MonoFont}"
                                            Foreground="{DynamicResource TextMuted}" Margin="0,2,0,0"
-                                           TextTrimming="CharacterEllipsis" MaxWidth="320"
+                                           TextTrimming="CharacterEllipsis"
                                            ToolTip="{Binding FullPath}"
                                            Visibility="{Binding ShowPathHint, Converter={StaticResource BoolToVisible}}"/>
                               </StackPanel>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- 用途：保留极净单一文字+同色比例横条，绝不塞小胶囊按钮 -->
+                    <DataGridTemplateColumn x:Name="ColOrgPurpose" Header="用途" Width="1.25*" MinWidth="200"
+                                            CanUserResize="True" CanUserSort="False" IsReadOnly="True">
+                      <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                          <Grid VerticalAlignment="Center" Margin="6,6,8,6">
+                            <!-- 分组分割小行右侧淡彩细分割线 -->
+                            <Border Height="1" VerticalAlignment="Center"
+                                    Background="{Binding ClassifyPillBgHex, Converter={StaticResource HexBrush}}"
+                                    Visibility="{Binding IsClassifyGroupHeader, Converter={StaticResource BoolToVisible}}"/>
+
+                            <!-- 普通目录行用途与比例条 -->
+                            <StackPanel Visibility="{Binding ShowNormalPurposeArea, Converter={StaticResource BoolToVisible}}"
+                                        Background="Transparent" Cursor="Hand" ToolTip="{Binding DisplayPurposeTip}"
+                                        MouseLeftButtonUp="OrganizePurpose_Click">
+                              <Grid VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                  <ColumnDefinition Width="*"/>
+                                  <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding DisplayOrClassifyReasonLine}"
+                                           FontSize="12" Foreground="{DynamicResource TextDim}"
+                                           VerticalAlignment="Center" Margin="0,0,12,0"
+                                           TextTrimming="CharacterEllipsis"
+                                           Visibility="{Binding DisplayOrClassifyReasonLine, Converter={StaticResource EmptyToCollapsed}}"/>
+                                <Border Grid.Column="1" Height="5" Width="124" HorizontalAlignment="Right"
+                                        VerticalAlignment="Center" CornerRadius="2.5"
+                                        Background="{DynamicResource BarTrack}">
+                                  <Border HorizontalAlignment="Left" Height="5" CornerRadius="2.5"
+                                          Width="{Binding SizeBarWidth}">
+                                    <Border.Style>
+                                      <Style TargetType="Border">
+                                        <Setter Property="Background" Value="{DynamicResource RingMidGray}"/>
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding ColorToneKey}" Value="Green">
+                                            <Setter Property="Background" Value="{DynamicResource BrandAccent}"/>
+                                          </DataTrigger>
+                                          <DataTrigger Binding="{Binding ColorToneKey}" Value="Yellow">
+                                            <Setter Property="Background" Value="{DynamicResource RingCharcoal}"/>
+                                          </DataTrigger>
+                                          <DataTrigger Binding="{Binding ColorToneKey}" Value="Red">
+                                            <Setter Property="Background" Value="{DynamicResource RingMidGray}"/>
+                                          </DataTrigger>
+                                          <DataTrigger Binding="{Binding IsClassifySortedItem}" Value="True">
+                                            <Setter Property="Background" Value="{Binding ClassifyAccentHex, Converter={StaticResource HexBrush}}"/>
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </Border.Style>
+                                  </Border>
+                                </Border>
+                              </Grid>
+                              <TextBlock Text="{Binding PurposeDetail}" Visibility="Collapsed"/>
+                              <TextBlock Text="{Binding AiSummaryText}" Visibility="Collapsed"/>
+                              <Border Margin="0,8,0,2" Padding="10,8" CornerRadius="8"
+                                      Background="{DynamicResource CardSurface}" BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                                      Visibility="{Binding IsDetailOpen, Converter={StaticResource BoolToVisible}}">
+                                <TextBlock Text="{Binding DetailText}" FontSize="11" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextDim}"/>
+                              </Border>
+                              <Border Margin="0,8,0,2" Padding="10,8" CornerRadius="8"
+                                      Background="{DynamicResource CardSurface}" BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                                      Visibility="{Binding IsFilesOpen, Converter={StaticResource BoolToVisible}}">
+                                <StackPanel>
+                                  <TextBlock Text="{Binding FilesNote}" FontSize="11" TextWrapping="Wrap"
+                                             Foreground="{DynamicResource TextDim}"/>
+                                  <ItemsControl ItemsSource="{Binding VisibleFiles}" Margin="0,4,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate>
+                                        <Grid Height="22">
+                                          <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                          </Grid.ColumnDefinitions>
+                                          <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="11"
+                                                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                     ToolTip="{Binding Hint}"
+                                                     Foreground="{DynamicResource Text}"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding ModifiedText}" FontSize="10"
+                                                     Margin="0,0,10,0" MinWidth="98" TextAlignment="Right"
+                                                     VerticalAlignment="Center"
+                                                     Foreground="{DynamicResource TextMuted}"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding SizeText}" FontSize="10.5"
+                                                     MinWidth="70" TextAlignment="Right" VerticalAlignment="Center"
+                                                     Foreground="{DynamicResource AccentDim}"/>
+                                        </Grid>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </StackPanel>
+                              </Border>
                             </StackPanel>
                           </Grid>
                         </DataTemplate>
                       </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <!-- 用途：默认只呈现一根干净的亮橙/灰比例横条；点击这一格按需展开说明与文件 -->
-                    <DataGridTemplateColumn x:Name="ColOrgPurpose" Header="用途" Width="1.1*" MinWidth="136"
-                                            CanUserResize="True" CanUserSort="False" IsReadOnly="True">
-                      <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                          <StackPanel VerticalAlignment="Center" Margin="0,6,8,6" Background="Transparent"
-                                      Cursor="Hand" ToolTip="{Binding DisplayPurposeTip}"
-                                      MouseLeftButtonUp="OrganizePurpose_Click">
-                            <Border Height="5" Width="124" HorizontalAlignment="Left" CornerRadius="2.5"
-                                    Background="{DynamicResource BarTrack}">
-                              <Border HorizontalAlignment="Left" Height="5" CornerRadius="2.5"
-                                      Width="{Binding SizeBarWidth}">
-                                <Border.Style>
-                                  <Style TargetType="Border">
-                                    <Setter Property="Background" Value="{DynamicResource RingMidGray}"/>
-                                    <Style.Triggers>
-                                      <DataTrigger Binding="{Binding ColorToneKey}" Value="Green">
-                                        <Setter Property="Background" Value="{DynamicResource BrandAccent}"/>
-                                      </DataTrigger>
-                                      <DataTrigger Binding="{Binding ColorToneKey}" Value="Yellow">
-                                        <Setter Property="Background" Value="{DynamicResource RingCharcoal}"/>
-                                      </DataTrigger>
-                                      <DataTrigger Binding="{Binding ColorToneKey}" Value="Red">
-                                        <Setter Property="Background" Value="{DynamicResource RingMidGray}"/>
-                                      </DataTrigger>
-                                    </Style.Triggers>
-                                  </Style>
-                                </Border.Style>
-                              </Border>
-                            </Border>
-                            <TextBlock Text="{Binding DisplayPurposeLine}" Visibility="Collapsed"/>
-                            <TextBlock Text="{Binding PurposeDetail}" Visibility="Collapsed"/>
-                            <TextBlock Text="{Binding AiSummaryText}" Visibility="Collapsed"/>
-                            <Border Margin="0,8,0,2" Padding="10,8" CornerRadius="8"
-                                    Background="{DynamicResource CardSurface}" BorderBrush="{DynamicResource Border}" BorderThickness="1"
-                                    Visibility="{Binding IsDetailOpen, Converter={StaticResource BoolToVisible}}">
-                              <TextBlock Text="{Binding DetailText}" FontSize="11" TextWrapping="Wrap"
-                                         Foreground="{DynamicResource TextDim}"/>
-                            </Border>
-                            <Border Margin="0,8,0,2" Padding="10,8" CornerRadius="8"
-                                    Background="{DynamicResource CardSurface}" BorderBrush="{DynamicResource Border}" BorderThickness="1"
-                                    Visibility="{Binding IsFilesOpen, Converter={StaticResource BoolToVisible}}">
-                              <StackPanel>
-                                <TextBlock Text="{Binding FilesNote}" FontSize="11" TextWrapping="Wrap"
-                                           Foreground="{DynamicResource TextDim}"/>
-                                <ItemsControl ItemsSource="{Binding VisibleFiles}" Margin="0,4,0,0">
-                                  <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                      <Grid Height="22">
-                                        <Grid.ColumnDefinitions>
-                                          <ColumnDefinition Width="*"/>
-                                          <ColumnDefinition Width="Auto"/>
-                                          <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="11"
-                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                                   ToolTip="{Binding Hint}"
-                                                   Foreground="{DynamicResource Text}"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding ModifiedText}" FontSize="10"
-                                                   Margin="0,0,10,0" MinWidth="98" TextAlignment="Right"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource TextMuted}"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding SizeText}" FontSize="10.5"
-                                                   MinWidth="70" TextAlignment="Right" VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource AccentDim}"/>
-                                      </Grid>
-                                    </DataTemplate>
-                                  </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                              </StackPanel>
-                            </Border>
-                          </StackPanel>
-                        </DataTemplate>
-                      </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-
-                    <!-- 容量：简洁右对齐加粗大数字 -->
+                    <!-- 容量：彻底恢复图 3 简洁右对齐数字，绝不被多余按钮挤切 -->
                     <DataGridTemplateColumn x:Name="ColOrgSize" Header="容量" SortMemberPath="Size"
                                             Width="98" MinWidth="92" CanUserResize="False" IsReadOnly="True"
                                             HeaderStyle="{StaticResource OrganizeSizeHeader}"
                                             CellStyle="{StaticResource OrganizeSizeCell}">
                       <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                          <StackPanel VerticalAlignment="Center" Margin="0,4,6,4">
-                            <TextBlock Text="{Binding SizeText}" FontSize="13.5" FontWeight="SemiBold"
-                                       TextAlignment="Right" Foreground="{DynamicResource Text}"
-                                       ToolTip="{Binding ContentStateTip}"/>
-                            <TextBlock Text="{Binding ContentStateText}" FontSize="10" Margin="0,2,0,0"
-                                       TextAlignment="Right" TextTrimming="CharacterEllipsis"
-                                       Foreground="{DynamicResource TextMuted}"
-                                       ToolTip="{Binding ContentStateTip}"
-                                       Visibility="{Binding HasContentState,
-                                                    Converter={StaticResource BoolToVisible}}"/>
-                          </StackPanel>
+                          <Grid VerticalAlignment="Center" Margin="0,4,6,4">
+                            <TextBlock Text="{Binding ClassifyHeaderSizeText}" FontSize="12" FontWeight="SemiBold"
+                                       TextAlignment="Right" Foreground="{Binding ClassifyAccentHex, Converter={StaticResource HexBrush}}"
+                                       Visibility="{Binding IsClassifyGroupHeader, Converter={StaticResource BoolToVisible}}"/>
+                            <StackPanel VerticalAlignment="Center"
+                                        Visibility="{Binding ShowNormalPurposeArea, Converter={StaticResource BoolToVisible}}">
+                              <TextBlock Text="{Binding SizeText}" FontSize="13.5" FontWeight="SemiBold"
+                                         TextAlignment="Right" Foreground="{DynamicResource Text}"
+                                         ToolTip="{Binding ContentStateTip}"/>
+                              <TextBlock Text="{Binding ContentStateText}" FontSize="10" Margin="0,2,0,0"
+                                         TextAlignment="Right" TextTrimming="CharacterEllipsis"
+                                         Foreground="{DynamicResource TextMuted}"
+                                         ToolTip="{Binding ContentStateTip}"
+                                         Visibility="{Binding HasContentState,
+                                                      Converter={StaticResource BoolToVisible}}"/>
+                            </StackPanel>
+                          </Grid>
                         </DataTemplate>
                       </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
                   </DataGrid.Columns>
                 </DataGrid>
+                  </DockPanel>
+                </Grid>
               </Border>
 
-              <!-- 可左右拖动的透明分隔条（按需打开 AI 报告时才出现） -->
-              <GridSplitter x:Name="OrganizeReportSplitter" Grid.Column="3" Width="8" Visibility="Collapsed"
-                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                            Background="Transparent" ShowsPreview="False"
-                            Cursor="SizeWE" ToolTip="左右拖动可拉宽或收窄 AI 面板"/>
-
-              <!-- 按需展开的右侧 AI 参谋抽屉（默认收起，保持方案 1 极净双栏） -->
-              <Border x:Name="OrganizeReportPanel" Grid.Column="4" Visibility="Collapsed"
-                      Margin="0,10,16,12" CornerRadius="10" Background="{DynamicResource PanelLeft}"
-                      BorderBrush="{DynamicResource Border}" BorderThickness="1" ClipToBounds="True">
-                <DockPanel>
-                  <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1"
-                          Padding="14,10">
-                    <Grid>
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                      </Grid.ColumnDefinitions>
-                      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="20" Height="20" CornerRadius="6" Margin="0,0,7,0"
-                                Background="{DynamicResource BrandAccentSoft}">
-                          <Path Data="{StaticResource IconAi}" Width="11" Height="11" Stretch="Uniform"
-                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Fill="{DynamicResource BrandAccent}"/>
-                        </Border>
-                        <TextBlock x:Name="OrganizeReportHeaderTitle" Text="AI 建议"
-                                   FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Text}"
-                                   VerticalAlignment="Center"/>
-                      </StackPanel>
-                      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button x:Name="OrganizeReportExpandBtn" Style="{StaticResource GhostButton}"
-                                Padding="8,3" FontSize="11" Margin="0,0,6,0"
-                                Visibility="Collapsed"
-                                Content="大窗查看" Click="OrganizeReportExpand_Click"
-                                AutomationProperties.Name="在大窗口中查看 AI 分析报告"/>
-                        <Button x:Name="OrganizeReportCloseBtn" Style="{StaticResource IconButton}"
-                                Width="26" Height="26" Padding="0" Click="OrganizeReportClose_Click"
-                                ToolTip="收起" AutomationProperties.Name="收起报告面板">
-                          <Path Data="{StaticResource IconClose}" Width="10" Height="10" Stretch="Uniform"
-                                Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                        </Button>
-                      </StackPanel>
-                    </Grid>
-                  </Border>
-                  <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12,12">
-                    <StackPanel x:Name="OrganizeReportContent"/>
-                  </ScrollViewer>
-                </DockPanel>
-              </Border>
+              <!-- 保留空分隔条占位以兼容既有字段引用（报告已迁移至左侧栏，不再挤出第三栏） -->
+              <GridSplitter x:Name="OrganizeReportSplitter" Grid.Column="3" Width="0" Visibility="Collapsed"
+                            IsHitTestVisible="False"/>
             </Grid>
           </DockPanel>
           <DockPanel x:Name="CleanPane" Visibility="Collapsed">
@@ -3856,6 +4121,197 @@
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <StackPanel x:Name="ReportContent"/>
         </ScrollViewer>
+
+        <!-- ===== 轻弹窗：整理归类清单微调、跨盘迁移与隐藏软链兜底（让主表彻底保持极净美感） ===== -->
+        <DockPanel x:Name="ClassifyModalBody" Visibility="Collapsed" MaxHeight="580">
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+              <Button x:Name="ClassifyCustomBtn" Content="自定义分类规则" Style="{StaticResource ChipButton}"
+                      Padding="10,4" FontSize="11.5" Click="ClassifyCustomToggle_Click"/>
+            </StackPanel>
+            <TextBlock x:Name="ClassifyModalSubtitle" FontSize="12" Foreground="{DynamicResource TextDim}"
+                       VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"
+                       Text="支持同盘毫秒归位与跨盘安全搬家；带注册表的软件/游戏可按需启用隐藏软链兜底，全程支持一键撤销。"/>
+          </DockPanel>
+
+          <Border x:Name="ClassifyTargetDriveBar" DockPanel.Dock="Top" Margin="0,0,0,10" Padding="10,7" CornerRadius="9"
+                  Background="{DynamicResource PanelLeft}" BorderBrush="{DynamicResource Border}" BorderThickness="1">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="目标磁盘" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource TextDim}"
+                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <ComboBox x:Name="ClassifyTargetDriveBox" Width="216" Height="28" FontSize="11.5" Padding="8,3"
+                          VerticalAlignment="Center" DisplayMemberPath="Label" SelectedValuePath="DriveRoot"
+                          SelectionChanged="ClassifyTargetDrive_SelectionChanged"/>
+              </StackPanel>
+              <CheckBox x:Name="ClassifyCrossDriveJunctionChk" DockPanel.Dock="Left" Visibility="Collapsed"
+                        IsChecked="True" VerticalAlignment="Center" Margin="14,0,0,0"
+                        FontSize="11.5" Foreground="{DynamicResource TextDim}"
+                        Content="跨盘搬家时原位留隐藏软链（原路径透明跳转）"
+                        ToolTip="开启后会在源盘原位留下隐藏 NTFS Junction，让依赖旧路径的软件/下载器继续正常读写，同时彻底释放源盘空间"
+                        Click="ClassifyCrossDriveJunctionChk_Click"/>
+              <TextBlock x:Name="ClassifyJunctionHintText" DockPanel.Dock="Right" VerticalAlignment="Center"
+                         HorizontalAlignment="Right" FontSize="11" Foreground="{DynamicResource TextMuted}"
+                         Text="带注册表软件默认锁定，可逐项点「启用软链搬家」无损迁移"/>
+            </DockPanel>
+          </Border>
+
+          <Border x:Name="ClassifyStatusBanner" DockPanel.Dock="Top" Visibility="Collapsed"
+                  Margin="0,0,0,10" Padding="10,8" CornerRadius="9"
+                  Background="{DynamicResource BrandAccentSoft}"
+                  BorderBrush="{DynamicResource Border}" BorderThickness="1">
+            <DockPanel>
+              <Button x:Name="ClassifyStatusActionBtn" DockPanel.Dock="Right" Content="关闭"
+                      Style="{StaticResource ChipButton}" Padding="8,2" FontSize="11"
+                      Click="ClassifyStatusClose_Click"/>
+              <StackPanel Margin="0,0,10,0">
+                <TextBlock x:Name="ClassifyBannerText" FontSize="12" FontWeight="Medium"
+                           Foreground="{DynamicResource Text}" TextWrapping="Wrap"/>
+                <ProgressBar x:Name="ClassifyProgressBar" Height="3.5" Margin="0,5,0,0"
+                             IsIndeterminate="True" Visibility="Collapsed"/>
+              </StackPanel>
+            </DockPanel>
+          </Border>
+
+          <Border x:Name="ClassifyRuleEditorCard" DockPanel.Dock="Top" Visibility="Collapsed"
+                  Margin="0,0,0,10" Padding="12,10" CornerRadius="10"
+                  Background="{DynamicResource PanelLeft}"
+                  BorderBrush="{DynamicResource Border}" BorderThickness="1">
+            <StackPanel>
+              <DockPanel Margin="0,0,0,8">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                  <Button Content="+ 新增分类" Style="{StaticResource ChipButton}" Padding="9,3.5" FontSize="11"
+                          Margin="0,0,6,0" Click="ClassifyRuleAdd_Click"/>
+                  <Button Content="恢复默认" Style="{StaticResource GhostButton}" Padding="9,3.5" FontSize="11"
+                          Margin="0,0,6,0" Click="ClassifyRuleReset_Click"/>
+                  <Button Content="保存并重排" Style="{StaticResource OrangePillButton}" Padding="12,4" FontSize="11.5"
+                          Click="ClassifyRuleSave_Click"/>
+                </StackPanel>
+                <TextBlock Text="自定义整理大类与提示词" FontSize="12.5" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Text}" VerticalAlignment="Center"/>
+              </DockPanel>
+              <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <CheckBox x:Name="ClassifyIncludeDownloadsChk" Content="顺带整理「下载」里面的子目录"
+                          FontSize="11.5" Foreground="{DynamicResource TextDim}"
+                          Margin="0,0,16,0" Click="ClassifyOptionsChanged_Click"/>
+                <CheckBox x:Name="ClassifyUpdateShortcutsChk" Content="移动免安装程序后更新快捷方式"
+                          FontSize="11.5" Foreground="{DynamicResource TextDim}"
+                          Click="ClassifyOptionsChanged_Click"/>
+              </StackPanel>
+              <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="ClassifyRulesList">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="0,3">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="26"/>
+                          <ColumnDefinition Width="105"/>
+                          <ColumnDefinition Width="110"/>
+                          <ColumnDefinition Width="Auto"/>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <CheckBox Grid.Column="0" IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                  VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,6,0" Padding="6,3.5" FontSize="11.5" ToolTip="分类名称"/>
+                        <TextBox Grid.Column="2" Text="{Binding FolderName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,4,0" Padding="6,3.5" FontSize="11.5"
+                                 FontFamily="{DynamicResource MonoFont}" ToolTip="目标落地文件夹名"/>
+                        <Button Grid.Column="3" Content="选目录" Style="{StaticResource ChipButton}"
+                                Padding="8,3.5" FontSize="11" Margin="0,0,6,0"
+                                Tag="{Binding}" Click="ClassifyRuleBrowse_Click"/>
+                        <TextBox Grid.Column="4" Text="{Binding Description, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,6,0" Padding="6,3.5" FontSize="11" ToolTip="给 AI 看的特征提示"/>
+                        <Button Grid.Column="5" Content="删除" Style="{StaticResource GhostButton}"
+                                Padding="8,3.5" FontSize="11" Tag="{Binding}" Click="ClassifyRuleRemove_Click"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </StackPanel>
+          </Border>
+
+          <DockPanel DockPanel.Dock="Bottom" Margin="0,14,0,0">
+            <Button x:Name="ClassifyUndoBtn" DockPanel.Dock="Left" Content="撤销上次整理"
+                    Style="{StaticResource GhostButton}" Padding="12,6" FontSize="12"
+                    Visibility="Collapsed" Click="ClassifyUndo_Click"/>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+              <Button Content="关闭" Style="{StaticResource GhostButton}" Padding="14,6" FontSize="12"
+                      Margin="0,0,8,0" Click="CloseOverlay_Click"/>
+              <Button x:Name="ClassifyModalExecuteBtn" Content="确认按这样整理"
+                      Style="{StaticResource OrangePillButton}" Padding="18,6.5" FontSize="12.5"
+                      Click="ClassifyExecute_Click"/>
+            </StackPanel>
+          </DockPanel>
+
+          <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="340">
+            <ItemsControl x:Name="ClassifyModalItems">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Margin="0,0,0,6" Padding="10,8" CornerRadius="9"
+                          Background="{DynamicResource PanelLeft}"
+                          BorderBrush="{DynamicResource Border}" BorderThickness="1">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="28"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                      </Grid.ColumnDefinitions>
+                      <CheckBox Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                IsEnabled="{Binding CanCheck}" ToolTip="{Binding SafetyNote}"/>
+                      <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,10,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding SourceName}" FontSize="12.5" FontWeight="SemiBold"
+                                     Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis"
+                                     MaxWidth="240" ToolTip="{Binding SourcePath}"/>
+                          <TextBlock Text="{Binding SizeText}" FontSize="11.5" Margin="8,0,0,0"
+                                     Foreground="{DynamicResource TextDim}"/>
+                          <Border Margin="8,0,0,0" Padding="6,1" CornerRadius="6"
+                                  Background="{DynamicResource CardSurface}"
+                                  Visibility="{Binding ShowAttentionBadge, Converter={StaticResource BoolToVisible}}"
+                                  ToolTip="{Binding SafetyNote}">
+                            <TextBlock Text="{Binding TierBadge}" FontSize="10" Foreground="{DynamicResource TextDim}"/>
+                          </Border>
+                        </StackPanel>
+                        <TextBlock Text="{Binding DestinationPreview}" FontSize="11" Margin="0,2,0,0"
+                                   Foreground="{DynamicResource TextMuted}" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding DestinationPreview}"/>
+                      </StackPanel>
+                      <Button Grid.Column="2" Margin="0,0,8,0" Padding="8,4" Height="28" FontSize="11"
+                              VerticalAlignment="Center"
+                              Content="{Binding JunctionToggleLabel}"
+                              Tag="{Binding}"
+                              Visibility="{Binding ShowJunctionOptInButton, Converter={StaticResource BoolToVisible}}"
+                              ToolTip="迁移后在原位置自动建隐藏 NTFS 软链，原有注册表、快捷方式与游戏库零失效"
+                              Click="ClassifyToggleJunction_Click">
+                        <Button.Style>
+                          <Style TargetType="Button" BasedOn="{StaticResource ChipButton}">
+                            <Style.Triggers>
+                              <DataTrigger Binding="{Binding UseJunction}" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource BrandAccentSoft}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource BrandAccent}"/>
+                                <Setter Property="BorderBrush" Value="{DynamicResource BrandAccent}"/>
+                              </DataTrigger>
+                            </Style.Triggers>
+                          </Style>
+                        </Button.Style>
+                      </Button>
+                      <ComboBox Grid.Column="3" ItemsSource="{Binding Choices}"
+                                SelectedValue="{Binding CategoryId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                SelectedValuePath="Id" DisplayMemberPath="DisplayName"
+                                IsEnabled="{Binding IsDropdownEnabled}"
+                                Width="122" Height="28" FontSize="11.5" Padding="8,3" VerticalAlignment="Center"/>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
 
         <StackPanel x:Name="ConfirmButtons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0" Visibility="Collapsed">
           <Button x:Name="ConfirmNoBtn" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="ConfirmNo_Click"/>

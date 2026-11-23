@@ -368,16 +368,21 @@ public sealed class MftScanService : IScanService
         quality.UnparsedRecords = parseFailures;
         quality.OrphanRecords = orphanRecords;
         quality.DurationMs = total.ElapsedMilliseconds;
+        quality.MftReadMs = readSw.ElapsedMilliseconds;
+        quality.MftParseMs = parseSw.ElapsedMilliseconds;
+        quality.MftTreeMs = buildSw.ElapsedMilliseconds;
+        quality.MftAccumulateMs = accSw.ElapsedMilliseconds;
+        quality.MftRecordsTotal = recordCount;
         quality.Canceled = ct.IsCancellationRequested;
         quality.Complete = parseFailures == 0 && orphanRecords == 0 && !quality.Canceled;
         if (parseFailures > 0) quality.Note = $"有 {parseFailures:N0} 条 MFT 记录解析失败";
         if (orphanRecords > 0)
             quality.Note = (quality.Note.Length > 0 ? quality.Note + "；" : "") + $"{orphanRecords:N0} 条记录找不到父目录";
-        LastQuality = quality;
-        Flush($"质量: 解析失败 {parseFailures:N0}, 孤儿 {orphanRecords:N0}, 硬链接 {extraLinks:N0}, 重解析点 {reparse:N0}, 完整={quality.Complete}");
 
         // ---- 内存统计：先量再改 ----
-        LastMemoryReport = MeasureMemory(entries, parents, bases, nameLinks, fileCount, recordCount);
+        LastMemoryReport = MeasureMemory(entries, parents, bases, nameLinks, fileCount, recordCount, quality);
+        LastQuality = quality;
+        Flush($"质量: 解析失败 {parseFailures:N0}, 孤儿 {orphanRecords:N0}, 硬链接 {extraLinks:N0}, 重解析点 {reparse:N0}, 完整={quality.Complete}");
         Flush(LastMemoryReport);
         AppLog.Info("Scan", LastMemoryReport);
 
@@ -390,7 +395,7 @@ public sealed class MftScanService : IScanService
     /// </summary>
     private static string MeasureMemory(
         FileEntry?[] entries, ulong[] parents, ulong[] bases,
-        List<FileNameLink> nameLinks, int fileCount, int recordCount)
+        List<FileNameLink> nameLinks, int fileCount, int recordCount, ScanQuality quality)
     {
         long managed = GC.GetTotalMemory(false);
 
@@ -410,6 +415,11 @@ public sealed class MftScanService : IScanService
         long avgEntry = sampledCount > 0 ? sampled / sampledCount : 0;
         long avgPathChars = sampledCount > 0 ? pathChars / sampledCount : 0;
         long entryBytes = avgEntry * fileCount;
+
+        quality.ManagedHeapMb = managed / 1048576;
+        quality.EntryMemoryMb = entryBytes / 1048576;
+        quality.AvgEntryBytes = (int)Math.Clamp(avgEntry, 0, int.MaxValue);
+        quality.AvgPathChars = (int)Math.Clamp(avgPathChars, 0, int.MaxValue);
 
         long arrayBytes = (long)entries.Length * IntPtr.Size
                           + (long)parents.Length * 8 + (long)bases.Length * 8;

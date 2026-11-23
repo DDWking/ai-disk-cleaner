@@ -6,13 +6,16 @@ using AiDiskCleaner.Models;
 namespace AiDiskCleaner.Services;
 
 /// <summary>
-/// 轻量持久化目录结构缓存（仅前 3 层主要目录，通常 &lt; 250 KB）：
-/// 让软件冷启动时在 &lt;100ms 内先秒开完整首页，随后后台静默跑 MFT/USN 校准，消除卡顿与等待感。
+/// 轻量持久化目录结构缓存（前 5 层主要目录 + 大文件摘要）：
+/// 让软件冷启动时在 &lt;100ms 内先秒开完整首页；深度或数量截断的节点会标记 Partial，
+/// 在后台 MFT/USN 校准完成前若用户点击展开，也会立即按需从磁盘补全当前目录，不出现“没头了”。
 /// </summary>
 public static class OrganizeTreeCache
 {
-    private const int MaxDepth = 3;
-    private const int MaxNodes = 2500;
+    private const int MaxDepth = 5;
+    private const int MaxNodes = 8000;
+    private const int MaxFilesPerDir = 12;
+    private const long MinCachedFileBytes = 1024L * 1024;
 
     private sealed class CachedDriveTree
     {
@@ -35,6 +38,8 @@ public static class OrganizeTreeCache
         [JsonPropertyName("h")] public bool IsHidden { get; set; }
         [JsonPropertyName("sy")] public bool IsSystem { get; set; }
         [JsonPropertyName("rp")] public bool IsReparsePoint { get; set; }
+        [JsonPropertyName("f")] public bool IsFile { get; set; }
+        [JsonPropertyName("pt")] public bool Partial { get; set; }
         [JsonPropertyName("m")] public long ModifiedTicks { get; set; }
         [JsonPropertyName("c")] public List<CachedDirNode>? Children { get; set; }
     }
@@ -69,13 +74,14 @@ public static class OrganizeTreeCache
                 Allocated = dto.RootAllocated,
                 FileCount = dto.FileCount,
                 FolderCount = dto.FolderCount,
+                IsCachePartial = dto.Root.Partial,
             };
 
             if (dto.Root.Children != null)
             {
                 foreach (var childDto in dto.Root.Children)
                 {
-                    var child = MaterializeDir(childDto, root, rootPath);
+                    var child = MaterializeDir(childDto, root, rootPath, depth: 1);
                     root.Children.Add(child);
                 }
             }
@@ -88,9 +94,43 @@ public static class OrganizeTreeCache
         }
     }
 
-    private static FileEntry MaterializeDir(CachedDirNode dto, FileEntry parent, string parentPath)
+    private static FileEntry MaterializeDir(CachedDirNode dto, FileEntry parent, string parentPath, int depth)
     {
         string full = Path.Combine(parentPath, dto.Name);
+        if (dto.IsFile)
+        {
+            return new FileEntry
+            {
+                Name = dto.Name,
+                FullPath = full,
+                Kind = EntryKind.File,
+                Category = FileClassifier.Classify(dto.Name),
+                Parent = parent,
+                Size = dto.Size,
+                Allocated = dto.Allocated > 0 ? dto.Allocated : dto.Size,
+                IsHidden = dto.IsHidden,
+                IsSystem = dto.IsSystem,
+                IsReparsePoint = dto.IsReparsePoint,
+                Modified = dto.ModifiedTicks > 0 ? new DateTime(dto.ModifiedTicks, DateTimeKind.Local) : DateTime.MinValue,
+            };
+        }
+
+        int childDirMaterialized = 0;
+        int childFileMaterialized = 0;
+        if (dto.Children != null)
+        {
+            foreach (var c in dto.Children)
+            {
+                if (c.IsFile) childFileMaterialized++;
+                else childDirMaterialized++;
+            }
+        }
+
+        // 只要缓存里子目录或文件少于原目录真实数量，就标成 Partial 以便点击时按需从磁盘补全（包含 1~2 层小文件目录）。
+        bool inferredPartial = depth >= 1
+            && (dto.FolderCount > childDirMaterialized
+                || (dto.FileCount > childFileMaterialized && dto.Size > 0));
+
         var dir = new FileEntry
         {
             Name = dto.Name,
@@ -104,13 +144,14 @@ public static class OrganizeTreeCache
             IsHidden = dto.IsHidden,
             IsSystem = dto.IsSystem,
             IsReparsePoint = dto.IsReparsePoint,
+            IsCachePartial = dto.Partial || inferredPartial,
             Modified = dto.ModifiedTicks > 0 ? new DateTime(dto.ModifiedTicks, DateTimeKind.Local) : DateTime.MinValue,
         };
 
         if (dto.Children != null)
         {
             foreach (var c in dto.Children)
-                dir.Children.Add(MaterializeDir(c, dir, full));
+                dir.Children.Add(MaterializeDir(c, dir, full, depth + 1));
         }
         return dir;
     }
@@ -173,24 +214,62 @@ public static class OrganizeTreeCache
             ModifiedTicks = dir.Modified == DateTime.MinValue ? 0 : dir.Modified.Ticks,
         };
 
-        if (depth >= MaxDepth || remaining <= 0 || !dir.HasChildren)
-            return node;
+        if (!dir.HasChildren) return node;
 
         var subDirs = new List<FileEntry>();
+        var largeFiles = new List<FileEntry>();
         foreach (var child in dir.ChildList)
         {
-            if (child.IsDirectory && !child.IsFilesGroup)
+            if (child.IsFilesGroup) continue;
+            if (child.IsDirectory)
                 subDirs.Add(child);
+            else if (child.Size >= MinCachedFileBytes)
+                largeFiles.Add(child);
         }
-        if (subDirs.Count == 0) return node;
+
+        if (depth >= MaxDepth || remaining <= 0)
+        {
+            node.Partial = subDirs.Count > 0 || largeFiles.Count > 0 || dir.FolderCount > 0 || dir.FileCount > 0;
+            return node;
+        }
+
+        if (subDirs.Count == 0 && largeFiles.Count == 0)
+        {
+            node.Partial = dir.FolderCount > 0 || (dir.FileCount > 0 && dir.Size > 0);
+            return node;
+        }
 
         subDirs.Sort(static (a, b) => b.Size.CompareTo(a.Size));
-        int take = Math.Min(subDirs.Count, Math.Min(depth == 0 ? 120 : 60, remaining));
-        remaining -= take;
+        int takeDirs = Math.Min(subDirs.Count, Math.Min(depth == 0 ? 120 : 60, remaining));
+        remaining -= takeDirs;
 
-        node.Children = new List<CachedDirNode>(take);
-        for (int i = 0; i < take; i++)
+        largeFiles.Sort(static (a, b) => b.Size.CompareTo(a.Size));
+        int takeFiles = remaining > 0 ? Math.Min(largeFiles.Count, Math.Min(MaxFilesPerDir, remaining)) : 0;
+        remaining -= takeFiles;
+
+        node.Partial = takeDirs < subDirs.Count || takeFiles < largeFiles.Count || remaining <= 0;
+
+        int totalChildren = takeDirs + takeFiles;
+        if (totalChildren == 0) return node;
+
+        node.Children = new List<CachedDirNode>(totalChildren);
+        for (int i = 0; i < takeDirs; i++)
             node.Children.Add(CaptureDir(subDirs[i], depth + 1, ref remaining, ct));
+        for (int i = 0; i < takeFiles; i++)
+        {
+            var f = largeFiles[i];
+            node.Children.Add(new CachedDirNode
+            {
+                Name = f.Name,
+                Size = f.Size,
+                Allocated = f.Allocated,
+                IsHidden = f.IsHidden,
+                IsSystem = f.IsSystem,
+                IsReparsePoint = f.IsReparsePoint,
+                IsFile = true,
+                ModifiedTicks = f.Modified == DateTime.MinValue ? 0 : f.Modified.Ticks,
+            });
+        }
 
         return node;
     }

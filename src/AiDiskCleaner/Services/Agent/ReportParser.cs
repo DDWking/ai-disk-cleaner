@@ -333,7 +333,7 @@ public static class ReportParser
     }
 
     /// <summary>去掉 markdown 围栏与前后闲话，只留第一个 { 到最后一个 }。</summary>
-    static string ExtractJson(string? raw)
+    internal static string ExtractJson(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return "";
         int start = raw.IndexOf('{');

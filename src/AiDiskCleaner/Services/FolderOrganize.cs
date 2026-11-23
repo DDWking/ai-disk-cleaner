@@ -96,10 +96,12 @@ public static class FolderOrganize
     public const int MaxRows = 4000;
 
     /// <summary>
-    /// 最多建多少个对象。**和可见行数是两条线**：识别覆盖需要把一、二级都建出来，
-    /// 但界面只在用户展开时才渲染 —— 所以对象上限比可见行上限高一点。
+    /// 最多建多少个对象。**和可见行数是两条线**：保留充足空间给用户手动深挖展开。
     /// </summary>
-    public const int MaxObjects = 6000;
+    public const int MaxObjects = 24000;
+
+    /// <summary>后台自动铺开的对象上限，避免把手动展开配额提前吃满。</summary>
+    public const int AutoMaterializeObjectCap = 3600;
 
     // ---------------- 层级策略（起点：盘符 / 系统入口） ----------------
 

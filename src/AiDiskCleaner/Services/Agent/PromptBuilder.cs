@@ -35,7 +35,7 @@ public static class PromptBuilder
    - lock:none 表示无占用信息；
    - 不要使用 dup: 引用（本次没有重复文件数据）。
 3. verdict 只能是 recommend / consider / keep / unknown。
-4. recommend 只在你有明确把握时使用；不确定就 consider 或 unknown。系统目录、程序安装目录、用户文档一律不要 recommend。
+4. 三档 verdict 必须严格区分：recommend 仅用于明确可安全清理的缓存、日志、临时文件、下载残留、旧安装包（删后不影响软件运行或会自动重建）；consider 用于用户「不玩了/不用了即可按需清理或卸载腾空间」的大体积非系统项（如具体某款 Steam/单机游戏、Minecraft 启动器与整合包 .minecraft/PCL/mc、虚拟机镜像、长期不用的独立软件、大体积下载/视频素材目录等，在 risk 中说明“不玩/不用可删，删后需重下或注意存档”）；keep 仅限绝不可删的 Windows 系统核心、硬件驱动底座、杀毒防护或软件内部共享引擎子组件（如 Common7/IDE/bin/lib）。系统目录、程序安装目录、用户文档一律不要 recommend。
 5. why ≤60 字，写「为什么可以清理」；risk ≤40 字，写「清理后可能发生什么」，可为空。
 6. reclaimableBytes 是该目录可回收的字节数，必须 ≤ 卡片 sizeBytes。
 7. items 最多 40 条；同一 folderId 只出现一次。

@@ -51,6 +51,9 @@ public class FileEntry
     /// <summary>根目录下「散文件」合成组，点开才列出文件。</summary>
     public bool IsFilesGroup { get; set; }
 
+    /// <summary>由轻量冷启动缓存加载且子项被深度/数量截断，后台 MFT 尚未完成时按需从磁盘补全。</summary>
+    public bool IsCachePartial { get; set; }
+
     public bool IsDirectory => Kind == EntryKind.Directory;
     public bool IsDimmed => IsHidden || IsSystem || Name.StartsWith('$') || IsFilesGroup;
 

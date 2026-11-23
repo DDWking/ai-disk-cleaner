@@ -78,7 +78,7 @@ public static class AppSignatures
         new("VMware", "vm", SigRisk.Keep, N(@"\virtual machines", @"\vmware"), Plain: "虚拟机里的系统和文件是真的，别删，建议搬到别的盘", Migrate: "挪到大盘"),
         new("VirtualBox", "vm", SigRisk.Keep, N(@"\virtualbox vms"), Plain: "虚拟机里的系统和文件是真的，别删，建议搬到别的盘"),
         new("Steam 下载缓存", "game", SigRisk.Safe, N(@"\steamapps\downloading"), Plain: "正在下载的游戏，删了进度要重来"),
-        new("Steam 游戏库", "game", SigRisk.Keep, N(@"\steamapps\common", @"\steamlibrary"), Plain: "游戏本体，删了要重新下载几十个 G"),
+        new("Steam 游戏库", "game", SigRisk.Cautious, N(@"\steamapps\common", @"\steamlibrary"), Plain: "游戏本体，不玩了可卸载或删除，删后需重新下载"),
         new("Epic", "game", SigRisk.Cautious, N(@"\epic games", @"\epic\epicgameslauncher"), Plain: "游戏本体相关，删了要重新下载，确认一下再动"),
         new("网易云缓存", "media", SigRisk.Safe, N(@"\netease\cloudmusic"), new[] { @"\cache", @"\webdata" }, Plain: "缓存和网页数据；你下载的歌不在这个范围内"),
         new("QQ 音乐缓存", "media", SigRisk.Safe, N(@"\qqmusic"), new[] { @"\cache" }, Plain: "缓存子目录；你下载的歌不在这个范围内"),

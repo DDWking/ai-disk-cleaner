@@ -109,6 +109,25 @@ public sealed class AppSettings
     /// <summary>是否允许把完整本地路径发给外部 AI。默认关（只发脱敏路径）。</summary>
     public bool AiSendFullPaths { get; set; }
 
+    /// <summary>「整理归类」页用户自定义的目标大类规则；为空时按预设兜底。</summary>
+    public List<ClassifyCategoryRule> ClassifyCategories { get; set; } = new();
+
+    /// <summary>是否在盘符分析时也纳入「下载」目录里面的杂项子文件夹。</summary>
+    public bool ClassifyIncludeDownloadsChildren { get; set; } = true;
+
+    /// <summary>移动绿软/便携程序后，自动更新指向它的桌面或开始菜单快捷方式。</summary>
+    public bool ClassifyUpdateShortcuts { get; set; } = true;
+
+    /// <summary>用户标记「别再推荐整理」的目录全路径。</summary>
+    public List<string> ClassifyIgnoredPaths { get; set; } = new();
+
+    public List<ClassifyCategoryRule> EffectiveClassifyCategories()
+    {
+        if (ClassifyCategories is { Count: > 0 })
+            return ClassifyCategories.Select(c => c.Clone()).ToList();
+        return ClassifyCategoryRule.DefaultPresets();
+    }
+
     /// <summary>
     /// 用哪个 AI 供应商。留空时自动退到**第一个配了地址的供应商**。
     /// 属性名是历史遗留（v3.0 判定时代），语义现在就是「聊天供应商」。

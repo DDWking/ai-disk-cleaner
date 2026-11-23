@@ -150,6 +150,45 @@ public sealed class IconKeyConverter : IValueConverter
         => Binding.DoNothing;
 }
 
+/// <summary>
+/// 十六进制色值字符串 → 预冻结 Frozen <see cref="SolidColorBrush"/> 静态缓存，
+/// 消除高频排序着色绑定下反复调用 BrushConverter 导致的临时对象分配与 GC 卡顿。
+/// </summary>
+public sealed class CachedHexBrushConverter : IValueConverter
+{
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Brush> Cache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public static Brush Resolve(string? hex)
+    {
+        if (string.IsNullOrWhiteSpace(hex) || string.Equals(hex, "Transparent", StringComparison.OrdinalIgnoreCase))
+            return Brushes.Transparent;
+
+        return Cache.GetOrAdd(hex.Trim(), static key =>
+        {
+            try
+            {
+                if (ColorConverter.ConvertFromString(key) is Color c)
+                {
+                    var b = new SolidColorBrush(c);
+                    b.Freeze();
+                    return b;
+                }
+            }
+            catch
+            {
+            }
+            return Brushes.Transparent;
+        });
+    }
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => Resolve(value as string);
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
 public partial class MainWindow : Window
 {
     private const int MaxDisplayRows = 50000; // 文件列表最多渲染的行数，超出只显示前 N 行
@@ -271,7 +310,6 @@ public partial class MainWindow : Window
 
     void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        AnimateSlideFadeIn(AppRootDock, offsetY: 8, durationMs: 240, fromOpacity: 0.0);
         if (!_scanning && _root == null)
             _ = StartZeroFeelStartupAsync();
     }
@@ -281,25 +319,83 @@ public partial class MainWindow : Window
         string drive = DriveBox?.SelectedItem?.ToString() ?? @"C:\";
         string key = NormalizeDriveKey(drive);
 
-        var cachedRoot = await Task.Run(() => OrganizeTreeCache.TryLoad(key, out _));
-        string curKey = NormalizeDriveKey(DriveBox?.SelectedItem?.ToString());
-        if (cachedRoot != null && string.Equals(curKey, key, StringComparison.OrdinalIgnoreCase) && _root == null && !_scanning)
+        var startupCts = new CancellationTokenSource();
+        _startupChoreographyCts = startupCts;
+        var ct = startupCts.Token;
+
+        var cacheTask = Task.Run(() => OrganizeTreeCache.TryLoad(key, out _));
+        System.Diagnostics.Stopwatch ringWatch;
+
+        try
         {
-            _activeDriveKey = key;
-            _root = cachedRoot;
-            _scanGeneration++;
-            UpdateVolumeInfo();
-            await RebuildOrganizeAsync(cachedRoot, _scanGeneration, preserveChecks: false, _preloadCts?.Token ?? default);
-            UpdateAiReportButton();
-            RefreshDockedReportPlaceholder();
-            SaveActiveDriveToCache();
-            RefreshDriveCards();
-            SetStatus($"{key} 秒开快照，后台静默校准中");
-            _ = RunScanCoreAsync(silentRefresh: true);
-            StartStartupPreloadQueueAsync();
+            if (CanAnimate && !_scanning && _root == null)
+            {
+                ShowOrganizeState(OrganizeStateKind.None);
+                _organizeRows.Clear();
+                PrepareMechaAssemblyVisuals();
+                // Phase 1：除顶栏不动外，左侧导航、盘符切片、1px 中轴焊接线、圆环底框精密装入（~0.4s 启动，0.84s 焊接完成）
+                await PlayMechaAssemblyChassisPhaseAsync(ct);
+                // Phase 2：核心圆环 0% → 100% 旋转充能生长（5.35s，与 Phase 1 + Phase 3 合计 ~6.8s）
+                ringWatch = System.Diagnostics.Stopwatch.StartNew();
+                BeginRadialScanGrowthChoreographed(growMs: 5350);
+            }
+            else
+            {
+                ringWatch = System.Diagnostics.Stopwatch.StartNew();
+            }
+
+            var cachedRoot = await cacheTask;
+            string curKey = NormalizeDriveKey(DriveBox?.SelectedItem?.ToString());
+            if (!ct.IsCancellationRequested && cachedRoot != null
+                && string.Equals(curKey, key, StringComparison.OrdinalIgnoreCase)
+                && _root == null && !_scanning)
+            {
+                _activeDriveKey = key;
+                _root = cachedRoot;
+                int gen = ++_scanGeneration;
+                UpdateVolumeInfo();
+                UpdateAiReportButton();
+                RefreshDriveCards();
+                SetStatus($"{key} 机甲自检扫描中…");
+
+                await RebuildOrganizeWithScanChoreographyAsync(
+                    cachedRoot,
+                    gen,
+                    ringWatch,
+                    ringGrowMs: 5350,
+                    alreadyChoreographedRing: true,
+                    playMechaOutroButtons: true,
+                    ct);
+
+                if (ct.IsCancellationRequested || gen != _scanGeneration
+                    || !string.Equals(_activeDriveKey, key, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                UpdateAiReportButton();
+                RefreshDockedReportPlaceholder();
+                SaveActiveDriveToCache();
+                RefreshDriveCards();
+                SetStatus($"{key} 已就绪，后台静默校准中");
+                if (!_agentBusy && !_classifySortActive)
+                    _ = RunScanCoreAsync(silentRefresh: true);
+                StartStartupPreloadQueueAsync();
+                return;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            RestoreMechaAssemblyVisualsImmediate();
             return;
         }
+        finally
+        {
+            if (ReferenceEquals(_startupChoreographyCts, startupCts))
+                _startupChoreographyCts = null;
+            startupCts.Dispose();
+        }
 
+        // 无本地快照（首次打开）：平滑转入真实扫盘，保留机甲装配按钮待扫完弹出
+        RestoreMechaAssemblyVisualsImmediate();
         if (!_scanning && _root == null)
             RunScan();
     }
@@ -403,10 +499,16 @@ public partial class MainWindow : Window
             OrganizeReportCloseBtn.ToolTip = Loc.AiReportCollapsePanel;
             System.Windows.Automation.AutomationProperties.SetName(OrganizeReportCloseBtn, Loc.AiReportCollapsePanel);
         }
-        if (_lastAgentReport != null && OrganizeReportContent != null)
+        if (_lastAgentReport != null)
         {
-            PopulateReportPanel(OrganizeReportContent, _lastAgentReport, isDocked: true, animate: false);
-            PopulateReportPanel(ReportContent, _lastAgentReport, isDocked: false, animate: false);
+            _dockedReportRenderedFor = null;
+            if (OrganizeReportPanel?.Visibility == Visibility.Visible && OrganizeReportContent != null)
+            {
+                PopulateReportPanel(OrganizeReportContent, _lastAgentReport, isDocked: true, animate: false);
+                _dockedReportRenderedFor = _lastAgentReport;
+            }
+            if (ReportBody?.Visibility == Visibility.Visible)
+                PopulateReportPanel(ReportContent, _lastAgentReport, isDocked: false, animate: false);
         }
         else
         {
@@ -605,6 +707,7 @@ public partial class MainWindow : Window
         CancelQuietly(_uninstallCts);
         CancelQuietly(_aiConfigCts);
         CancelQuietly(_preloadCts);
+        CancelQuietly(_classifyCts);
         // 整理页已无批量/自动识别任务：模型请求只由用户对单项发起，走逐项取消按钮
         // 标记「正在取消」：按钮立刻变成不可再点，并给出反馈，不等任务真正退出。
         _work.RequestCancel();
@@ -647,6 +750,7 @@ public partial class MainWindow : Window
         _work.ResetCancel();
         _scanUsedFallback = false;
         _scanFallbackReason = "";
+        string activeScanDrive = DriveBox.SelectedItem.ToString()!;
         if (!silentRefresh)
         {
             _scanQuality = null;
@@ -657,14 +761,17 @@ public partial class MainWindow : Window
             _dupIncomplete = 0;
             _layerGeneration++;
             ClearCleanLayers();
+            _organizeRows.Clear();
             CleanPageTitle.Text = Loc.PagePurposeTitle;
             CleanPageSub.Text = "";
             CleanSummarySub.Text = "";
             ShowCleanState(CleanStateKind.Scanning);
             UpdateSelectionUi();
-            if (_organizeRows.Count == 0)
-                ShowOrganizeState(OrganizeStateKind.Scanning);
+            ShowOrganizeState(OrganizeStateKind.None);
+            CancelStartupChoreographyAndFlush();
+            BeginRadialScanGrowth();
         }
+        var scanChoreoWatch = System.Diagnostics.Stopwatch.StartNew();
         ScanButton.IsEnabled = false;
         _scanStart = DateTime.Now;
         using var scanOp = StartOperation(ref _scanCts, "Scan");
@@ -674,11 +781,16 @@ public partial class MainWindow : Window
         UpdateStopButton();
 
         if (silentRefresh)
+        {
             SetStatus($"{_activeDriveKey} 后台无感校准中…");
+            SetTopScanBeam(true, -1);
+        }
         else
+        {
             SetStatus(Loc.Scanning);
-
-        SetTopScanBeam(true, -1);
+            SetTopScanBeam(false);
+            HideCleanProgress();
+        }
 
         long lastProgressTick = 0;
         bool cleanVisible = CleanPane != null && CleanPane.Visibility == Visibility.Visible;
@@ -688,18 +800,24 @@ public partial class MainWindow : Window
         var progress = new Progress<ScanProgress>(p =>
         {
             long now = Environment.TickCount64;
-            if (now - lastProgressTick < 100 && p.Percent < 95)
+            if (now - lastProgressTick < 80 && p.Percent < 95)
                 return;
             lastProgressTick = now;
 
             if (p.Percent >= 0)
             {
                 int shownPct = Math.Min(p.Percent, 95);
-                SetTopScanBeam(true, shownPct);
-                if (!silentRefresh)
+                if (silentRefresh)
+                {
+                    SetTopScanBeam(true, shownPct);
+                }
+                else
+                {
                     SetStatus(_scanUsedFallback
                         ? Loc.ScanFallbackProgress(shownPct, p.CurrentDirectory, p.FileCount, _scanFallbackReason)
                         : Loc.ScanPct(shownPct));
+                    UpdateRadialScanGrowth(shownPct, p.FileCount);
+                }
                 if (cleanVisible)
                 {
                     string stage = _scanUsedFallback
@@ -711,6 +829,7 @@ public partial class MainWindow : Window
             else if (!silentRefresh)
             {
                 SetStatus(Loc.ScanCount(p.FileCount));
+                UpdateRadialScanGrowth(-1, p.FileCount);
             }
         });
 
@@ -733,12 +852,30 @@ public partial class MainWindow : Window
                 return;
             }
 
-            SetTopScanBeam(true, 96);
+            if (silentRefresh) SetTopScanBeam(true, 96);
             var scrollPos = silentRefresh ? (FindScrollViewer(OrganizeGrid)?.VerticalOffset ?? 0) : 0;
 
-            _root = outcome.Root;
             _ = Task.Run(() => OrganizeTreeCache.Save(outcome.Root, ct), ct);
-            await RebuildOrganizeAsync(outcome.Root, myGeneration, preserveChecks: silentRefresh, ct);
+            if (silentRefresh && (_agentBusy || _classifySortActive || _classifyHasAiPlan))
+            {
+                // 用户已在看或正在跑 AI 分析：静默校准只落盘快照，绝不打断正在展示的 AI 报告与颜色分组
+                SetTopScanBeam(false);
+                scanOp.Done(outcome.UsedFallback ? "recursive" : "mft", outcome.Root.FileCount);
+                return;
+            }
+
+            _root = outcome.Root;
+            if (!silentRefresh)
+            {
+                await RebuildOrganizeWithScanChoreographyAsync(
+                    outcome.Root, myGeneration, scanChoreoWatch,
+                    ringGrowMs: 5200, alreadyChoreographedRing: false,
+                    playMechaOutroButtons: false, ct);
+            }
+            else
+            {
+                await RebuildOrganizeAsync(outcome.Root, myGeneration, preserveChecks: true, ct);
+            }
 
             if (silentRefresh && scrollPos > 0)
                 FindScrollViewer(OrganizeGrid)?.ScrollToVerticalOffset(scrollPos);
@@ -754,6 +891,7 @@ public partial class MainWindow : Window
         catch (OperationCanceledException)
         {
             SetTopScanBeam(false);
+            CompleteRadialScanGrowth();
             HideCleanProgress();
             SetStatus(Loc.Aborted);
             if (_organizeRows.Count == 0)
@@ -763,6 +901,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             SetTopScanBeam(false);
+            CompleteRadialScanGrowth();
             HideCleanProgress();
             string userMsg = AppLog.Record("Scan", ex, "scan failed");
             if (!silentRefresh)
@@ -776,6 +915,7 @@ public partial class MainWindow : Window
         finally
         {
             _scanning = false;
+            CompleteRadialScanGrowth();
             UpdateAiReportButton();
             UpdateStopButton();
             ScanProgressPanel.Visibility = Visibility.Collapsed;
@@ -799,6 +939,8 @@ public partial class MainWindow : Window
             await RebuildOrganizeAsync(root, _scanGeneration, preserveChecks: true, _preloadCts?.Token ?? default);
         UpdateAiReportButton();
         RefreshDockedReportPlaceholder();
+        if (!_agentBusy && !_classifySortActive && !_classifyHasAiPlan)
+            OnScanCompletedRefreshClassify();
         AppRecommendationService.InvalidateUsageCache();
 
         UpdateVolumeInfo();
@@ -1363,6 +1505,7 @@ public partial class MainWindow : Window
         SelectionBody.Visibility = selection ? Visibility.Visible : Visibility.Collapsed;
         RuleSelectBody.Visibility = ruleSelect ? Visibility.Visible : Visibility.Collapsed;
         ReportBody.Visibility = Visibility.Collapsed;
+        if (ClassifyModalBody != null) ClassifyModalBody.Visibility = Visibility.Collapsed;
         // 报告弹层会把卡片加宽；普通弹层回到默认尺寸。
         DialogCard.Width = 520;
         DialogCard.MaxHeight = 680;
@@ -1564,6 +1707,7 @@ public partial class MainWindow : Window
 
     private void CloseOverlay_Click(object sender, RoutedEventArgs e)
     {
+        if (_classifyBusy && ClassifyModalBody?.Visibility == Visibility.Visible) return;
         _confirmYes = null;
         DiscardRuleSelectPreview();
         HideOverlay();
@@ -1571,6 +1715,7 @@ public partial class MainWindow : Window
 
     private void Overlay_Click(object sender, MouseButtonEventArgs e)
     {
+        if (_classifyBusy && ClassifyModalBody?.Visibility == Visibility.Visible) return;
         _confirmYes = null;
         DiscardRuleSelectPreview();
         HideOverlay();
@@ -1626,10 +1771,17 @@ public partial class MainWindow : Window
         UpdateRadialCenterText();
         UpdateAiLamp();
         UpdateAiActiveStrip();
-        if (_lastAgentReport != null && OrganizeReportContent != null)
+        RefreshClassifySortColorsForTheme();
+        if (_lastAgentReport != null)
         {
-            PopulateReportPanel(OrganizeReportContent, _lastAgentReport, isDocked: true, animate: false);
-            PopulateReportPanel(ReportContent, _lastAgentReport, isDocked: false, animate: false);
+            _dockedReportRenderedFor = null;
+            if (OrganizeReportPanel?.Visibility == Visibility.Visible && OrganizeReportContent != null)
+            {
+                PopulateReportPanel(OrganizeReportContent, _lastAgentReport, isDocked: true, animate: false);
+                _dockedReportRenderedFor = _lastAgentReport;
+            }
+            if (ReportBody?.Visibility == Visibility.Visible)
+                PopulateReportPanel(ReportContent, _lastAgentReport, isDocked: false, animate: false);
         }
         else
         {
@@ -2530,6 +2682,7 @@ public partial class MainWindow : Window
             AnimateSlideFadeIn(showMainClean ? OrganizePane : UninstallPane, offsetY: 10, durationMs: 210, fromOpacity: 0.35);
         // 卸载页第一次被打开时才去扫软件清单（隐藏面板按需初始化）
         if (tab == RightTab.Uninstall) EnsureAppsLoaded();
+        if (showMainClean) RefreshOrganizeClassifyShortcutBar();
         // 切页时把第三层状态同步过去（各页只显示自己的状态）
         UpdateScanStateLine();
     }
@@ -3787,6 +3940,13 @@ public partial class MainWindow : Window
         };
         ScanDetailsContent.Children.Add(kvCard);
 
+        // 3.5 MFT 各阶段耗时分段与内存估算（用于评估 MFT 优化 / 原生核决策）
+        long mftPhaseSum = q.MftReadMs + q.MftParseMs + q.MftTreeMs + q.MftAccumulateMs;
+        if (q.Source == ScanSource.Mft && (mftPhaseSum > 0 || q.ManagedHeapMb > 0 || q.EntryMemoryMb > 0))
+        {
+            ScanDetailsContent.Children.Add(MakeMftBreakdownCard(q));
+        }
+
         // 4. 说明/降级原因（有内容才显示）
         var noteParts = new List<string>();
         if (!string.IsNullOrWhiteSpace(q.Note)) noteParts.Add(q.Note.Trim());
@@ -3902,6 +4062,99 @@ public partial class MainWindow : Window
         parent.Children.Add(row);
     }
 
+    private static Border MakeMftBreakdownCard(ScanQuality q)
+    {
+        var stack = new StackPanel();
+        long sum = Math.Max(1, q.MftReadMs + q.MftParseMs + q.MftTreeMs + q.MftAccumulateMs);
+
+        var headerDock = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+        var engineTotal = new TextBlock
+        {
+            Text = $"{sum:N0} ms",
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeService.Brush("BrandAccent"),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        DockPanel.SetDock(engineTotal, Dock.Right);
+        headerDock.Children.Add(engineTotal);
+        headerDock.Children.Add(new TextBlock
+        {
+            Text = Loc.IsEn ? "MFT Phase Breakdown" : "MFT 耗时分段与内存",
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeService.Brush("Text"),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        stack.Children.Add(headerDock);
+
+        // 4 段耗时比例条（读盘 / 解析 / 建树 / 累加）
+        var barBorder = new Border
+        {
+            Height = 7,
+            CornerRadius = new CornerRadius(3.5),
+            ClipToBounds = true,
+            Background = ThemeService.Brush("BarTrack"),
+            Margin = new Thickness(0, 0, 0, 10),
+        };
+        var barGrid = new Grid();
+        (long Ms, string BrushKey)[] phases =
+        {
+            (q.MftReadMs, "BrandAccent"),
+            (q.MftParseMs, "RingCharcoal"),
+            (q.MftTreeMs, "RingMidGray"),
+            (q.MftAccumulateMs, "BorderStrong"),
+        };
+        for (int i = 0; i < phases.Length; i++)
+        {
+            long weight = Math.Max(0, phases[i].Ms);
+            barGrid.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = weight > 0 ? new GridLength(weight, GridUnitType.Star) : new GridLength(0),
+            });
+            if (weight > 0)
+            {
+                var seg = new Border { Background = ThemeService.Brush(phases[i].BrushKey) };
+                Grid.SetColumn(seg, i);
+                barGrid.Children.Add(seg);
+            }
+        }
+        barBorder.Child = barGrid;
+        stack.Children.Add(barBorder);
+
+        bool hasRows = false;
+        string FmtPhase(long ms) => $"{ms:N0} ms ({ms * 100.0 / sum:0}%)";
+        AddScanKvRow(stack, ref hasRows, Loc.IsEn ? "1. $MFT Disk I/O" : "1. 读盘 I/O（$MFT）", FmtPhase(q.MftReadMs), "BrandAccent");
+        AddScanKvRow(stack, ref hasRows, Loc.IsEn ? "2. Record Parse" : "2. 记录解析", FmtPhase(q.MftParseMs), "Text");
+        AddScanKvRow(stack, ref hasRows, Loc.IsEn ? "3. Tree & Links" : "3. 建树与链接", FmtPhase(q.MftTreeMs), "TextDim");
+        AddScanKvRow(stack, ref hasRows, Loc.IsEn ? "4. Size & Paths" : "4. 累加体积与路径", FmtPhase(q.MftAccumulateMs), "TextDim");
+
+        if (q.MftRecordsTotal > 0)
+        {
+            AddScanKvRow(stack, ref hasRows, Loc.IsEn ? "MFT Slots" : "MFT 总槽位",
+                $"{q.FilesRead + q.DirsRead:N0} / {q.MftRecordsTotal:N0}", "TextDim");
+        }
+        if (q.ManagedHeapMb > 0 || q.EntryMemoryMb > 0)
+        {
+            string memText = Loc.IsEn
+                ? $"Heap {q.ManagedHeapMb} MB · Entries ~{q.EntryMemoryMb} MB ({q.AvgEntryBytes} B/item, avg {q.AvgPathChars} chars)"
+                : $"托管堆 {q.ManagedHeapMb} MB · 条目约 {q.EntryMemoryMb} MB（{q.AvgEntryBytes} B/条 · 均路径 {q.AvgPathChars} 字符）";
+            AddScanKvRow(stack, ref hasRows, Loc.IsEn ? "Memory Footprint" : "内存估算", memText, "TextMuted",
+                tooltip: memText);
+        }
+
+        return new Border
+        {
+            Background = ThemeService.Brush("PanelLeft"),
+            BorderBrush = ThemeService.Brush("Border"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14, 10, 14, 10),
+            Margin = new Thickness(0, 10, 0, 0),
+            Child = stack,
+        };
+    }
+
     private string BuildScanDetailsText()
     {
         var q = _scanQuality;
@@ -3921,6 +4174,18 @@ public partial class MainWindow : Window
         sb.AppendLine(Loc.ScanSkipLine(q.SkippedDirs, q.PermissionErrors, q.PathErrors, q.ReadErrors));
         sb.AppendLine(Loc.ScanReparseLine(q.ReparsePoints));
         sb.AppendLine(Loc.ScanRecordLine(q.UnparsedRecords, q.OrphanRecords, q.HardLinks));
+        if (q.Source == ScanSource.Mft && (q.MftReadMs + q.MftParseMs + q.MftTreeMs + q.MftAccumulateMs > 0))
+        {
+            sb.AppendLine(Loc.IsEn
+                ? $"MFT phases: I/O {q.MftReadMs} ms, Parse {q.MftParseMs} ms, Tree {q.MftTreeMs} ms, Accumulate {q.MftAccumulateMs} ms (slots {q.MftRecordsTotal:N0})"
+                : $"MFT 分段：读盘 {q.MftReadMs} ms · 解析 {q.MftParseMs} ms · 建树 {q.MftTreeMs} ms · 累加路径 {q.MftAccumulateMs} ms（总槽位 {q.MftRecordsTotal:N0}）");
+            if (q.ManagedHeapMb > 0 || q.EntryMemoryMb > 0)
+            {
+                sb.AppendLine(Loc.IsEn
+                    ? $"Memory: Heap {q.ManagedHeapMb} MB, Entries ~{q.EntryMemoryMb} MB ({q.AvgEntryBytes} B/item, avg path {q.AvgPathChars} chars)"
+                    : $"内存估算：托管堆 {q.ManagedHeapMb} MB · 条目约 {q.EntryMemoryMb} MB（均 {q.AvgEntryBytes} B/条 · 均路径 {q.AvgPathChars} 字符）");
+            }
+        }
         // 候选统计（原先在清理页次级信息行）：总数、去重、重复命中、覆盖完整度
         sb.AppendLine();
         sb.AppendLine(Loc.CandidateTotalLine(_layered.TotalFiles, _report?.DupGroupCount ?? 0));
@@ -4223,6 +4488,7 @@ public partial class MainWindow : Window
                 _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(ShowAppList));
             else
                 ShowAppList();
+            OnAppsLoadedRefreshClassify();
             op.Done("apps listed", list.Count);
         }
         catch (OperationCanceledException)
