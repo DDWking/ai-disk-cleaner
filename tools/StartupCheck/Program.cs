@@ -127,10 +127,15 @@ public static class Program
                          // AiChip（顶栏 AI 胶囊）随聊天通道一起移除，不在这份清单里了
                          // ColOrgAction（「操作」列）已整体移除，不在这份清单里了
                          "ColAppInstallDate", "TabCleanBtn", "TabOrganizeBtn",
-                         "OrganizeStageGrid", "OrganizeClassifyBar", "ClassifyActionBtn",
-                         "ClassifyModalBody", "RadialRingRotate",
+                         "OrganizeStageGrid", "OrganizeClassifyBar", "RadialRingRotate",
                      })
                 Check($"x:Name={n} 已赋值", NamedField(win, n) != null);
+
+            Check("纯软件内虚拟分类：已彻底移除物理搬移「整理归类」按钮与搬家弹窗",
+                NamedField(win, "ClassifyActionBtn") == null
+                && NamedField(win, "ClassifyReportActionBtn") == null
+                && NamedField(win, "ClassifyModalBody") == null
+                && NamedField(win, "ClassifySortModeChipBtn") == null);
 
             // 页头清理过的东西必须真的不在控件树里（"看不见"要靠不存在来保证，不是靠隐藏）：
             // 「未识别」筛选胶囊被移除；页面标题也被删掉（Tab 上写的就是「按文件夹删除」，
@@ -217,7 +222,7 @@ public static class Program
         Console.WriteLine("== 9. 新方向：默认清理页 / 零后台请求 / 无批量入口 / 单项 AI ==");
         if (win != null) ProductDirectionTests(win);
 
-        Console.WriteLine("== 9b. 同盘整理归类：AI 内容分类 / 自定义规则 / 保守护栏 / 一键移动与撤销 ==");
+        Console.WriteLine("== 9b. 纯软件内虚拟分类：AI 识别 / 彩色分组折叠 / 本地持久化 / 零磁盘移动 ==");
         if (win != null) ClassifyReorganizeTests(win);
 
         // 进程内的「正常关闭」回归。**这不是 EXE 端到端关闭实测**：
@@ -1361,36 +1366,40 @@ public static class Program
         Check("已移除独立 Classify 同级 Tab，主导航回归双页简洁结构（Clean / Organize / Uninstall）",
             !Enum.GetNames(tabType).Contains("Classify"));
         Call(win, "ShowRightTab", Enum.Parse(tabType, "Clean"));
-        Check("清理中心默认展现极净双栏目录表格（OrganizeStageGrid 可见，排序条与整理弹窗折叠待命）",
+        Check("清理中心默认展现极净双栏目录表格（OrganizeStageGrid 可见，排序条折叠待命，无搬家弹窗）",
             (NamedField(win, "OrganizeStageGrid") as UIElement)?.Visibility == Visibility.Visible
             && (NamedField(win, "OrganizeClassifyBar") as UIElement)?.Visibility == Visibility.Collapsed
-            && (NamedField(win, "ClassifyModalBody") as UIElement)?.Visibility == Visibility.Collapsed);
+            && NamedField(win, "ClassifyModalBody") == null);
 
-        // 构造真实临时目录与内存 MFT 树，离线端到端测透分类规则、AI 脱敏与安全夹紧、冲突预检、一键同盘移动和撤销
+        // 构造真实临时目录与内存 MFT 树，离线端到端测透纯软件内虚拟分类、AI 脱敏、彩色组头折叠、本地持久化，以及零文件移动
         string tempDrive = Path.Combine(Path.GetTempPath(), "dsh-classify-" + Guid.NewGuid().ToString("N")[..8]);
-        string undoPath = Path.Combine(tempDrive, "undo.json");
+        string cacheDir = Path.Combine(tempDrive, "_cache");
         Directory.CreateDirectory(tempDrive);
         try
         {
             string animeDir = Path.Combine(tempDrive, "[Skymoon-Raws][Anime]");
             string greenGameDir = Path.Combine(tempDrive, "IndieGame");
+            string unityDevDir = Path.Combine(tempDrive, "Unity");
+            string steamLibDir = Path.Combine(tempDrive, "SteamLibrary");
+            string docsDir = Path.Combine(tempDrive, "文档");
             string aiWeightsDir = Path.Combine(tempDrive, "LoraModels");
-            string installedDir = Path.Combine(tempDrive, "InstalledApp");
-            string knownDownloadsDir = Path.Combine(tempDrive, "Downloads");
-            string existingGameBucket = Path.Combine(tempDrive, "Game"); // 已有别名目录 Game，应直接复用而不是另建 Games
+            string recycleDir = Path.Combine(tempDrive, "$RECYCLE.BIN");
             Directory.CreateDirectory(animeDir);
             Directory.CreateDirectory(greenGameDir);
+            Directory.CreateDirectory(unityDevDir);
+            Directory.CreateDirectory(steamLibDir);
+            Directory.CreateDirectory(docsDir);
             Directory.CreateDirectory(aiWeightsDir);
-            Directory.CreateDirectory(installedDir);
-            Directory.CreateDirectory(knownDownloadsDir);
-            Directory.CreateDirectory(existingGameBucket);
+            Directory.CreateDirectory(recycleDir);
             File.WriteAllBytes(Path.Combine(animeDir, "ep01.mkv"), new byte[1024]);
             File.WriteAllBytes(Path.Combine(animeDir, "ep01.ass"), new byte[128]);
             File.WriteAllBytes(Path.Combine(greenGameDir, "UnityPlayer.dll"), new byte[512]);
             File.WriteAllBytes(Path.Combine(greenGameDir, "Play.exe"), new byte[512]);
+            File.WriteAllBytes(Path.Combine(unityDevDir, "UnityPlayer.dll"), new byte[512]);
+            File.WriteAllBytes(Path.Combine(unityDevDir, "Unity.exe"), new byte[512]);
             File.WriteAllBytes(Path.Combine(aiWeightsDir, "flux.safetensors"), new byte[512]);
 
-            var rootEntry = MakeDir("TempRoot", tempDrive, 4096, null, 6);
+            var rootEntry = MakeDir("TempRoot", tempDrive, 4096, null, 7);
             var eAnime = MakeDir("[Skymoon-Raws][Anime]", animeDir, 100_000_000, rootEntry, 0);
             MakeFile("ep01.mkv", Path.Combine(animeDir, "ep01.mkv"), 99_000_000, eAnime);
             MakeFile("ep01.ass", Path.Combine(animeDir, "ep01.ass"), 1_000_000, eAnime);
@@ -1399,13 +1408,18 @@ public static class Program
             MakeFile("UnityPlayer.dll", Path.Combine(greenGameDir, "UnityPlayer.dll"), 10_000_000, eGame);
             MakeFile("Play.exe", Path.Combine(greenGameDir, "Play.exe"), 40_000_000, eGame);
 
+            var eUnity = MakeDir("Unity", unityDevDir, 90_000_000, rootEntry, 0);
+            MakeFile("UnityPlayer.dll", Path.Combine(unityDevDir, "UnityPlayer.dll"), 10_000_000, eUnity);
+            MakeFile("Unity.exe", Path.Combine(unityDevDir, "Unity.exe"), 80_000_000, eUnity);
+
+            var eSteam = MakeDir("SteamLibrary", steamLibDir, 120_000_000, rootEntry, 0);
+            var eDocs = MakeDir("文档", docsDir, 150_000_000, rootEntry, 0);
+
             var eLora = MakeDir("LoraModels", aiWeightsDir, 80_000_000, rootEntry, 0);
             MakeFile("flux.safetensors", Path.Combine(aiWeightsDir, "flux.safetensors"), 80_000_000, eLora);
 
-            var eInstalled = MakeDir("InstalledApp", installedDir, 60_000_000, rootEntry, 0);
-            var eDownloads = MakeDir("Downloads", knownDownloadsDir, 70_000_000, rootEntry, 0);
-            var eBucket = MakeDir("Game", existingGameBucket, 10_000_000, rootEntry, 0);
-            _ = eBucket;
+            var eRecycle = MakeDir("$RECYCLE.BIN", recycleDir, 60_000_000, rootEntry, 0);
+            _ = eSteam; _ = eDocs; _ = eRecycle;
 
             var customCats = ClassifyCategoryRule.DefaultPresets();
             customCats.Add(new ClassifyCategoryRule
@@ -1418,8 +1432,8 @@ public static class Program
             });
 
             var ctx = new FolderClassificationService.ContextSnapshot(
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { CleanListSnapshot.NormPath(knownDownloadsDir) },
-                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [CleanListSnapshot.NormPath(installedDir)] = "DemoApp" },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { CleanListSnapshot.NormPath(docsDir) },
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [CleanListSnapshot.NormPath(steamLibDir)] = "Steam" },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
             var items = FolderClassificationService.BuildCandidates(
@@ -1427,32 +1441,34 @@ public static class Program
 
             var animeItem = items.FirstOrDefault(x => x.SourceName == "[Skymoon-Raws][Anime]");
             var gameItem = items.FirstOrDefault(x => x.SourceName == "IndieGame");
+            var unityItem = items.FirstOrDefault(x => x.SourceName == "Unity");
+            var steamItem = items.FirstOrDefault(x => x.SourceName == "SteamLibrary");
+            var docsItem = items.FirstOrDefault(x => x.SourceName == "文档");
             var loraItem = items.FirstOrDefault(x => x.SourceName == "LoraModels");
-            var installedItem = items.FirstOrDefault(x => x.SourceName == "InstalledApp");
-            var downloadsItem = items.FirstOrDefault(x => x.SourceName == "Downloads");
-            var bucketItem = items.FirstOrDefault(x => x.SourceName == "Game");
+            var recycleItem = items.FirstOrDefault(x => x.SourceName == "$RECYCLE.BIN");
 
-            Check("已有分类桶目录(Game)不会把自己当待搬候选", bucketItem == null);
-            Check("纯媒体番剧目录判为 Safe 且默认预勾选归入 Media",
-                animeItem != null && animeItem.Tier == ClassifySafetyTier.Safe && animeItem.IsChecked && animeItem.CategoryId == "media",
-                animeItem?.Tier + "/" + animeItem?.CategoryId + "/" + animeItem?.IsChecked);
-            Check("绿软免安装单机游戏判为 ReviewGreenApp 且复用已有 Game 桶、不自动勾选",
-                gameItem != null && gameItem.Tier == ClassifySafetyTier.ReviewGreenApp && !gameItem.IsChecked
-                && gameItem.TargetFolderName == "Game",
-                gameItem?.Tier + "/" + gameItem?.TargetFolderName + "/" + gameItem?.IsChecked);
-            Check("命中卸载清单目录与活跃 KnownFolder(Downloads) 均保守锁定禁止移动",
-                installedItem is { Tier: ClassifySafetyTier.BlockedConservative, CanCheck: false }
-                && downloadsItem is { Tier: ClassifySafetyTier.BlockedConservative, CanCheck: false });
+            Check("纯媒体番剧目录判为 Safe 并归入影音娱乐(media)",
+                animeItem != null && animeItem.Tier == ClassifySafetyTier.Safe && animeItem.CategoryId == "media",
+                animeItem?.Tier + "/" + animeItem?.CategoryId);
+            Check("单机游戏归入游戏(games)，开发引擎 Unity 优先归入开发工具(dev)而不误判游戏",
+                gameItem != null && gameItem.CategoryId == "games"
+                && unityItem != null && unityItem.CategoryId == "dev",
+                $"game={gameItem?.CategoryId} unity={unityItem?.CategoryId}");
+            Check("软件内虚拟视图不锁死游戏库(SteamLibrary)与用户目录(文档)，均自动归入对应色组",
+                steamItem != null && !steamItem.IsBlocked && steamItem.CategoryId == "games"
+                && docsItem != null && !docsItem.IsBlocked && docsItem.CategoryId == "docs",
+                $"steam={steamItem?.Tier}/{steamItem?.CategoryId} docs={docsItem?.Tier}/{docsItem?.CategoryId}");
+            Check("仅真实系统核心目录($RECYCLE.BIN)留在系统核心分组",
+                recycleItem is { Tier: ClassifySafetyTier.BlockedConservative, IsBlocked: true, IsKeepInPlace: true });
 
-            // 验证 AI 分类按用户自定义规则归类，且即使 AI 越权建议 Safe/搬动已安装程序也必须被安全夹紧
+            // 验证 AI 分类按自定义规则归类，且即使 AI 越权尝试给系统核心改分类也被安全夹紧
             var fakeModel = new FakeClassifyChatModel
             {
                 ReplyFactory = _ =>
                     "```json\n" +
                     "{\"items\":[" +
-                    (loraItem != null ? $"{{\"folderId\":\"{loraItem.Id}\",\"categoryId\":\"ai_weights\",\"safety\":\"safe\",\"reason\":\"包含 safetensors 权重\"}}," : "") +
-                    (gameItem != null ? $"{{\"folderId\":\"{gameItem.Id}\",\"categoryId\":\"games\",\"safety\":\"safe\",\"reason\":\"Unity 游戏目录\"}}," : "") +
-                    (installedItem != null ? $"{{\"folderId\":\"{installedItem.Id}\",\"categoryId\":\"games\",\"safety\":\"safe\",\"reason\":\"误尝试移动已安装程序\"}}" : "") +
+                    (loraItem != null ? $"{{\"folderId\":\"{loraItem.Id}\",\"categoryId\":\"ai_weights\",\"reason\":\"包含 safetensors 权重\"}}," : "") +
+                    (recycleItem != null ? $"{{\"folderId\":\"{recycleItem.Id}\",\"categoryId\":\"games\",\"reason\":\"误尝试归类回收站\"}}" : "") +
                     "]}\n```"
             };
             var svc = new FolderClassificationService();
@@ -1465,7 +1481,6 @@ public static class Program
                         propertyChangedOnWrongThread = true;
                 };
 
-            // 用 DispatcherFrame 跑一次真 DispatcherSynchronizationContext 异步等待，确保后台线程 HTTP 返回后切回 UI 线程再改属性
             var frame = new System.Windows.Threading.DispatcherFrame();
             AiDiskCleaner.Services.ClassifyAiResult? aiRes = null;
             _ = System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(async () =>
@@ -1479,24 +1494,15 @@ public static class Program
                 aiRes != null && aiRes.Ok && !propertyChangedOnWrongThread,
                 $"ok={aiRes?.Ok} wrongThread={propertyChangedOnWrongThread}");
 
-            Check("AI 识别自定义规则并将 safetensors 目录归入「AI模型」且默认勾选",
-                aiRes != null && aiRes.Ok && loraItem != null && loraItem.CategoryId == "ai_weights" && loraItem.IsChecked && loraItem.TargetFolderName == "AIModels",
-                $"ok={aiRes?.Ok} cat={loraItem?.CategoryId} dest={loraItem?.DestinationPath}");
-            Check("即使 AI 返回 safe，含可执行文件的绿软仍保持 ReviewGreenApp 且不自动勾选",
-                gameItem != null && gameItem.Tier == ClassifySafetyTier.ReviewGreenApp && !gameItem.IsChecked);
-            Check("即使 AI 建议移动，保守锁定的已安装程序仍不可解锁",
-                installedItem != null && installedItem.Tier == ClassifySafetyTier.BlockedConservative && !installedItem.CanCheck);
+            Check("AI 识别自定义规则并将 safetensors 目录归入「AI模型」",
+                aiRes != null && aiRes.Ok && loraItem != null && loraItem.CategoryId == "ai_weights" && loraItem.FromAi,
+                $"ok={aiRes?.Ok} cat={loraItem?.CategoryId}");
+            Check("系统核心目录($RECYCLE.BIN)即使 AI 返回其他分组仍保持锁定原位",
+                recycleItem != null && recycleItem.IsBlocked && recycleItem.IsKeepInPlace);
             Check("路径出站默认经 %USER% 脱敏",
                 FolderClassificationService.RedactUser(@"C:\Users\SecretName\Downloads\Demo") == @"C:\Users\%USER%\Downloads\Demo");
 
-            // 预检跨盘与嵌套拦截
-            Check("严格禁止跨盘移动预检",
-                FolderReorganizeService.ValidateMovePaths(@"C:\Test", @"D:\Games\Test").Length > 0);
-            Check("严格禁止移入自身子目录预检",
-                FolderReorganizeService.ValidateMovePaths(@"D:\Test", @"D:\Test\Sub\Test").Length > 0);
-
-            // 验证同表原地排序分类视图：彩色组头横幅行、目录行染色聚类及保底安全沉底、恢复原排序
-            // 验证左环扫描生长动画状态机 + AI 分析后同表原位聚拢与轻弹层微调
+            // 验证左环扫描生长动画状态机 + AI 分析后同表原位彩色虚拟分组 + 折叠/展开
             Call(win, "BeginRadialScanGrowth");
             Call(win, "UpdateRadialScanGrowth", 55, 1234L);
             Check("圆环本体扫盘生长时中心文本实时报进度",
@@ -1512,45 +1518,50 @@ public static class Program
             var sortedChildren = stageRows.Where(r => r.IsClassifySortedItem && !r.IsClassifyGroupHeader).ToList();
             int firstKeepIdx = stageRows.ToList().FindIndex(r => r.IsClassifyGroupHeader && r.ClassifyGroupId == ClassifyCategoryRule.KeepId);
             int lastMovableIdx = stageRows.ToList().FindLastIndex(r => r.IsClassifySortedItem && !r.IsClassifyGroupHeader && r.ClassifyGroupId != ClassifyCategoryRule.KeepId);
-            Check("AI 分类完成后就在原 OrganizeGrid 内聚拢生成轻量彩色分组小标题与同色子行（不自动挤出第三栏）",
+            Check("AI 分类完成后就在原 OrganizeGrid 内聚拢生成纯虚拟彩色分组（无搬家箭头、无物理移动按钮）",
                 (NamedField(win, "OrganizeGrid") as UIElement)?.Visibility == Visibility.Visible
                 && (NamedField(win, "OrganizeReportPanel") as UIElement)?.Visibility == Visibility.Collapsed
-                && (NamedField(win, "ClassifyActionBtn") as UIElement)?.Visibility == Visibility.Visible
+                && NamedField(win, "ClassifyActionBtn") == null
                 && hdrs.Count >= 2
-                && hdrs.All(h => !string.IsNullOrWhiteSpace(h.ClassifyAccentHex) && h.ClassifyAccentHex.StartsWith("#"))
+                && hdrs.All(h => !string.IsNullOrWhiteSpace(h.ClassifyAccentHex) && h.ClassifyAccentHex.StartsWith("#") && string.IsNullOrEmpty(h.ClassifyGroupTarget))
                 && sortedChildren.Any(c => c.HasClassifyTint && c.Name == "LoraModels")
                 && firstKeepIdx > lastMovableIdx && lastMovableIdx >= 0,
                 $"headers={hdrs.Count} sorted={sortedChildren.Count} firstKeep={firstKeepIdx} lastMov={lastMovableIdx}");
-            Call(win, "ClassifyOpenModal_Click", win, new RoutedEventArgs());
-            Check("点击左侧「整理归类」可打开居中清单与自定义规则弹层",
-                (NamedField(win, "ClassifyModalBody") as UIElement)?.Visibility == Visibility.Visible
-                && (NamedField(win, "ClassifyModalItems") as ItemsControl)?.Items.Count >= 3);
-            Call(win, "HideOverlay");
+
+            // 验证分组折叠/展开
+            int rowsBeforeCollapse = stageRows.Count;
+            Call(win, "ToggleClassifyGroupCollapsed", "games");
+            int rowsAfterCollapse = stageRows.Count;
+            Check("点击彩色分组标题可折叠对应分组行",
+                rowsAfterCollapse < rowsBeforeCollapse,
+                $"before={rowsBeforeCollapse} after={rowsAfterCollapse}");
+
+            // 验证本地持久化缓存往返（保存分类与折叠状态 -> 重新加载完全一致），且磁盘真实文件纹丝不动
+            VirtualClassifyCache.Save("Z:\\", items, customCats, new[] { "games" }, hasAiResults: true, directoryOverride: cacheDir);
+            var loadedSnap = VirtualClassifyCache.TryLoad("Z:\\", directoryOverride: cacheDir);
+            VirtualClassifyCache.UpdateCollapsedGroups("Z:\\", new[] { "games", "media" }, directoryOverride: cacheDir);
+            var loadedSnap2 = VirtualClassifyCache.TryLoad("Z:\\", directoryOverride: cacheDir);
+            string loraNorm = CleanListSnapshot.NormPath(aiWeightsDir);
+            Check("虚拟分类本地持久化缓存可完整往返恢复类别、AI理由与折叠分组状态",
+                loadedSnap != null && loadedSnap.HasAiResults
+                && loadedSnap.Entries.TryGetValue(loraNorm, out var savedLora)
+                && savedLora.CategoryId == "ai_weights" && savedLora.FromAi
+                && loadedSnap.CollapsedGroups.Contains("games")
+                && loadedSnap2 != null && loadedSnap2.CollapsedGroups.Contains("media"),
+                $"entries={loadedSnap?.Entries.Count} collapsed2={loadedSnap2?.CollapsedGroups.Count}");
+
+            Check("全流程 100% 只读虚拟视图：磁盘上所有原目录与文件保持原位零改动",
+                File.Exists(Path.Combine(animeDir, "ep01.mkv"))
+                && File.Exists(Path.Combine(aiWeightsDir, "flux.safetensors"))
+                && File.Exists(Path.Combine(greenGameDir, "Play.exe"))
+                && !Directory.Exists(Path.Combine(tempDrive, "AIModels"))
+                && !Directory.Exists(Path.Combine(tempDrive, "Media")));
+
             Call(win, "ExitClassifySortMode", false);
             Call(win, "RefreshOrganizeRows", null, null);
-            Check("切回大小排序可干净清除组头与行染色回到常规列表",
+            Check("清除分类状态可干净恢复常规目录列表",
                 !stageRows.Any(r => r.IsClassifyGroupHeader || r.HasClassifyTint));
             Call(win, "ResetClassifyStageOnScanChange");
-
-            // 执行同盘移动与撤销还原（关闭动画并直接在真实临时目录测移动 + Undo）
-            var reorg = new FolderReorganizeService(undoPath, () => Array.Empty<string>());
-            FolderReorganizeService.Preflight(items);
-            var execRes = reorg.ExecuteAsync(items, updateShortcuts: false, driveRoot: tempDrive).GetAwaiter().GetResult();
-            string expectedAnimeDest = Path.Combine(tempDrive, "Media", "[Skymoon-Raws][Anime]");
-            string expectedLoraDest = Path.Combine(tempDrive, "AIModels", "LoraModels");
-            Check("一键执行成功同盘移入对应大类目录且保留完整内容",
-                execRes.MovedCount >= 2
-                && !Directory.Exists(animeDir) && File.Exists(Path.Combine(expectedAnimeDest, "ep01.mkv"))
-                && !Directory.Exists(aiWeightsDir) && File.Exists(Path.Combine(expectedLoraDest, "flux.safetensors")),
-                $"moved={execRes.MovedCount}");
-
-            var undoRes = reorg.UndoLatestAsync().GetAwaiter().GetResult();
-            Check("撤销上次整理原路退回所有目录并清理空的新建分类桶",
-                undoRes.FoundBatch && undoRes.RestoredCount == execRes.MovedCount
-                && File.Exists(Path.Combine(animeDir, "ep01.mkv"))
-                && File.Exists(Path.Combine(aiWeightsDir, "flux.safetensors"))
-                && !Directory.Exists(Path.Combine(tempDrive, "AIModels")),
-                $"restored={undoRes.RestoredCount}");
         }
         finally
         {

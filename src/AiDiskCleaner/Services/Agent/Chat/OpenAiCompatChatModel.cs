@@ -140,23 +140,33 @@ public sealed class OpenAiCompatChatModel : IChatModel
     static ChatModelException MapError(HttpStatusCode status, string body)
     {
         string detail = ExtractError(body);
-        string message = (int)status switch
-        {
-            401 or 403 => "密钥无效或没有权限（HTTP " + (int)status + "）" + Suffix(detail),
-            404 => "接口地址或模型不存在（HTTP 404）" + Suffix(detail),
-            429 => "请求太频繁（HTTP 429）" + Suffix(detail),
-            >= 500 => "服务端错误（HTTP " + (int)status + "）" + Suffix(detail),
-            _ => "接口拒绝请求（HTTP " + (int)status + "）" + Suffix(detail),
-        };
+        bool isInsufficientBalance = (int)status == 402
+            || detail.Contains("insufficient balance", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("quota exceeded", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("余额不足", StringComparison.Ordinal);
 
-        var kind = (int)status switch
-        {
-            401 or 403 => ChatErrorKind.Auth,
-            404 => ChatErrorKind.Protocol,
-            >= 500 => ChatErrorKind.Protocol,
-            _ => ChatErrorKind.Protocol,
-        };
-        bool retryable = (int)status is 429 or >= 500;
+        string message = isInsufficientBalance
+            ? "AI 账户余额或额度不足（HTTP " + (int)status + "），请前往平台充值或切换其他可用模型" + Suffix(detail)
+            : (int)status switch
+            {
+                401 or 403 => "密钥无效或没有权限（HTTP " + (int)status + "）" + Suffix(detail),
+                404 => "接口地址或模型不存在（HTTP 404）" + Suffix(detail),
+                429 => "请求太频繁或触发限流（HTTP 429）" + Suffix(detail),
+                >= 500 => "服务端错误（HTTP " + (int)status + "）" + Suffix(detail),
+                _ => "接口拒绝请求（HTTP " + (int)status + "）" + Suffix(detail),
+            };
+
+        var kind = isInsufficientBalance
+            ? ChatErrorKind.Auth
+            : (int)status switch
+            {
+                401 or 403 => ChatErrorKind.Auth,
+                404 => ChatErrorKind.Protocol,
+                >= 500 => ChatErrorKind.Protocol,
+                _ => ChatErrorKind.Protocol,
+            };
+        bool retryable = !isInsufficientBalance && (int)status is 429 or >= 500;
         return new ChatModelException(message, kind, retryable);
     }
 

@@ -1271,7 +1271,7 @@ public sealed class OrganizeNode : INotifyPropertyChanged
             _classifyAccentHex = string.IsNullOrWhiteSpace(accentHex) ? "#FF5A1F" : accentHex,
             _classifyRowBgHex = string.IsNullOrWhiteSpace(headerBgHex) ? "#1AFF5A1F" : headerBgHex,
             _classifyPillBgHex = string.IsNullOrWhiteSpace(pillBgHex) ? "#24FF5A1F" : pillBgHex,
-            _classifyGroupTarget = string.IsNullOrWhiteSpace(targetFolderName) ? "原地保留" : $"→ {targetFolderName}",
+            _classifyGroupTarget = "",
         };
         return node;
     }
@@ -1292,18 +1292,12 @@ public sealed class OrganizeNode : INotifyPropertyChanged
         _collapsedChainSuffix = "";
         _classifyHeaderBytes = Math.Max(0, totalBytes);
         _classifyGroupCountText = totalCount == 1 ? "1 个目录" : $"{totalCount} 个目录";
-        _classifyGroupTarget = isKeepGroup || string.IsNullOrWhiteSpace(targetFolderName)
-            ? "原地不动"
-            : $"→ {targetFolderName}";
-        _classifyGroupActive = !isKeepGroup && checkedCount > 0;
+        _classifyGroupTarget = "";
+        _classifyGroupActive = !isKeepGroup;
         _classifyGroupSummary = isKeepGroup
-            ? "受系统/软件保守保护或保持原位，不参与搬移"
-            : (checkedCount > 0
-                ? $"已选 {checkedCount}/{totalCount} 个同盘归入 {targetFolderName}"
-                : $"本组 {totalCount} 个已暂停搬移（可右侧一键开启）");
-        _classifyActionLabel = isKeepGroup
-            ? $"🔒 已保护 ({totalCount})"
-            : (checkedCount > 0 ? $"✓ 本组已选 ({checkedCount}/{totalCount})" : $"○ 已暂停 ({totalCount})");
+            ? "系统核心与原位目录（仅软件内分类展示）"
+            : $"软件内彩色虚拟分组 · 共 {totalCount} 个目录，不改动磁盘原路径";
+        _classifyActionLabel = "";
         _classifyAccentHex = accentHex;
         _classifyRowBgHex = headerBgHex;
         _classifyPillBgHex = pillBgHex;

@@ -38,8 +38,9 @@ public partial class MainWindow
     /// <summary>右侧分屏报告顶部的临时状态行。</summary>
     private TextBlock? _dockedReportStatusText;
 
-    /// <summary>最近一次 AI 分析失败时的简短说明（用于展示在右侧预留面板）。</summary>
+    /// <summary>最近一次 AI 分析失败时的简短说明（用于展示在左侧诊断面板）。</summary>
     private string _lastAgentError = "";
+    private ChatErrorKind _lastAgentErrorKind = ChatErrorKind.Unknown;
 
     /// <summary>当前 AI 分析进度文本（用于展示在预留面板）。</summary>
     private string _agentProgressText = "";
@@ -68,6 +69,7 @@ public partial class MainWindow
 
         _agentBusy = true;
         _lastAgentError = "";
+        _lastAgentErrorKind = ChatErrorKind.Unknown;
         _agentProgressText = "";
         UpdateAiReportButton();
         SetOrganizeNote(Loc.AiReportBusy);
@@ -130,15 +132,19 @@ public partial class MainWindow
             {
                 // 等右侧所有 1200ms 慢赏排序落地完成后，左侧四色圆环丝滑转换为 AI 清理报告面板！
                 ShowDockedAgentReport(result.Report);
+                if (!classifyOutcome.Ok && !string.IsNullOrWhiteSpace(classifyOutcome.Error))
+                    SetOrganizeNote(Loc.AiReportMeta(modelId, result.Report.AllItems.Count(),
+                        FileEntry.FormatSize(result.Report.TotalReclaimableBytes)) + " · 整理分类：" + classifyOutcome.Error);
             }
-
-            if (!classifyOutcome.Ok && result.Ok && !string.IsNullOrWhiteSpace(classifyOutcome.Error))
-                SetOrganizeNote(Loc.AiReportMeta(modelId, result.Report!.AllItems.Count(),
-                    FileEntry.FormatSize(result.Report.TotalReclaimableBytes)) + " · 整理分类：" + classifyOutcome.Error);
-            else if (!result.Ok && !classifyOutcome.Ok)
+            else
             {
-                _lastAgentError = Loc.AiReportFailed(result.Error ?? classifyOutcome.Error);
-                SetOrganizeNote(_lastAgentError);
+                // AI 报告失败（如 HTTP 402 欠费、密钥无效、限流或断网）：
+                // 左侧立刻平滑切入醒目诊断面板告知用户原因并提供「打开设置 / 重试」，绝不静默停在圆环上！
+                string errText = !string.IsNullOrWhiteSpace(result.Error)
+                    ? result.Error!
+                    : (!string.IsNullOrWhiteSpace(classifyOutcome.Error) ? classifyOutcome.Error : "AI 服务请求失败，请检查配置或重试");
+                ShowDockedAgentError(errText, result.ErrorKind);
+                SetOrganizeNote(Loc.AiReportFailed(errText));
             }
 
             // 同步落入当前盘符的内存会话缓存，切去其他盘再切回秒恢复报告与彩色分组
@@ -151,8 +157,9 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            _lastAgentError = Loc.AiReportFailed(AppError.From(ex, "ai-report").UserMessage);
-            SetOrganizeNote(_lastAgentError);
+            string errText = AppError.From(ex, "ai-report").UserMessage;
+            ShowDockedAgentError(errText, ChatErrorKind.Unknown);
+            SetOrganizeNote(Loc.AiReportFailed(errText));
             AppLog.Record("AI", ex, "agent-report");
         }
         finally
@@ -222,6 +229,7 @@ public partial class MainWindow
         _lastAgentReport = null;
         _dockedReportRenderedFor = null;
         _lastAgentError = "";
+        _lastAgentErrorKind = ChatErrorKind.Unknown;
         _agentProgressText = "";
         _aiReportAnnotations.Clear();
         foreach (var node in _organizeAll) node.ClearAiAnnotation();
@@ -308,37 +316,193 @@ public partial class MainWindow
         UpdateAiReportDockToggle();
     }
 
-    /// <summary>在尚未生成报告时，在右侧抽屉渲染极简状态与单一动作入口。</summary>
+    /// <summary>AI 调用失败（如欠费 HTTP 402 / 密钥失效 / 断网）时，左侧切入醒目诊断卡提醒用户。</summary>
+    private void ShowDockedAgentError(string errorMessage, ChatErrorKind errorKind)
+    {
+        _lastAgentReport = null;
+        _dockedReportRenderedFor = null;
+        _lastAgentError = (errorMessage ?? "").Trim();
+        _lastAgentErrorKind = errorKind;
+        RefreshDockedReportPlaceholder();
+        SetDockedReportVisible(true);
+        UpdateAiReportDockToggle();
+    }
+
+    private static (string Headline, string Advice) DescribeAgentErrorForUser(string err, ChatErrorKind kind)
+    {
+        string raw = err ?? "";
+        if (raw.Contains("HTTP 402", StringComparison.OrdinalIgnoreCase)
+            || raw.Contains("insufficient balance", StringComparison.OrdinalIgnoreCase)
+            || raw.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase)
+            || raw.Contains("quota exceeded", StringComparison.OrdinalIgnoreCase)
+            || raw.Contains("余额", StringComparison.Ordinal)
+            || raw.Contains("额度不足", StringComparison.Ordinal))
+        {
+            return (
+                "AI 账户余额或额度不足",
+                "当前配置的模型接口提示余额耗尽，未能生成 AI 深度清理建议。右侧目录已由本地规则完成软件内初步分类（不改动磁盘文件）；请前往对应平台充值，或在设置中切换其他可用模型。");
+        }
+
+        if (kind == ChatErrorKind.Auth
+            || raw.Contains("HTTP 401", StringComparison.OrdinalIgnoreCase)
+            || raw.Contains("HTTP 403", StringComparison.OrdinalIgnoreCase)
+            || raw.Contains("密钥无效", StringComparison.Ordinal))
+        {
+            return (
+                "API 密钥无效或无权限",
+                "模型服务端拒绝了当前 API Key。请打开设置检查密钥是否填写正确、是否已过期或拥有该模型权限。");
+        }
+
+        if (raw.Contains("HTTP 429", StringComparison.OrdinalIgnoreCase)
+            || raw.Contains("限流", StringComparison.Ordinal)
+            || raw.Contains("频繁", StringComparison.Ordinal))
+        {
+            return (
+                "接口触发限流（请求过频）",
+                "当前账号触发了速率限制，请稍等几秒后重试，或在设置中切换到其他可用模型。");
+        }
+
+        if (kind == ChatErrorKind.Timeout || raw.Contains("超时", StringComparison.Ordinal))
+        {
+            return (
+                "连接 AI 接口超时",
+                "等待模型响应超时。请检查当前网络/代理连接，或切换响应更快的对话模型后重试。");
+        }
+
+        if (kind == ChatErrorKind.Network || raw.Contains("无法连接", StringComparison.Ordinal))
+        {
+            return (
+                "无法连接到 AI 服务",
+                "未能连上配置的模型接口，请检查网络、代理状态或接口地址（Base URL）。");
+        }
+
+        return (
+            "AI 深度分析未能完成",
+            "模型服务返回异常，右侧目录已由本地规则完成初步归类。请查看下方详细报错，或打开设置切换模型后重试。");
+    }
+
+    /// <summary>在尚未生成报告或 AI 调用异常时，在左侧面板渲染极简状态或醒目错误诊断卡。</summary>
     private void RefreshDockedReportPlaceholder()
     {
         if (OrganizeReportContent == null || _lastAgentReport != null) return;
+        string driveTag = !string.IsNullOrWhiteSpace(_activeDriveKey) ? _activeDriveKey.TrimEnd('\\') : "";
         if (OrganizeReportHeaderTitle != null)
-            OrganizeReportHeaderTitle.Text = Loc.AiReportTitle;
+        {
+            OrganizeReportHeaderTitle.Text = !_agentBusy && _lastAgentError.Length > 0
+                ? (driveTag.Length > 0 ? $"AI 连接异常 · {driveTag}" : "AI 连接异常")
+                : Loc.AiReportTitle;
+        }
         if (OrganizeReportExpandBtn != null)
             OrganizeReportExpandBtn.Visibility = Visibility.Collapsed;
 
         OrganizeReportContent.Children.Clear();
+
+        var ctaStyle = TryFindResource("OrangePillButton") as Style ?? TryFindResource("PrimaryButton") as Style;
+        var chipStyle = TryFindResource("ChipButton") as Style;
+        var ghostStyle = TryFindResource("GhostButton") as Style;
+
+        // AI 调用失败：在左侧栏展示醒目、人话、可一键修复的诊断卡
+        if (!_agentBusy && _lastAgentError.Length > 0)
+        {
+            var (headline, advice) = DescribeAgentErrorForUser(_lastAgentError, _lastAgentErrorKind);
+            var errStack = new StackPanel
+            {
+                Margin = new Thickness(4, 14, 4, 12),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            var cardBody = new StackPanel();
+            cardBody.Children.Add(new TextBlock
+            {
+                Text = "⚠  " + headline,
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ThemeService.Brush("BrandAccent"),
+                TextWrapping = TextWrapping.Wrap,
+            });
+            cardBody.Children.Add(new TextBlock
+            {
+                Text = advice,
+                FontSize = 11.5,
+                Foreground = ThemeService.Brush("Text"),
+                TextWrapping = TextWrapping.Wrap,
+                LineHeight = 18,
+                Margin = new Thickness(0, 8, 0, 10),
+            });
+            cardBody.Children.Add(new Border
+            {
+                Background = ThemeService.Brush("CardSurface"),
+                BorderBrush = ThemeService.Brush("Border"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(9, 7, 9, 7),
+                Child = new TextBlock
+                {
+                    Text = _lastAgentError,
+                    FontSize = 10.5,
+                    Foreground = ThemeService.Brush("TextDim"),
+                    TextWrapping = TextWrapping.Wrap,
+                },
+            });
+
+            errStack.Children.Add(new Border
+            {
+                Background = ThemeService.Brush("BrandAccentSoft"),
+                BorderBrush = ThemeService.Brush("BrandAccent"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                Padding = new Thickness(13, 12, 13, 12),
+                Margin = new Thickness(0, 0, 0, 12),
+                Child = cardBody,
+            });
+
+            var openSettingsBtn = new Button
+            {
+                Content = "打开设置 · 切换模型 / 密钥",
+                Style = ctaStyle,
+                Height = 34,
+                Padding = new Thickness(14, 0, 14, 0),
+                FontSize = 11.5,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            openSettingsBtn.Click += (_, _) => OpenOverlay(Loc.SettingsTitle, settings: true);
+            errStack.Children.Add(openSettingsBtn);
+
+            var retryBtn = new Button
+            {
+                Content = "↻ 重新连接并分析",
+                Style = chipStyle,
+                Height = 32,
+                Padding = new Thickness(12, 0, 12, 0),
+                FontSize = 11.5,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Margin = new Thickness(0, 0, 0, 6),
+            };
+            retryBtn.Click += AiReport_Click;
+            errStack.Children.Add(retryBtn);
+
+            var backRingBtn = new Button
+            {
+                Content = "返回磁盘概览圆环",
+                Style = ghostStyle,
+                Height = 30,
+                Padding = new Thickness(10, 0, 10, 0),
+                FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            backRingBtn.Click += (_, _) => SetDockedReportVisible(false);
+            errStack.Children.Add(backRingBtn);
+
+            OrganizeReportContent.Children.Add(errStack);
+            return;
+        }
 
         var stack = new StackPanel
         {
             Margin = new Thickness(8, 28, 8, 12),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-
-        if (_lastAgentError.Length > 0)
-        {
-            stack.Children.Add(new TextBlock
-            {
-                Text = _lastAgentError,
-                FontSize = 11.5,
-                Foreground = ThemeService.Brush("ToneRedAccent"),
-                TextWrapping = TextWrapping.Wrap,
-                TextAlignment = TextAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 10),
-            });
-        }
-
-        var ctaStyle = TryFindResource("OrangePillButton") as Style ?? TryFindResource("PrimaryButton") as Style;
 
         if (_agentBusy)
         {
@@ -539,7 +703,6 @@ public partial class MainWindow
         ScanDetailsBody.Visibility = Visibility.Collapsed;
         SelectionBody.Visibility = Visibility.Collapsed;
         RuleSelectBody.Visibility = Visibility.Collapsed;
-        if (ClassifyModalBody != null) ClassifyModalBody.Visibility = Visibility.Collapsed;
         AlertBody.Visibility = Visibility.Collapsed;
         ConfirmButtons.Visibility = Visibility.Collapsed;
         ReportBody.Visibility = Visibility.Visible;

@@ -27,6 +27,7 @@
     <Compile Include="..\..\src\AiDiskCleaner\Native\FileProbeNative.cs" Link="FileProbeNative.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Native\ShellNative.cs" Link="ShellNative.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Native\CryptoNative.cs" Link="CryptoNative.cs" />
+    <Compile Include="..\..\src\AiDiskCleaner\Native\ShortcutNative.cs" Link="ShortcutNative.cs" />
 
     <Compile Include="..\..\src\AiDiskCleaner\Services\ProtectedPaths.cs" Link="ProtectedPaths.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\IFileSystemProbe.cs" Link="IFileSystemProbe.cs" />
@@ -69,7 +70,6 @@
     <!-- 真规则实现：RiskIsAuthoritative 要按真规则断言，不能用桩 -->
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\CleanRules.cs" Link="CleanRules.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\CleanRules\DuplicateRule.cs" Link="DuplicateRule.cs" />
-    <Compile Include="..\..\src\AiDiskCleaner\Native\ShortcutNative.cs" Link="ShortcutNative.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\RecycleNameResolver.cs" Link="RecycleNameResolver.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\IScanService.cs" Link="IScanService.cs" />
     <Compile Include="..\..\src\AiDiskCleaner\Services\ScanSnapshot.cs" Link="ScanSnapshot.cs" />

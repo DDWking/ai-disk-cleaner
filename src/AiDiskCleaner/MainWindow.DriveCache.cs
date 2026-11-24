@@ -219,6 +219,8 @@ public partial class MainWindow
             entry.ClassifyItems,
             entry.ClassifyCategories,
             entry.ClassifyCollapsedGroups);
+        if (!entry.HasClassifyPlan)
+            _ = TryRestorePersistedVirtualClassifyAsync(entry.Root, _scanGeneration, entry.Drive);
         UpdateVolumeInfo();
         ShowScanQuality();
         RefreshCleanUi();
@@ -310,11 +312,14 @@ public partial class MainWindow
             _layerGeneration++;
             UpdateVolumeInfo();
             await RebuildOrganizeAsync(diskRoot, _scanGeneration, preserveChecks: false, _preloadCts?.Token ?? default);
+            bool restoredClassify = await TryRestorePersistedVirtualClassifyAsync(diskRoot, _scanGeneration, targetDrive);
             SaveActiveDriveToCache();
             UpdateAiReportButton();
             UpdateStopButton();
             RefreshDriveCards();
-            SetStatus($"{targetDrive} 秒开快照，后台静默校准中");
+            SetStatus(restoredClassify
+                ? $"{targetDrive} 秒开快照并恢复彩色分类，后台静默校准中"
+                : $"{targetDrive} 秒开快照，后台静默校准中");
             _ = RunScanCoreAsync(silentRefresh: true);
             return;
         }

@@ -1,10 +1,8 @@
-using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AiDiskCleaner.Models;
-using AiDiskCleaner.Native;
 using AiDiskCleaner.Services.Agent;
 
 namespace AiDiskCleaner.Services;
@@ -19,13 +17,12 @@ public sealed record ClassifyAiResult(
     ChatErrorKind ErrorKind = ChatErrorKind.Unknown);
 
 /// <summary>
-/// 「整理归类」分析服务：只读内存 MFT 树 + 本地证据红线 + 用户自定义分类规则 + AI 内容归纳。
+/// 「软件内虚拟分类视图」分析服务：只读内存 MFT 树 + 本地特征规则 + AI 内容归纳。
 ///
-/// 安全铁律：
-/// 1) 这里只做「分类诊断与计划生成」，不移动任何文件、不改任何注册表或快捷方式；
+/// 核心铁律：
+/// 1) 100% 纯软件内可视化分组展示，绝不移动、改名、软链或改动磁盘上任何真实文件与注册表；
 /// 2) 路径出站默认经 %USER% 脱敏；
-/// 3) 保守拦截由本地红线（系统/KnownFolder/卸载清单/启动器/venv）硬决定，AI 不能解锁被拦项目，
-///    也不能把含可执行文件的绿软自动标为 Safe 默认勾选。
+/// 3) Windows 系统核心与根级容器归入底部「系统核心」分组，其余目录（含游戏库、应用、开发工具、影音文档）均可按真实用途清晰归色展示。
 /// </summary>
 public sealed class FolderClassificationService
 {
@@ -45,33 +42,10 @@ public sealed class FolderClassificationService
         "$extend", "boot", "efi", "msocache", "windows.old", "esupport", "drivers",
     };
 
-    /// <summary>安全防护、反作弊驱动与系统核心组件目录关键词：即使使用 NTFS 软链也永久硬拦，绝不迁移。</summary>
-    private static readonly string[] HardNoJunctionTokens =
+    private static readonly string[] SystemCoreTokens =
     {
-        "riot vanguard", "easyanticheat", "battleye", "faceit", "nprotect", "gameguard",
-        "ace-guard", "anticheatexpert", "huorong", "360safe", "360totalsecurity",
-        "kaspersky", "bitdefender", "norton", "mcafee", "eset", "avast", "avg",
-        "crowdstrike", "windows defender", "windowsapps", "driverstore",
+        "windowsapps", "driverstore", "windows defender", "system32", "syswow64", "winsxs",
     };
-
-    public static bool IsHardNoJunctionPath(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return true;
-        string norm = CleanListSnapshot.NormPath(path);
-        if (ProtectedPaths.IsDriveRoot(norm)) return true;
-        if (ProtectedPaths.Classify(norm).Guard == PathGuard.Blocked) return true;
-
-        var segs = ProtectedPaths.Segments(norm);
-        if (segs.Length <= 2 && segs.Length >= 2 && RootSystemNames.Contains(segs[1]))
-            return true;
-
-        foreach (var tok in HardNoJunctionTokens)
-        {
-            if (norm.Contains(tok, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
-    }
 
     private static readonly HashSet<string> MediaExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -97,6 +71,7 @@ public sealed class FolderClassificationService
     {
         ".cs", ".csproj", ".sln", ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs",
         ".c", ".cpp", ".h", ".hpp", ".java", ".kt", ".json", ".yaml", ".yml", ".toml", ".sql",
+        ".vmdk", ".vhdx", ".vdi",
     };
 
     private static readonly HashSet<string> ExecutableExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -117,7 +92,7 @@ public sealed class FolderClassificationService
 
     private static readonly HashSet<string> LooseDownloadDirNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "downloads", "download", "迅雷下载", "百度网盘", "baidunetdiskdownload", "quarkdownloads",
+        "downloads", "download", "迅雷下载", "百度网盘", "baidunetdiskdownload", "quarkdownloads", "下载",
     };
 
     public sealed record ContentSummary(
@@ -138,44 +113,34 @@ public sealed class FolderClassificationService
         Dictionary<string, string> InstalledLocations,
         HashSet<string> IgnoredPaths);
 
-    /// <summary>采集某盘符下可作为分类目标的现存顶级目录映射（例如 D:\Game → 归入 games）。</summary>
+    public static bool IsSystemCorePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return true;
+        string norm = CleanListSnapshot.NormPath(path);
+        if (ProtectedPaths.IsDriveRoot(norm)) return true;
+        if (ProtectedPaths.Classify(norm).Guard == PathGuard.Blocked) return true;
+
+        var segs = ProtectedPaths.Segments(norm);
+        if (segs.Length == 2 && RootSystemNames.Contains(segs[1]))
+            return true;
+
+        foreach (var tok in SystemCoreTokens)
+        {
+            if (norm.Contains(tok, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
     public static Dictionary<string, string> ResolveCategoryTargetNames(
         FileEntry? driveRootEntry,
         IReadOnlyList<ClassifyCategoryRule> categories)
     {
-        var topDirNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (driveRootEntry != null)
-        {
-            foreach (var c in driveRootEntry.ChildList)
-            {
-                if (!c.IsDirectory || c.IsReparsePoint || c.IsFilesGroup) continue;
-                topDirNames[c.Name] = c.Name;
-            }
-        }
-
         var resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var rule in categories)
         {
             if (string.IsNullOrWhiteSpace(rule.Id)) continue;
-            string? target = null;
-            if (!string.IsNullOrWhiteSpace(rule.FolderName)
-                && topDirNames.TryGetValue(rule.FolderName.Trim(), out var exact))
-            {
-                target = exact;
-            }
-            if (target == null)
-            {
-                foreach (var alias in rule.Aliases)
-                {
-                    if (string.IsNullOrWhiteSpace(alias)) continue;
-                    if (topDirNames.TryGetValue(alias.Trim(), out var hit))
-                    {
-                        target = hit;
-                        break;
-                    }
-                }
-            }
-            resolved[rule.Id] = target ?? rule.FolderName.Trim();
+            resolved[rule.Id] = (rule.FolderName ?? rule.Id).Trim();
         }
         return resolved;
     }
@@ -220,10 +185,6 @@ public sealed class FolderClassificationService
         return new ContextSnapshot(known, apps, ignored);
     }
 
-    /// <summary>
-    /// 轻量只读注册表安装路径快照（约 10ms，不解码图标、不启动外部 Helper 进程），
-    /// 供尚未打开「卸载」页时的保守拦截使用。
-    /// </summary>
     public static Dictionary<string, string> ReadInstalledLocationsFast()
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -277,12 +238,6 @@ public sealed class FolderClassificationService
         string physicalVolumeRoot = Path.GetPathRoot(driveRoot) ?? driveRoot;
         var resolvedTargets = ResolveCategoryTargetNames(driveRootEntry, categories);
         var choices = BuildChoices(categories, resolvedTargets);
-        var targetBucketPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var kv in resolvedTargets)
-        {
-            if (string.IsNullOrWhiteSpace(kv.Value)) continue;
-            targetBucketPaths.Add(CleanListSnapshot.NormPath(Path.Combine(driveRoot, kv.Value)));
-        }
 
         var candidateDirs = new List<FileEntry>();
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -293,7 +248,6 @@ public sealed class FolderClassificationService
             string norm = CleanListSnapshot.NormPath(dir.FullPath);
             if (norm.Length == 0 || !seenPaths.Add(norm)) return;
             if (context.IgnoredPaths.Contains(norm)) return;
-            if (targetBucketPaths.Contains(norm)) return; // 已经是目标大类桶，不能自己搬自己
 
             if (expandDownloadsContainer && !dir.IsReparsePoint)
             {
@@ -301,7 +255,7 @@ public sealed class FolderClassificationService
                 {
                     if (!sub.IsDirectory || sub.IsFilesGroup || sub.IsReparsePoint || sub.Size < 512 * 1024) continue;
                     string subNorm = CleanListSnapshot.NormPath(sub.FullPath);
-                    if (subNorm.Length == 0 || targetBucketPaths.Contains(subNorm) || context.IgnoredPaths.Contains(subNorm))
+                    if (subNorm.Length == 0 || context.IgnoredPaths.Contains(subNorm))
                         continue;
                     if (seenPaths.Add(subNorm))
                         candidateDirs.Add(sub);
@@ -347,7 +301,7 @@ public sealed class FolderClassificationService
                     foreach (var sub in dlEntry.ChildList.Where(c => c.IsDirectory && !c.IsFilesGroup && !c.IsReparsePoint && c.Size >= 512 * 1024))
                     {
                         string subNorm = CleanListSnapshot.NormPath(sub.FullPath);
-                        if (subNorm.Length == 0 || targetBucketPaths.Contains(subNorm) || context.IgnoredPaths.Contains(subNorm))
+                        if (subNorm.Length == 0 || context.IgnoredPaths.Contains(subNorm))
                             continue;
                         if (seenPaths.Add(subNorm))
                             candidateDirs.Add(sub);
@@ -370,8 +324,8 @@ public sealed class FolderClassificationService
             if (dir.Size == 0 && !dir.HasChildren && !dir.IsReparsePoint) continue;
 
             var summary = InspectTreeContent(dir);
-            var (tier, safetyNote, installedHint, supportsJunction) = EvaluateSafetyGuard(dir, summary, context);
-            string localCatId = SuggestCategoryLocally(dir, summary, tier, categories);
+            var (tier, safetyNote, installedHint) = EvaluateSafetyGuard(dir, summary, context);
+            string localCatId = SuggestCategoryLocally(dir, summary, tier, installedHint, categories);
 
             var item = new ClassifyItem
             {
@@ -387,7 +341,6 @@ public sealed class FolderClassificationService
                 Choices = choices,
                 Tier = tier,
                 SafetyNote = safetyNote,
-                SupportsJunctionMigration = supportsJunction,
             };
 
             string chosenCat = tier == ClassifySafetyTier.BlockedConservative
@@ -395,12 +348,9 @@ public sealed class FolderClassificationService
                 : localCatId;
             ApplyChoice(item, chosenCat, choices);
             item.FallbackCategoryId = chosenCat;
-            // 保守规则：纯内容归类命中非 KeepId 默认预勾选；绿软/已安装/KeepInPlace 绝不自动勾
-            item.IsChecked = tier == ClassifySafetyTier.Safe && !item.IsKeepInPlace;
             items.Add(item);
         }
 
-        // 把真正可能整理到一起的 Safe/Review 排前面，保守保留放后面
         items.Sort(static (a, b) =>
         {
             int byTier = ((int)a.Tier).CompareTo((int)b.Tier);
@@ -426,7 +376,7 @@ public sealed class FolderClassificationService
                 : c.FolderName.Trim();
             choices.Add(new ClassifyCategoryChoice(c.Id, c.Name, folder));
         }
-        choices.Add(new ClassifyCategoryChoice(ClassifyCategoryRule.KeepId, "保留在原位", ""));
+        choices.Add(new ClassifyCategoryChoice(ClassifyCategoryRule.KeepId, "系统核心", ""));
         return choices;
     }
 
@@ -434,9 +384,9 @@ public sealed class FolderClassificationService
     {
         var match = choices.FirstOrDefault(c => string.Equals(c.Id, categoryId, StringComparison.OrdinalIgnoreCase));
         if (match == null)
-            item.ApplyCategorySelection(ClassifyCategoryRule.KeepId, "保留在原位", "");
+            item.ApplyCategorySelection(ClassifyCategoryRule.KeepId, "系统核心");
         else
-            item.ApplyCategorySelection(match.Id, match.DisplayName, match.TargetFolderName);
+            item.ApplyCategorySelection(match.Id, match.DisplayName);
     }
 
     public static ContentSummary InspectTreeContent(FileEntry rootDir)
@@ -572,153 +522,106 @@ public sealed class FolderClassificationService
             topExt, sampleFiles, sampleDirs, markers.ToList(), digest);
     }
 
-    public static (ClassifySafetyTier Tier, string Reason, string InstalledHint, bool SupportsJunction) EvaluateSafetyGuard(
+    public static (ClassifySafetyTier Tier, string Reason, string InstalledHint) EvaluateSafetyGuard(
         FileEntry dir, ContentSummary summary, ContextSnapshot context)
     {
         string path = CleanListSnapshot.NormPath(dir.FullPath);
         string name = (dir.Name ?? "").Trim();
 
         if (ProtectedPaths.IsDriveRoot(path))
-            return (ClassifySafetyTier.BlockedConservative, "磁盘根目录不可移动", "", false);
+            return (ClassifySafetyTier.BlockedConservative, "磁盘根目录", "");
 
         if (dir.IsReparsePoint)
-        {
-            string jNote = JunctionNative.IsJunction(path, out var jt) && !string.IsNullOrWhiteSpace(jt)
-                ? $"已通过隐藏软链映射到 {jt}"
-                : "目录为链接 / 重解析点，避免破坏原映射";
-            return (ClassifySafetyTier.BlockedConservative, jNote, "", false);
-        }
+            return (ClassifySafetyTier.BlockedConservative, "链接 / 重解析点目录", "");
 
         if (ProtectedPaths.IsProtectedEntry(dir) || ProtectedPaths.Classify(path).Guard == PathGuard.Blocked)
-            return (ClassifySafetyTier.BlockedConservative, "系统核心或受保护目录，永久禁止移动", "", false);
+            return (ClassifySafetyTier.BlockedConservative, "系统核心或受保护目录", "");
 
         if (RootSystemNames.Contains(name) && ProtectedPaths.Segments(path).Length <= 2)
-            return (ClassifySafetyTier.BlockedConservative, "系统与用户根目录容器，永久保留原地", "", false);
+            return (ClassifySafetyTier.BlockedConservative, "系统与用户根目录容器", "");
 
-        if (context.KnownFolderPaths.Contains(path))
-            return (ClassifySafetyTier.BlockedConservative, "Windows 活跃默认位置（系统下载/桌面/文档），禁止移动", "", false);
+        if (IsSystemCorePath(path))
+            return (ClassifySafetyTier.BlockedConservative, "系统核心组件目录", "");
 
-        if (IsHardNoJunctionPath(path))
-            return (ClassifySafetyTier.BlockedConservative, "涉及安全防护或反作弊驱动目录，永久禁止迁移", "", false);
-
+        // 仅软件内虚拟分组展示，不挪动真实文件：游戏平台库、已安装软件、开发工具链等全部正常参与分类归色
         if (FolderPurposeRules.IsObjectContainer(path))
-        {
-            return (ClassifySafetyTier.BlockedConservative,
-                "游戏平台库目录（如 Steam/Epic）；默认锁死，可勾选「启用软链搬家」以 NTFS 隐藏软链无损迁移（搬前请先退出客户端）",
-                name,
-                true);
-        }
+            return (ClassifySafetyTier.ReviewGreenApp, "游戏平台库目录", name);
 
         if (summary.HasVenvMarker)
-        {
-            return (ClassifySafetyTier.BlockedConservative,
-                "内含 Python 虚拟环境（硬编码绝对路径）；普通移动会失效，可「启用软链搬家」保持原路径透明映射",
-                "",
-                true);
-        }
+            return (ClassifySafetyTier.ReviewGreenApp, "内含 Python 虚拟环境", "");
 
-        // 检查注册表安装清单：当前目录本身、其父级，或其内部包含已安装软件（支持用户主动启用 NTFS 隐藏软链无损搬家）
         foreach (var kv in context.InstalledLocations)
         {
             if (FolderOrganize.IsUnderOrEqual(path, kv.Key) || FolderOrganize.IsStrictlyUnder(kv.Key, path))
-            {
-                return (ClassifySafetyTier.BlockedConservative,
-                    $"命中已安装程序「{kv.Value}」；直接移动会破坏注册表，可点击「启用软链搬家」以隐藏 NTFS Junction 无损迁移",
-                    kv.Value,
-                    true);
-            }
+                return (ClassifySafetyTier.ReviewGreenApp, $"已安装程序：{kv.Value}", kv.Value);
         }
 
-        // 本地特征库里标记 Keep（重要/运行数据）也按保守拦截，非红线软件目录允许用户手动启用软链迁移
         var sigHit = AppSignatures.Match(path);
         if (sigHit is { } sh && sh.Sig.Risk == SigRisk.Keep && (sh.Sig.Subs is not { Length: > 0 } || sh.SubHit))
-        {
-            return (ClassifySafetyTier.BlockedConservative,
-                $"识别为程序或工具链「{sh.Sig.Name}」；默认原地保护，可点击「启用软链搬家」以隐藏软链无损迁移",
-                sh.Sig.Name,
-                true);
-        }
+            return (ClassifySafetyTier.ReviewGreenApp, $"程序或工具目录：{sh.Sig.Name}", sh.Sig.Name);
 
-        // 可执行程序 / 绿色单机游戏：允许整理建议，但绝不默认全自动勾选
         if (summary.HasExecutable || summary.HasGameMarker)
         {
-            string note = summary.HasGameMarker
-                ? "未在安装清单中登记，疑似免安装单机游戏；请核对是否直接运行后再勾选"
-                : "内含可执行文件（.exe / .msi 等），未命中系统卸载清单；请确认无需固定路径后再勾选";
-            return (ClassifySafetyTier.ReviewGreenApp, note, "", true);
+            string note = summary.HasGameMarker ? "游戏或图形引擎目录" : "应用程序目录";
+            return (ClassifySafetyTier.ReviewGreenApp, note, "");
         }
 
-        return (ClassifySafetyTier.Safe, "纯内容或数据目录，无安装注册表依赖，可放心归类", "", true);
-    }
-
-    public static string SuggestJunctionCategoryId(ClassifyItem item, IReadOnlyList<ClassifyCategoryRule> categories)
-    {
-        bool HasEnabled(string id) => categories.Any(c => c.Enabled && c.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
-        string hint = ((item.SourceName ?? "") + " " + (item.SourcePath ?? "") + " " + (item.InstalledProductHint ?? "") + " " + (item.ContentDigest ?? "")).ToLowerInvariant();
-
-        if ((hint.Contains("steam") || hint.Contains("epic") || hint.Contains("wegame")
-             || hint.Contains("game") || hint.Contains("gog") || hint.Contains("ubisoft")
-             || hint.Contains("riot") || hint.Contains("battle.net") || hint.Contains("minecraft")
-             || hint.Contains("pcl") || hint.Contains("hmcl") || hint.Contains("tgp"))
-            && HasEnabled("games"))
-            return "games";
-
-        if ((hint.Contains("msys") || hint.Contains("mingw") || hint.Contains("python") || hint.Contains("venv")
-             || hint.Contains("conda") || hint.Contains("node") || hint.Contains("jdk") || hint.Contains("sdk")
-             || hint.Contains("git") || hint.Contains("code") || hint.Contains("studio") || hint.Contains("dev")
-             || hint.Contains("unity") || hint.Contains("unreal") || hint.Contains("vmware") || hint.Contains("virtualbox")
-             || hint.Contains("pintos") || hint.Contains("docker") || hint.Contains("jetbrains") || hint.Contains("idea")
-             || hint.Contains("pycharm") || hint.Contains("clion") || hint.Contains("goland") || hint.Contains("rust")
-             || hint.Contains("llvm") || hint.Contains("cmake"))
-            && HasEnabled("dev"))
-            return "dev";
-
-        if ((hint.Contains("video") || hint.Contains("movie") || hint.Contains("media") || hint.Contains("music")
-             || hint.Contains("photo") || hint.Contains("anime") || hint.Contains("bilibili")
-             || hint.Contains("视频") || hint.Contains("影视") || hint.Contains("音乐") || hint.Contains("相册"))
-            && HasEnabled("media"))
-            return "media";
-
-        if ((hint.Contains("download") || hint.Contains("driver") || hint.Contains("install") || hint.Contains("setup")
-             || hint.Contains("package") || hint.Contains("驱动") || hint.Contains("下载") || hint.Contains("安装包"))
-            && HasEnabled("installers"))
-            return "installers";
-
-        if ((hint.Contains("doc") || hint.Contains("book") || hint.Contains("pdf") || hint.Contains("office")
-             || hint.Contains("study") || hint.Contains("文档") || hint.Contains("资料") || hint.Contains("课件"))
-            && HasEnabled("docs"))
-            return "docs";
-
-        if (HasEnabled("dev")) return "dev";
-        return categories.FirstOrDefault(c => c.Enabled)?.Id ?? ClassifyCategoryRule.KeepId;
+        return (ClassifySafetyTier.Safe, "内容或数据目录", "");
     }
 
     public static string SuggestCategoryLocally(
         FileEntry dir,
         ContentSummary summary,
         ClassifySafetyTier tier,
+        string installedHint,
         IReadOnlyList<ClassifyCategoryRule> categories)
     {
         if (tier == ClassifySafetyTier.BlockedConservative)
             return ClassifyCategoryRule.KeepId;
 
         bool HasEnabled(string id) => categories.Any(c => c.Enabled && c.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+        string lowerName = (dir.Name ?? "").Trim().ToLowerInvariant();
+        string hint = (lowerName + " " + (installedHint ?? "") + " " + (summary.DigestText ?? "")).ToLowerInvariant();
+
+        // 1) 优先按目录名精确匹配规则自身名称或别名（如 D:\文档 → docs，D:\视频 / D:\图片 → media，D:\Games → games）
+        foreach (var rule in categories)
+        {
+            if (!rule.Enabled || string.IsNullOrWhiteSpace(rule.Id)) continue;
+            if (!string.IsNullOrWhiteSpace(rule.FolderName) && lowerName.Equals(rule.FolderName.Trim(), StringComparison.OrdinalIgnoreCase))
+                return rule.Id;
+            if (rule.Aliases.Any(a => !string.IsNullOrWhiteSpace(a) && lowerName.Equals(a.Trim(), StringComparison.OrdinalIgnoreCase)))
+                return rule.Id;
+        }
+
+        // 2) 知名开发引擎 / IDE / 虚拟机目录名（避免 Unity 内置 UnityPlayer.dll 误判为游戏）
+        if (HasEnabled("dev") && (lowerName == "unity" || lowerName.StartsWith("unity ") || lowerName.StartsWith("unity_")
+            || lowerName.Contains("unreal") || lowerName.Contains("godot") || lowerName.Contains("blender")
+            || lowerName.Contains("visual studio") || lowerName.Contains("jetbrains") || lowerName.Contains("android studio")
+            || lowerName.Contains("vscode") || lowerName.Contains("vmware") || lowerName.Contains("virtualbox")
+            || lowerName.Contains("pintos") || lowerName.Contains("docker") || lowerName == "msys64" || lowerName == "mingw"
+            || summary.HasVenvMarker || summary.Markers.Contains(".git")))
+            return "dev";
+
+        // 3) 知名游戏平台库与启动器目录
+        if (HasEnabled("games") && (hint.Contains("steam") || hint.Contains("epic") || hint.Contains("wegame")
+            || hint.Contains("game") || hint.Contains("gog") || hint.Contains("ubisoft")
+            || hint.Contains("riot") || hint.Contains("battle.net") || hint.Contains("minecraft")
+            || lowerName == "mc" || lowerName == "pcl" || lowerName == "hmcl" || summary.HasGameMarker))
+            return "games";
 
         long totalBytes = Math.Max(1, summary.TopExtensions.Sum(e => e.Bytes));
         long SumBytes(HashSet<string> set) => summary.TopExtensions.Where(e => set.Contains(e.Ext)).Sum(e => e.Bytes);
 
-        if (summary.HasGameMarker && HasEnabled("games")) return "games";
-
         if ((double)SumBytes(MediaExtensions) / totalBytes >= 0.45 && HasEnabled("media"))
             return "media";
 
-        if ((summary.Markers.Contains(".git") || (double)SumBytes(DevExtensions) / totalBytes >= 0.45) && HasEnabled("dev"))
+        if ((double)SumBytes(DevExtensions) / totalBytes >= 0.45 && HasEnabled("dev"))
             return "dev";
 
         if ((double)SumBytes(DocsExtensions) / totalBytes >= 0.45 && HasEnabled("docs"))
             return "docs";
 
-        if ((LooseDownloadDirNames.Contains(dir.Name) || (double)SumBytes(InstallerExtensions) / totalBytes >= 0.45)
+        if ((LooseDownloadDirNames.Contains(dir.Name ?? "") || (double)SumBytes(InstallerExtensions) / totalBytes >= 0.45)
             && HasEnabled("installers"))
             return "installers";
 
@@ -741,21 +644,15 @@ public sealed class FolderClassificationService
         if (enabledCats.Count == 0)
             return new ClassifyAiResult(false, 0, 0, "没有启用的目标分类");
 
-        // 永久硬锁死项不送给 AI；已开启「NTFS 隐藏软链」兜底的非红线软件/游戏库正常交由 AI 精细分入对应用途大类
+        // 系统核心容器不送给 AI；其余目录全部交由 AI 在软件内做精准可视化分类
         var askable = items
-            .Where(i => !i.IsBlocked && !i.Executed)
+            .Where(i => !i.IsBlocked)
             .Take(MaxCandidates)
             .ToList();
         if (askable.Count == 0)
-            return new ClassifyAiResult(false, 0, 0, "当前盘没有可整理的零散目录（已全部按系统/软件规则保守保护）");
+            return new ClassifyAiResult(false, 0, 0, "当前盘没有可归类的普通目录");
 
-        var targetNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (items.Count > 0)
-        {
-            var rootEntry = items[0].SourceEntry;
-            while (rootEntry.Parent != null) rootEntry = rootEntry.Parent;
-            targetNames = ResolveCategoryTargetNames(rootEntry, categories);
-        }
+        var targetNames = ResolveCategoryTargetNames(null, categories);
         var choices = BuildChoices(categories, targetNames);
 
         int batches = (askable.Count + CardsPerBatch - 1) / CardsPerBatch;
@@ -763,7 +660,6 @@ public sealed class FolderClassificationService
         for (int b = 0; b < batches; b++)
             slices.Add(askable.Skip(b * CardsPerBatch).Take(CardsPerBatch).ToList());
 
-        // 一次性在后台构建所有批次的本地指纹提示词（~20ms），避免批间卡顿
         var prompts = await Task.Run(() =>
             slices.Select(s => BuildAiPrompt(s, enabledCats, sendFullPaths)).ToList(), ct);
 
@@ -792,7 +688,7 @@ public sealed class FolderClassificationService
         {
             ct.ThrowIfCancellationRequested();
             var slice = slices[b];
-            progress?.Report(new ClassifyProgress("calling", b, batches, $"AI 正在逐批研判目录（第 {b + 1}/{batches} 批）…"));
+            progress?.Report(new ClassifyProgress("calling", b, batches, $"AI 正在逐批归纳目录（第 {b + 1}/{batches} 批）…"));
 
             ChatResponse resp;
             try
@@ -808,7 +704,7 @@ public sealed class FolderClassificationService
             if (string.IsNullOrWhiteSpace(resp.Content))
             {
                 string msg = !string.IsNullOrWhiteSpace(resp.Reasoning)
-                    ? "模型只输出了思考过程、未返回最终方案正文（建议换非推理对话模型如 deepseek-chat 或重试）"
+                    ? "模型只输出了思考过程、未返回最终分类结果（建议换对话模型如 deepseek-chat 或重试）"
                     : "模型返回为空";
                 return new ClassifyAiResult(false, totalClassified, calls, msg, ChatErrorKind.Protocol);
             }
@@ -816,12 +712,11 @@ public sealed class FolderClassificationService
             var validIds = new HashSet<string>(slice.Select(x => x.Id), StringComparer.OrdinalIgnoreCase);
             var verdicts = ParseAiVerdicts(resp.Content, validIds, enabledCats);
             if (verdicts.Count == 0 && b == 0 && batches == 1)
-                return new ClassifyAiResult(false, totalClassified, calls, "AI 返回格式未能识别为分类方案，请重试或检查模型", ChatErrorKind.Protocol);
+                return new ClassifyAiResult(false, totalClassified, calls, "AI 返回格式未能识别为分类结果，请重试或检查模型", ChatErrorKind.Protocol);
 
             int updated = ApplyAiVerdictsToItems(slice, verdicts, choices);
             totalClassified += updated;
 
-            // 先触发下一批网络请求，再播放当前批的逐行排序动画：网络请求与 UI 动画完全并发
             nextRequest = (b + 1 < batches) ? SendBatchAsync(b + 1) : null;
             if (onBatchReady != null)
                 await onBatchReady(slice);
@@ -830,11 +725,11 @@ public sealed class FolderClassificationService
         if (totalClassified == 0)
             return new ClassifyAiResult(false, 0, calls, "AI 没有返回任何匹配的目录结果，请重试");
 
-        progress?.Report(new ClassifyProgress("done", batches, batches, $"AI 已为 {totalClassified} 个文件夹给出整理方案"));
+        progress?.Report(new ClassifyProgress("done", batches, batches, $"AI 已在软件内为 {totalClassified} 个目录完成分类"));
         return new ClassifyAiResult(true, totalClassified, calls);
     }
 
-    private sealed record AiVerdict(string FolderId, string CategoryId, string Safety, string Reason);
+    private sealed record AiVerdict(string FolderId, string CategoryId, string Reason);
 
     private static List<AiVerdict> ParseAiVerdicts(
         string raw,
@@ -884,8 +779,7 @@ public sealed class FolderClassificationService
                     catId = ClassifyCategoryRule.KeepId;
 
                 string reason = Truncate(FirstStr(elem, "reason", "why", "summary"), 68);
-                string safety = FirstStr(elem, "safety", "risk", "tier").ToLowerInvariant();
-                list.Add(new AiVerdict(id, catId, safety, reason));
+                list.Add(new AiVerdict(id, catId, reason));
             }
         }
 
@@ -903,54 +797,18 @@ public sealed class FolderClassificationService
         foreach (var v in verdicts)
         {
             if (!byId.TryGetValue(v.FolderId, out var item)) continue;
-
-            // 本地红线硬守：未启用软链的保守红线项任何时候不能被 AI 修改归类或解锁勾选
             if (item.IsBlocked) continue;
 
             string catId = v.CategoryId;
-            bool keepChosen = string.Equals(catId, ClassifyCategoryRule.KeepId, StringComparison.OrdinalIgnoreCase);
-
-            if (v.Safety is "keep" or "blocked")
+            if (string.Equals(catId, ClassifyCategoryRule.KeepId, StringComparison.OrdinalIgnoreCase)
+                && item.FallbackCategoryId != ClassifyCategoryRule.KeepId)
             {
-                if (!keepChosen && item.SupportsJunctionMigration)
-                {
-                    // AI 给出了具体大类（如 dev/games），结合 NTFS 隐藏软链即可安全按色归拢
-                    if (item.Tier == ClassifySafetyTier.Safe)
-                        item.Tier = ClassifySafetyTier.ReviewGreenApp;
-                    item.UseJunction = true;
-                }
-                else if (item.Tier == ClassifySafetyTier.BlockedConservative && item.UseJunction
-                         && item.FallbackCategoryId != ClassifyCategoryRule.KeepId)
-                {
-                    catId = item.FallbackCategoryId;
-                }
-                else
-                {
-                    catId = ClassifyCategoryRule.KeepId;
-                }
+                catId = item.FallbackCategoryId;
             }
-            else
-            {
-                if (v.Safety is "review" or "caution" && item.Tier == ClassifySafetyTier.Safe)
-                    item.Tier = ClassifySafetyTier.ReviewGreenApp;
-
-                if (keepChosen && item.Tier == ClassifySafetyTier.BlockedConservative && item.UseJunction
-                    && item.FallbackCategoryId != ClassifyCategoryRule.KeepId)
-                {
-                    catId = item.FallbackCategoryId;
-                }
-            }
-
-            // 若本地已标记含可执行文件，即使 AI 写了 safe 也不许自动升为 Safe
-            if (item.IsGreenExecutable && item.Tier == ClassifySafetyTier.Safe)
-                item.Tier = ClassifySafetyTier.ReviewGreenApp;
 
             ApplyChoice(item, catId, choices);
             if (v.Reason.Length > 0) item.AiReason = v.Reason;
             item.FromAi = true;
-
-            // 保守策略：仅当 AI 确认安全且非绿软、未走软链迁移时才自动勾选；绿软与软链迁移项给好分类但让用户亲自打勾确认
-            item.IsChecked = item.Tier == ClassifySafetyTier.Safe && !item.UseJunction && !item.IsKeepInPlace;
             applied++;
         }
 
@@ -985,15 +843,15 @@ public sealed class FolderClassificationService
         bool sendFullPaths)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("以下是用户自定义的目标分类规则（你只能从这些 categoryId 中选择，若不适合整理或有运行路径依赖风险请填 \"__keep__\"）：");
+        sb.AppendLine("以下是软件内虚拟分类的目标分组列表（仅作界面可视化展示，绝不移动任何真实磁盘文件；请为每个目录选出最贴切的 categoryId，只有真正属于系统底层的目录才填 \"__keep__\"）：");
         sb.AppendLine("[");
         foreach (var c in categories)
         {
-            sb.AppendLine($"  {{\"categoryId\":{JsonStr(c.Id)},\"name\":{JsonStr(c.Name)},\"folder\":{JsonStr(c.FolderName)},\"hint\":{JsonStr(c.Description)}}},");
+            sb.AppendLine($"  {{\"categoryId\":{JsonStr(c.Id)},\"name\":{JsonStr(c.Name)},\"hint\":{JsonStr(c.Description)}}},");
         }
         sb.AppendLine("]");
         sb.AppendLine();
-        sb.AppendLine("以下是待分析的同一盘符下的真实目录画像列表（只包含元数据与样本文件名）：");
+        sb.AppendLine("以下是待分类目录的只读画像列表（只包含元数据与样本文件名）：");
         sb.AppendLine("[");
         foreach (var item in candidates)
         {
@@ -1003,14 +861,12 @@ public sealed class FolderClassificationService
             string samples = string.Join(", ", summary.SampleFiles.Take(6));
             string subdirs = string.Join(", ", summary.SampleDirs.Take(5));
             string markers = string.Join(", ", summary.Markers.Take(5));
-            string safetyHint = item.Tier == ClassifySafetyTier.ReviewGreenApp ? "contains_executable_portable" : "data_or_mixed";
 
             sb.AppendLine("  {");
             sb.AppendLine($"    \"folderId\":{JsonStr(item.Id)},");
             sb.AppendLine($"    \"name\":{JsonStr(item.SourceName)},");
             sb.AppendLine($"    \"path\":{JsonStr(displayPath)},");
             sb.AppendLine($"    \"size\":{JsonStr(item.SizeText)},");
-            sb.AppendLine($"    \"safetyHint\":{JsonStr(safetyHint)},");
             sb.AppendLine($"    \"extensions\":{JsonStr(exts)},");
             sb.AppendLine($"    \"sampleFiles\":{JsonStr(samples)},");
             sb.AppendLine($"    \"sampleSubdirs\":{JsonStr(subdirs)},");
@@ -1022,13 +878,12 @@ public sealed class FolderClassificationService
     }
 
     private const string SystemPrompt =
-        "你是 Windows 磁盘文件夹整理顾问。本软件现已支持 NTFS 隐藏软链（Junction）无损迁移：移动软件、游戏库或开发工具后会在原路径自动建立隐藏软链，注册表与启动路径 100% 透明兼容。\n" +
-        "你的任务：根据每个目录的真实扩展名占比、样本文件名、子目录名，判断文件夹里装的是什么，并归入用户提供的最匹配目标分类（categoryId）；只有在确认是系统底层核心时才填 \"__keep__\"。\n" +
-        "严格约束：\n" +
-        "1. 只有 Windows 系统核心组件、系统用户根容器、回收站($RECYCLE.BIN)或杀毒/反作弊驱动底座，才填 \"__keep__\" 或 safety:\"keep\"。\n" +
-        "2. 已安装软件、游戏平台库（SteamLibrary/WeGameApps/Epic/Minecraft）、独立软件目录（如 Unity/Visual Studio/VMware/虚拟机/驱动包/开发工具链/含 .venv 目录），支持通过隐藏软链无损归拢：请务必按主要用途归入对应 categoryId（如 games / dev / installers），并诚实标 safety:\"review\"。\n" +
-        "3. 纯番剧视频/文档/压缩包/下载资源可填 safety:\"safe\" 并选最匹配分类。\n" +
-        "4. 只输出严格合法的 JSON，格式为：{\"items\":[{\"folderId\":\"c0\",\"categoryId\":\"media\",\"safety\":\"safe\",\"reason\":\"用20字左右说明实际内容依据\"}]}，不要附带任何 markdown 说明文字。";
+        "你是 Windows 磁盘目录视觉分类助手。注意：本软件仅在界面内将文件夹按用途做彩色分组展示，绝不移动或修改磁盘上任何真实文件，因此完全不存在破坏软件或注册表的风险。\n" +
+        "你的任务：根据每个目录的扩展名占比、样本文件名、子目录名，判断里面装的是什么，并归入最贴切的 categoryId。\n" +
+        "规则：\n" +
+        "1. 只有 Windows 系统底层目录、回收站($RECYCLE.BIN)或完全无法判断用途的系统杂项才填 \"__keep__\"。\n" +
+        "2. 所有游戏本体、SteamLibrary/WeGameApps/Epic/Minecraft 等归入 games；所有影音/番剧/图片/录屏归入 media；所有软件/IDE/Unity/VMware/虚拟机/代码仓库/SDK 归入 dev；所有下载目录/压缩包/驱动/安装包归入 installers；所有文档/书籍/课件/备份资料归入 docs。\n" +
+        "3. 只输出严格合法的 JSON，格式为：{\"items\":[{\"folderId\":\"c0\",\"categoryId\":\"media\",\"reason\":\"用20字左右说明目录里装的是什么\"}]}，不要附带任何 markdown 说明文字。";
 
     public static string RedactUser(string path)
         => string.IsNullOrEmpty(path) ? "" : UserSegment.Replace(path, "$1Users\\%USER%");

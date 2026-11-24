@@ -2128,7 +2128,6 @@ public partial class MainWindow
         bool isReal = n != null && !n.IsClassifyGroupHeader;
         if (OrgCtxOpen != null) OrgCtxOpen.IsEnabled = isReal;
         if (OrgCtxCopy != null) OrgCtxCopy.IsEnabled = isReal;
-        if (OrgCtxClassify != null) OrgCtxClassify.IsEnabled = isReal;
     }
 
     private void OrganizeOpen_Click(object sender, RoutedEventArgs e)

@@ -371,12 +371,15 @@ public partial class MainWindow : Window
                     || !string.Equals(_activeDriveKey, key, StringComparison.OrdinalIgnoreCase))
                     return;
 
+                bool restoredClassify = await TryRestorePersistedVirtualClassifyAsync(cachedRoot, gen, key);
                 UpdateAiReportButton();
                 RefreshDockedReportPlaceholder();
                 SaveActiveDriveToCache();
                 RefreshDriveCards();
-                SetStatus($"{key} 已就绪，后台静默校准中");
-                if (!_agentBusy && !_classifySortActive)
+                SetStatus(restoredClassify
+                    ? $"{key} 已恢复软件内彩色分类视图，后台静默校准中"
+                    : $"{key} 已就绪，后台静默校准中");
+                if (!_agentBusy)
                     _ = RunScanCoreAsync(silentRefresh: true);
                 StartStartupPreloadQueueAsync();
                 return;
@@ -776,7 +779,13 @@ public partial class MainWindow : Window
         _scanStart = DateTime.Now;
         using var scanOp = StartOperation(ref _scanCts, "Scan");
         var ct = scanOp.Token;
+        int prevGen = _scanGeneration;
         int myGeneration = ++_scanGeneration;
+        if (silentRefresh)
+        {
+            if (_organizeBuiltForScan == prevGen) _organizeBuiltForScan = myGeneration;
+            if (_classifyHasAiPlan && _classifyBuiltForScan == prevGen) _classifyBuiltForScan = myGeneration;
+        }
         using var scanStage = _work.Begin(StageNames.Scan, WorkPhase.Scanning);
         UpdateStopButton();
 
@@ -1505,7 +1514,6 @@ public partial class MainWindow : Window
         SelectionBody.Visibility = selection ? Visibility.Visible : Visibility.Collapsed;
         RuleSelectBody.Visibility = ruleSelect ? Visibility.Visible : Visibility.Collapsed;
         ReportBody.Visibility = Visibility.Collapsed;
-        if (ClassifyModalBody != null) ClassifyModalBody.Visibility = Visibility.Collapsed;
         // 报告弹层会把卡片加宽；普通弹层回到默认尺寸。
         DialogCard.Width = 520;
         DialogCard.MaxHeight = 680;
@@ -1707,7 +1715,6 @@ public partial class MainWindow : Window
 
     private void CloseOverlay_Click(object sender, RoutedEventArgs e)
     {
-        if (_classifyBusy && ClassifyModalBody?.Visibility == Visibility.Visible) return;
         _confirmYes = null;
         DiscardRuleSelectPreview();
         HideOverlay();
@@ -1715,7 +1722,6 @@ public partial class MainWindow : Window
 
     private void Overlay_Click(object sender, MouseButtonEventArgs e)
     {
-        if (_classifyBusy && ClassifyModalBody?.Visibility == Visibility.Visible) return;
         _confirmYes = null;
         DiscardRuleSelectPreview();
         HideOverlay();

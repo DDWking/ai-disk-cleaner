@@ -144,6 +144,16 @@ public static class AiConfigurationService
 
         if (ex is ChatModelException { Kind: var chatKind })
         {
+            if (LooksLikeInsufficientBalance(ex.Message))
+            {
+                return Result(AiDiagnosticKind.Authentication,
+                    english ? "Your AI account balance or quota is exhausted." : "AI 账户余额或额度不足。",
+                    english
+                        ? "Top up your provider account, or switch to another available model / API key in Settings."
+                        : "请前往服务商控制台充值，或在设置中切换到其他可用模型 / API Key。",
+                    elapsedMs);
+            }
+
             return chatKind switch
             {
                 ChatErrorKind.Auth => Result(AiDiagnosticKind.Authentication,
@@ -199,6 +209,15 @@ public static class AiConfigurationService
             || message.Contains("unknown model", StringComparison.OrdinalIgnoreCase)
             || message.Contains("does not exist", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool LooksLikeInsufficientBalance(string? message)
+        => !string.IsNullOrWhiteSpace(message)
+           && (message.Contains("HTTP 402", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("insufficient balance", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("quota exceeded", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("余额", StringComparison.Ordinal)
+               || message.Contains("额度不足", StringComparison.Ordinal));
 
     private static bool LooksLikeEmptyReply(string? message)
         => !string.IsNullOrWhiteSpace(message)
