@@ -1134,7 +1134,17 @@ public partial class MainWindow
             }
 
             // 筛选视图下对父子重叠项去重，避免同一份空间顺着层级反复出现。
+            //
+            // 规则：嵌套对默认保留**上层**那一项 —— 平铺列表是「大文件夹」视图，
+            // 上层项覆盖的容量更大，展开它就能看到子项（AddFilterExpandedChildren 嵌套渲染），
+            // 子项不会被弄丢。旧逻辑在「子项 < 父项 85%」时删的是父项，
+            // 结果点开一个文件夹的瞬间它自己被挤出列表、只剩子目录
+            // （真机日志 op=anchor idx=-1 row=none），正是用户报的 bug。
+            //
+            // 例外：子项处于展开状态（_filterExpandedNodes）而父项没有时，
+            // 展开项必须留在列表里 —— 折叠的父项不会嵌套渲染出它，此时父项让位。
             var toRemove = new HashSet<OrganizeNode>();
+            var droppedBy = new Dictionary<OrganizeNode, OrganizeNode>();
             foreach (var anc in distinctDirs)
             {
                 if (toRemove.Contains(anc)) continue;
@@ -1142,12 +1152,32 @@ public partial class MainWindow
                 {
                     if (ReferenceEquals(anc, desc) || toRemove.Contains(desc)) continue;
                     if (!OrganizePathIsUnder(desc.FullPath, anc.FullPath)) continue;
-                    if (anc.IsAiAnnotated && !desc.IsAiAnnotated)
-                        toRemove.Add(desc);
-                    else if (desc.Size >= (long)(anc.Size * 0.85))
-                        toRemove.Add(desc);
-                    else
+                    if (_filterExpandedNodes.Contains(desc) && !_filterExpandedNodes.Contains(anc))
+                    {
                         toRemove.Add(anc);
+                        droppedBy[anc] = desc;
+                    }
+                    else
+                    {
+                        toRemove.Add(desc);
+                        droppedBy[desc] = anc;
+                    }
+                }
+            }
+
+            // 上面的去重以「保留者还在列表里」为前提；若保留者自己也被去掉了，
+            // 被去掉的项就得放回来，否则它会凭空消失（例如兄弟节点全靠被删的父项撑着）。
+            bool released = true;
+            while (released)
+            {
+                released = false;
+                foreach (var pair in droppedBy)
+                {
+                    if (toRemove.Contains(pair.Key) && toRemove.Contains(pair.Value))
+                    {
+                        toRemove.Remove(pair.Key);
+                        released = true;
+                    }
                 }
             }
 
@@ -1779,6 +1809,10 @@ public partial class MainWindow
     {
         if (!node.Dir.IsDirectory) return;
 
+        // 展开前先记一下滚动位置：下面补位时要把「DataGrid 自己把视图甩到了哪」写进日志，
+        // 这条日志是真机上判断这次展开到底有没有踩到 bug 的唯一凭据。
+        var offsetBefore = OrganizeScrollOffset();
+
         if (_organizeColorFilter.HasValue)
         {
             if (_filterExpandedNodes.Contains(node))
@@ -1801,6 +1835,12 @@ public partial class MainWindow
                 }
             }
             RefreshOrganizeRows(anchorNode: node);
+            KeepExpandedRowInView(node, offsetBefore);
+            // 平铺分支也要留痕：不然日志里「anchor 后面没有 toggle」会让人分不清
+            // 是走了筛选分支还是丢了日志（这次排查就是这么被绕了一道的）。
+            AppLog.Info("Organize", $"op=toggle mode=flat dir={node.Name} level={node.Level} "
+                + $"expanded={node.IsExpanded} loaded={node.ChildrenLoaded} kids={node.Children.Count} "
+                + $"rows={_organizeRows.Count}");
             return;
         }
 
@@ -1868,9 +1908,71 @@ public partial class MainWindow
         {
             RefreshOrganizeRows(anchorNode: node);
         }
+        KeepExpandedRowInView(node, offsetBefore);
         AppLog.Info("Organize", $"op=toggle dir={node.Name} level={node.Level} "
             + $"expanded={node.IsExpanded} loaded={node.ChildrenLoaded} kids={node.Children.Count} "
             + $"rows={_organizeRows.Count}");
+    }
+
+    /// <summary>
+    /// 展开之后，把**刚点开的那一行**钉回视口。
+    ///
+    /// 展开一次是往扁平列表里插几十到几百行（<c>Clear()</c> 加 N 次 <c>Add()</c>）：
+    /// DataGrid 收到这批变更会重算滚动位置，虚拟化面板也会回收再生成行容器。
+    /// 更麻烦的是行集合被 Reset 之后，DataGrid 还会按「当前单元格」重新定位视图，
+    /// 而当前单元格可能就是这个大文件夹下面的某个子行 —— 视图一旦落到子行上，
+    /// 父行的头正好被滚到视口上方。屏幕上的结果就是「只剩一排缩进的子文件夹，
+    /// 外面那个大文件夹自己的头没了」—— 行其实还在 <c>_organizeRows</c> 里，
+    /// 只是没人保证它留在可视区。
+    ///
+    /// 父行本来完整可见时这里是空操作（<see cref="UIElement.BringIntoView()"/> 对已可见元素不滚动），
+    /// 所以正常展开不会有额外跳动。
+    /// </summary>
+    private void KeepExpandedRowInView(OrganizeNode node, double? offsetBefore)
+    {
+        if (OrganizeGrid == null || !node.IsExpanded) return;
+
+        // 先把这一批插入落成一次布局：让 DataGrid 自己的重定位先发生完，
+        // 下面这一下才是最后说话的人（否则我们滚完它再滚回去）。
+        OrganizeGrid.UpdateLayout();
+        var offsetThrown = OrganizeScrollOffset();
+
+        var row = OrganizeGrid.ItemContainerGenerator.ContainerFromItem(node) as DataGridRow;
+        if (row == null || row.ActualHeight <= 0)
+        {
+            // 行容器还没生成（虚拟化把它留在了窗口外）：请 DataGrid 按索引把它拉进来。
+            OrganizeGrid.ScrollIntoView(node);
+            OrganizeGrid.UpdateLayout();
+            row = OrganizeGrid.ItemContainerGenerator.ContainerFromItem(node) as DataGridRow;
+        }
+
+        // 已生成但被顶出视口：做最小滚动让它露出来，子行就紧跟在它下面。
+        row?.BringIntoView();
+
+        // off=展开前->DataGrid 自己甩到哪->补位之后。中间那个数离第一个很远，
+        // 就是这次展开本来会把父行甩出屏幕（真机排查时看这一条就够）。
+        AppLog.Info("Organize", $"op=anchor dir={node.Name} idx={_organizeRows.IndexOf(node)} "
+            + (row == null ? "row=none" : $"row={row.ActualHeight:F0}")
+            + $" off={FmtOffset(offsetBefore)}->{FmtOffset(offsetThrown)}->{FmtOffset(OrganizeScrollOffset())}");
+    }
+
+    static string FmtOffset(double? v) => v.HasValue ? v.Value.ToString("F0") : "?";
+
+    /// <summary>整理列表当前的纵向滚动偏移；量不到时返回 <c>null</c>（日志里写 ?，不编个 0）。</summary>
+    private double? OrganizeScrollOffset()
+        => OrganizeGrid == null ? null : FindChildScrollViewer(OrganizeGrid)?.VerticalOffset;
+
+    static ScrollViewer? FindChildScrollViewer(DependencyObject root)
+    {
+        int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < n; i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is ScrollViewer hit) return hit;
+            var nested = FindChildScrollViewer(child);
+            if (nested != null) return nested;
+        }
+        return null;
     }
 
     // ==================== 定位（供 AI 报告里的「去处理」使用） ====================

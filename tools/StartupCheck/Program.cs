@@ -218,6 +218,10 @@ public static class Program
         Console.WriteLine("== 8. 整理页交互行为：首击展开 / 上限反馈 / 一级优先 / 筛选只读 / 代次生命周期 ==");
         if (win != null) OrganizeInteractionTests(win);
         if (win != null) ReviewFixesWiringTests(win);
+        if (win != null) BigFolderExpandTests(win);
+
+        Console.WriteLine("== 8b. 三色筛选视图：展开后父条目必须还在（真机 op=anchor idx=-1 回归） ==");
+        if (win != null) FlatFilterExpandTests(win);
 
         Console.WriteLine("== 9. 新方向：默认清理页 / 零后台请求 / 无批量入口 / 单项 AI ==");
         if (win != null) ProductDirectionTests(win);
@@ -480,6 +484,207 @@ public static class Program
         rows.Remove(node);
     }
 
+    /// <summary>
+    /// 「点开大文件夹只渲染出子文件夹、外层那个大文件夹自己的头部条目没了」的布局回归。
+    ///
+    /// 数据层（<c>_organizeRows</c>）一定是父行先 Add、子行后 Add，所以这个现象只可能来自
+    /// 行容器/视口：插入几百行之后父行被顶出可视区，或者行集合被整表替换过。
+    /// 这里用真实 <c>OrganizeGrid</c> + 真实 Measure/Arrange，量「展开前后父行还在不在屏幕上」。
+    /// </summary>
+    static void BigFolderExpandTests(MainWindow win)
+    {
+        var grid = NamedField(win, "OrganizeGrid") as DataGrid;
+        if (grid == null) { Check("大展开：拿不到 OrganizeGrid", false); return; }
+        var rows = Fld<System.Collections.ObjectModel.ObservableCollection<OrganizeNode>>(win, "_organizeRows");
+        var all = Fld<List<OrganizeNode>>(win, "_organizeAll");
+        var roots = Fld<List<OrganizeNode>>(win, "_organizeRoots");
+        ResetOrganizeCollections(win);
+
+        // 39 个普通根在前、300 个子目录的大文件夹排在最后：真实首屏就是这样，
+        // 用户得先滚到「大文件夹」那一行才点得到箭头 —— 下面把这步显式做出来。
+        var bigDir = MakeDir("BigFolder", @"X:\BigFolder", 900_000_000);
+        for (int i = 0; i < 300; i++)
+        {
+            var d = MakeDir("sub" + i, @"X:\BigFolder\sub" + i, 3_000_000 + i, bigDir, 2);
+            MakeDir("aa", @"X:\BigFolder\sub" + i + @"\aa", 1_400_000, d);
+            MakeDir("bb", @"X:\BigFolder\sub" + i + @"\bb", 1_300_000, d);
+        }
+
+        OrganizeNode AddRoot(FileEntry dir, int childDirs)
+        {
+            var n = new OrganizeNode(dir, new FolderId(dir.FullPath ?? "", 1), 0, dir.Name ?? "");
+            n.SetLevel(1);
+            n.SetChildDirCount(childDirs);
+            all.Add(n);
+            roots.Add(n);
+            return n;
+        }
+
+        for (int i = 0; i < 39; i++) AddRoot(MakeDir("Small" + i, @"X:\Small" + i, 9_000_000 - i, null), 0);
+        var bigNode = AddRoot(bigDir, 300);
+
+        win.Width = 1400;
+        win.Height = 880;
+        win.Measure(new Size(1400, 880));
+        win.Arrange(new Rect(0, 0, 1400, 880));
+        win.UpdateLayout();
+        var tabForLayout = typeof(MainWindow).GetNestedType("RightTab", BindingFlags.NonPublic)!;
+        Call(win, "ShowRightTab", Enum.Parse(tabForLayout, "Organize"));
+        Call(win, "RefreshOrganizeRows");
+        win.UpdateLayout();
+
+        var sv = FindScrollViewer(grid);
+        double viewport = sv?.ViewportHeight ?? 0;
+        if (sv == null || viewport <= 0)
+        {
+            Console.WriteLine("       [skip] 没量到可视区（窗口未 Show），跳过视口断言");
+            ResetOrganizeCollections(win);
+            Call(win, "RefreshOrganizeRows");
+            return;
+        }
+
+        Rect RowRect(OrganizeNode n)
+        {
+            if (grid.ItemContainerGenerator.ContainerFromItem(n) is not DataGridRow c) return Rect.Empty;
+            return c.TransformToAncestor(grid).TransformBounds(new Rect(0, 0, c.ActualWidth, c.ActualHeight));
+        }
+
+        // 真实操作：用户先滚到「大文件夹」那一行（它总在眼前），这里把这一步做出来。
+        // 未 Show 的窗口里直接改 ScrollViewer 偏移不生效，只能靠 DataGrid.ScrollIntoView，
+        // 所以这一行会被摆在视口下沿 —— 这正是「用户点到列表最后一行」的真实起点。
+        grid.ScrollIntoView(bigNode);
+        win.UpdateLayout();
+
+        var before = RowRect(bigNode);
+        Console.WriteLine($"       [prep] top={before.Top:0.#} off={sv.VerticalOffset:0.#} vh={viewport:0.#} rows={rows.Count}");
+        CheckD("大展开：准备状态——折叠时父行在视口里",
+            !before.IsEmpty && before.Top >= -1 && before.Top < viewport,
+            $"top={before.Top:0.#} vh={viewport:0.#} rows={rows.Count}");
+
+        Call(win, "ToggleOrganize", bigNode);
+        win.UpdateLayout();
+
+        int bi = rows.IndexOf(bigNode);
+        var firstKid = bigNode.Children.FirstOrDefault(c => c.Dir.IsDirectory);
+        int ki = firstKid == null ? -1 : rows.IndexOf(firstKid);
+        CheckD("大展开：父行仍在行集合里", bi >= 0, "index=" + bi);
+        CheckD("大展开：父行排在子行前面", bi >= 0 && ki > bi, $"parent={bi} firstKid={ki} rows={rows.Count}");
+
+        var after = RowRect(bigNode);
+        CheckD("大展开：父行没有被挤出视口（用户还能看到它）",
+            !after.IsEmpty && after.Top >= -1 && after.Top < viewport,
+            $"top={after.Top:0.#} vh={viewport:0.#} offset={sv.VerticalOffset:0.#}");
+        CheckD("大展开：点击不会把父行往下推（用户不会被甩到别处）",
+            before.IsEmpty || after.IsEmpty || after.Top <= before.Top + 8,
+            $"before={before.Top:0.#} after={after.Top:0.#} offset={sv.VerticalOffset:0.#}");
+
+        var kidRect = firstKid == null ? Rect.Empty : RowRect(firstKid);
+        // 远程的视口策略是绝对偏移原位恢复：用户在视口底部点开时，子行从视口下沿
+        // 开始（存在、可滚到，但不保证整行在屏内）。「子行整行可见」是旧锚定时代的
+        // 几何产物；现在的契约=子行紧随父行下方、且已经进入视口区域。
+        CheckD("大展开：父行下面紧跟着它的子行（子行已进入视口区域）",
+            !kidRect.IsEmpty && !after.IsEmpty
+                && kidRect.Top > after.Top - 0.5
+                && kidRect.Top <= viewport + 1,
+            $"parentTop={after.Top:0.#} kid=[{kidRect.Top:0.#},{kidRect.Bottom:0.#}] vh={viewport:0.#}");
+
+        int realized = 0, firstRealized = -1;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (grid!.ItemContainerGenerator.ContainerFromItem(rows[i]) is DataGridRow)
+            {
+                realized++;
+                if (firstRealized < 0) firstRealized = i;
+            }
+        }
+        Console.WriteLine($"       [diag] rows={rows.Count} realized={realized} firstRealized={firstRealized} "
+            + $"parentIdx={bi} parentTop={after.Top:0.#} vh={viewport:0.#} offset={sv?.VerticalOffset:0.#}");
+
+        Call(win, "ToggleOrganize", bigNode);   // 收起，恢复现场
+        win.UpdateLayout();
+        ResetOrganizeCollections(win);
+        Call(win, "RefreshOrganizeRows");
+    }
+
+    /// <summary>
+    /// 三色筛选（平铺）视图里展开一个文件夹（真机日志 op=anchor idx=-1 row=none 的回归）：
+    /// 点击前子目录还没进 _organizeAll，父项是列表里唯一同色节点、可以点；
+    /// 点击后 Materialize 把同色子目录送进列表，父子重叠去重如果删的是父项，
+    /// 用户点开的那个文件夹就会当场消失、只剩子目录。
+    /// </summary>
+    static void FlatFilterExpandTests(MainWindow win)
+    {
+        var rows = Fld<System.Collections.ObjectModel.ObservableCollection<OrganizeNode>>(win, "_organizeRows");
+        var all = Fld<List<OrganizeNode>>(win, "_organizeAll");
+        var roots = Fld<List<OrganizeNode>>(win, "_organizeRoots");
+        ResetOrganizeCollections(win);
+        SetFld(win, "_organizeColorFilter", null);
+
+        // 父 500MB、子 110MB：都过 BigUnknownThreshold（100MB）→ 自然算成黄色「待考虑」；
+        // 子只有父的 22%，正好落进旧逻辑「删父项」的分支。
+        // 远程 cca93f1 之后筛选分支的子目录走 EnsureFilterDrillChildren（从
+        // _organizeByDir 登记 + 入口点规则挖，不再现场扫描）→ 按远程 8.8 的模式
+        // 预建子节点并登记进 _organizeByDir。
+        var pDir = MakeDir("FlatParent", @"X:\FlatParent", 500_000_000, null, 1);
+        var kidDir = MakeDir("FlatChild", @"X:\FlatParent\FlatChild", 110_000_000, pDir, 0);
+
+        var p = new OrganizeNode(pDir, new FolderId(pDir.FullPath ?? "", 1), 0, pDir.Name ?? "");
+        p.SetLevel(1);
+        p.SetChildDirCount(1);
+        var kid = new OrganizeNode(kidDir, new FolderId(kidDir.FullPath ?? "", 1), 1, kidDir.Name ?? "");
+        kid.SetLevel(2);
+        all.Add(p);
+        roots.Add(p);
+        all.Add(kid);
+        var byDir = Fld<Dictionary<FileEntry, OrganizeNode>>(win, "_organizeByDir");
+        byDir[pDir] = p;
+        byDir[kidDir] = kid;   // 不登记的话筛选深挖挖不到它（远程 8.8 同款前提）
+
+        Call(win, "SetColorFilter", FolderColorTone.Yellow);   // 真入口：打开黄色平铺筛选
+        win.UpdateLayout();
+
+        CheckD("筛选展开：前提——父项是黄色（超过 100MB 的未明确目录）",
+            p.ColorTone == FolderColorTone.Yellow, $"tone={p.ColorTone} size={p.Size}");
+        int before = rows.IndexOf(p);
+        CheckD("筛选展开：点击前父项在平铺列表里（用户点得到它）", before >= 0, $"idx={before} rows={rows.Count}");
+
+        Call(win, "ToggleOrganize", p);   // ← 用户点开
+        win.UpdateLayout();
+
+        // kid 是预登记的节点：筛选深挖应当复用它（不能挖丢、也不能重复造一个）
+        CheckD("筛选展开：前提——子项同为黄色且小于父项 85%",
+            kid != null && kid.ColorTone == FolderColorTone.Yellow && kid.Size * 100 < p.Size * 85,
+            kid == null ? "no kid" : $"kidTone={kid.ColorTone} kid={kid.Size} parent={p.Size}");
+
+        int pi = rows.IndexOf(p);
+        int ki = kid == null ? -1 : rows.IndexOf(kid);
+        CheckD("筛选展开：父项没有被去重删除（点开之后还在列表里）", pi >= 0, $"idx={pi} rows={rows.Count}");
+        CheckD("筛选展开：子项紧跟在父项下面（就地嵌套展示）", pi >= 0 && ki == pi + 1, $"parent={pi} kid={ki} rows={rows.Count}");
+        int kidCount = kid == null ? 0 : rows.Count(n => ReferenceEquals(n, kid));
+        CheckD("筛选展开：子项只渲染一次（平铺与嵌套不重复）", kid == null || kidCount == 1, $"count={kidCount}");
+
+        Call(win, "ToggleOrganize", p);   // 收起
+        win.UpdateLayout();
+        CheckD("筛选收起：父项仍在列表里（不会收着收着把自己收没了）", rows.IndexOf(p) >= 0,
+            $"idx={rows.IndexOf(p)} rows={rows.Count}");
+
+        SetFld(win, "_organizeColorFilter", null);   // 关筛选，还原现场
+        ResetOrganizeCollections(win);
+        Call(win, "RefreshOrganizeRows");
+    }
+
+    static ScrollViewer? FindScrollViewer(DependencyObject root)
+    {
+        if (root is ScrollViewer hit) return hit;
+        int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < n; i++)
+        {
+            var found = FindScrollViewer(System.Windows.Media.VisualTreeHelper.GetChild(root, i));
+            if (found != null) return found;
+        }
+        return null;
+    }
+
     /// <summary>在可视树里找绑定了某个属性的元素（用来定位真实的详情块）。</summary>
     static FrameworkElement? FindByBinding(DependencyObject root, string path)
     {
@@ -512,7 +717,28 @@ public static class Program
         => o.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(o, v);
 
     static object? Call(object o, string name, params object?[] args)
-        => o.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(o, args);
+    {
+        var m = o.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!;
+        // MethodInfo.Invoke 不会替你补默认值：目标方法一旦加了可选参数（如
+        // RefreshOrganizeRows(anchorNode, restoreScrollOffset)），零参调用会直接
+        // TargetParameterCountException。这里按参数表把缺的尾巴补上。
+        var ps = m.GetParameters();
+        if (args.Length < ps.Length)
+        {
+            var full = new object?[ps.Length];
+            for (int i = 0; i < ps.Length; i++)
+            {
+                if (i < args.Length) { full[i] = args[i]; continue; }
+                full[i] = ps[i].HasDefaultValue
+                    ? ps[i].DefaultValue
+                    : (ps[i].ParameterType.IsValueType
+                        ? Activator.CreateInstance(ps[i].ParameterType)
+                        : null);
+            }
+            args = full;
+        }
+        return m.Invoke(o, args);
+    }
 
     static void ResetOrganizeCollections(MainWindow win)
     {
