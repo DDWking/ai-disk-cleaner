@@ -67,7 +67,7 @@ Windows 下的磁盘占用分析工具。直接读 NTFS 的 `$MFT`，秒级扫�
 
 ## 下载
 
-[Release v3.0.0](https://github.com/DDWking/ai-disk-cleaner/releases/tag/v3.0.0) 里有 Windows x64 压缩包（自包含，不需要预装运行时）。
+[Release v3.0.1](https://github.com/DDWking/ai-disk-cleaner/releases/tag/v3.0.1) 提供 Windows x64 安装包和便携压缩包，均内含运行时。
 解压后右键 `AiDiskCleaner.exe` → 以管理员身份运行。
 
 ## 运行

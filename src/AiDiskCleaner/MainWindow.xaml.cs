@@ -586,7 +586,7 @@ public partial class MainWindow : Window
         if (AboutVersionBadge != null)
         {
             var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-            AboutVersionBadge.Text = "v" + (ver != null ? ver.ToString(3) : "3.0.0");
+            AboutVersionBadge.Text = "v" + (ver != null ? ver.ToString(3) : "3.0.1");
         }
         if (AboutQqLabel != null) AboutQqLabel.Text = Loc.IsEn ? "Author QQ" : "联系 QQ";
         if (AboutQqCopyBtn != null) AboutQqCopyBtn.Content = Loc.IsEn ? "Copy" : "复制";
